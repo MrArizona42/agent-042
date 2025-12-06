@@ -1,0 +1,8 @@
+[project]
+name = "agent-042"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "pre-commit>=4.5.0",
+]
