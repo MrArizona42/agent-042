@@ -1,0 +1,9 @@
+defaults:
+  - paths: paths_config
+  - assets/dataset: default
+  - assets/model: default
+  - _self_
+
+hydra:
+  run:
+    dir: "${paths.project_root}/assets/hydra-logs/${now:%Y-%m-%d}/${now:%H-%M-%S}"

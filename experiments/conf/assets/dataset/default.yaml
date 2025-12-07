@@ -1,0 +1,5 @@
+name: "ccdv/arxiv-summarization"
+config: "document"
+train_split: "train[:1%]"
+val_split: "validation[:1%]"
+target_dir: "assets/datasets/arxiv-summarization-01" # relative to the project root
