@@ -208,3 +208,6 @@ __marimo__/
 
 # Custom settings
 /experiments/outputs/
+/experiments/assets-hydra-logs/
+/experiments/train-hydra-logs/
+/assets/hydra-logs/
