@@ -1,0 +1,6 @@
+outs:
+- md5: f683d4181ed7576d298f97d8a2dd568e.dir
+  size: 71952108
+  nfiles: 7
+  hash: md5
+  path: arxiv-summarization-01
