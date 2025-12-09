@@ -1,0 +1,6 @@
+[core]
+    remote = ycloud
+['remote "ycloud"']
+    url = s3://agent-042-dvc-data/dvc
+    endpointurl = https://storage.yandexcloud.net
+    region = ru-central1
