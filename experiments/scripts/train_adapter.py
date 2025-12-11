@@ -5,124 +5,132 @@ from typing import Any, Dict, List, Optional, Tuple
 import hydra
 import pytorch_lightning as pl
 import torch
-from datasets import load_dataset, load_from_disk
-from datasets.utils.logging import set_verbosity as ds_set_verbosity
-from datasets.utils.logging import set_verbosity_info as ds_set_verbosity_info
+from datasets import load_from_disk
+from datasets.utils.logging import (
+    set_verbosity as ds_set_verbosity,
+    set_verbosity_info as ds_set_verbosity_info,
+)
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from peft import LoraConfig, get_peft_model
 from torch.utils.data import DataLoader
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    PreTrainedTokenizerBase,
+)
 from transformers.utils import logging as tf_logging
 
-# Enable detailed HF logging & progress bars
+# Hard-disable any HF Hub/network usage for datasets and prefer local files only
+os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("DISABLE_TELEMETRY", "1")
+# Optional: make sure we don't accidentally reuse cached remote datasets
+# Users can also override via HF_DATASETS_CACHE env var if needed
+os.environ.setdefault("HF_DATASETS_CACHE", str(Path.home() / ".cache" / "huggingface" / "datasets"))
+
+# Enable concise HF logging & progress bars
 os.environ.setdefault("HF_HUB_ENABLE_PROGRESS_BARS", "1")
-os.environ.setdefault("HF_HUB_OFFLINE", "0")
 try:
     ds_set_verbosity_info()
 except Exception:
-    ds_set_verbosity("INFO")
+    ds_set_verbosity(20)
 try:
     tf_logging.set_verbosity_info()
 except Exception:
     tf_logging.set_verbosity(tf_logging.INFO)
 
+# Optimize matmul for Tensor Cores on consumer GPUs
+try:
+    torch.set_float32_matmul_precision("medium")
+except Exception:
+    pass
+
 
 class ArxivDataModule(pl.LightningDataModule):
     """
-    Lightning DataModule for the Hugging Face 'scientific_papers' dataset (config 'arxiv').
+    Lightning DataModule that strictly loads pre-fetched local Hugging Face datasets from a path.
 
-    It constructs causal LM inputs to learn to generate the abstract conditioned on the article.
+    Expects a dataset saved via `datasets.load_from_disk(path)` that contains 'train' and 'validation' splits
+    with columns 'article' and 'abstract'. No network calls are made.
     """
 
     def __init__(
-        self,
-        tokenizer: AutoTokenizer,
-        dataset_name: str = "scientific_papers",
-        dataset_config: str = "arxiv",
-        train_split: str = "train",
-        val_split: str = "validation",
-        max_seq_len: int = 2048,
-        batch_size: int = 1,
-        num_workers: int = 0,
-        shuffle: bool = True,
+            self,
+            tokenizer: PreTrainedTokenizerBase,
+            local_path: str,
+            train_split: str,
+            val_split: str,
+            max_seq_len: int,
+            batch_size: int,
+            num_workers: int,
+            shuffle: bool,
     ):
         super().__init__()
-        self.tokenizer = tokenizer
-        self.dataset_name = dataset_name
-        self.dataset_config = dataset_config
+        self.tokenizer: PreTrainedTokenizerBase = tokenizer
+        self.local_path = str(local_path)
         self.train_split = train_split
         self.val_split = val_split
-        self.max_seq_len = max_seq_len
-        self.batch_size = batch_size
-        self.num_workers = num_workers
-        self.shuffle = shuffle
+        self.max_seq_len = int(max_seq_len)
+        self.batch_size = int(batch_size)
+        self.num_workers = int(num_workers)
+        self.shuffle = bool(shuffle)
         self.ds_train = None
         self.ds_val = None
-
-    def prepare_data(self) -> None:
-        # Downloads the dataset if not present.
-        load_dataset(self.dataset_name, self.dataset_config, split=self.train_split)
-        load_dataset(self.dataset_name, self.dataset_config, split=self.val_split)
+        # Cache pad id for collate
+        self.pad_id: int = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
 
     def setup(self, stage: Optional[str] = None) -> None:
-        self.ds_train = load_dataset(self.dataset_name, self.dataset_config, split=self.train_split)
-        self.ds_val = load_dataset(self.dataset_name, self.dataset_config, split=self.val_split)
-
-        def preprocess(batch: Dict[str, List[str]]) -> Dict[str, Any]:
-            # Each batch contains lists of 'article' and 'abstract'
-            articles = batch["article"]
-            abstracts = batch["abstract"]
-            inputs: List[List[int]] = []
-            labels: List[List[int]] = []
-            for art, abs_ in zip(articles, abstracts):
-                prompt = (
-                    "Summarize the following article into an abstract:\n\n"
-                    f"Article:\n{art}\n\nAbstract:\n"
-                )
-                # Tokenize
-                prompt_ids = self.tokenizer(
-                    prompt, truncation=True, max_length=self.max_seq_len
-                ).input_ids
-                target_ids = self.tokenizer(
-                    abs_, truncation=True, max_length=self.max_seq_len
-                ).input_ids
-                # Concatenate, limit to max_seq_len
-                input_ids = (prompt_ids + target_ids)[: self.max_seq_len]
-                # Labels: -100 for prompt tokens, predict only abstract tokens
-                labels_ids = [-100] * len(prompt_ids) + target_ids
-                labels_ids = labels_ids[: self.max_seq_len]
-                # Pad input and labels to same length using tokenizer pad token
-                pad_id = (
-                    self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
-                )
-                if len(input_ids) < self.max_seq_len:
-                    pad_len = self.max_seq_len - len(input_ids)
-                    input_ids = input_ids + [pad_id] * pad_len
-                    labels_ids = labels_ids + [-100] * pad_len
-                inputs.append(input_ids)
-                labels.append(labels_ids)
-            return {"input_ids": inputs, "labels": labels}
-
-        self.ds_train = self.ds_train.map(
-            preprocess, batched=True, remove_columns=self.ds_train.column_names
+        # Validate local dataset path
+        assert Path(self.local_path).exists(), f"Local dataset path not found: {self.local_path}"
+        # Load dataset strictly from local disk
+        ds_dict = load_from_disk(self.local_path)
+        assert "train" in ds_dict and "validation" in ds_dict, (
+            "Local dataset must contain 'train' and 'validation' splits"
         )
-        self.ds_val = self.ds_val.map(
-            preprocess, batched=True, remove_columns=self.ds_val.column_names
-        )
-        # Set format to torch tensors for DataLoader
-        self.ds_train.set_format(type="torch", columns=["input_ids", "labels"])
-        self.ds_val.set_format(type="torch", columns=["input_ids", "labels"])
+        ds_train = ds_dict["train"]
+        ds_val = ds_dict["validation"]
+        ds_train = _apply_simple_slice(ds_train, self.train_split)
+        ds_val = _apply_simple_slice(ds_val, self.val_split)
+        # Attach lazy transform
+        self.ds_train = self._attach_transform(ds_train)
+        self.ds_val = self._attach_transform(ds_val)
 
-    def collate_fn(self, batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
-        # Inputs are already padded to max_seq_len
-        input_ids = torch.stack([x["input_ids"] for x in batch])
-        labels = torch.stack([x["labels"] for x in batch])
-        attention_mask = (
-            (input_ids != self.tokenizer.pad_token_id).long()
-            if self.tokenizer.pad_token_id is not None
-            else torch.ones_like(input_ids)
-        )
+    def _attach_transform(self, ds):
+        max_len = int(self.max_seq_len)
+        pad_id = self.pad_id
+
+        def transform(example: Dict[str, Any]) -> Dict[str, Any]:
+            art = example["article"]
+            abs_ = example["abstract"]
+            prompt = (
+                "Summarize the following article into an abstract:\n\n"
+                f"Article:\n{art}\n\nAbstract:\n"
+            )
+            # Tokenize prompt and target
+            prompt_ids = self.tokenizer.encode(prompt, truncation=True, max_length=max_len)
+            target_ids = self.tokenizer.encode(abs_, truncation=True, max_length=max_len)
+            input_ids = (prompt_ids + target_ids)[:max_len]
+            labels_ids = ([-100] * len(prompt_ids) + target_ids)[:max_len]
+            if len(input_ids) < max_len:
+                pad_len = max_len - len(input_ids)
+                input_ids = input_ids + [pad_id] * pad_len
+                labels_ids = labels_ids + [-100] * pad_len
+            return {"input_ids": input_ids, "labels": labels_ids}
+
+        ds.set_transform(transform)
+        return ds
+
+    def collate_fn(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+        def to_tensor(x):
+            if isinstance(x, torch.Tensor):
+                return x
+            return torch.tensor(x, dtype=torch.long)
+
+        input_ids = torch.stack([to_tensor(x["input_ids"]) for x in batch])
+        labels = torch.stack([to_tensor(x["labels"]) for x in batch])
+        attention_mask = (input_ids != self.pad_id).long()
         return {"input_ids": input_ids, "labels": labels, "attention_mask": attention_mask}
 
     def train_dataloader(self) -> DataLoader:
@@ -149,30 +157,30 @@ class ArxivDataModule(pl.LightningDataModule):
 class PeftCausalLMModule(pl.LightningModule):
     """LightningModule wrapping a PEFT LoRA adapter on top of a base causal LM (Mistral-7B)."""
 
-    def __init__(self, model: AutoModelForCausalLM, lr: float = 1e-4, weight_decay: float = 0.0):
+    def __init__(self, model: Any, lr: float = 1e-4, weight_decay: float = 0.0):
         super().__init__()
-        self.model = model
+        self.model: Any = model
         self.save_hyperparameters(ignore=["model"])  # logs lr, weight_decay
         self.lr = lr
         self.weight_decay = weight_decay
 
     def forward(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        labels: Optional[torch.Tensor] = None,
-    ) -> Dict[str, Any]:
+            self,
+            input_ids: torch.Tensor,
+            attention_mask: torch.Tensor,
+            labels: Optional[torch.Tensor] = None,
+    ) -> Any:
         return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         outputs = self.forward(batch["input_ids"], batch["attention_mask"], labels=batch["labels"])
-        loss = outputs.loss
+        loss = outputs.loss  # type: ignore[attr-defined]
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
         outputs = self.forward(batch["input_ids"], batch["attention_mask"], labels=batch["labels"])
-        val_loss = outputs.loss
+        val_loss = outputs.loss  # type: ignore[attr-defined]
         self.log("val_loss", val_loss, on_step=False, on_epoch=True, prog_bar=True)
 
     def configure_optimizers(self):
@@ -180,19 +188,14 @@ class PeftCausalLMModule(pl.LightningModule):
         return optimizer
 
 
-def build_model_and_tokenizer(cfg: DictConfig) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
-    # Tokenizer
-    model_source = (
-        cfg.experiment.model.local_path
-        if bool(cfg.experiment.model.use_local)
-        else cfg.experiment.model.name_or_path
-    )
-    tokenizer = AutoTokenizer.from_pretrained(model_source, use_fast=True)
-    # Ensure pad token exists
+def build_model_and_tokenizer(cfg: DictConfig) -> Tuple[Any, PreTrainedTokenizerBase]:
+    # Always load model/tokenizer from local path when use_local is true
+    model_source = cfg.experiment.model.local_path if bool(
+        cfg.experiment.model.use_local) else cfg.experiment.model.name_or_path
+    tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(model_source, use_fast=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    # Set up 4-bit (QLoRA) if requested
     load_in_4bit = bool(cfg.experiment.model.get("load_in_4bit", False))
     dtype_str = cfg.experiment.model.get("dtype", None)
     torch_dtype = getattr(torch, dtype_str) if dtype_str else None
@@ -206,19 +209,16 @@ def build_model_and_tokenizer(cfg: DictConfig) -> Tuple[AutoModelForCausalLM, Au
             bnb_4bit_compute_dtype=torch_dtype or torch.bfloat16,
         )
 
-    # Base model: prefer dtype over deprecated torch_dtype; use device_map for placement
-    model = AutoModelForCausalLM.from_pretrained(
+    model: Any = AutoModelForCausalLM.from_pretrained(
         model_source,
         device_map=cfg.experiment.model.device_map,
-        dtype=torch_dtype,  # prefer new 'dtype' arg
+        dtype=torch_dtype,
         quantization_config=quantization_config,
     )
 
-    # Optional gradient checkpointing to save memory
     if bool(cfg.experiment.model.get("gradient_checkpointing", True)):
         model.gradient_checkpointing_enable()
 
-    # LoRA config
     lora_cfg = LoraConfig(
         r=cfg.experiment.lora.r,
         lora_alpha=cfg.experiment.lora.lora_alpha,
@@ -232,14 +232,33 @@ def build_model_and_tokenizer(cfg: DictConfig) -> Tuple[AutoModelForCausalLM, Au
     return model, tokenizer
 
 
+def _apply_simple_slice(ds, slice_spec: str):
+    """Apply a very small subset parser for patterns like 'train[:1%]' or 'validation[:1000]'."""
+    try:
+        if not slice_spec or "[:]" in slice_spec:
+            return ds
+        start = slice_spec.find("[:")
+        end = slice_spec.find("]", start)
+        if start == -1 or end == -1:
+            return ds
+        token = slice_spec[start + 2: end]
+        n = len(ds)
+        if token.endswith("%"):
+            pct = float(token[:-1])
+            k = max(1, int(n * pct / 100.0))
+            return ds.select(range(k))
+        else:
+            k = int(token)
+            return ds.select(range(min(k, n)))
+    except Exception:
+        return ds
+
+
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
     print("=== Training adapter with config ===")
     print(OmegaConf.to_yaml(cfg))
-    # Show resolved output directory
-
     print("#" * 50)
-    # print(OmegaConf.to_yaml(HydraConfig.get()))
     try:
         out_dir = HydraConfig.get().runtime.output_dir
         print(f"Resolved Hydra output_dir: {out_dir}")
@@ -254,45 +273,19 @@ def main(cfg: DictConfig):
     # Build model and tokenizer
     model, tokenizer = build_model_and_tokenizer(cfg)
 
-    # Data module
-    if bool(cfg.experiment.data.use_local):
-        # Load preprocessed dataset from disk
-        ds_path = cfg.experiment.data.local_path
-        print(f"Loading dataset from local path: {ds_path}")
-        ds_dict = load_from_disk(ds_path)
-        dm = ArxivDataModule(
-            tokenizer=tokenizer,
-            dataset_name=cfg.experiment.data.dataset_name,
-            dataset_config=cfg.experiment.data.dataset_config,
-            train_split=cfg.experiment.data.train_split,
-            val_split=cfg.experiment.data.val_split,
-            max_seq_len=cfg.experiment.data.max_seq_length,
-            batch_size=cfg.experiment.data.batch_size,
-            num_workers=cfg.experiment.data.num_workers,
-            shuffle=True,
-        )
-        # Override internal datasets
-        dm.ds_train = ds_dict["train"]
-        dm.ds_val = ds_dict["validation"]
-        # Re-run formatting since loaded dataset holds raw columns
-        dm.ds_train.set_format(
-            type="torch", columns=["input_ids", "labels"]
-        ) if "input_ids" in dm.ds_train.column_names else None
-        dm.ds_val.set_format(
-            type="torch", columns=["input_ids", "labels"]
-        ) if "input_ids" in dm.ds_val.column_names else None
-    else:
-        dm = ArxivDataModule(
-            tokenizer=tokenizer,
-            dataset_name=cfg.experiment.data.dataset_name,
-            dataset_config=cfg.experiment.data.dataset_config,
-            train_split=cfg.experiment.data.train_split,
-            val_split=cfg.experiment.data.val_split,
-            max_seq_len=cfg.experiment.data.max_seq_length,
-            batch_size=cfg.experiment.data.batch_size,
-            num_workers=cfg.experiment.data.num_workers,
-            shuffle=True,
-        )
+    # Data module: strictly local
+    ds_path = cfg.experiment.data.local_path
+    print(f"Loading dataset from local path: {ds_path}")
+    dm = ArxivDataModule(
+        tokenizer=tokenizer,
+        local_path=ds_path,
+        train_split=cfg.experiment.data.train_split,
+        val_split=cfg.experiment.data.val_split,
+        max_seq_len=cfg.experiment.data.max_seq_length,
+        batch_size=cfg.experiment.data.batch_size,
+        num_workers=cfg.experiment.data.num_workers,
+        shuffle=True,
+    )
 
     # Lightning module
     lit_module = PeftCausalLMModule(

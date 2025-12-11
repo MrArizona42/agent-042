@@ -8,25 +8,24 @@ model:
   bnb_4bit_use_double_quant: true
   bnb_4bit_quant_type: "nf4"
   gradient_checkpointing: true
-  use_local: true
-  local_path: "${paths.project_root}/assets/models/mistral-7b"
+  use_local: true  # when true, we load datasets from disk and never hit the hub
+  local_path: "${paths.project_root}/assets/models/mistral-7b"  # point to the dataset dir
 
 lora:
-  r: 8
+  r: 4
   lora_alpha: 16
   lora_dropout: 0.05
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
 data:
-  dataset_name: "scientific_papers"
-  dataset_config: "arxiv"
-  train_split: "train[:0.5%]"  # keep tiny for memory
-  val_split: "validation[:0.5%]"
-  max_seq_length: 1024
+  # Only use local pre-fetched dataset. No hub names/configs.
+  train_split: "train[:1%]"
+  val_split: "validation[:1%]"
+  max_seq_length: 256
   batch_size: 1
   num_workers: 0
   use_local: true
-  local_path: "${paths.project_root}/assets/datasets/scientific_papers_arxiv"
+  local_path: "${paths.project_root}/assets/datasets/arxiv-summarization-01"  # pre-fetched dataset location
 
 training:
   lr: 2e-4
@@ -36,8 +35,8 @@ trainer:
   max_epochs: 1
   devices: 1
   accelerator: "gpu"
-  precision: "bf16"  # match dtype for stability on Ampere+
+  precision: "bf16-mixed"  # use mixed precision to save memory
   gradient_clip_val: 1.0
-  accumulate_grad_batches: 8
+  accumulate_grad_batches: 16
   log_every_n_steps: 10
   val_check_interval: 100

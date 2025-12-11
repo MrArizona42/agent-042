@@ -25,18 +25,9 @@ def main(cfg: DictConfig):
     print(model_id)
     print(model_dir)
 
-    # dataset_name = cfg.assets.dataset.name
-    # dataset_config = cfg.assets.dataset.config
-    # train_split = cfg.assets.dataset.train_split
-    # val_split = cfg.assets.dataset.val_split
-    # dataset_dir = Path(cfg.assets.dataset.target_dir)
-    #
     model_path = download_model(model_id, model_dir)
-    # dataset_path = save_dataset(dataset_name, dataset_config, train_split, val_split, dataset_dir)
-    #
-    # print("\nSummary:")
+
     print(f"- Model stored at: {model_path}")
-    # print(f"- Dataset stored at: {dataset_path}")
 
 
 if __name__ == "__main__":
