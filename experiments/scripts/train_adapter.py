@@ -26,9 +26,9 @@ from transformers.utils import logging as tf_logging
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("DISABLE_TELEMETRY", "1")
-# Optional: make sure we don't accidentally reuse cached remote datasets
-# Users can also override via HF_DATASETS_CACHE env var if needed
+# Only use local cache directories if ever touched; avoid accidental remote downloads
 os.environ.setdefault("HF_DATASETS_CACHE", str(Path.home() / ".cache" / "huggingface" / "datasets"))
+os.environ.setdefault("TRANSFORMERS_CACHE", str(Path.home() / ".cache" / "huggingface" / "transformers"))
 
 # Enable concise HF logging & progress bars
 os.environ.setdefault("HF_HUB_ENABLE_PROGRESS_BARS", "1")
@@ -91,6 +91,12 @@ class ArxivDataModule(pl.LightningDataModule):
         )
         ds_train = ds_dict["train"]
         ds_val = ds_dict["validation"]
+        # Validate expected columns exist to avoid runtime errors
+        expected_cols = {"article", "abstract"}
+        missing_train = expected_cols - set(ds_train.column_names)
+        missing_val = expected_cols - set(ds_val.column_names)
+        assert not missing_train, f"Train split missing columns: {missing_train}"
+        assert not missing_val, f"Validation split missing columns: {missing_val}"
         ds_train = _apply_simple_slice(ds_train, self.train_split)
         ds_val = _apply_simple_slice(ds_val, self.val_split)
         # Attach lazy transform
@@ -101,14 +107,22 @@ class ArxivDataModule(pl.LightningDataModule):
         max_len = int(self.max_seq_len)
         pad_id = self.pad_id
 
+        def as_text(x: Any) -> str:
+            # Robustly convert values to text for tokenization
+            if x is None:
+                return ""
+            if isinstance(x, (str, bytes)):
+                return x.decode("utf-8", errors="ignore") if isinstance(x, bytes) else x
+            return str(x)
+
         def transform(example: Dict[str, Any]) -> Dict[str, Any]:
-            art = example["article"]
-            abs_ = example["abstract"]
+            art = as_text(example.get("article"))
+            abs_ = as_text(example.get("abstract"))
             prompt = (
                 "Summarize the following article into an abstract:\n\n"
                 f"Article:\n{art}\n\nAbstract:\n"
             )
-            # Tokenize prompt and target
+            # Tokenize prompt and target safely
             prompt_ids = self.tokenizer.encode(prompt, truncation=True, max_length=max_len)
             target_ids = self.tokenizer.encode(abs_, truncation=True, max_length=max_len)
             input_ids = (prompt_ids + target_ids)[:max_len]
@@ -170,6 +184,16 @@ class PeftCausalLMModule(pl.LightningModule):
             attention_mask: torch.Tensor,
             labels: Optional[torch.Tensor] = None,
     ) -> Any:
+        # Normalize shapes and dtypes to avoid 1D attention_mask issues inside HF masking utils
+        if input_ids.ndim == 1:
+            input_ids = input_ids.unsqueeze(0)
+        if attention_mask.ndim == 1:
+            attention_mask = attention_mask.unsqueeze(0)
+        # HF models expect boolean or float attention masks; prefer boolean
+        if attention_mask.dtype != torch.bool:
+            attention_mask = attention_mask.ne(0)
+        if labels is not None and labels.ndim == 1:
+            labels = labels.unsqueeze(0)
         return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
@@ -192,7 +216,7 @@ def build_model_and_tokenizer(cfg: DictConfig) -> Tuple[Any, PreTrainedTokenizer
     # Always load model/tokenizer from local path when use_local is true
     model_source = cfg.experiment.model.local_path if bool(
         cfg.experiment.model.use_local) else cfg.experiment.model.name_or_path
-    tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(model_source, use_fast=True)
+    tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(model_source, use_fast=True, local_files_only=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
@@ -214,6 +238,7 @@ def build_model_and_tokenizer(cfg: DictConfig) -> Tuple[Any, PreTrainedTokenizer
         device_map=cfg.experiment.model.device_map,
         dtype=torch_dtype,
         quantization_config=quantization_config,
+        local_files_only=True,
     )
 
     if bool(cfg.experiment.model.get("gradient_checkpointing", True)):
@@ -304,6 +329,7 @@ def main(cfg: DictConfig):
         accumulate_grad_batches=cfg.experiment.trainer.accumulate_grad_batches,
         log_every_n_steps=cfg.experiment.trainer.log_every_n_steps,
         val_check_interval=cfg.experiment.trainer.val_check_interval,
+        num_sanity_val_steps=0,  # disable sanity check to reduce initial memory spikes
     )
 
     # Fit

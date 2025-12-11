@@ -12,7 +12,7 @@ model:
   local_path: "${paths.project_root}/assets/models/mistral-7b"  # point to the dataset dir
 
 lora:
-  r: 4
+  r: 2
   lora_alpha: 16
   lora_dropout: 0.05
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
@@ -21,7 +21,7 @@ data:
   # Only use local pre-fetched dataset. No hub names/configs.
   train_split: "train[:1%]"
   val_split: "validation[:1%]"
-  max_seq_length: 256
+  max_seq_length: 32
   batch_size: 1
   num_workers: 0
   use_local: true
@@ -38,5 +38,6 @@ trainer:
   precision: "bf16-mixed"  # use mixed precision to save memory
   gradient_clip_val: 1.0
   accumulate_grad_batches: 16
-  log_every_n_steps: 10
-  val_check_interval: 100
+  log_every_n_steps: 2
+  val_check_interval: 2
+
