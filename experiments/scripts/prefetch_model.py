@@ -11,7 +11,6 @@ def download_model(model_id: str, target_dir: Path) -> Path:
     local_repo = snapshot_download(
         repo_id=model_id, local_dir=str(target_dir), local_dir_use_symlinks=False
     )
-    print(f"Model snapshot stored at: {local_repo}")
     return Path(local_repo)
 
 
@@ -32,11 +31,11 @@ def main(cfg: DictConfig):
     # val_split = cfg.assets.dataset.val_split
     # dataset_dir = Path(cfg.assets.dataset.target_dir)
     #
-    # model_path = download_model(model_id, model_dir)
+    model_path = download_model(model_id, model_dir)
     # dataset_path = save_dataset(dataset_name, dataset_config, train_split, val_split, dataset_dir)
     #
     # print("\nSummary:")
-    # print(f"- Model stored at: {model_path}")
+    print(f"- Model stored at: {model_path}")
     # print(f"- Dataset stored at: {dataset_path}")
 
 
