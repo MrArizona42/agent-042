@@ -8,6 +8,8 @@ import torch
 from datasets import load_from_disk
 from datasets.utils.logging import (
     set_verbosity as ds_set_verbosity,
+)
+from datasets.utils.logging import (
     set_verbosity_info as ds_set_verbosity_info,
 )
 from hydra.core.hydra_config import HydraConfig
@@ -28,7 +30,9 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("DISABLE_TELEMETRY", "1")
 # Only use local cache directories if ever touched; avoid accidental remote downloads
 os.environ.setdefault("HF_DATASETS_CACHE", str(Path.home() / ".cache" / "huggingface" / "datasets"))
-os.environ.setdefault("TRANSFORMERS_CACHE", str(Path.home() / ".cache" / "huggingface" / "transformers"))
+os.environ.setdefault(
+    "TRANSFORMERS_CACHE", str(Path.home() / ".cache" / "huggingface" / "transformers")
+)
 
 # Enable concise HF logging & progress bars
 os.environ.setdefault("HF_HUB_ENABLE_PROGRESS_BARS", "1")
@@ -52,20 +56,21 @@ class ArxivDataModule(pl.LightningDataModule):
     """
     Lightning DataModule that strictly loads pre-fetched local Hugging Face datasets from a path.
 
-    Expects a dataset saved via `datasets.load_from_disk(path)` that contains 'train' and 'validation' splits
+    Expects a dataset saved via `datasets.load_from_disk(path)`
+    that contains 'train' and 'validation' splits
     with columns 'article' and 'abstract'. No network calls are made.
     """
 
     def __init__(
-            self,
-            tokenizer: PreTrainedTokenizerBase,
-            local_path: str,
-            train_split: str,
-            val_split: str,
-            max_seq_len: int,
-            batch_size: int,
-            num_workers: int,
-            shuffle: bool,
+        self,
+        tokenizer: PreTrainedTokenizerBase,
+        local_path: str,
+        train_split: str,
+        val_split: str,
+        max_seq_len: int,
+        batch_size: int,
+        num_workers: int,
+        shuffle: bool,
     ):
         super().__init__()
         self.tokenizer: PreTrainedTokenizerBase = tokenizer
@@ -79,7 +84,9 @@ class ArxivDataModule(pl.LightningDataModule):
         self.ds_train = None
         self.ds_val = None
         # Cache pad id for collate
-        self.pad_id: int = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+        self.pad_id: int = (
+            self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+        )
 
     def setup(self, stage: Optional[str] = None) -> None:
         # Validate local dataset path
@@ -179,10 +186,10 @@ class PeftCausalLMModule(pl.LightningModule):
         self.weight_decay = weight_decay
 
     def forward(
-            self,
-            input_ids: torch.Tensor,
-            attention_mask: torch.Tensor,
-            labels: Optional[torch.Tensor] = None,
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        labels: Optional[torch.Tensor] = None,
     ) -> Any:
         # Normalize shapes and dtypes to avoid 1D attention_mask issues inside HF masking utils
         if input_ids.ndim == 1:
@@ -213,10 +220,10 @@ class PeftCausalLMModule(pl.LightningModule):
 
 
 def build_model_and_tokenizer(cfg: DictConfig) -> Tuple[Any, PreTrainedTokenizerBase]:
-    # Always load model/tokenizer from local path when use_local is true
-    model_source = cfg.experiment.model.local_path if bool(
-        cfg.experiment.model.use_local) else cfg.experiment.model.name_or_path
-    tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(model_source, use_fast=True, local_files_only=True)
+    model_source = cfg.experiment.model.local_path
+
+    tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(model_source, use_fast=True)
+
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
@@ -266,7 +273,7 @@ def _apply_simple_slice(ds, slice_spec: str):
         end = slice_spec.find("]", start)
         if start == -1 or end == -1:
             return ds
-        token = slice_spec[start + 2: end]
+        token = slice_spec[start + 2 : end]
         n = len(ds)
         if token.endswith("%"):
             pct = float(token[:-1])

@@ -2,14 +2,13 @@ seed: 42
 
 model:
   name_or_path: "mistralai/Mistral-7B-v0.1"
-  dtype: "bfloat16"  # use new 'dtype' key; options: "float16", "bfloat16", "float32"
+  dtype: "bfloat16"
   device_map: "auto"
   load_in_4bit: true
   bnb_4bit_use_double_quant: true
   bnb_4bit_quant_type: "nf4"
   gradient_checkpointing: true
-  use_local: true  # when true, we load datasets from disk and never hit the hub
-  local_path: "${paths.project_root}/assets/models/mistral-7b"  # point to the dataset dir
+  local_path: "${paths.project_root}/assets/models/mistralai/Mistral-7B-v0.1"  # point to the dataset dir
 
 lora:
   r: 2
@@ -18,7 +17,6 @@ lora:
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
 data:
-  # Only use local pre-fetched dataset. No hub names/configs.
   train_split: "train[:1%]"
   val_split: "validation[:1%]"
   max_seq_length: 32
@@ -34,8 +32,8 @@ training:
 trainer:
   max_epochs: 1
   devices: 1
-  accelerator: "gpu"
-  precision: "bf16-mixed"  # use mixed precision to save memory
+  accelerator: "auto"
+  precision: "bf16-mixed"
   gradient_clip_val: 1.0
   accumulate_grad_batches: 16
   log_every_n_steps: 2
