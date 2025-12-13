@@ -16,10 +16,6 @@ services:
     volumes:
       - mlflow_pg_data:/var/lib/postgresql/data
 
-    # Expose only to the local host
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT}:5432"
-
     networks:
       - ml_platform
 
@@ -61,6 +57,11 @@ services:
       - 0.0.0.0
       - --port
       - "5000"
+      - --backend-store-uri
+      - ${MLFLOW_BACKEND_URI}
+      - --default-artifact-root
+      - ${MLFLOW_ARTIFACT_ROOT}
+#       - --serve-artifacts
 
     # Healthcheck for orchestration & future k8s readiness
     healthcheck:
