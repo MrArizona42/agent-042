@@ -35,7 +35,6 @@ services:
 
     # Runtime configuration (no secrets baked into image)
     environment:
-      MLFLOW_SERVER_PREFIX: ${MLFLOW_SERVER_ROOT_PATH}
       MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_SERVER_ALLOWED_HOSTS}
 
       MLFLOW_BACKEND_URI: ${MLFLOW_BACKEND_URI}
@@ -58,18 +57,10 @@ services:
     # Command extends ENTRYPOINT
     command:
       - server
-      - --backend-store-uri
-      - ${MLFLOW_BACKEND_URI}
-      - --default-artifact-root
-      - ${MLFLOW_ARTIFACT_ROOT}
       - --host
       - 0.0.0.0
       - --port
       - "5000"
-      - --allowed-hosts
-      - "antonlab.ru,localhost:5000"
-      - --static-prefix
-      - /mlflow-project/mlflow
 
     # Healthcheck for orchestration & future k8s readiness
     healthcheck:
