@@ -30,7 +30,7 @@ services:
   # =====================
   mlflow:
     build:
-      context: ./infra/mlflow   # where Dockerfile lives
+      context: ${PROJECT_ROOT}/docker/mlflow   # where Dockerfile lives
       dockerfile: Dockerfile
 
     # Runtime configuration (no secrets baked into image)
