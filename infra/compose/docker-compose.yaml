@@ -35,11 +35,11 @@ services:
 
     # Runtime configuration (no secrets baked into image)
     environment:
+#      MLFLOW_SERVER_ROOT_PATH: ${MLFLOW_SERVER_ROOT_PATH}
       MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_SERVER_ALLOWED_HOSTS}
 
       MLFLOW_BACKEND_URI: ${MLFLOW_BACKEND_URI}
       MLFLOW_ARTIFACT_ROOT: ${MLFLOW_ARTIFACT_ROOT}
-      MLFLOW_SERVER_ROOT_PATH: ${MLFLOW_SERVER_ROOT_PATH}
 
       # Required for boto3 (Yandex Object Storage)
       AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL}
