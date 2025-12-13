@@ -35,7 +35,7 @@ services:
 
     # Runtime configuration (no secrets baked into image)
     environment:
-      MLFLOW_HOST_ALLOWLIST: ${MLFLOW_HOST_ALLOWLIST}
+      MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_SERVER_ALLOWED_HOSTS}
 
       MLFLOW_BACKEND_URI: ${MLFLOW_BACKEND_URI}
       MLFLOW_ARTIFACT_ROOT: ${MLFLOW_ARTIFACT_ROOT}
