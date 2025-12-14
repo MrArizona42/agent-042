@@ -1,7 +1,7 @@
 defaults:
   - paths: paths_config
   - assets/dataset: default
-  - assets/model: default
+  - assets/model: mistral-7b
   - _self_
 
 hydra:
