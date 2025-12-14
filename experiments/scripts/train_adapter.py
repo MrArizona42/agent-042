@@ -6,12 +6,6 @@ import hydra
 import pytorch_lightning as pl
 import torch
 from datasets import load_from_disk
-from datasets.utils.logging import (
-    set_verbosity as ds_set_verbosity,
-)
-from datasets.utils.logging import (
-    set_verbosity_info as ds_set_verbosity_info,
-)
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from peft import LoraConfig, get_peft_model
@@ -22,197 +16,228 @@ from transformers import (
     BitsAndBytesConfig,
     PreTrainedTokenizerBase,
 )
-from transformers.utils import logging as tf_logging
 
-# Hard-disable any HF Hub/network usage for datasets and prefer local files only
-os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("DISABLE_TELEMETRY", "1")
-# Only use local cache directories if ever touched; avoid accidental remote downloads
-os.environ.setdefault("HF_DATASETS_CACHE", str(Path.home() / ".cache" / "huggingface" / "datasets"))
-os.environ.setdefault(
-    "TRANSFORMERS_CACHE", str(Path.home() / ".cache" / "huggingface" / "transformers")
-)
-
-# Enable concise HF logging & progress bars
-os.environ.setdefault("HF_HUB_ENABLE_PROGRESS_BARS", "1")
-try:
-    ds_set_verbosity_info()
-except Exception:
-    ds_set_verbosity(20)
-try:
-    tf_logging.set_verbosity_info()
-except Exception:
-    tf_logging.set_verbosity(tf_logging.INFO)
-
-# Optimize matmul for Tensor Cores on consumer GPUs
-try:
-    torch.set_float32_matmul_precision("medium")
-except Exception:
-    pass
+import time
+import mlflow
+import dotenv
 
 
 class ArxivDataModule(pl.LightningDataModule):
     """
-    Minimal, local-only LightningDataModule.
-
+    Minimal LightningDataModule:
     - Loads local HF dataset (train + validation)
-    - Prepares token ids per example with a simple prompt
-    - Uses tokenizer.pad at collate time for clean padding & attention masks
+    - Builds prompt+target token ids per example
+    - Pads and masks in a simple collate_fn
     """
 
     def __init__(
-        self,
-        tokenizer: PreTrainedTokenizerBase,
-        local_path: str,
-        max_seq_len: int,
-        batch_size: int,
-        shuffle: bool,
+            self,
+            tokenizer: PreTrainedTokenizerBase,
+            local_path: str,
+            max_seq_len: int,
+            batch_size: int,
+            shuffle: bool = True,
     ):
         super().__init__()
-        self.tokenizer: PreTrainedTokenizerBase = tokenizer
+        self.tokenizer = tokenizer
         self.local_path = str(local_path)
         self.max_seq_len = int(max_seq_len)
         self.batch_size = int(batch_size)
         self.shuffle = bool(shuffle)
         self.ds_train = None
         self.ds_val = None
-        # Ensure pad token id
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-        self.pad_id: int = int(self.tokenizer.pad_token_id)
 
     def setup(self, stage: Optional[str] = None) -> None:
         ds_dict = load_from_disk(self.local_path)
+        self.ds_train = self._with_transform(ds_dict["train"])
+        self.ds_val = self._with_transform(ds_dict["validation"])
 
-        self.ds_train = self._attach_transform(ds_dict["train"])
-        self.ds_val = self._attach_transform(ds_dict["validation"])
-
-    def _attach_transform(self, ds):
-        max_len = int(self.max_seq_len)
-
-        def as_text(x: Any) -> str:
-            if x is None:
-                return ""
-            if isinstance(x, (str, bytes)):
-                return x.decode("utf-8", errors="ignore") if isinstance(x, bytes) else x
-            return str(x)
+    def _with_transform(self, ds):
+        max_len = self.max_seq_len
 
         def transform(example: Dict[str, Any]) -> Dict[str, Any]:
-            art = as_text(example.get("article"))
-            abs_ = as_text(example.get("abstract"))
-            prompt = (
-                "Summarize the following article into an abstract:\n\n"
-                f"Article:\n{art}\n\nAbstract:\n"
-            )
-            # Encode prompt and target separately (no padding yet)
-            prompt_ids = self.tokenizer.encode(
-                prompt, truncation=True, max_length=max_len, add_special_tokens=False
-            )
-            target_ids = self.tokenizer.encode(
-                abs_, truncation=True, max_length=max_len, add_special_tokens=False
-            )
-            input_ids = (prompt_ids + target_ids)[:max_len]
-            prompt_len = min(len(prompt_ids), max_len)
-            # Defer padding to collate_fn via tokenizer.pad for clean attention_mask
-            return {"input_ids": input_ids, "prompt_len": prompt_len}
+            # Detect batched vs single example
+            is_batched = isinstance(example.get("article"), list) or isinstance(example.get("abstract"), list)
+
+            def build(prompt_text: str, target_text: str) -> Tuple[List[int], int]:
+                prompt_enc = self.tokenizer(
+                    prompt_text,
+                    truncation=True,
+                    max_length=max_len,
+                    add_special_tokens=False,
+                )
+                target_enc = self.tokenizer(
+                    target_text,
+                    truncation=True,
+                    max_length=max_len,
+                    add_special_tokens=False,
+                )
+                prompt_ids = prompt_enc["input_ids"]
+                target_ids = target_enc["input_ids"]
+                input_ids = (prompt_ids + target_ids)[:max_len]
+                prompt_len = min(len(prompt_ids), max_len)
+                return input_ids, prompt_len
+
+            if is_batched:
+                arts = example.get("article") or []
+                abss = example.get("abstract") or []
+                n = max(len(arts), len(abss))
+                # pad to equal length
+                if len(arts) < n:
+                    arts = arts + [""] * (n - len(arts))
+                if len(abss) < n:
+                    abss = abss + [""] * (n - len(abss))
+                input_ids_list: List[List[int]] = []
+                prompt_len_list: List[int] = []
+                for art, abs_ in zip(arts, abss):
+                    prompt = (
+                        "Summarize the following article into an abstract:\n\n"
+                        f"Article:\n{art}\n\nAbstract:\n"
+                    )
+                    ids, plen = build(prompt, abs_)
+                    input_ids_list.append(ids)
+                    prompt_len_list.append(plen)
+                return {"input_ids": input_ids_list, "prompt_len": prompt_len_list}
+            else:
+                art = example.get("article") or ""
+                abs_ = example.get("abstract") or ""
+                prompt = (
+                    "Summarize the following article into an abstract:\n\n"
+                    f"Article:\n{art}\n\nAbstract:\n"
+                )
+                ids, plen = build(prompt, abs_)
+                return {"input_ids": ids, "prompt_len": plen}
 
         ds.set_transform(transform)
         return ds
 
     def collate_fn(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        # Use tokenizer.pad to build nicely padded input_ids and attention_mask
-        features = {"input_ids": [ex["input_ids"] for ex in batch]}
         padded = self.tokenizer.pad(
-            features,
+            {"input_ids": [ex["input_ids"] for ex in batch]},
             padding=True,
             max_length=self.max_seq_len,
             return_tensors="pt",
         )
-        input_ids: torch.Tensor = padded["input_ids"]  # (B, T)
-        attention_mask: torch.Tensor = padded["attention_mask"]  # (B, T)
-
-        # Build labels: copy input_ids, mask out prompt and pad positions with -100
-        labels: torch.Tensor = input_ids.clone()
-        # Mask pads
-        labels = labels.masked_fill(attention_mask.eq(0), -100)
-        # Mask prompt tokens per sample
+        input_ids = padded["input_ids"]
+        attention_mask = padded["attention_mask"]
+        labels = input_ids.clone().masked_fill(attention_mask.eq(0), -100)
         for i, ex in enumerate(batch):
-            p_len = int(ex.get("prompt_len", 0))
-            if p_len > 0:
-                upto = min(p_len, labels.shape[1])
+            upto = min(int(ex.get("prompt_len", 0)), labels.shape[1])
+            if upto > 0:
                 labels[i, :upto] = -100
-
         return {"input_ids": input_ids, "labels": labels, "attention_mask": attention_mask}
 
     def train_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.ds_train,
-            batch_size=self.batch_size,
-            shuffle=self.shuffle,
-            collate_fn=self.collate_fn,
-            pin_memory=True,
-        )
+        return DataLoader(self.ds_train, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate_fn)
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.ds_val,
-            batch_size=self.batch_size,
-            shuffle=False,
-            collate_fn=self.collate_fn,
-            pin_memory=True,
-        )
+        return DataLoader(self.ds_val, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate_fn)
 
 
 class PeftCausalLMModule(pl.LightningModule):
-    """LightningModule wrapping a PEFT LoRA adapter on top of a base causal LM (Mistral-7B)."""
+    """PEFT LoRA adapter training wrapper for causal LM with MLflow metric logging."""
 
-    def __init__(self, model: Any, lr: float = 1e-4, weight_decay: float = 0.0):
+    def __init__(self, model: Any, lr: float = 2e-4, weight_decay: float = 0.0):
         super().__init__()
-        self.model: Any = model
+        self.model = model
         self.save_hyperparameters(ignore=["model"])  # logs lr, weight_decay
-        self.lr = lr
-        self.weight_decay = weight_decay
+        self._last_step_t: Optional[float] = None
 
-    def forward(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        labels: Optional[torch.Tensor] = None,
-    ) -> Any:
-        # Normalize shapes and dtypes to avoid 1D attention_mask issues inside HF masking utils
+    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor,
+                labels: Optional[torch.Tensor] = None) -> Any:
         if input_ids.ndim == 1:
             input_ids = input_ids.unsqueeze(0)
         if attention_mask.ndim == 1:
             attention_mask = attention_mask.unsqueeze(0)
-        # HF models expect boolean or float attention masks; prefer boolean
         if attention_mask.dtype != torch.bool:
             attention_mask = attention_mask.ne(0)
         if labels is not None and labels.ndim == 1:
             labels = labels.unsqueeze(0)
         return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
 
-    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        outputs = self.forward(batch["input_ids"], batch["attention_mask"], labels=batch["labels"])
-        loss = outputs.loss  # type: ignore[attr-defined]
+    def on_train_start(self) -> None:
+        # Initialize MLflow run, load env for creds, set tracking URI and experiment explicitly
+        dotenv.load_dotenv()
+        # Prefer explicit config value, fallback to env var
+        tracking_uri = os.getenv("MLFLOW_BACKEND_URI") or getattr(self.trainer.logger, "_tracking_uri", None)
+        if hasattr(self, "hparams") and hasattr(self.hparams, "mlflow_tracking_uri"):
+            tracking_uri = self.hparams.mlflow_tracking_uri or tracking_uri
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+        # Set experiment to keep runs grouped
+        exp_name = None
+        if hasattr(self, "hparams") and hasattr(self.hparams, "mlflow_experiment_name"):
+            exp_name = self.hparams.mlflow_experiment_name
+        if exp_name:
+            mlflow.set_experiment(exp_name)
+
+        if mlflow.active_run() is None:
+            mlflow.start_run(run_name="train_adapter")
+        self._last_step_t = time.perf_counter()
+
+    def on_train_end(self) -> None:
+        # Upload Hydra logs/configs as artifacts, then end MLflow run
+        try:
+            out_dir = HydraConfig.get().runtime.output_dir
+            if out_dir:
+                mlflow.log_artifacts(out_dir, artifact_path="hydra")
+        except Exception as e:
+            # Print once for visibility; continue without failing training
+            print(f"MLflow artifact logging failed: {e}")
+
+        if mlflow.active_run() is not None:
+            mlflow.end_run()
+
+    def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int):
+        t0 = time.perf_counter()
+        out = self.forward(batch["input_ids"], batch["attention_mask"], labels=batch["labels"])  # has .loss
+        loss = out.loss
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+
+        # Log metrics to MLflow
+        step = int(self.global_step)
+        # train_loss
+        mlflow.log_metric("train_loss", float(loss.detach().cpu().item()), step=step)
+        # learning_rate from optimizer
+        opt = self.trainer.optimizers[0] if self.trainer.optimizers else None
+        if opt is not None and len(opt.param_groups) > 0:
+            lr = float(opt.param_groups[0].get("lr", self.hparams.lr))
+        else:
+            lr = float(self.hparams.lr)
+        mlflow.log_metric("learning_rate", lr, step=step)
+        # tokens_per_second
+        with torch.no_grad():
+            mask = batch["attention_mask"].to(torch.float32)
+            tokens = float(mask.sum().item())
+        t1 = time.perf_counter()
+        elapsed = max(1e-9, (t1 - (self._last_step_t or t0)))
+        tokens_per_sec = tokens / elapsed
+        mlflow.log_metric("tokens_per_second", tokens_per_sec, step=step)
+        self._last_step_t = t1
+        # gpu_memory_allocated_mb
+        if torch.cuda.is_available():
+            mem_mb = torch.cuda.memory_allocated(device=self.device) / 1e6
+            mlflow.log_metric("gpu_memory_allocated_mb", float(mem_mb), step=step)
+
         return loss
 
-    def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        outputs = self.forward(batch["input_ids"], batch["attention_mask"], labels=batch["labels"])
-        val_loss = outputs.loss  # type: ignore[attr-defined]
+    def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int):
+        val_out = self.forward(batch["input_ids"], batch["attention_mask"], labels=batch["labels"])  # has .loss
+        val_loss = val_out.loss
         self.log("val_loss", val_loss, on_step=False, on_epoch=True, prog_bar=True)
+        # Log val_loss with epoch-based step to avoid collision with training steps
+        val_step = int(self.current_epoch)
+        mlflow.log_metric("val_loss", float(val_loss.detach().cpu().item()), step=val_step)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        return optimizer
+        return torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
 
 
 def build_model_and_tokenizer(cfg: DictConfig) -> Tuple[Any, PreTrainedTokenizerBase]:
-    model_source = cfg.experiment.model.local_path
-
-    tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(model_source, use_fast=True)
-
+    src = cfg.experiment.model.local_path
+    tokenizer = AutoTokenizer.from_pretrained(src, use_fast=True, local_files_only=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
@@ -220,21 +245,25 @@ def build_model_and_tokenizer(cfg: DictConfig) -> Tuple[Any, PreTrainedTokenizer
     dtype_str = cfg.experiment.model.get("dtype", None)
     torch_dtype = getattr(torch, dtype_str) if dtype_str else None
 
-    quantization_config = None
-    if load_in_4bit:
-        quantization_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=cfg.experiment.model.get("bnb_4bit_use_double_quant", True),
-            bnb_4bit_quant_type=cfg.experiment.model.get("bnb_4bit_quant_type", "nf4"),
-            bnb_4bit_compute_dtype=torch_dtype or torch.bfloat16,
-        )
+    quant_cfg = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_use_double_quant=cfg.experiment.model.get("bnb_4bit_use_double_quant", True),
+        bnb_4bit_quant_type=cfg.experiment.model.get("bnb_4bit_quant_type", "nf4"),
+        bnb_4bit_compute_dtype=torch_dtype or torch.bfloat16,
+    ) if load_in_4bit else None
 
-    model: Any = AutoModelForCausalLM.from_pretrained(
-        model_source,
+    # Ensure offload folder exists if provided
+    offload_folder = cfg.experiment.model.get("offload_folder", None)
+    if offload_folder:
+        Path(offload_folder).mkdir(parents=True, exist_ok=True)
+
+    model = AutoModelForCausalLM.from_pretrained(
+        src,
         device_map=cfg.experiment.model.device_map,
         dtype=torch_dtype,
-        quantization_config=quantization_config,
+        quantization_config=quant_cfg,
         local_files_only=True,
+        offload_folder=offload_folder,
     )
 
     if bool(cfg.experiment.model.get("gradient_checkpointing", True)):
@@ -259,38 +288,37 @@ def main(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
     print("#" * 50)
     try:
-        out_dir = HydraConfig.get().runtime.output_dir
-        print(f"Resolved Hydra output_dir: {out_dir}")
+        print(f"Resolved Hydra output_dir: {HydraConfig.get().runtime.output_dir}")
     except Exception as e:
         print(f"Could not access Hydra output_dir: {e}")
 
-    # Set random seed
     if cfg.experiment.seed is not None:
-        print(f"Setting seed: {cfg.experiment.seed}")
         pl.seed_everything(int(cfg.experiment.seed), workers=True)
 
-    # Build model and tokenizer
     model, tokenizer = build_model_and_tokenizer(cfg)
 
-    # Data module: strictly local
-    ds_path = cfg.experiment.data.local_path
-    print(f"Loading dataset from local path: {ds_path}")
     dm = ArxivDataModule(
         tokenizer=tokenizer,
-        local_path=ds_path,
+        local_path=cfg.experiment.data.local_path,
         max_seq_len=cfg.experiment.data.max_seq_length,
         batch_size=cfg.experiment.data.batch_size,
         shuffle=True,
     )
 
-    # Lightning module
     lit_module = PeftCausalLMModule(
         model=model,
         lr=cfg.experiment.training.lr,
         weight_decay=cfg.experiment.training.weight_decay,
     )
 
-    # Trainer
+    # Inject MLflow tracking config into hparams for visibility in hooks
+    setattr(lit_module.hparams, "mlflow_tracking_uri", cfg.paths.get("mlflow_tracking_uri", None))
+    setattr(lit_module.hparams, "mlflow_experiment_name", cfg.experiment.get("mlflow", {}).get("experiment_name", None))
+
+    # Direct Lightning logs to the project logs folder
+    project_root = Path(cfg.paths.project_root)
+    lightning_logs_dir = project_root / "experiments" / "logs" / "lighning_logs"
+
     trainer = pl.Trainer(
         max_epochs=cfg.experiment.trainer.max_epochs,
         devices=cfg.experiment.trainer.devices,
@@ -300,16 +328,20 @@ def main(cfg: DictConfig):
         accumulate_grad_batches=cfg.experiment.trainer.accumulate_grad_batches,
         log_every_n_steps=cfg.experiment.trainer.log_every_n_steps,
         val_check_interval=cfg.experiment.trainer.val_check_interval,
-        num_sanity_val_steps=0,  # disable sanity check to reduce initial memory spikes
+        num_sanity_val_steps=0,
+        default_root_dir=str(lightning_logs_dir),
     )
 
-    # Fit
     trainer.fit(lit_module, datamodule=dm)
 
-    # Save adapter
     try:
-        out_dir = Path(HydraConfig.get().runtime.output_dir)
-        save_dir = out_dir / "adapter"
+        # Prefer explicit output path from config, fallback to Hydra output_dir
+        cfg_save_dir = cfg.experiment.get("output", {}).get("save_dir", None)
+        if cfg_save_dir is not None:
+            save_dir = Path(cfg_save_dir)
+        else:
+            out_dir = Path(HydraConfig.get().runtime.output_dir)
+            save_dir = out_dir / "adapter"
         save_dir.mkdir(parents=True, exist_ok=True)
         lit_module.model.save_pretrained(save_dir)
         tokenizer.save_pretrained(save_dir)

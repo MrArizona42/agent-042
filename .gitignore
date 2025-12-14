@@ -210,4 +210,5 @@ __marimo__/
 /experiments/outputs/
 /experiments/logs/
 /assets/models/
-/experiments/scripts/lightning_logs/
+/assets/newly_trained/
+

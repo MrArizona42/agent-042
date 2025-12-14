@@ -1,14 +1,14 @@
 seed: 42
 
 model:
-  name_or_path: "mistralai/Mistral-7B-v0.1"
   dtype: "bfloat16"
   device_map: "auto"
   load_in_4bit: true
   bnb_4bit_use_double_quant: true
   bnb_4bit_quant_type: "nf4"
   gradient_checkpointing: true
-  local_path: "${paths.project_root}/assets/models/mistralai/Mistral-7B-v0.1"  # point to the dataset dir
+  local_path: "${paths.project_root}/assets/models/ministral/Ministral-3b-instruct"
+  offload_folder: "${paths.project_root}/assets/models/offload"
 
 lora:
   r: 2
@@ -19,7 +19,7 @@ lora:
 data:
   max_seq_length: 32
   batch_size: 1
-  local_path: "${paths.project_root}/assets/datasets/arxiv-summarization-01"  # pre-fetched dataset location
+  local_path: "${paths.project_root}/assets/datasets/arxiv-summarization-01"
 
 training:
   lr: 2e-4
@@ -32,5 +32,8 @@ trainer:
   precision: "bf16-mixed"
   gradient_clip_val: 1.0
   accumulate_grad_batches: 16
-  log_every_n_steps: 2
-  val_check_interval: 2
+  log_every_n_steps: 100
+  val_check_interval: 100
+
+output:
+  save_dir: "${paths.project_root}/assets/newly_trained/${now:%Y-%m-%d}/${now:%H-%M-%S}"
