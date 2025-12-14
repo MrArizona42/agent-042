@@ -1,7 +1,32 @@
-This folder holds all research/experiments logic.
+# Как проводить эксперименты
+## Структура директории
+* `./conf` - Hydra конфиги
+* `./scripts` - Скрипты экспериментов
 
-Structure:
-- agent-042/experiments/conf/ — Hydra configuration tree.
-- agent-042/experiments/scripts/ — all scripts: load data, models, run experiments.
-- agent-042/experiments/assets-hydra-logs/ - logs of Hydra-configured data / models loading
-- agent-042/experiments/train-hydra-logs/ - logs of Hydra-configured model training
+## DVC
+Remote хранилище называется ycloud
+
+**Базовые команды DVC**
+
+- `dvc init`: Инициализирует DVC в проекте (если ещё не сделано).
+- `dvc add <file_or_dir>`: Добавляет файл или директорию под контроль DVC (например, `dvc add data/`).
+- `dvc push`: Отправляет добавленные данные в удалённое хранилище (ycloud).
+- `dvc pull`: Загружает данные из удалённого хранилища.
+- `dvc repro`: Воспроизводит пайплайн эксперимента (на основе dvc.yaml).
+- `dvc status`: Проверяет статус изменений в данных и пайплайнах.
+
+Для настройки remote используется конфигурация в `.dvc/config`. Подробности в документации DVC.
+
+Все используемые данные необходимо версионировать в DVC!
+
+## Hydra и конфигурирование
+
+
+
+## Примеры
+
+Пример скачивания датасета из Hugging Face:
+```bash
+# если находимся в корне проекта
+python ./experiments/scripits/prefetch_data.py paths.project_root=<YOUR PROJECT ROOT>
+```
