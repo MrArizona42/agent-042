@@ -1,19 +1,56 @@
-1. Установить [UV-менеджер](https://docs.astral.sh/uv/getting-started/installation/)
-2. Запустить команду для синхронизации окружения:
+# Настройка окружения
+
+## Требования:
+* сервер с GPU
+
+## Настройка инфраструктуры:
+### Yandex Cloud S3
+
+См. отдельный файл
+
+### UV-менеджер
+
+* Установить [UV-менеджер](https://docs.astral.sh/uv/getting-started/installation/)
+* Запустить команду для синхронизации окружения:
 ```bash
 uv sync
 ```
-3. Добавить креды Yandex Cloud в файл `agent-042/.dvc/config.local`:
+
+### MLFlow tracking server
+MLFlow разворачивается в докере на удаленном сервере.
+* Подключен к S3, но НЕ ПРОКСИРУЕТ артефакты.
+* По этой причине при логировании артефактов в среде выполнения экспериментов нужно иметь 
+  креды от S3 в системных переменных
+* Бэкэнд хранилище - PostgreSQL. Доступно только изнутри Докер сети.
+
+Для разворачивания MLFlow достаточно запустить docker-compose при наличии соответствующих 
+системных переменных. Пример - `.env.example`.
+```bash
+# если находимся в корне проекта
+cd ./infra/compose/
+# тут должен лежать .env, либо системные переменные должны быть заданы любым другим способом
+sudo docker compose up --build -d
+```
+
+### DVC с бэкэндом Yandex Cloud S3.
+
+* После команды `uv sync` dvc должен быть уже установлен
+* Добавить креды Yandex Cloud в файл `agent-042/.dvc/config.local`:
 ```text
 ['remote "ycloud"']
     access_key_id = YCA...
     secret_access_key = YCM...
 ```
-4. Сделать dvc pull для скачивания данных:
+* Сделать dvc pull для скачивания данных:
 ```bash
 dvc pull -r ycloud
 ```
-Опционально, можно скачать датасет напрямую из Hugging Face, запустив скрипт 
-`agent-042/experiments/scripits/prefetch_data.py`.
-5. Скачать базовую модель Mistral 7B, запустив скрипт 
-   `agent-042/experiments/scripts/prefetch_model.py`.
+* Опционально, можно скачать датасет напрямую из Hugging Face, запустив скрипт 
+```bash
+agent-042/experiments/scripits/prefetch_data.py --paths.project-root=<YOUR PROJECT ROOT>
+```
+* Скачать базовую модель Mistral 7B, запустив скрипт
+
+```bash
+agent-042/experiments/scripts/prefetch_model.py --paths.project-root=<YOUR PROJECT ROOT>
+```
