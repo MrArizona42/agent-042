@@ -54,68 +54,44 @@ except Exception:
 
 class ArxivDataModule(pl.LightningDataModule):
     """
-    Lightning DataModule that strictly loads pre-fetched local Hugging Face datasets from a path.
+    Minimal, local-only LightningDataModule.
 
-    Expects a dataset saved via `datasets.load_from_disk(path)`
-    that contains 'train' and 'validation' splits
-    with columns 'article' and 'abstract'. No network calls are made.
+    - Loads local HF dataset (train + validation)
+    - Prepares token ids per example with a simple prompt
+    - Uses tokenizer.pad at collate time for clean padding & attention masks
     """
 
     def __init__(
         self,
         tokenizer: PreTrainedTokenizerBase,
         local_path: str,
-        train_split: str,
-        val_split: str,
         max_seq_len: int,
         batch_size: int,
-        num_workers: int,
         shuffle: bool,
     ):
         super().__init__()
         self.tokenizer: PreTrainedTokenizerBase = tokenizer
         self.local_path = str(local_path)
-        self.train_split = train_split
-        self.val_split = val_split
         self.max_seq_len = int(max_seq_len)
         self.batch_size = int(batch_size)
-        self.num_workers = int(num_workers)
         self.shuffle = bool(shuffle)
         self.ds_train = None
         self.ds_val = None
-        # Cache pad id for collate
-        self.pad_id: int = (
-            self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
-        )
+        # Ensure pad token id
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+        self.pad_id: int = int(self.tokenizer.pad_token_id)
 
     def setup(self, stage: Optional[str] = None) -> None:
-        # Validate local dataset path
-        assert Path(self.local_path).exists(), f"Local dataset path not found: {self.local_path}"
-        # Load dataset strictly from local disk
         ds_dict = load_from_disk(self.local_path)
-        assert "train" in ds_dict and "validation" in ds_dict, (
-            "Local dataset must contain 'train' and 'validation' splits"
-        )
-        ds_train = ds_dict["train"]
-        ds_val = ds_dict["validation"]
-        # Validate expected columns exist to avoid runtime errors
-        expected_cols = {"article", "abstract"}
-        missing_train = expected_cols - set(ds_train.column_names)
-        missing_val = expected_cols - set(ds_val.column_names)
-        assert not missing_train, f"Train split missing columns: {missing_train}"
-        assert not missing_val, f"Validation split missing columns: {missing_val}"
-        ds_train = _apply_simple_slice(ds_train, self.train_split)
-        ds_val = _apply_simple_slice(ds_val, self.val_split)
-        # Attach lazy transform
-        self.ds_train = self._attach_transform(ds_train)
-        self.ds_val = self._attach_transform(ds_val)
+
+        self.ds_train = self._attach_transform(ds_dict["train"])
+        self.ds_val = self._attach_transform(ds_dict["validation"])
 
     def _attach_transform(self, ds):
         max_len = int(self.max_seq_len)
-        pad_id = self.pad_id
 
         def as_text(x: Any) -> str:
-            # Robustly convert values to text for tokenization
             if x is None:
                 return ""
             if isinstance(x, (str, bytes)):
@@ -129,29 +105,44 @@ class ArxivDataModule(pl.LightningDataModule):
                 "Summarize the following article into an abstract:\n\n"
                 f"Article:\n{art}\n\nAbstract:\n"
             )
-            # Tokenize prompt and target safely
-            prompt_ids = self.tokenizer.encode(prompt, truncation=True, max_length=max_len)
-            target_ids = self.tokenizer.encode(abs_, truncation=True, max_length=max_len)
+            # Encode prompt and target separately (no padding yet)
+            prompt_ids = self.tokenizer.encode(
+                prompt, truncation=True, max_length=max_len, add_special_tokens=False
+            )
+            target_ids = self.tokenizer.encode(
+                abs_, truncation=True, max_length=max_len, add_special_tokens=False
+            )
             input_ids = (prompt_ids + target_ids)[:max_len]
-            labels_ids = ([-100] * len(prompt_ids) + target_ids)[:max_len]
-            if len(input_ids) < max_len:
-                pad_len = max_len - len(input_ids)
-                input_ids = input_ids + [pad_id] * pad_len
-                labels_ids = labels_ids + [-100] * pad_len
-            return {"input_ids": input_ids, "labels": labels_ids}
+            prompt_len = min(len(prompt_ids), max_len)
+            # Defer padding to collate_fn via tokenizer.pad for clean attention_mask
+            return {"input_ids": input_ids, "prompt_len": prompt_len}
 
         ds.set_transform(transform)
         return ds
 
     def collate_fn(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        def to_tensor(x):
-            if isinstance(x, torch.Tensor):
-                return x
-            return torch.tensor(x, dtype=torch.long)
+        # Use tokenizer.pad to build nicely padded input_ids and attention_mask
+        features = {"input_ids": [ex["input_ids"] for ex in batch]}
+        padded = self.tokenizer.pad(
+            features,
+            padding=True,
+            max_length=self.max_seq_len,
+            return_tensors="pt",
+        )
+        input_ids: torch.Tensor = padded["input_ids"]  # (B, T)
+        attention_mask: torch.Tensor = padded["attention_mask"]  # (B, T)
 
-        input_ids = torch.stack([to_tensor(x["input_ids"]) for x in batch])
-        labels = torch.stack([to_tensor(x["labels"]) for x in batch])
-        attention_mask = (input_ids != self.pad_id).long()
+        # Build labels: copy input_ids, mask out prompt and pad positions with -100
+        labels: torch.Tensor = input_ids.clone()
+        # Mask pads
+        labels = labels.masked_fill(attention_mask.eq(0), -100)
+        # Mask prompt tokens per sample
+        for i, ex in enumerate(batch):
+            p_len = int(ex.get("prompt_len", 0))
+            if p_len > 0:
+                upto = min(p_len, labels.shape[1])
+                labels[i, :upto] = -100
+
         return {"input_ids": input_ids, "labels": labels, "attention_mask": attention_mask}
 
     def train_dataloader(self) -> DataLoader:
@@ -159,7 +150,6 @@ class ArxivDataModule(pl.LightningDataModule):
             self.ds_train,
             batch_size=self.batch_size,
             shuffle=self.shuffle,
-            num_workers=self.num_workers,
             collate_fn=self.collate_fn,
             pin_memory=True,
         )
@@ -169,7 +159,6 @@ class ArxivDataModule(pl.LightningDataModule):
             self.ds_val,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=self.num_workers,
             collate_fn=self.collate_fn,
             pin_memory=True,
         )
@@ -264,28 +253,6 @@ def build_model_and_tokenizer(cfg: DictConfig) -> Tuple[Any, PreTrainedTokenizer
     return model, tokenizer
 
 
-def _apply_simple_slice(ds, slice_spec: str):
-    """Apply a very small subset parser for patterns like 'train[:1%]' or 'validation[:1000]'."""
-    try:
-        if not slice_spec or "[:]" in slice_spec:
-            return ds
-        start = slice_spec.find("[:")
-        end = slice_spec.find("]", start)
-        if start == -1 or end == -1:
-            return ds
-        token = slice_spec[start + 2 : end]
-        n = len(ds)
-        if token.endswith("%"):
-            pct = float(token[:-1])
-            k = max(1, int(n * pct / 100.0))
-            return ds.select(range(k))
-        else:
-            k = int(token)
-            return ds.select(range(min(k, n)))
-    except Exception:
-        return ds
-
-
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
     print("=== Training adapter with config ===")
@@ -311,11 +278,8 @@ def main(cfg: DictConfig):
     dm = ArxivDataModule(
         tokenizer=tokenizer,
         local_path=ds_path,
-        train_split=cfg.experiment.data.train_split,
-        val_split=cfg.experiment.data.val_split,
         max_seq_len=cfg.experiment.data.max_seq_length,
         batch_size=cfg.experiment.data.batch_size,
-        num_workers=cfg.experiment.data.num_workers,
         shuffle=True,
     )
 
