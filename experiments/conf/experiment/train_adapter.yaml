@@ -1,39 +1,66 @@
 seed: 42
 
 model:
-  dtype: "bfloat16"
+  dtype: "float16"  # RTX 3060 lacks native bf16 so fp16 avoids slow emulation paths
   device_map: "auto"
   load_in_4bit: true
   bnb_4bit_use_double_quant: true
   bnb_4bit_quant_type: "nf4"
+  bnb_4bit_compute_dtype: "float32"  # Keep compute dtype aligned with supported precision to avoid casts
   gradient_checkpointing: true
   local_path: "${paths.project_root}/assets/models/ministral/Ministral-3b-instruct"
   offload_folder: "${paths.project_root}/assets/models/offload"
 
 lora:
-  r: 2
+  r: 8  # Slightly higher rank still fits 12GB while improving capacity
   lora_alpha: 16
   lora_dropout: 0.05
-  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]  # Cover attention and feed-forward blocks for better summarization quality
 
 data:
-  max_seq_length: 32
+  max_seq_length: 768  # Allows enough context without blowing 12GB VRAM
   batch_size: 1
+  num_workers: 2  # Light parallelism keeps CPU/RAM usage modest
   local_path: "${paths.project_root}/assets/datasets/arxiv-summarization-01"
+  prompt_template: | # Keep prompts short yet structured for summarization
+    Summarize the following article into an abstract:
+
+    Article:
+    {article}
+
+    Abstract:
 
 training:
-  lr: 2e-4
-  weight_decay: 0.0
+  lr: 1e-5  # Lower LR stabilizes updates with tiny effective batches
+  weight_decay: 0.01  # Small regularization reduces overfitting on short runs
+
+scheduler:
+  enabled: true  # Linear warmup prevents loss spikes during the first steps
+  type: "linear_warmup"  # Matches the LinearLR scheduler used in the trainer
+  warmup_steps: 100  # Short warmup suits quick educational runs
+  start_factor: 0.05  # Begin at 10% LR to ease into training
+  interval: "step"  # Step-wise updates align with Lightning default cadence
+  frequency: 1  # Apply the scheduler every step for smooth ramps
+  T_max: 100
+  eta_min: 0.0
 
 trainer:
   max_epochs: 1
   devices: 1
-  accelerator: "auto"
-  precision: "bf16-mixed"
+  accelerator: "gpu"  # Forces Lightning to stay on the CUDA device instead of falling back to CPU
+  precision: "32-true"  # Consumer 30-series supports fp16 mixed precision reliably
   gradient_clip_val: 1.0
-  accumulate_grad_batches: 16
-  log_every_n_steps: 100
-  val_check_interval: 100
+  accumulate_grad_batches: 8  # Keeps effective batch reasonable while fitting VRAM
+  log_every_n_steps: 10  # Frequent logs help monitor short experiments
+  val_check_interval: 0.25  # Validate four times per epoch to catch divergence early
 
 output:
   save_dir: "${paths.project_root}/assets/newly_trained/${now:%Y-%m-%d}/${now:%H-%M-%S}"
+
+mlflow:
+  log_artifacts: true # requires s3 with creds in .env
+  log_metrics: true
+  log_params: true
+  experiment_name: "train_adapter"
+  run_name: "train_adapter"
+  env_path: "experiments/.env" # relative to project root
