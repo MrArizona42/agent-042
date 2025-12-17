@@ -41,16 +41,5 @@ sudo docker compose up --build -d
     access_key_id = YCA...
     secret_access_key = YCM...
 ```
-* Сделать dvc pull для скачивания данных:
-```bash
-dvc pull -r ycloud
-```
-* Опционально, можно скачать датасет напрямую из Hugging Face, запустив скрипт 
-```bash
-agent-042/experiments/scripits/prefetch_data.py --paths.project-root=<YOUR PROJECT ROOT>
-```
-* Скачать базовую модель ministral-3b-instruct, запустив скрипт
 
-```bash
-agent-042/experiments/scripts/prefetch_model.py --paths.project-root=<YOUR PROJECT ROOT>
-```
+Про обращение с данными см. в agent-042/experiments/README.md
