@@ -49,7 +49,7 @@ dvc pull -r ycloud
 ```bash
 agent-042/experiments/scripits/prefetch_data.py --paths.project-root=<YOUR PROJECT ROOT>
 ```
-* Скачать базовую модель Mistral 7B, запустив скрипт
+* Скачать базовую модель ministral-3b-instruct, запустив скрипт
 
 ```bash
 agent-042/experiments/scripts/prefetch_model.py --paths.project-root=<YOUR PROJECT ROOT>

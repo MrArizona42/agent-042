@@ -1,7 +1,7 @@
 defaults:
   - paths: paths_config
-  - assets/dataset: default
-  - assets/model: mistral-7b
+  - assets/dataset: arxiv-summarization-01
+  - assets/model: ministral-3b-instruct
   - _self_
 
 hydra:
