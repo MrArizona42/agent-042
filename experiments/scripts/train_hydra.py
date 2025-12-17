@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-
 import hydra
 from omegaconf import DictConfig
-
 from train_adapter.config import load_app_config
 from train_adapter.pipeline import run_training
 

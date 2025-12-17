@@ -120,4 +120,3 @@ class ArxivDataModule(pl.LightningDataModule):
             collate_fn=self._collate,
             pin_memory=torch.cuda.is_available(),
         )
-

@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 
 import dotenv
-from hydra.core.hydra_config import HydraConfig
 import mlflow
+from hydra.core.hydra_config import HydraConfig
 from pytorch_lightning.loggers import MLFlowLogger
 
 from .config import AppConfig
@@ -73,7 +73,9 @@ def log_hydra_artifacts_via_logger(mlf_logger: MLFlowLogger) -> None:
         runtime = HydraConfig.get().runtime
         out_dir = Path(runtime.output_dir) if runtime and runtime.output_dir else None
         if out_dir and out_dir.exists():
-            mlf_logger.experiment.log_artifacts(mlf_logger.run_id, str(out_dir), artifact_path="hydra")
+            mlf_logger.experiment.log_artifacts(
+                mlf_logger.run_id, str(out_dir), artifact_path="hydra"
+            )
             logger.info("Uploaded Hydra artifacts from %s", out_dir)
     except Exception as e:
         logger.warning("Hydra artifact upload failed: %s", e)

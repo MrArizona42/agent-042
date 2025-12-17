@@ -132,7 +132,7 @@ python ./experiments/scripts/train_hydra.py --info
 
 ### Запуск скриптов с конфигами Hydra
 
-Возможно, это лишнее, но скачивание датасета и моделей из Hugging Face было сделано тоже через 
+Возможно, это лишнее, но скачивание датасета и моделей из Hugging Face было сделано тоже через
 Hydra конфиги.
 
 1) **Скачивание датасета (scripts/prefetch_data.py)**
@@ -258,12 +258,12 @@ python ./experiments/scripts/train_hydra.py -m \
 
 - Нативные логи Python: подхватываются Hydra и сохраняются в ту же папку (`hydra.run.dir`).
 
-- Логи Lightning: `experiments/logs/lightning_logs/...`. Lightning логирует локально только 
+- Логи Lightning: `experiments/logs/lightning_logs/...`. Lightning логирует локально только
   чекпойнты по настройкам Trainer/Callbacks (если включены).
 
 - Логи MLflow: через MLFlow проходят:
   - Метрики и параметры - триггерятся через Lightning, можно отслеживать обучение в MLFlow UI
-  - Вся папка Hydra - отправляется в Yandex Cloud (триггерится MLFlow, но НЕ проксируются через 
+  - Вся папка Hydra - отправляется в Yandex Cloud (триггерится MLFlow, но НЕ проксируются через
     MLFlow server!)
 
 - Базовый корень для относительных путей: `paths.project_root` (обязательно указывайте корректный

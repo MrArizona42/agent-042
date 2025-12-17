@@ -6,7 +6,12 @@ from typing import Any, Tuple
 
 import torch
 from peft import LoraConfig, get_peft_model
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, PreTrainedTokenizerBase
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    PreTrainedTokenizerBase,
+)
 
 from .config import AppConfig
 
@@ -30,12 +35,18 @@ def build_model_and_tokenizer(cfg: AppConfig) -> Tuple[Any, PreTrainedTokenizerB
     dtype_str = model_cfg.dtype
     torch_dtype = getattr(torch, dtype_str)
 
-    quant_cfg = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_use_double_quant=model_cfg.bnb_4bit_use_double_quant,
-        bnb_4bit_quant_type=model_cfg.bnb_4bit_quant_type,
-        bnb_4bit_compute_dtype=getattr(torch, model_cfg.bnb_4bit_compute_dtype) if model_cfg.bnb_4bit_compute_dtype else torch_dtype,
-    ) if load_in_4bit else None
+    quant_cfg = (
+        BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=model_cfg.bnb_4bit_use_double_quant,
+            bnb_4bit_quant_type=model_cfg.bnb_4bit_quant_type,
+            bnb_4bit_compute_dtype=getattr(torch, model_cfg.bnb_4bit_compute_dtype)
+            if model_cfg.bnb_4bit_compute_dtype
+            else torch_dtype,
+        )
+        if load_in_4bit
+        else None
+    )
 
     offload_folder = model_cfg.offload_folder
     if offload_folder:
@@ -71,4 +82,3 @@ def build_model_and_tokenizer(cfg: AppConfig) -> Tuple[Any, PreTrainedTokenizerB
 
     model.print_trainable_parameters()
     return model, tokenizer
-

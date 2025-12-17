@@ -25,7 +25,12 @@ class PeftCausalLMModule(LightningModule):
         self.scheduler_cfg = scheduler_cfg or {}
         self._last_step_t: Optional[float] = None
 
-    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor, labels: Optional[torch.Tensor] = None):
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        labels: Optional[torch.Tensor] = None,
+    ):
         if input_ids.ndim == 1:
             input_ids = input_ids.unsqueeze(0)
         if attention_mask.ndim == 1:
@@ -46,9 +51,10 @@ class PeftCausalLMModule(LightningModule):
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
 
         # Additional metrics routed through Lightning's logger
-        step = int(self.global_step)
         opt = self.trainer.optimizers[0] if self.trainer and self.trainer.optimizers else None
-        lr = float(opt.param_groups[0]["lr"]) if opt and opt.param_groups else float(self.hparams.lr)
+        lr = (
+            float(opt.param_groups[0]["lr"]) if opt and opt.param_groups else float(self.hparams.lr)
+        )
         self.log("learning_rate", lr, on_step=True, prog_bar=False, logger=True)
 
         tokens = float(batch["attention_mask"].to(torch.float32).sum().item())
@@ -56,7 +62,9 @@ class PeftCausalLMModule(LightningModule):
         self.log("tokens_per_second", tokens / elapsed, on_step=True, prog_bar=False, logger=True)
         if torch.cuda.is_available():
             mem_mb = torch.cuda.memory_allocated(device=self.device) / 1e6
-            self.log("gpu_memory_allocated_mb", float(mem_mb), on_step=True, prog_bar=False, logger=True)
+            self.log(
+                "gpu_memory_allocated_mb", float(mem_mb), on_step=True, prog_bar=False, logger=True
+            )
         self._last_step_t = time.perf_counter()
 
         return loss

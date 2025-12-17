@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Tuple, Any, Dict
+from typing import Any, Dict, Tuple
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -10,7 +10,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from .config import AppConfig
 from .data_module import ArxivDataModule
 from .lit_module import PeftCausalLMModule
-from .mlflow_utils import setup_mlflow, teardown_mlflow, log_hydra_artifacts_via_logger
+from .mlflow_utils import log_hydra_artifacts_via_logger, setup_mlflow, teardown_mlflow
 from .modeling import build_model_and_tokenizer
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,9 @@ def run_training(cfg: AppConfig) -> Tuple[str, str]:
 
         # Upload saved adapter/tokenizer as MLflow artifacts
         try:
-            mlf_logger.experiment.log_artifacts(mlf_logger.run_id, str(save_dir), artifact_path="model")
+            mlf_logger.experiment.log_artifacts(
+                mlf_logger.run_id, str(save_dir), artifact_path="model"
+            )
         except Exception as e:
             logger.warning("Failed to log model artifacts: %s", e)
 
