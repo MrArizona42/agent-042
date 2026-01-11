@@ -75,6 +75,60 @@ services:
 
     restart: unless-stopped
 
+  # =====================
+  # vLLM OpenAI-compatible server
+  # =====================
+  vllm:
+    image: vllm/vllm-openai:latest
+
+    # Allow switching between HF ID and local path under /models
+    environment:
+      VLLM_MODEL: ${VLLM_MODEL}
+      VLLM_DTYPE: ${VLLM_DTYPE}
+      VLLM_QUANT: ${VLLM_QUANT}
+      VLLM_GPU_UTIL: ${VLLM_GPU_UTIL}
+      VLLM_KV_CACHE_DTYPE: ${VLLM_KV_CACHE_DTYPE}
+      HF_HOME: /models/.cache
+    command: [
+      "--model", "${VLLM_MODEL}",
+      "--dtype", "${VLLM_DTYPE}",
+      "--tensor-parallel-size", "${VLLM_GPU_COUNT}",
+      "--gpu-memory-utilization", "${VLLM_GPU_UTIL}",
+      "--kv-cache-dtype", "${VLLM_KV_CACHE_DTYPE}",
+      "--quantization", "${VLLM_QUANT}",
+      "--host", "0.0.0.0",
+      "--port", "${VLLM_PORT}"
+    ]
+
+    # Expose public API
+    ports:
+      - "${VLLM_PORT}:${VLLM_PORT}"
+
+    # Mount repo models so you can set VLLM_MODEL to a local path e.g. /models/ministral/Ministral-3b-instruct
+    volumes:
+      - ${PROJECT_ROOT}/assets/models:/models:rw
+
+    # GPU access via modern Compose syntax
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${VLLM_GPU_COUNT}
+              capabilities: [gpu]
+
+    # Healthcheck against OpenAI models endpoint
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${VLLM_PORT}/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+    networks:
+      - ml_platform
+
+    restart: unless-stopped
+
 # =====================
 # Persistent volumes
 # =====================
