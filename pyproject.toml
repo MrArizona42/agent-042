@@ -23,6 +23,13 @@ dependencies = [
     "torch>=2.9.0",
     "transformers>=4.57.3",
     "vllm>=0.13.0",
+
+    # --- runtime deps for gateway + UI ---
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.10.1",
+    "requests>=2.32.4",
+    "streamlit>=1.41.1",
+    "uvicorn[standard]>=0.35.0",
 ]
 
 

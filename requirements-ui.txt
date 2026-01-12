@@ -1,0 +1,8 @@
+# Minimal dependencies for the Streamlit UI service
+# This file contains only what's needed to run the UI microservice
+
+# UI framework
+streamlit>=1.41.1
+
+# HTTP client for gateway communication
+requests>=2.32.4

@@ -97,12 +97,12 @@ services:
       "--kv-cache-dtype", "${VLLM_KV_CACHE_DTYPE}",
       "--quantization", "${VLLM_QUANT}",
       "--host", "0.0.0.0",
-      "--port", "${VLLM_PORT}"
+      "--port", "8000"
     ]
 
     # Expose public API
     ports:
-      - "${VLLM_PORT}:${VLLM_PORT}"
+      - "${VLLM_PORT}:8000"
 
     # Mount repo models so you can set VLLM_MODEL to a local path e.g. /models/ministral/Ministral-3b-instruct
     volumes:
@@ -123,6 +123,51 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+
+    networks:
+      - ml_platform
+
+    restart: unless-stopped
+
+  # =====================
+  # Agent Gateway (FastAPI)
+  # =====================
+  gateway:
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: docker/gateway/Dockerfile
+
+    environment:
+      GATEWAY_VLLM_BASE_URL: ${GATEWAY_VLLM_BASE_URL}
+      GATEWAY_DEFAULT_MODEL: ${VLLM_MODEL}
+
+    ports:
+      - "${GATEWAY_PORT}:9000"
+
+    depends_on:
+      - vllm
+
+    networks:
+      - ml_platform
+
+    restart: unless-stopped
+
+  # =====================
+  # Agent UI (Streamlit)
+  # =====================
+  ui:
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: docker/ui/Dockerfile
+
+    environment:
+      GATEWAY_URL: ${GATEWAY_URL}
+
+    ports:
+      - "${UI_PORT}:8501"
+
+    depends_on:
+      - gateway
 
     networks:
       - ml_platform
