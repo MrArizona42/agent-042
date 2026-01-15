@@ -130,6 +130,24 @@ services:
     restart: unless-stopped
 
   # =====================
+  # Qdrant Vector Database
+  # =====================
+  qdrant:
+    image: qdrant/qdrant:latest
+
+    ports:
+      - "${QDRANT_PORT}:6333"
+      - "6334:6334"  # gRPC port
+
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+    networks:
+      - ml_platform
+
+    restart: unless-stopped
+
+  # =====================
   # Agent Gateway (FastAPI)
   # =====================
   gateway:
@@ -140,12 +158,17 @@ services:
     environment:
       GATEWAY_VLLM_BASE_URL: ${GATEWAY_VLLM_BASE_URL}
       GATEWAY_DEFAULT_MODEL: ${VLLM_MODEL}
+      GATEWAY_QDRANT_HOST: ${GATEWAY_QDRANT_HOST}
+      GATEWAY_QDRANT_PORT: ${GATEWAY_QDRANT_PORT}
+      GATEWAY_RAG_ENABLED: ${GATEWAY_RAG_ENABLED}
+      GATEWAY_EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
 
     ports:
       - "${GATEWAY_PORT}:9000"
 
     depends_on:
       - vllm
+      - qdrant
 
     networks:
       - ml_platform
@@ -179,6 +202,7 @@ services:
 # =====================
 volumes:
   mlflow_pg_data:
+  qdrant_data:
 
 # =====================
 # Docker network

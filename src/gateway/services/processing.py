@@ -1,18 +1,32 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, AsyncIterator, Dict
 
 from gateway.config import get_settings
 from gateway.schemas.openai_chat import ChatCompletionRequest
 from gateway.services.prompt_builder import PromptBuilder
+from gateway.services.rag_service import RAGService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class _ProcessChat:
     def __init__(self) -> None:
         self._router = RuleBasedTaskRouter()
         self._prompt_builder = PromptBuilder()
+
+        # Initialize RAG service
+        try:
+            settings = get_settings()
+            self._rag_service = RAGService(settings)
+        except Exception as e:
+            logger.error(f"Failed to initialize RAG service: {e}")
+            self._rag_service = None
 
     def _client(self) -> VllmOpenAIClient:
         s = get_settings()
@@ -25,7 +39,33 @@ class _ProcessChat:
         # Decide task based on last user message (or fallback).
         last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
         decision = self._router.decide(last_user)
-        prompt = self._prompt_builder.build_system_prompt(task=decision.task, rag_mode="off")
+
+        # Try to retrieve RAG context
+        retrieved_context = None
+        rag_mode = "off"
+
+        if self._rag_service and self._rag_service.enabled:
+            try:
+                logger.info(f"RAG - trying to retrieve context in task: {decision.task}")
+                retrieved_context = self._rag_service.retrieve_context(
+                    query=last_user,
+                    task=decision.task,
+                    top_k=5,
+                )
+                if retrieved_context:
+                    rag_mode = "on"
+                    logger.info(f"RAG context retrieved for task: {decision.task}")
+                else:
+                    logger.info(f"RAG context has not been retrieved for task: {decision.task}")
+            except Exception as e:
+                logger.error(f"Error retrieving RAG context: {e}")
+
+        prompt = self._prompt_builder.build_system_prompt(
+            task=decision.task,
+            rag_mode=rag_mode,
+            retrieved_context=retrieved_context,
+        )
+        logger.info(f"RAG built system prompt: {prompt.system_prompt}")
 
         messages = list(req.messages)
         if not any(m.role == "system" for m in messages):

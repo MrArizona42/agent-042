@@ -31,6 +31,12 @@ class GatewaySettings(BaseSettings):
     service_name: str = Field(default="agent-042-gateway")
     public_base_url: str | None = Field(default=None)
 
+    # RAG configuration
+    qdrant_host: str = Field(default="localhost")
+    qdrant_port: int = Field(default=6333)
+    rag_enabled: bool = Field(default=True)
+    embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
+
 
 def get_settings() -> GatewaySettings:
     return GatewaySettings()

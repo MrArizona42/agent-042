@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install python deps
 COPY requirements-gateway.txt /app/
-RUN pip install --no-cache-dir -r requirements-gateway.txt
+RUN pip install -r requirements-gateway.txt
 
 # Copy source
 COPY src /app/src

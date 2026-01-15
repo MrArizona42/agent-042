@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -9,7 +10,12 @@ class PromptBuildResult:
 
 
 class PromptBuilder:
-    def build_system_prompt(self, task: str, rag_mode: str = "off") -> PromptBuildResult:
+    def build_system_prompt(
+        self,
+        task: str,
+        rag_mode: str = "off",
+        retrieved_context: Optional[str] = None,
+    ) -> PromptBuildResult:
         base = "You are an AI assistant for ML/DL/AI/LLM researchers."
 
         if task == "summarize":
@@ -27,9 +33,19 @@ class PromptBuilder:
         else:
             sys = base + " Answer concisely, but include important caveats."
 
-        if rag_mode != "off":
-            # Stub for future RAG augmentation.
-            sys += "\n\n(You may receive additional retrieved context snippets; use them when relevant.)"
+        # Add RAG context if available
+        if retrieved_context:
+            sys += (
+                "\n\n--- RETRIEVED CONTEXT ---\n"
+                "Below is relevant information retrieved from the knowledge base. "
+                "Use it to provide accurate, well-informed answers. "
+                "Cite sources when appropriate.\n\n"
+                + retrieved_context
+                + "\n--- END CONTEXT ---"
+            )
+        elif rag_mode != "off":
+            # RAG enabled but no context retrieved
+            sys += "\n\n(No relevant context was found in the knowledge base for this query.)"
 
         return PromptBuildResult(system_prompt=sys)
 

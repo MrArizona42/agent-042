@@ -27,9 +27,16 @@ with st.sidebar:
         except Exception as e:
             st.error(str(e))
 
+    st.markdown("---")
+    st.subheader("Model Settings")
     model = st.text_input("Model (optional)", value="")
     temperature = st.slider("temperature", min_value=0.0, max_value=2.0, value=0.7, step=0.05)
     max_tokens = st.number_input("max_tokens", min_value=1, value=512, step=1)
+
+    st.markdown("---")
+    st.subheader("RAG Settings")
+    st.info("RAG is automatically enabled on the gateway. The system will retrieve relevant context from the knowledge base based on your query.")
+    st.caption("Available collections: chat (ArXiv papers), code (PyTorch docs)")
 
 
 if "messages" not in st.session_state:

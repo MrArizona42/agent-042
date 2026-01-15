@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-ui.txt /app/
-RUN pip install --no-cache-dir -r requirements-ui.txt
+RUN pip install -r requirements-ui.txt
 
 COPY src /app/src
 
