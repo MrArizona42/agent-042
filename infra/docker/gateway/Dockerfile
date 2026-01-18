@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python deps
-COPY requirements-gateway.txt /app/
+COPY infra/docker/gateway/requirements-gateway.txt /app/
 RUN pip install -r requirements-gateway.txt
 
 # Copy source

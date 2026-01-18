@@ -17,7 +17,13 @@ services:
       - mlflow_pg_data:/var/lib/postgresql/data
 
     networks:
-      - ml_platform
+      - mlflow_db_net
+
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
     restart: unless-stopped
 
@@ -26,8 +32,8 @@ services:
   # =====================
   mlflow:
     build:
-      context: ${PROJECT_ROOT}/docker/mlflow   # where Dockerfile lives
-      dockerfile: Dockerfile
+      context: ${PROJECT_ROOT}   # where Dockerfile lives
+      dockerfile: infra/docker/mlflow/Dockerfile
 
     # Runtime configuration (no secrets baked into image)
     environment:
@@ -48,7 +54,8 @@ services:
 
     # Wait for postgres to be available
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
     # Command extends ENTRYPOINT
     command:
@@ -71,7 +78,7 @@ services:
       retries: 3
 
     networks:
-      - ml_platform
+      - mlflow_db_net
 
     restart: unless-stopped
 
@@ -125,7 +132,7 @@ services:
       retries: 5
 
     networks:
-      - ml_platform
+      - backend_net
 
     restart: unless-stopped
 
@@ -143,7 +150,13 @@ services:
       - qdrant_data:/qdrant/storage
 
     networks:
-      - ml_platform
+      - backend_net
+
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 10
 
     restart: unless-stopped
 
@@ -153,7 +166,7 @@ services:
   gateway:
     build:
       context: ${PROJECT_ROOT}
-      dockerfile: docker/gateway/Dockerfile
+      dockerfile: infra/docker/gateway/Dockerfile
 
     environment:
       GATEWAY_VLLM_BASE_URL: ${GATEWAY_VLLM_BASE_URL}
@@ -167,11 +180,21 @@ services:
       - "${GATEWAY_PORT}:9000"
 
     depends_on:
-      - vllm
-      - qdrant
+      vllm:
+        condition: service_healthy
+      qdrant:
+        # condition: service_healthy
+        condition: service_started
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
     networks:
-      - ml_platform
+      - backend_net
+      - frontend_net
 
     restart: unless-stopped
 
@@ -181,7 +204,7 @@ services:
   ui:
     build:
       context: ${PROJECT_ROOT}
-      dockerfile: docker/ui/Dockerfile
+      dockerfile: infra/docker/ui/Dockerfile
 
     environment:
       GATEWAY_URL: ${GATEWAY_URL}
@@ -190,10 +213,11 @@ services:
       - "${UI_PORT}:8501"
 
     depends_on:
-      - gateway
+      gateway:
+        condition: service_healthy
 
     networks:
-      - ml_platform
+      - frontend_net
 
     restart: unless-stopped
 
@@ -208,5 +232,9 @@ volumes:
 # Docker network
 # =====================
 networks:
-  ml_platform:
+  backend_net:
+    driver: bridge
+  frontend_net:
+    driver: bridge
+  mlflow_db_net:
     driver: bridge

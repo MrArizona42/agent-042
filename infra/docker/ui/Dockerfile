@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements-ui.txt /app/
+COPY infra/docker/ui/requirements-ui.txt /app/
 RUN pip install -r requirements-ui.txt
 
 COPY src /app/src
