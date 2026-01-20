@@ -196,12 +196,6 @@ class Settings(BaseSettings):
         description="Full URL to the gateway (used by UI)",
     )
 
-    # UI timeouts (use UI_ prefix to avoid collision)
-    model_config_extra = SettingsConfigDict(
-        env_prefix="GATEWAY_",
-        extra="ignore",
-    )
-
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):
