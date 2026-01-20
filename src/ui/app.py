@@ -1,24 +1,22 @@
 from __future__ import annotations
 
 import json
-import os
 
 import streamlit as st
 
 from ui.client import GatewayClient
-
-
-def _default_gateway_url() -> str:
-    return os.getenv("GATEWAY_URL", "http://localhost:9001")
-
+from ui.config import get_settings
 
 st.set_page_config(page_title="agent-042", layout="wide")
 
 st.title("agent-042")
 st.caption("Streamlit UI → FastAPI Gateway → vLLM (OpenAI-compatible)")
 
+# Get settings (cached)
+settings = get_settings()
+
 with st.sidebar:
-    gateway_url = st.text_input("Gateway URL", value=_default_gateway_url())
+    gateway_url = st.text_input("Gateway URL", value=settings.url)
     client = GatewayClient(gateway_url)
 
     if st.button("Check health"):
@@ -35,7 +33,10 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("RAG Settings")
-    st.info("RAG is automatically enabled on the gateway. The system will retrieve relevant context from the knowledge base based on your query.")
+    st.info(
+        "RAG is automatically enabled on the gateway."
+        " The system will retrieve relevant context from the knowledge base based on your query."
+    )
     st.caption("Available collections: chat (ArXiv papers), code (PyTorch docs)")
 
 
@@ -73,4 +74,3 @@ if prompt:
 
 with st.expander("Raw messages"):
     st.code(json.dumps(st.session_state.messages, ensure_ascii=False, indent=2))
-

@@ -1,43 +1,24 @@
+"""Gateway service configuration.
+
+This module re-exports the unified settings from the shared config module.
+For backward compatibility, GatewaySettings is an alias for Settings.
+
+Usage:
+    from gateway.config import get_settings
+
+    settings = get_settings()
+"""
+
 from __future__ import annotations
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from shared.config import Settings, get_settings, validate_settings_on_startup
 
+# Backward compatibility alias
+GatewaySettings = Settings
 
-class GatewaySettings(BaseSettings):
-    """Runtime config for the gateway.
-
-    All settings are configurable via environment variables.
-    """
-
-    model_config = SettingsConfigDict(env_prefix="GATEWAY_", extra="ignore")
-
-    # Where vLLM is reachable from the gateway container/process.
-    # If you run via docker-compose, this should usually be http://vllm:8000
-    # If you run locally, likely http://localhost:8000
-    vllm_base_url: str = Field(default="http://localhost:8000")
-
-    # Default model to use when none is specified in the request.
-    # This should match the model name served by vLLM.
-    default_model: str = Field(default="/models/Qwen/Qwen3-0.6B")
-
-    # Optional safety/auth.
-    api_key: str | None = Field(default=None)
-
-    # CORS configuration (comma-separated list in env is supported).
-    cors_allow_origins: list[str] = Field(default_factory=lambda: ["*"])
-
-    # Metadata for docs.
-    service_name: str = Field(default="agent-042-gateway")
-    public_base_url: str | None = Field(default=None)
-
-    # RAG configuration
-    qdrant_host: str = Field(default="localhost")
-    qdrant_port: int = Field(default=6333)
-    rag_enabled: bool = Field(default=True)
-    embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
-
-
-def get_settings() -> GatewaySettings:
-    return GatewaySettings()
-
+__all__ = [
+    "GatewaySettings",
+    "Settings",
+    "get_settings",
+    "validate_settings_on_startup",
+]

@@ -1,12 +1,15 @@
 """Retrieval service that orchestrates vector search."""
+
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
-from rag.config import RAGSettings
 from rag.embeddings import EmbeddingService
 from rag.vector_store import Document, QdrantVectorStore
+
+if TYPE_CHECKING:
+    from shared.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -18,14 +21,14 @@ class Retriever:
         self,
         embedding_service: EmbeddingService,
         vector_store: QdrantVectorStore,
-        settings: RAGSettings,
+        settings: "Settings",
     ):
         """Initialize retriever.
 
         Args:
             embedding_service: Service for generating embeddings
             vector_store: Vector database for similarity search
-            settings: RAG configuration
+            settings: Application settings
         """
         self.embedding_service = embedding_service
         self.vector_store = vector_store
@@ -78,18 +81,22 @@ class Retriever:
         logger.info(f"Retrieved {len(documents)} documents")
         return documents
 
-    def format_context(self, documents: List[Document], max_length: int = 4000) -> str:
+    def format_context(self, documents: List[Document], max_length: Optional[int] = None) -> str:
         """Format retrieved documents into context string.
 
         Args:
             documents: Retrieved documents
-            max_length: Maximum character length of context
+            max_length: Maximum character length of context (uses config default if None)
 
         Returns:
             Formatted context string
         """
         if not documents:
             return ""
+
+        # Use config default if not provided
+        if max_length is None:
+            max_length = self.settings.context_max_length
 
         context_parts = []
         current_length = 0
@@ -101,7 +108,9 @@ class Retriever:
 
             # Check if adding this document exceeds max length
             if current_length + len(doc_text) > max_length:
-                logger.info(f"Context length limit reached, using {i-1}/{len(documents)} documents")
+                logger.info(
+                    f"Context length limit reached, using {i - 1}/{len(documents)} documents"
+                )
                 break
 
             context_parts.append(doc_text)

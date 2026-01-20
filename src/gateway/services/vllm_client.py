@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator, Dict, Optional
 
 import httpx
+
+from gateway.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -11,10 +13,23 @@ logger = logging.getLogger(__name__)
 class VllmOpenAIClient:
     """Minimal async client for vLLM OpenAI-compatible API."""
 
-    def __init__(self, base_url: str, api_key: str | None = None, timeout_s: float = 60.0):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        timeout_s: Optional[float] = None,
+    ):
+        """Initialize vLLM client.
+
+        Args:
+            base_url: vLLM server URL
+            api_key: Optional API key for authentication
+            timeout_s: Request timeout in seconds (uses config default if None)
+        """
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
-        self._timeout = timeout_s
+        # Use config timeout if not explicitly provided
+        self._timeout = timeout_s if timeout_s is not None else get_settings().vllm_timeout
 
     def _headers(self) -> dict[str, str]:
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -51,4 +66,3 @@ class VllmOpenAIClient:
                 resp.raise_for_status()
                 async for chunk in resp.aiter_bytes():
                     yield chunk
-

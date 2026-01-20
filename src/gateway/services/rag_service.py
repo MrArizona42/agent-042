@@ -1,14 +1,15 @@
 """RAG service for the gateway."""
+
 from __future__ import annotations
 
 import logging
 from typing import Optional
 
-from gateway.config import GatewaySettings
-from rag.config import RAGSettings
+from gateway.config import get_settings
 from rag.embeddings import EmbeddingService
 from rag.retriever import Retriever
 from rag.vector_store import QdrantVectorStore
+from shared.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +17,16 @@ logger = logging.getLogger(__name__)
 class RAGService:
     """Service for retrieving relevant context using RAG."""
 
-    def __init__(self, settings: GatewaySettings):
+    def __init__(self, settings: Optional[Settings] = None):
         """Initialize RAG service.
 
         Args:
-            settings: Gateway settings containing RAG configuration
+            settings: Settings instance (uses cached settings if None)
         """
+        if settings is None:
+            settings = get_settings()
+
+        self.settings = settings
         self.enabled = settings.rag_enabled
 
         if not self.enabled:
@@ -30,10 +35,11 @@ class RAGService:
 
         logger.info("Initializing RAG service...")
 
-        # Initialize embedding service
+        # Initialize embedding service using config device
         self.embedding_service = EmbeddingService(
             model_name=settings.embedding_model,
-            device="cpu",  # Run on CPU to save GPU for vLLM
+            device=settings.embedding_device,
+            batch_size=settings.embedding_batch_size,
         )
 
         # Initialize retrievers for each task
@@ -48,19 +54,17 @@ class RAGService:
 
             # Check if collection exists
             if not vector_store.collection_exists():
-                logger.warning(f"Collection '{collection_name}' does not exist. Retrieval for task '{task}' will be disabled.")
+                logger.warning(
+                    f"Collection '{collection_name}' does not exist. Retrieval for task '{task}' "
+                    "will be disabled."
+                )
                 continue
 
-            rag_settings = RAGSettings(
-                qdrant_host=settings.qdrant_host,
-                qdrant_port=settings.qdrant_port,
-                embedding_model=settings.embedding_model,
-            )
-
+            # Use the same settings instance - no need to create duplicate RAGSettings
             self.retrievers[task] = Retriever(
                 embedding_service=self.embedding_service,
                 vector_store=vector_store,
-                settings=rag_settings,
+                settings=settings,
             )
 
         logger.info(f"RAG service initialized. Available tasks: {list(self.retrievers.keys())}")
@@ -105,9 +109,14 @@ class RAGService:
                 logger.info("No relevant documents found")
                 return None
 
-            # Format context
-            context = self.retrievers[task].format_context(documents, max_length=3000)
-            logger.info(f"Retrieved context of {len(context)} characters from {len(documents)} documents")
+            # Format context using configured max length
+            context = self.retrievers[task].format_context(
+                documents,
+                max_length=self.settings.context_max_length,
+            )
+            logger.info(
+                f"Retrieved context of {len(context)} characters from {len(documents)} documents"
+            )
 
             return context
 
