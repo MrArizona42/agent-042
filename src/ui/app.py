@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import re
 
 import streamlit as st
 
@@ -9,25 +9,60 @@ from ui.config import get_settings
 
 st.set_page_config(page_title="agent-042", layout="wide")
 
+
+def render_message_with_thinking(content: str) -> None:
+    """Render message content, styling <think> blocks separately."""
+    # Pattern to match <think>...</think> blocks
+    think_pattern = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+
+    parts = []
+    last_end = 0
+
+    for match in think_pattern.finditer(content):
+        # Add text before the think block
+        if match.start() > last_end:
+            parts.append(("text", content[last_end : match.start()]))
+        # Add the think block content
+        parts.append(("think", match.group(1).strip()))
+        last_end = match.end()
+
+    # Add remaining text after last think block
+    if last_end < len(content):
+        parts.append(("text", content[last_end:]))
+
+    # Render each part
+    for part_type, part_content in parts:
+        if part_type == "think":
+            st.markdown(
+                f"""<div style="
+                    background-color: rgba(128, 128, 128, 0.1);
+                    border-left: 3px solid rgba(128, 128, 128, 0.4);
+                    padding: 8px 12px;
+                    margin: 8px 0;
+                    border-radius: 4px;
+                    font-size: 0.85em;
+                    color: rgba(150, 150, 150, 1);
+                "><em>💭 Thinking...</em><br/>{part_content}</div>""",
+                unsafe_allow_html=True,
+            )
+        else:
+            text = part_content.strip()
+            if text:
+                st.markdown(text)
+
+
 st.title("agent-042")
 st.caption("Streamlit UI → FastAPI Gateway → vLLM (OpenAI-compatible)")
 
 # Get settings (cached)
 settings = get_settings()
 
+gateway_url = settings.url
+client = GatewayClient(gateway_url)
+
 with st.sidebar:
-    gateway_url = st.text_input("Gateway URL", value=settings.url)
-    client = GatewayClient(gateway_url)
-
-    if st.button("Check health"):
-        try:
-            st.success(client.health())
-        except Exception as e:
-            st.error(str(e))
-
     st.markdown("---")
     st.subheader("Model Settings")
-    model = st.text_input("Model (optional)", value="")
     temperature = st.slider("temperature", min_value=0.0, max_value=2.0, value=0.7, step=0.05)
     max_tokens = st.number_input("max_tokens", min_value=1, value=512, step=1)
 
@@ -45,7 +80,10 @@ if "messages" not in st.session_state:
 
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
-        st.markdown(m["content"])
+        if m["role"] == "assistant":
+            render_message_with_thinking(m["content"])
+        else:
+            st.markdown(m["content"])
 
 prompt = st.chat_input("Ask something")
 if prompt:
@@ -55,11 +93,11 @@ if prompt:
         st.markdown(prompt)
 
     payload = {
-        "model": model or None,
+        # "model": None,
         "messages": st.session_state.messages,
         "temperature": temperature,
         "max_completion_tokens": int(max_tokens),
-        "stream": False,
+        "stream": True,
     }
 
     with st.chat_message("assistant"):
@@ -68,9 +106,9 @@ if prompt:
             content = resp["choices"][0]["message"]["content"]
         except Exception as e:
             content = f"Error: {e}"
-        st.markdown(content)
+        render_message_with_thinking(content)
 
     st.session_state.messages.append({"role": "assistant", "content": content})
 
-with st.expander("Raw messages"):
-    st.code(json.dumps(st.session_state.messages, ensure_ascii=False, indent=2))
+# with st.expander("Raw messages"):
+#     st.code(json.dumps(st.session_state.messages, ensure_ascii=False, indent=2))
