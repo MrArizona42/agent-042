@@ -97,7 +97,7 @@ if prompt:
         "messages": st.session_state.messages,
         "temperature": temperature,
         "max_completion_tokens": int(max_tokens),
-        "stream": True,
+        "stream": False,
     }
 
     with st.chat_message("assistant"):
