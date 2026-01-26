@@ -1,35 +1,37 @@
-"""RAG system configuration."""
+"""RAG system configuration.
+
+This module re-exports the unified settings from the shared config module.
+The RAG module uses the same Settings class as the gateway, since RAG
+is always used as a library by the gateway service.
+
+For backward compatibility, RAGSettings is an alias for Settings.
+
+Usage:
+    from rag.config import get_settings
+
+    settings = get_settings()
+    print(settings.embedding_model)
+"""
+
 from __future__ import annotations
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from shared.config import Settings, get_settings
+
+# Backward compatibility alias
+RAGSettings = Settings
 
 
-class RAGSettings(BaseSettings):
-    """Configuration for RAG system components."""
+def get_rag_settings() -> Settings:
+    """Get RAG settings from environment.
 
-    model_config = SettingsConfigDict(env_prefix="GATEWAY_", extra="ignore")
-
-    # Qdrant connection
-    qdrant_host: str = Field(default="localhost")
-    qdrant_port: int = Field(default=6333)
-
-    # Embedding model
-    # Using lightweight all-MiniLM-L6-v2 (~80MB, fast on CPU)
-    # For better quality (but slower): sentence-transformers/all-mpnet-base-v2 (~420MB)
-    embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
-
-    # Device for embeddings: cpu, cuda, mps
-    embedding_device: str = Field(default="cpu")
-
-    # Retrieval parameters
-    top_k: int = Field(default=5, description="Number of documents to retrieve")
-    score_threshold: float = Field(default=0, description="Minimum similarity score")
-
-    # RAG mode
-    rag_enabled: bool = Field(default=True)
+    Deprecated: Use get_settings() instead.
+    """
+    return get_settings()
 
 
-def get_rag_settings() -> RAGSettings:
-    """Get RAG settings from environment."""
-    return RAGSettings()
+__all__ = [
+    "RAGSettings",
+    "Settings",
+    "get_settings",
+    "get_rag_settings",
+]

@@ -1,0 +1,34 @@
+# Streamlit configuration for production deployment
+# See: https://docs.streamlit.io/develop/api-reference/configuration/config.toml
+
+[server]
+# Bind to all interfaces (required for Docker/container deployment)
+address = "0.0.0.0"
+port = 8501
+
+# Disable CORS and XSRF protection when behind a reverse proxy
+# The proxy handles security at the edge
+enableCORS = false
+enableXsrfProtection = false
+
+# Allow Streamlit to be embedded in iframes (if needed)
+enableWebsocketCompression = true
+
+# Increase limits for large payloads
+maxUploadSize = 200
+maxMessageSize = 200
+
+[browser]
+# Domain where Streamlit is accessible
+# This ensures WebSocket connections use the correct address
+serverAddress = "agent.antonlab.ru"
+
+# Disable usage statistics
+gatherUsageStats = false
+
+[theme]
+# Optional: customize theme (uncomment to use)
+# primaryColor = "#1f77b4"
+# backgroundColor = "#ffffff"
+# secondaryBackgroundColor = "#f0f2f6"
+# textColor = "#262730"

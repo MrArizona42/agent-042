@@ -1,4 +1,5 @@
 """Vector store abstraction for Qdrant."""
+
 from __future__ import annotations
 
 import logging
@@ -6,8 +7,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
-from qdrant_client.models import Filter
+from qdrant_client.models import Distance, Filter, PointStruct, VectorParams
+
+from shared.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +28,21 @@ class QdrantVectorStore:
 
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 6333,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
         collection_name: str = "documents",
     ):
         """Initialize Qdrant client.
 
         Args:
-            host: Qdrant server host
-            port: Qdrant server port
+            host: Qdrant server host (uses config default if None)
+            port: Qdrant server port (uses config default if None)
             collection_name: Name of the collection to use
         """
+        settings = get_settings()
+        host = host if host is not None else settings.qdrant_host
+        port = port if port is not None else settings.qdrant_port
+
         self.client = QdrantClient(host=host, port=port)
         self.collection_name = collection_name
         logger.info(f"Connected to Qdrant at {host}:{port}")

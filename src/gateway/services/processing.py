@@ -10,7 +10,6 @@ from gateway.services.rag_service import RAGService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
 
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -69,7 +68,10 @@ class _ProcessChat:
 
         messages = list(req.messages)
         if not any(m.role == "system" for m in messages):
-            messages = [{"role": "system", "content": prompt.system_prompt}, *[m.model_dump(exclude_none=True) for m in messages]]
+            messages = [
+                {"role": "system", "content": prompt.system_prompt},
+                *[m.model_dump(exclude_none=True) for m in messages],
+            ]
         else:
             messages = [m.model_dump(exclude_none=True) for m in messages]
 
@@ -105,4 +107,3 @@ class _ProcessChat:
 
 
 process_chat = _ProcessChat()
-

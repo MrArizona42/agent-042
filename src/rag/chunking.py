@@ -1,10 +1,13 @@
 """Document chunking strategies for RAG."""
+
 from __future__ import annotations
 
 import re
-from typing import List
+from typing import List, Optional
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from shared.config import get_settings
 
 
 class BaseChunker:
@@ -28,13 +31,22 @@ class FixedTokenChunker(BaseChunker):
     Good baseline for most documents.
     """
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
+    def __init__(
+        self,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+    ):
         """Initialize chunker.
 
         Args:
-            chunk_size: Target size of each chunk in characters
+            chunk_size: Target size of each chunk in characters (uses config default if None)
             chunk_overlap: Number of overlapping characters between chunks
+            (uses config default if None)
         """
+        settings = get_settings()
+        chunk_size = chunk_size if chunk_size is not None else settings.chunk_size
+        chunk_overlap = chunk_overlap if chunk_overlap is not None else settings.chunk_overlap
+
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -54,15 +66,22 @@ class CodeChunker(BaseChunker):
     Tries to keep functions and classes together.
     """
 
-    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 100):
+    def __init__(
+        self,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+    ):
         """Initialize code chunker.
 
         Args:
-            chunk_size: Target size of each chunk
-            chunk_overlap: Overlap between chunks
+            chunk_size: Target size of each chunk (uses config default if None)
+            chunk_overlap: Overlap between chunks (uses config default if None)
         """
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
+        settings = get_settings()
+        self.chunk_size = chunk_size if chunk_size is not None else settings.code_chunk_size
+        self.chunk_overlap = (
+            chunk_overlap if chunk_overlap is not None else settings.code_chunk_overlap
+        )
 
     def chunk(self, text: str) -> List[str]:
         """Split code into chunks, preserving logical boundaries."""
@@ -110,15 +129,22 @@ class SectionAwareChunker(BaseChunker):
     Tries to split by markdown headers and sections.
     """
 
-    def __init__(self, chunk_size: int = 1024, chunk_overlap: int = 100):
+    def __init__(
+        self,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+    ):
         """Initialize section-aware chunker.
 
         Args:
-            chunk_size: Target chunk size
-            chunk_overlap: Overlap size
+            chunk_size: Target chunk size (uses config default if None)
+            chunk_overlap: Overlap size (uses config default if None)
         """
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
+        settings = get_settings()
+        self.chunk_size = chunk_size if chunk_size is not None else settings.section_chunk_size
+        self.chunk_overlap = (
+            chunk_overlap if chunk_overlap is not None else settings.section_chunk_overlap
+        )
 
     def chunk(self, text: str) -> List[str]:
         """Split text by sections while respecting size limits."""
