@@ -85,6 +85,14 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # Async Inference Settings (Phase 1)
+    # =========================================================================
+    async_enabled: bool = Field(
+        default=True,
+        description="Enable async inference via Celery workers",
+    )
+
+    # =========================================================================
     # Gateway Service Settings
     # =========================================================================
     cors_allow_origins: list[str] = Field(
@@ -281,6 +289,7 @@ def validate_settings_on_startup() -> None:
     logger.info("Configuration loaded successfully:")
     logger.info(f"  vLLM URL: {settings.vllm_base_url}")
     logger.info(f"  Default model: {settings.default_model}")
+    logger.info(f"  Async inference enabled: {settings.async_enabled}")
     logger.info(f"  Qdrant: {settings.qdrant_host}:{settings.qdrant_port}")
     logger.info(f"  RAG enabled: {settings.rag_enabled}")
     logger.info(f"  Embedding model: {settings.embedding_model}")
