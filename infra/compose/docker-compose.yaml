@@ -293,6 +293,55 @@ services:
 
     restart: unless-stopped
 
+  # =====================
+  # Flower (Celery Monitoring)
+  # =====================
+  flower:
+    image: mher/flower:2.0
+
+    environment:
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
+      FLOWER_PORT: 5555
+
+    ports:
+      - "${FLOWER_PORT}:5555"
+
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5555"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    networks:
+      - backend_net
+
+    restart: unless-stopped
+
+  # =====================
+  # RedisInsight (Redis Monitoring)
+  # =====================
+  redisinsight:
+    image: redis/redisinsight:latest
+
+    ports:
+      - "${REDISINSIGHT_PORT}:5540"
+
+    volumes:
+      - redisinsight_data:/data
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    networks:
+      - backend_net
+
+    restart: unless-stopped
+
 # =====================
 # Persistent volumes
 # =====================
@@ -301,6 +350,7 @@ volumes:
   qdrant_data:
   rabbitmq_data:
   redis_data:
+  redisinsight_data:
 
 # =====================
 # Docker networks
