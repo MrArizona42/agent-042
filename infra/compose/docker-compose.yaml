@@ -140,7 +140,7 @@ services:
       - backend_net
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -261,7 +261,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
+      start_period: 60s
 
     networks:
       - backend_net
