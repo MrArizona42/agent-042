@@ -3,13 +3,14 @@
 Scrapes a curated subset of PyTorch documentation pages.
 For baseline: ~50 core API pages (nn.Module, Tensor operations, etc.)
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import time
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
