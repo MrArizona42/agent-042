@@ -213,6 +213,36 @@ class Settings(BaseSettings):
         return v
 
 
+class ModelRegistrySettings(BaseSettings):
+    """Settings for MLflow Model Registry / adapter sync.
+
+    Environment Variables:
+        REGISTRY_MLFLOW_TRACKING_URI: MLflow tracking server URL.
+        REGISTRY_ADAPTERS_DIR: Local directory for downloaded LoRA adapters.
+        REGISTRY_AUTO_SYNC: Pull production adapters on service startup.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="REGISTRY_",
+        extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
+    mlflow_tracking_uri: str = Field(
+        default="http://localhost:5050",
+        description="MLflow tracking server URL",
+    )
+    adapters_dir: str = Field(
+        default="./adapters",
+        description="Local directory for downloaded LoRA adapters",
+    )
+    auto_sync: bool = Field(
+        default=False,
+        description="Automatically sync production adapters on startup",
+    )
+
+
 class UISettings(BaseSettings):
     """UI-specific settings with UI_ prefix.
 
@@ -257,6 +287,12 @@ def get_settings() -> Settings:
         ValidationError: If environment variables contain invalid values
     """
     return Settings()
+
+
+@lru_cache
+def get_registry_settings() -> ModelRegistrySettings:
+    """Get cached model registry settings."""
+    return ModelRegistrySettings()
 
 
 @lru_cache

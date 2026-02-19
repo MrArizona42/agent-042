@@ -82,6 +82,8 @@ class MlflowConfig:
     experiment_name: str
     run_name: str
     env_path: Optional[str]
+    register_model: bool = False
+    registered_model_name: Optional[str] = None
 
 
 @dataclass

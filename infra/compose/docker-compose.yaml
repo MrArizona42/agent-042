@@ -94,6 +94,9 @@ services:
       "--gpu-memory-utilization", "${VLLM_GPU_UTIL}",
       "--kv-cache-dtype", "${VLLM_KV_CACHE_DTYPE}",
       "--quantization", "${VLLM_QUANT}",
+      "--enable-lora",
+      "--max-loras", "${VLLM_MAX_LORAS}",
+      "--max-lora-rank", "${VLLM_MAX_LORA_RANK}",
       "--host", "0.0.0.0",
       "--port", "8000"
     ]
@@ -101,8 +104,10 @@ services:
     ports:
       - "${VLLM_PORT}:8000"
 
+    # Mount repo models and downloaded adapters
     volumes:
       - ${PROJECT_ROOT}/assets/models:/models:rw
+      - ${PROJECT_ROOT}/assets/adapters:/adapters:ro
 
     deploy:
       resources:
@@ -340,6 +345,137 @@ services:
     networks:
       - backend_net
 
+  # Airflow – database migration & admin user (one-shot)
+  # =====================
+  airflow-init:
+    image: apache/airflow:2.10.4
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        python <<'PYEOF'
+        import os
+        import psycopg2
+        from psycopg2 import sql
+        from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+        conn = psycopg2.connect(host="postgres", port=5432,
+                                user=os.environ["PG_USER"],
+                                password=os.environ["PG_PASSWORD"],
+                                dbname=os.environ["PG_DB"])
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        cur = conn.cursor()
+        db = os.environ["AIRFLOW_DB_NAME"]
+        cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db,))
+        if not cur.fetchone():
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(db)))
+            print("Created database " + db)
+        else:
+            print("Database " + db + " already exists")
+        conn.close()
+        PYEOF
+        airflow db migrate &&
+        airflow users create \
+          --username $${AIRFLOW_ADMIN_USER} \
+          --password $${AIRFLOW_ADMIN_PASSWORD} \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+      # Postgres connection for automatic DB creation
+      PG_USER: ${POSTGRES_USER}
+      PG_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_DB: ${POSTGRES_DB}
+      AIRFLOW_DB_NAME: ${AIRFLOW_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mlflow_db_net
+    restart: "no"
+
+  # =====================
+  # Airflow Webserver
+  # =====================
+  airflow-webserver:
+    image: apache/airflow:2.10.4
+    command: webserver
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    ports:
+      - "${AIRFLOW_PORT}:8080"
+    volumes:
+      - ${PROJECT_ROOT}/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - mlflow_db_net
+      - backend_net
+    restart: unless-stopped
+
+  # =====================
+  # Airflow Scheduler (LocalExecutor)
+  # =====================
+  airflow-scheduler:
+    image: apache/airflow:2.10.4
+    command: scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ${PROJECT_ROOT}/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - mlflow_db_net
+      - backend_net
+    restart: unless-stopped
+
+  # =====================
+  # JupyterLab
+  # =====================
+  jupyter:
+    image: quay.io/jupyter/minimal-notebook:latest
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+    ports:
+      - "${JUPYTER_PORT}:8888"
+    volumes:
+      - ${PROJECT_ROOT}/notebooks:/home/jovyan/work
+      - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8888/api || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - backend_net
     restart: unless-stopped
 
 # =====================
@@ -351,6 +487,7 @@ volumes:
   rabbitmq_data:
   redis_data:
   redisinsight_data:
+  airflow_logs:
 
 # =====================
 # Docker networks
