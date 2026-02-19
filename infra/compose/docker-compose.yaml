@@ -231,7 +231,9 @@ services:
       - -c
       - |
         python <<'PYEOF'
-        import psycopg2, os
+        import os
+        import psycopg2
+        from psycopg2 import sql
         from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
         conn = psycopg2.connect(host="postgres", port=5432,
                                 user=os.environ["PG_USER"],
@@ -242,7 +244,7 @@ services:
         db = os.environ["AIRFLOW_DB_NAME"]
         cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db,))
         if not cur.fetchone():
-            cur.execute('CREATE DATABASE "{}"'.format(db))
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(db)))
             print("Created database " + db)
         else:
             print("Database " + db + " already exists")
