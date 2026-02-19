@@ -461,14 +461,21 @@ services:
   # JupyterLab
   # =====================
   jupyter:
-    image: quay.io/jupyter/minimal-notebook:latest
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: infra/docker/jupyter/Dockerfile
     environment:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      # Makes train_adapter a proper importable package inside notebooks
+      PYTHONPATH: /home/jovyan/work/experiments/scripts
     ports:
       - "${JUPYTER_PORT}:8888"
     volumes:
       - ${PROJECT_ROOT}/notebooks:/home/jovyan/work
-      - ${PROJECT_ROOT}/experiments/scripts/prefetch_assets.ipynb:/home/jovyan/work/prefetch_assets.ipynb
+      # Expose the full experiments tree (includes prefetch_assets notebook + training scripts)
+      - ${PROJECT_ROOT}/experiments:/home/jovyan/work/experiments:rw
+      # Assets (datasets / models) accessible at the same relative path as on the host
+      - ${PROJECT_ROOT}/assets:/home/jovyan/assets:rw
       - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8888/api || exit 1"]
