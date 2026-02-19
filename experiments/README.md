@@ -13,16 +13,11 @@
 
 ## 🚀 Быстрый старт
 
+1. Скачать датасет и модель — откройте ноутбук `experiments/scripts/prefetch_assets.ipynb`,
+   задайте `PROJECT_ROOT` и выполните нужные ячейки.
+2. Запустить обучение адаптера:
+
 ```bash
-# 1) Скачать датасет (укажите путь к корню проекта на вашей машине)
-python ./experiments/scripts/prefetch_data.py \
-  paths.project_root="C:/Users/user/MyGitRepos/agent-042"
-
-# 2) Скачать модель (по умолчанию Ministral-3b-instruct)
-python ./experiments/scripts/prefetch_model.py \
-  paths.project_root="C:/Users/user/MyGitRepos/agent-042"
-
-# 3) Запустить обучение адаптера (дефолтные параметры из конфигов)
 python ./experiments/scripts/train_hydra.py \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042"
 ```
@@ -57,17 +52,16 @@ Remote хранилище называется ycloud
 
 ## ⚙️ Hydra и конфигурирование
 
-- Конфиги лежат в `experiments/conf` и собираются в два основных сценария:
-    - Работа с активами (датасет/модель): `config-assets.yaml`
+- Конфиги лежат в `experiments/conf` и используются для обучения адаптера:
     - Обучение адаптера: `config.yaml`
-- Скрипты читают конфиги через декоратор `@hydra.main(..., config_path="../conf", ...)` и принимают
-  оверрайды из CLI.
+- Скрипт обучения читает конфиги через декоратор `@hydra.main(..., config_path="../conf", ...)` и
+  принимает оверрайды из CLI.
+- Скачивание датасетов и моделей выполняется интерактивно через ноутбук
+  `experiments/scripts/prefetch_assets.ipynb` (без Hydra).
 
 - Группы конфигов:
     - `conf/paths/paths_config.yaml` — ключ `paths.project_root` (по умолчанию проставлен
       Linux-путь, на своей машине лучше переопределять через CLI)
-    - `conf/assets/dataset/*.yaml` — описания датасетов (имя на HF, сплиты, целевая директория)
-    - `conf/assets/model/*.yaml` — описания моделей (идентификатор на HF, целевая директория)
     - `conf/experiment/train_adapter.yaml` — все параметры обучения (
       model/lora/data/trainer/scheduler/output/mlflow)
 
@@ -85,8 +79,6 @@ Remote хранилище называется ycloud
 
 ```bash
 python ./experiments/scripts/train_hydra.py --help
-python ./experiments/scripts/prefetch_data.py --help
-python ./experiments/scripts/prefetch_model.py --help
 ```
 
 - Вывести финальный составленный конфиг, не запуская задачу (`--resolve` разворачивает интерполяции
@@ -94,19 +86,12 @@ python ./experiments/scripts/prefetch_model.py --help
 
 ```bash
 python ./experiments/scripts/train_hydra.py --cfg job --resolve
-python ./experiments/scripts/prefetch_data.py --cfg job --resolve
-python ./experiments/scripts/prefetch_model.py --cfg job --resolve
 ```
 
-- Показать только поддерево (например, секцию `experiment` или `assets`):
+- Показать только поддерево (например, секцию `experiment`):
 
 ```bash
-# Только секция experiment
 python ./experiments/scripts/train_hydra.py --cfg job --resolve -p experiment
-
-# Только секция assets (актуально для prefetch_*)
-python ./experiments/scripts/prefetch_data.py --cfg job --resolve -p assets
-python ./experiments/scripts/prefetch_model.py --cfg job --resolve -p assets
 ```
 
 - Посмотреть конфиг самой Hydra (логгирование, каталоги и т.п.):
@@ -123,60 +108,18 @@ python ./experiments/scripts/train_hydra.py --info
 
 Примечания:
 
-- Флаги `--cfg`/`--info` печатают информацию и завершают программу, сама тренировка/загрузка не
-  стартует.
-- В `--help` в разделе Config groups отображаются группы, их имена и доступные варианты (например,
-  `assets/model: mistral-7b, ministral-3b-instruct`).
+- Флаги `--cfg`/`--info` печатают информацию и завершают программу, сама тренировка не стартует.
 
 > ⚠️ Windows: кавычки вокруг путей и прямые слэши (`C:/...`) избавляют от экранирования.
 
-### Запуск скриптов с конфигами Hydra
+### Запуск скриптов
 
-Возможно, это лишнее, но скачивание датасета и моделей из Hugging Face было сделано тоже через
-Hydra конфиги.
+1) **Скачивание датасета и модели** — используйте ноутбук
+   `experiments/scripts/prefetch_assets.ipynb`.
+   Задайте `PROJECT_ROOT`, выберите конфигурацию датасета / модели и запустите ячейки.
+   Ноутбук позволяет интерактивно изучить скачанные данные перед добавлением в DVC.
 
-1) **Скачивание датасета (scripts/prefetch_data.py)**
-
-- Использует `config-assets.yaml` и группу `assets/dataset`
-- Важные ключи:
-    - `assets.dataset.name`, `assets.dataset.config`, `assets.dataset.train_split`,
-      `assets.dataset.val_split`
-    - `assets.dataset.target_dir` — куда сохранить (относительно `paths.project_root`, если не
-      абсолютный)
-      Примеры:
-
-```bash
-# Windows (Git Bash). Рекомендуется использовать прямые слэши или экранировать обратные
-python ./experiments/scripts/prefetch_data.py \
-  paths.project_root="C:/Users/user/MyGitRepos/agent-042"
-
-# Поменять датасет-конфиг (если добавите новый файл в conf/assets/dataset/)
-python ./experiments/scripts/prefetch_data.py \
-  paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  assets/dataset=arxiv-summarization-01
-```
-
-2) **Скачивание модели (scripts/prefetch_model.py)**
-
-- Использует `config-assets.yaml` и группу `assets/model`
-- Важные ключи:
-    - `assets.model.id` — repo_id на Hugging Face
-    - `assets.model.target_dir` — локальная папка (относительно `paths.project_root`, если не
-      абсолютная)
-      Примеры:
-
-```bash
-# Модель по умолчанию (ministral/Ministral-3b-instruct)
-python ./experiments/scripts/prefetch_model.py \
-  paths.project_root="C:/Users/user/MyGitRepos/agent-042"
-
-# Переключиться на Мistral-7B
-python ./experiments/scripts/prefetch_model.py \
-  paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  assets/model=mistral-7b
-```
-
-3) **Обучение адаптера (scripts/train_hydra.py)**
+2) **Обучение адаптера (scripts/train_hydra.py)**
 
 - Использует `config.yaml` -> `experiment: train_adapter`
 - Основные секции, которые можно переопределять из CLI:
@@ -237,18 +180,16 @@ python ./experiments/scripts/train_hydra.py -m \
 - Если `conf/paths/paths_config.yaml` содержит чужой путь — не редактируйте его в репозитории, а
   переопределяйте через CLI `paths.project_root=...`.
 - Для Windows используйте прямые слэши (`C:/...`) или экранируйте обратные слэши в кавычках.
-- Чтобы добавить новый датасет или модель — создайте `.yaml` в соответствующей группе (
-  `conf/assets/dataset/` или `conf/assets/model/`) и выбирайте через `assets/dataset=<name>` или
-  `assets/model=<name>`.
-- Для быстрой диагностики скрипты `prefetch_*` печатают итоговую конфигурацию (
-  `OmegaConf.to_yaml(cfg)`). Сверяйте, что пути резолвятся правильно.
+- Чтобы скачать новый датасет или модель — отредактируйте параметры в ноутбуке
+  `experiments/scripts/prefetch_assets.ipynb` и запустите нужные ячейки.
 
 ## Куда что складывается (данные, логи, метрики, артефакты, параметры)
 
-- **Датасеты**: сохраняются в `assets.dataset.target_dir` (относительно `paths.project_root`, если
-  путь не абсолютный). Версионируются через DVC в Yandex Cloud.
+- **Датасеты**: сохраняются в директорию, указанную в ноутбуке `prefetch_assets.ipynb`
+  (по умолчанию `assets/datasets/...`). Версионируются через DVC в Yandex Cloud.
 
-- **Модели (prefetch)**: сохраняются в `assets.model.target_dir` (относительно `paths.project_root`).
+- **Модели (prefetch)**: сохраняются в директорию, указанную в ноутбуке `prefetch_assets.ipynb`
+  (по умолчанию `assets/models/...`).
 
 - Выходы обучения (веса адаптера/модели), токенайзер и
   конфиги: по умолчанию `assets/newly_trained/<дата>/<время>`.

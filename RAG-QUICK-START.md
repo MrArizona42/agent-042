@@ -15,11 +15,11 @@ cp .env.example .env
 docker-compose up -d qdrant
 
 # 3. Collect data (ArXiv papers + PyTorch docs)
-cd ../../experiments/scripts/rag_data
-python collect_arxiv.py --max-results 100 --output-dir ../../../assets/rag_data/arxiv
-python collect_pytorch_docs.py --output-dir ../../../assets/rag_data/pytorch_docs
+#    Open experiments/scripts/prefetch_assets.ipynb and run sections 8 & 9,
+#    or use the notebook to download all project assets at once.
 
 # 4. Build vector indices
+cd experiments/scripts/rag_data
 python build_vector_index.py --task both --qdrant-host localhost --force-recreate
 
 # 5. Start full system

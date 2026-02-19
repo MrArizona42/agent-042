@@ -182,31 +182,17 @@ curl http://localhost:6333/collections
 
 ### Step 4: Collect Data
 
-#### 4a. Collect ArXiv Papers (Chat RAG)
+Data collection (ArXiv papers for chat RAG, PyTorch docs for code RAG) is now done
+interactively via the notebook `experiments/scripts/prefetch_assets.ipynb`:
 
-```bash
-cd experiments/scripts/rag_data
+- **Section 8** — ArXiv papers (chat RAG)
+- **Section 9** — PyTorch documentation (code RAG)
 
-# Collect 100 recent ML/DL papers
-python collect_arxiv.py \
-    --categories cs.LG cs.AI \
-    --max-results 100 \
-    --output-dir ../../../assets/rag_data/arxiv
-```
+Open the notebook, set `PROJECT_ROOT`, and run the relevant sections.
 
-**Output**: `assets/rag_data/arxiv/arxiv_papers.json`
-
-**Time**: ~2-3 minutes
-
-#### 4b. Collect PyTorch Documentation (Code RAG)
-
-```bash
-# Scrape core PyTorch API docs
-python collect_pytorch_docs.py \
-    --output-dir ../../../assets/rag_data/pytorch_docs
-```
-
-**Output**: `assets/rag_data/pytorch_docs/pytorch_docs.json`
+**Outputs:**
+- `assets/rag_data/arxiv/arxiv_papers.json`
+- `assets/rag_data/pytorch_docs/pytorch_docs.json`
 
 **Time**: ~1-2 minutes (respects rate limits)
 
@@ -488,10 +474,10 @@ agent-042/
 │           ├── rag_service.py       # Gateway RAG integration
 │           ├── prompt_builder.py    # Context injection
 │           └── processing.py        # RAG invocation
-├── experiments/scripts/rag_data/
-│   ├── collect_arxiv.py             # ArXiv data collection
-│   ├── collect_pytorch_docs.py      # PyTorch docs scraper
-│   └── build_vector_index.py        # Index building
+├── experiments/scripts/
+│   ├── prefetch_assets.ipynb        # Data collection (ArXiv, PyTorch docs, etc.)
+│   └── rag_data/
+│       └── build_vector_index.py    # Index building
 ├── assets/rag_data/
 │   ├── arxiv/                       # ArXiv papers JSON
 │   └── pytorch_docs/                # PyTorch docs JSON

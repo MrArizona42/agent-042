@@ -3,6 +3,7 @@
 Loads documents, chunks them, generates embeddings, and stores in Qdrant.
 Creates separate collections for different tasks (chat, code).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -14,7 +15,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 
 from rag.chunking import get_chunker
-from rag.config import RAGSettings
 from rag.embeddings import EmbeddingService
 from rag.vector_store import QdrantVectorStore
 
@@ -90,14 +90,16 @@ def build_chat_index(
         # Create metadata for each chunk
         for chunk in chunks:
             all_chunks.append(chunk)
-            all_metadatas.append({
-                "task": "chat",
-                "source": "arxiv",
-                "arxiv_id": paper["arxiv_id"],
-                "title": paper["title"],
-                "primary_category": paper["primary_category"],
-                "published": paper["published"],
-            })
+            all_metadatas.append(
+                {
+                    "task": "chat",
+                    "source": "arxiv",
+                    "arxiv_id": paper["arxiv_id"],
+                    "title": paper["title"],
+                    "primary_category": paper["primary_category"],
+                    "published": paper["published"],
+                }
+            )
 
         if i % 20 == 0:
             print(f"  Processed {i}/{len(papers)} papers...")
@@ -118,13 +120,13 @@ def build_chat_index(
             metadatas=batch_metadata,
         )
 
-        print(f"  Added batch {i//batch_size + 1}/{(len(all_chunks)-1)//batch_size + 1}")
+        print(f"  Added batch {i // batch_size + 1}/{(len(all_chunks) - 1) // batch_size + 1}")
 
     # Print summary
     info = vector_store.get_collection_info()
     print("\n" + "=" * 60)
     print("CHAT index build complete!")
-    print(f"  Collection: chat_documents")
+    print("  Collection: chat_documents")
     print(f"  Total documents: {info['points_count']}")
     print("=" * 60)
 
@@ -185,13 +187,15 @@ def build_code_index(
         # Create metadata for each chunk
         for chunk in chunks:
             all_chunks.append(chunk)
-            all_metadatas.append({
-                "task": "code",
-                "source": "pytorch_docs",
-                "url": doc["url"],
-                "title": doc["title"],
-                "scraped_at": doc["scraped_at"],
-            })
+            all_metadatas.append(
+                {
+                    "task": "code",
+                    "source": "pytorch_docs",
+                    "url": doc["url"],
+                    "title": doc["title"],
+                    "scraped_at": doc["scraped_at"],
+                }
+            )
 
         if i % 10 == 0:
             print(f"  Processed {i}/{len(docs)} pages...")
@@ -212,13 +216,13 @@ def build_code_index(
             metadatas=batch_metadata,
         )
 
-        print(f"  Added batch {i//batch_size + 1}/{(len(all_chunks)-1)//batch_size + 1}")
+        print(f"  Added batch {i // batch_size + 1}/{(len(all_chunks) - 1) // batch_size + 1}")
 
     # Print summary
     info = vector_store.get_collection_info()
     print("\n" + "=" * 60)
     print("CODE index build complete!")
-    print(f"  Collection: code_documents")
+    print("  Collection: code_documents")
     print(f"  Total documents: {info['points_count']}")
     print("=" * 60)
 
@@ -271,7 +275,10 @@ def main():
     if args.task in ["chat", "both"]:
         if not args.arxiv_file.exists():
             print(f"Error: ArXiv file not found: {args.arxiv_file}")
-            print("Run collect_arxiv.py first!")
+            print(
+                "Download ArXiv papers first"
+                " using experiments/scripts/prefetch_assets.ipynb (section 8)"
+            )
             sys.exit(1)
 
         build_chat_index(
@@ -285,7 +292,10 @@ def main():
     if args.task in ["code", "both"]:
         if not args.pytorch_docs_file.exists():
             print(f"Error: PyTorch docs file not found: {args.pytorch_docs_file}")
-            print("Run collect_pytorch_docs.py first!")
+            print(
+                "Scrape PyTorch docs first"
+                " using experiments/scripts/prefetch_assets.ipynb (section 9)"
+            )
             sys.exit(1)
 
         build_code_index(
