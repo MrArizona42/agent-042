@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, AsyncIterator, Dict
 
 from gateway.config import get_settings
@@ -27,9 +28,29 @@ class _ProcessChat:
             logger.error(f"Failed to initialize RAG service: {e}")
             self._rag_service = None
 
+        # Lazy-loaded async services
+        self._celery_client = None
+        self._redis_stream = None
+
     def _client(self) -> VllmOpenAIClient:
         s = get_settings()
         return VllmOpenAIClient(base_url=s.vllm_base_url, api_key=None)
+
+    def _get_celery_client(self):
+        """Lazy-load Celery client (only when async mode is used)."""
+        if self._celery_client is None:
+            from gateway.services.celery_client import get_celery_client
+
+            self._celery_client = get_celery_client()
+        return self._celery_client
+
+    def _get_redis_stream(self):
+        """Lazy-load Redis stream service (only when async mode is used)."""
+        if self._redis_stream is None:
+            from gateway.services.redis_stream import get_redis_stream_service
+
+            self._redis_stream = get_redis_stream_service()
+        return self._redis_stream
 
     async def list_models(self) -> Any:
         return await self._client().list_models()
@@ -95,14 +116,117 @@ class _ProcessChat:
         return payload
 
     async def chat(self, req: ChatCompletionRequest) -> Any:
+        """Process chat request (sync or async based on configuration)."""
+        settings = get_settings()
+
+        if settings.async_enabled:
+            return await self._chat_async(req)
+        else:
+            return await self._chat_sync(req)
+
+    async def _chat_sync(self, req: ChatCompletionRequest) -> Any:
+        """Synchronous chat: direct call to vLLM."""
         payload = self._build_payload(req)
         return await self._client().chat_completions(payload)
 
+    async def _chat_async(self, req: ChatCompletionRequest) -> Any:
+        """Asynchronous chat: enqueue task and wait for result via Redis."""
+        payload = self._build_payload(req)
+
+        conversation_id = str(uuid.uuid4())
+        celery_client = self._get_celery_client()
+        redis_stream = self._get_redis_stream()
+
+        # Enqueue the task
+        task_id = celery_client.enqueue_generate_response(
+            conversation_id=conversation_id,
+            messages=payload.get("messages", []),
+            model=payload.get("model"),
+            temperature=payload.get("temperature"),
+            top_p=payload.get("top_p"),
+            max_tokens=payload.get("max_tokens"),
+        )
+
+        logger.info(f"Enqueued async chat task {task_id} for conversation {conversation_id}")
+
+        # Wait for completion via Redis
+        full_content = ""
+        finish_reason = "stop"
+
+        async for event in redis_stream.subscribe(conversation_id):
+            event_type = event.get("type")
+
+            if event_type == "token":
+                full_content += event.get("content", "")
+            elif event_type == "done":
+                full_content = event.get("content", full_content)
+                finish_reason = event.get("finish_reason", "stop")
+                break
+            elif event_type == "error":
+                raise RuntimeError(f"Async inference error: {event.get('error')}")
+
+        # Return OpenAI-compatible response
+        return {
+            "id": f"chatcmpl-{conversation_id}",
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": full_content,
+                    },
+                    "finish_reason": finish_reason,
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 0,  # Not tracked in async mode
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        }
+
     async def stream_chat(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
+        """Stream chat response (sync or async based on configuration)."""
+        settings = get_settings()
+
+        if settings.async_enabled:
+            async for chunk in self._stream_chat_async(req):
+                yield chunk
+        else:
+            async for chunk in self._stream_chat_sync(req):
+                yield chunk
+
+    async def _stream_chat_sync(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
+        """Synchronous streaming: direct call to vLLM."""
         payload = self._build_payload(req)
         # Ensure stream true.
         payload["stream"] = True
         async for chunk in self._client().chat_completions_stream(payload):
+            yield chunk
+
+    async def _stream_chat_async(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
+        """Asynchronous streaming: enqueue task and stream via Redis."""
+        payload = self._build_payload(req)
+
+        conversation_id = str(uuid.uuid4())
+        celery_client = self._get_celery_client()
+        redis_stream = self._get_redis_stream()
+
+        # Enqueue the task
+        task_id = celery_client.enqueue_generate_response(
+            conversation_id=conversation_id,
+            messages=payload.get("messages", []),
+            model=payload.get("model"),
+            temperature=payload.get("temperature"),
+            top_p=payload.get("top_p"),
+            max_tokens=payload.get("max_tokens"),
+        )
+
+        logger.info(f"Enqueued async stream task {task_id} for conversation {conversation_id}")
+
+        # Stream from Redis
+        async for chunk in redis_stream.subscribe_sse(conversation_id):
             yield chunk
 
 

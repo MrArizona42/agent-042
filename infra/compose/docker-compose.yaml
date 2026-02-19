@@ -6,13 +6,11 @@ services:
   postgres:
     image: postgres:15
 
-    # Environment variables for Postgres initialization
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
-    # Persist database between restarts
     volumes:
       - mlflow_pg_data:/var/lib/postgresql/data
 
@@ -32,45 +30,38 @@ services:
   # =====================
   mlflow:
     build:
-      context: ${PROJECT_ROOT}   # where Dockerfile lives
+      context: ${PROJECT_ROOT}
       dockerfile: infra/docker/mlflow/Dockerfile
 
-    # Runtime configuration (no secrets baked into image)
     environment:
       MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_SERVER_ALLOWED_HOSTS}
-
       MLFLOW_BACKEND_URI: ${MLFLOW_BACKEND_URI}
       MLFLOW_ARTIFACT_ROOT: ${MLFLOW_ARTIFACT_ROOT}
-
-      # Required for boto3 (Yandex Object Storage)
+      # S3 credentials (Yandex Object Storage)
       MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
 
-    # Public UI access
     ports:
       - "${MLFLOW_PORT}:5000"
 
-    # Wait for postgres to be available
     depends_on:
       postgres:
         condition: service_healthy
 
-    # Command extends ENTRYPOINT
     command:
       - server
       - --host
-      - 0.0.0.0
+      - "0.0.0.0"
       - --port
       - "5000"
       - --backend-store-uri
       - ${MLFLOW_BACKEND_URI}
       - --default-artifact-root
       - ${MLFLOW_ARTIFACT_ROOT}
-#       - --serve-artifacts
+      # - --serve-artifacts
 
-    # Healthcheck for orchestration & future k8s readiness
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000"]
       interval: 30s
@@ -88,7 +79,6 @@ services:
   vllm:
     image: vllm/vllm-openai:latest
 
-    # Allow switching between HF ID and local path under /models
     environment:
       VLLM_MODEL: ${VLLM_MODEL}
       VLLM_DTYPE: ${VLLM_DTYPE}
@@ -96,6 +86,7 @@ services:
       VLLM_GPU_UTIL: ${VLLM_GPU_UTIL}
       VLLM_KV_CACHE_DTYPE: ${VLLM_KV_CACHE_DTYPE}
       HF_HOME: /models/.cache
+
     command: [
       "--model", "${VLLM_MODEL}",
       "--dtype", "${VLLM_DTYPE}",
@@ -110,7 +101,6 @@ services:
       "--port", "8000"
     ]
 
-    # Expose public API
     ports:
       - "${VLLM_PORT}:8000"
 
@@ -119,7 +109,6 @@ services:
       - ${PROJECT_ROOT}/assets/models:/models:rw
       - ${PROJECT_ROOT}/assets/adapters:/adapters:ro
 
-    # GPU access via modern Compose syntax
     deploy:
       resources:
         reservations:
@@ -128,9 +117,8 @@ services:
               count: ${VLLM_GPU_COUNT}
               capabilities: [gpu]
 
-    # Healthcheck against OpenAI models endpoint
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${VLLM_PORT}/v1/models"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/models"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -148,7 +136,7 @@ services:
 
     ports:
       - "${QDRANT_PORT}:6333"
-      - "6334:6334"  # gRPC port
+      - "${QDRANT_GRPC_PORT}:6334"
 
     volumes:
       - qdrant_data:/qdrant/storage
@@ -156,11 +144,89 @@ services:
     networks:
       - backend_net
 
-    # healthcheck:
-    #   test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 10
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+    restart: unless-stopped
+
+  # =====================
+  # RabbitMQ Message Broker
+  # =====================
+  rabbitmq:
+    image: rabbitmq:3-management
+
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_MGMT_PORT}:15672"
+
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+    networks:
+      - backend_net
+
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    restart: unless-stopped
+
+  # =====================
+  # Redis (Pub/Sub for streaming)
+  # =====================
+  redis:
+    image: redis:7-alpine
+
+    ports:
+      - "${REDIS_PORT}:6379"
+
+    volumes:
+      - redis_data:/data
+
+    networks:
+      - backend_net
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    restart: unless-stopped
+
+  # =====================
+  # Celery Worker (LLM Task Execution)
+  # =====================
+  celery-worker:
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: infra/docker/celery/Dockerfile
+
+    environment:
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
+      REDIS_URL: redis://redis:6379/0
+      VLLM_BASE_URL: http://vllm:8000
+      VLLM_MODEL: ${VLLM_MODEL}
+
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vllm:
+        condition: service_healthy
+
+    networks:
+      - backend_net
 
     restart: unless-stopped
 
@@ -179,6 +245,9 @@ services:
       GATEWAY_QDRANT_PORT: ${GATEWAY_QDRANT_PORT}
       GATEWAY_RAG_ENABLED: ${GATEWAY_RAG_ENABLED}
       GATEWAY_EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
+      GATEWAY_ASYNC_ENABLED: ${GATEWAY_ASYNC_ENABLED}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
+      REDIS_URL: redis://redis:6379/0
 
     ports:
       - "${GATEWAY_PORT}:9000"
@@ -187,14 +256,18 @@ services:
       vllm:
         condition: service_healthy
       qdrant:
-        # condition: service_healthy
-        condition: service_started
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
+      start_period: 60s
 
     networks:
       - backend_net
@@ -226,6 +299,52 @@ services:
     restart: unless-stopped
 
   # =====================
+  # Flower (Celery Monitoring)
+  # =====================
+  flower:
+    image: mher/flower:2.0
+
+    environment:
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
+      FLOWER_PORT: 5555
+
+    ports:
+      - "${FLOWER_PORT}:5555"
+
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5555"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    networks:
+      - backend_net
+
+    restart: unless-stopped
+
+  # =====================
+  # RedisInsight (Redis Monitoring)
+  # =====================
+  redisinsight:
+    image: redis/redisinsight:latest
+
+    ports:
+      - "${REDISINSIGHT_PORT}:5540"
+
+    volumes:
+      - redisinsight_data:/data
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    networks:
+      - backend_net
+
   # Airflow – database migration & admin user (one-shot)
   # =====================
   airflow-init:
@@ -365,10 +484,13 @@ services:
 volumes:
   mlflow_pg_data:
   qdrant_data:
+  rabbitmq_data:
+  redis_data:
+  redisinsight_data:
   airflow_logs:
 
 # =====================
-# Docker network
+# Docker networks
 # =====================
 networks:
   backend_net:
