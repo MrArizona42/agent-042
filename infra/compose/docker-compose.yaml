@@ -471,9 +471,9 @@ services:
     ports:
       - "${JUPYTER_PORT}:8888"
     volumes:
-      - ${PROJECT_ROOT}/notebooks:/home/jovyan/work
+      - ${PROJECT_ROOT}/notebooks:/home/jovyan/notebooks
       # Expose the full experiments tree (includes prefetch_assets notebook + training scripts)
-      - ${PROJECT_ROOT}/experiments:/home/jovyan/work/experiments:rw
+      - ${PROJECT_ROOT}/experiments:/home/jovyan/experiments:rw
       # Assets (datasets / models) accessible at the same relative path as on the host
       - ${PROJECT_ROOT}/assets:/home/jovyan/assets:rw
       - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
