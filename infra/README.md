@@ -178,7 +178,7 @@ MLFlow разворачивается в докере (см. compose выше).
 Airflow развёрнут с LocalExecutor (без Celery/Redis) и использует общий PostgreSQL с отдельной базой `airflow`.
 
 Сервисы:
-- `airflow-init` — одноразовая инициализация: миграция БД и создание admin-пользователя
+- `airflow-init` — одноразовая инициализация: автоматическое создание БД (если не существует), миграция и создание admin-пользователя
 - `airflow-webserver` — веб-интерфейс Airflow (порт `8080`)
 - `airflow-scheduler` — планировщик задач (LocalExecutor)
 
@@ -190,11 +190,7 @@ DAG-файлы размещаются в директории `dags/` в кор�
 - `AIRFLOW_FERNET_KEY` — ключ шифрования; сгенерировать: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
 - `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` — логин/пароль admin-пользователя
 
-Примечание: при первом запуске скрипт `infra/docker/postgres/init-airflow-db.sh` создаёт базу `airflow` в общем PostgreSQL.
-Если стек уже был развёрнут ранее (volume существует), создайте базу вручную:
-```bash
-docker compose exec postgres psql -U mlflow -c "CREATE DATABASE airflow;"
-```
+Примечание: `airflow-init` автоматически проверяет наличие базы `airflow` в PostgreSQL и создаёт её при необходимости — никаких ручных шагов не требуется.
 
 ## JupyterLab
 

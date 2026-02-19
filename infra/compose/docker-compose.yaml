@@ -11,13 +11,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      AIRFLOW_DB: ${AIRFLOW_DB}
 
     # Persist database between restarts
     volumes:
       - mlflow_pg_data:/var/lib/postgresql/data
-      # Creates additional databases on first init
-      - ${PROJECT_ROOT}/infra/docker/postgres/init-airflow-db.sh:/docker-entrypoint-initdb.d/init-airflow-db.sh:ro
 
     networks:
       - mlflow_db_net
@@ -233,6 +230,24 @@ services:
     command:
       - -c
       - |
+        python <<'PYEOF'
+        import psycopg2, os
+        from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+        conn = psycopg2.connect(host="postgres", port=5432,
+                                user=os.environ["PG_USER"],
+                                password=os.environ["PG_PASSWORD"],
+                                dbname=os.environ["PG_DB"])
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        cur = conn.cursor()
+        db = os.environ["AIRFLOW_DB_NAME"]
+        cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db,))
+        if not cur.fetchone():
+            cur.execute('CREATE DATABASE "{}"'.format(db))
+            print("Created database " + db)
+        else:
+            print("Database " + db + " already exists")
+        conn.close()
+        PYEOF
         airflow db migrate &&
         airflow users create \
           --username $${AIRFLOW_ADMIN_USER} \
@@ -248,6 +263,11 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER}
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+      # Postgres connection for automatic DB creation
+      PG_USER: ${POSTGRES_USER}
+      PG_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_DB: ${POSTGRES_DB}
+      AIRFLOW_DB_NAME: ${AIRFLOW_DB}
     depends_on:
       postgres:
         condition: service_healthy
