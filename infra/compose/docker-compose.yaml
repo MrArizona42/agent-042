@@ -103,6 +103,9 @@ services:
       "--gpu-memory-utilization", "${VLLM_GPU_UTIL}",
       "--kv-cache-dtype", "${VLLM_KV_CACHE_DTYPE}",
       "--quantization", "${VLLM_QUANT}",
+      "--enable-lora",
+      "--max-loras", "${VLLM_MAX_LORAS}",
+      "--max-lora-rank", "${VLLM_MAX_LORA_RANK}",
       "--host", "0.0.0.0",
       "--port", "8000"
     ]
@@ -111,9 +114,10 @@ services:
     ports:
       - "${VLLM_PORT}:8000"
 
-    # Mount repo models so you can set VLLM_MODEL to a local path e.g. /models/ministral/Ministral-3b-instruct
+    # Mount repo models and downloaded adapters
     volumes:
       - ${PROJECT_ROOT}/assets/models:/models:rw
+      - ${PROJECT_ROOT}/assets/adapters:/adapters:ro
 
     # GPU access via modern Compose syntax
     deploy:
