@@ -468,6 +468,7 @@ services:
       - "${JUPYTER_PORT}:8888"
     volumes:
       - ${PROJECT_ROOT}/notebooks:/home/jovyan/work
+      - ${PROJECT_ROOT}/experiments/scripts/prefetch_assets.ipynb:/home/jovyan/work/prefetch_assets.ipynb
       - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8888/api || exit 1"]
