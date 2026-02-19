@@ -85,6 +85,14 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # Async Inference Settings (Phase 1)
+    # =========================================================================
+    async_enabled: bool = Field(
+        default=True,
+        description="Enable async inference via Celery workers",
+    )
+
+    # =========================================================================
     # Gateway Service Settings
     # =========================================================================
     cors_allow_origins: list[str] = Field(
@@ -205,6 +213,36 @@ class Settings(BaseSettings):
         return v
 
 
+class ModelRegistrySettings(BaseSettings):
+    """Settings for MLflow Model Registry / adapter sync.
+
+    Environment Variables:
+        REGISTRY_MLFLOW_TRACKING_URI: MLflow tracking server URL.
+        REGISTRY_ADAPTERS_DIR: Local directory for downloaded LoRA adapters.
+        REGISTRY_AUTO_SYNC: Pull production adapters on service startup.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="REGISTRY_",
+        extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
+    mlflow_tracking_uri: str = Field(
+        default="http://localhost:5050",
+        description="MLflow tracking server URL",
+    )
+    adapters_dir: str = Field(
+        default="./adapters",
+        description="Local directory for downloaded LoRA adapters",
+    )
+    auto_sync: bool = Field(
+        default=False,
+        description="Automatically sync production adapters on startup",
+    )
+
+
 class UISettings(BaseSettings):
     """UI-specific settings with UI_ prefix.
 
@@ -252,6 +290,12 @@ def get_settings() -> Settings:
 
 
 @lru_cache
+def get_registry_settings() -> ModelRegistrySettings:
+    """Get cached model registry settings."""
+    return ModelRegistrySettings()
+
+
+@lru_cache
 def get_ui_settings() -> UISettings:
     """Get cached UI-specific settings.
 
@@ -281,6 +325,7 @@ def validate_settings_on_startup() -> None:
     logger.info("Configuration loaded successfully:")
     logger.info(f"  vLLM URL: {settings.vllm_base_url}")
     logger.info(f"  Default model: {settings.default_model}")
+    logger.info(f"  Async inference enabled: {settings.async_enabled}")
     logger.info(f"  Qdrant: {settings.qdrant_host}:{settings.qdrant_port}")
     logger.info(f"  RAG enabled: {settings.rag_enabled}")
     logger.info(f"  Embedding model: {settings.embedding_model}")

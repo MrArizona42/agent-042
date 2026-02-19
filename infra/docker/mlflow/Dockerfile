@@ -28,6 +28,9 @@ RUN pip install --no-cache-dir \
 # Expose MLflow default port (documentation only)
 EXPOSE 5000
 
-# ENTRYPOINT defines the executable
-# This makes the container behave like "mlflow <args>"
-ENTRYPOINT ["mlflow"]
+# Copy entrypoint script that runs DB migrations before starting
+COPY infra/docker/mlflow/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# ENTRYPOINT runs migrations then exec's "mlflow <args>"
+ENTRYPOINT ["/app/entrypoint.sh"]

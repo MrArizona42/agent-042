@@ -207,5 +207,171 @@ python ./experiments/scripts/train_hydra.py -m \
   - Вся папка Hydra - отправляется в Yandex Cloud (триггерится MLFlow, но НЕ проксируются через
     MLFlow server!)
 
+- **Model Registry (MLflow)**: после обучения адаптер автоматически регистрируется в MLflow Model
+  Registry (если `experiment.mlflow.register_model=true`). Подробнее — ниже.
+
 - Базовый корень для относительных путей: `paths.project_root` (обязательно указывайте корректный
   путь для своей машины).
+
+## 🗂️ Model Registry — управление LoRA-адаптерами
+
+Реестр адаптеров построен на **MLflow Model Registry** и решает ключевую задачу: обеспечить плавный
+и воспроизводимый переход обученного адаптера из эксперимента в production inference.
+
+### Концепция
+
+Каждый обученный LoRA-адаптер регистрируется как **Model Version** внутри именованной группы
+(**Registered Model**). Имена моделей следуют конвенции `lora-<task>`:
+
+| Registered Model      | Задача                | LoRA для…           |
+|-----------------------|-----------------------|---------------------|
+| `lora-summarization`  | Суммаризация статей   | `summarize` task    |
+| `lora-code`           | Генерация кода        | `code` task         |
+| `lora-chat`           | Чат / QA              | `chat` task         |
+
+Для управления жизненным циклом используются **aliases** (не deprecated stages):
+
+- **`champion`** — текущий production-адаптер. Именно он загружается в vLLM.
+- **`challenger`** — кандидат на замену champion (для A/B-тестирования или ревью).
+
+### Автоматическая регистрация при обучении
+
+При обучении через `train_hydra.py` адаптер автоматически регистрируется в реестре, если в
+конфиге указано:
+
+```yaml
+# conf/experiment/train_adapter.yaml
+mlflow:
+  register_model: true
+  registered_model_name: "lora-summarization"
+```
+
+Чтобы обучить адаптер под другую задачу, переопределите имя через CLI:
+
+```bash
+# Обучить и зарегистрировать адаптер для генерации кода
+python ./experiments/scripts/train_hydra.py \
+  paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
+  experiment.mlflow.registered_model_name="lora-code"
+```
+
+Если `registered_model_name` не задано, имя формируется автоматически по шаблону
+`lora-<experiment_name>`.
+
+### CLI для управления реестром: `manage_registry.py`
+
+Скрипт `experiments/scripts/manage_registry.py` — операционный инструмент (не Hydra) для просмотра
+и управления адаптерами в реестре. Читает `MLFLOW_BACKEND_URI` из `experiments/.env`.
+
+**Просмотр всех зарегистрированных адаптеров:**
+
+```bash
+python experiments/scripts/manage_registry.py list
+```
+
+**Все версии конкретного адаптера:**
+
+```bash
+python experiments/scripts/manage_registry.py versions lora-summarization
+```
+
+**Промотирование версии в production (alias champion):**
+
+```bash
+python experiments/scripts/manage_registry.py promote lora-summarization 3
+```
+
+**Промотировать в staging (alias challenger):**
+
+```bash
+python experiments/scripts/manage_registry.py promote lora-summarization 5 --alias challenger
+```
+
+**Снять alias:**
+
+```bash
+python experiments/scripts/manage_registry.py demote lora-summarization
+```
+
+**Посмотреть, какие адаптеры сейчас в production:**
+
+```bash
+python experiments/scripts/manage_registry.py production
+```
+
+**Скачать production-адаптер локально:**
+
+```bash
+python experiments/scripts/manage_registry.py download lora-summarization ./my_adapters
+```
+
+### Синхронизация адаптеров на inference-хосте
+
+Для подготовки адаптеров к загрузке в vLLM используется модуль `src/shared/model_registry.py`.
+Он скачивает все champion-адаптеры из реестра и генерирует `lora-modules.json` для vLLM.
+
+```bash
+# Из корня проекта (с настроенным .env)
+python -m shared.model_registry sync --adapters-dir ./assets/adapters
+```
+
+Результат:
+
+```
+assets/adapters/
+├── lora-summarization/
+│   └── v3/
+│       ├── adapter_config.json
+│       ├── adapter_model.safetensors
+│       └── ...
+├── lora-code/
+│   └── v2/
+│       └── ...
+├── lora-modules.json          ← для vLLM --lora-modules
+└── adapters-summary.json      ← человекочитаемый манифест
+```
+
+### Полный рабочий процесс: от обучения до inference
+
+```bash
+# 1. Обучить адаптер (автоматически регистрируется в Registry)
+python ./experiments/scripts/train_hydra.py \
+  paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
+  experiment.mlflow.registered_model_name="lora-summarization"
+
+# 2. Посмотреть версии, метрики в MLflow UI, выбрать лучшую
+python experiments/scripts/manage_registry.py versions lora-summarization
+
+# 3. Промотировать лучшую версию в production
+python experiments/scripts/manage_registry.py promote lora-summarization 3
+
+# 4. Синхронизировать адаптеры на inference-хосте
+python -m shared.model_registry sync --adapters-dir ./assets/adapters
+
+# 5. Перезапустить vLLM (docker-compose) — он подхватит адаптеры из assets/adapters/
+docker compose -f infra/compose/docker-compose.yaml restart vllm
+```
+
+### Конфигурация vLLM для multi-LoRA
+
+В `docker-compose.yaml` vLLM запускается с поддержкой multi-LoRA:
+
+```yaml
+command: [
+  "--model", "${VLLM_MODEL}",
+  "--enable-lora",
+  "--max-loras", "${VLLM_MAX_LORAS}",
+  "--max-lora-rank", "${VLLM_MAX_LORA_RANK}",
+  ...
+]
+volumes:
+  - ${PROJECT_ROOT}/assets/models:/models:rw
+  - ${PROJECT_ROOT}/assets/adapters:/adapters:ro
+```
+
+Ключевые переменные окружения (`.env`):
+
+```bash
+VLLM_MAX_LORAS=4        # макс. число одновременно загруженных LoRA
+VLLM_MAX_LORA_RANK=16   # >= lora.r из конфига обучения
+```
