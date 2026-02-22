@@ -8,6 +8,7 @@
 #
 #   2. Custom Dockerfile                     (production)
 #      FROM apache/airflow:2.10.4
+#      Keep version in sync with infra/compose/docker-compose.yaml.
 #      COPY dags/requirements.txt /
 #      RUN pip install --no-cache-dir -r /requirements.txt
 #

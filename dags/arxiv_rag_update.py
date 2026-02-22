@@ -58,7 +58,7 @@ default_args = {
 
 def _download_arxiv_papers() -> str:
     """Download papers from arXiv and save metadata + abstracts to JSON."""
-    import arxiv  # noqa: E402 — delay import so DAG parses even when lib is missing
+    import arxiv  # noqa: E402 -- delay import so DAG parses even when lib is missing
 
     ARXIV_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -29,6 +29,8 @@ ASSETS_DIR = PROJECT_ROOT / "assets"
 PYTORCH_OUTPUT_DIR = ASSETS_DIR / "rag_data" / "pytorch_docs"
 
 PYTORCH_BASE_URL = "https://pytorch.org/docs/stable/"
+PYTORCH_SCRAPE_DELAY_SECONDS = 1
+PYTORCH_MAX_CODE_EXAMPLES = 10
 PYTORCH_PAGES: list[str] = [
     "generated/torch.nn.Module.html",
     "generated/torch.Tensor.html",
@@ -95,7 +97,7 @@ def _scrape_pytorch_doc_page(url: str) -> dict:
         content = ""
 
     code_blocks = soup.find_all("code") or soup.find_all("pre")
-    code_examples = [b.get_text(strip=True) for b in code_blocks[:10]]
+    code_examples = [b.get_text(strip=True) for b in code_blocks[:PYTORCH_MAX_CODE_EXAMPLES]]
 
     return {
         "url": url,
@@ -116,7 +118,7 @@ def _collect_pytorch_docs() -> str:
         print(f"[{i}/{len(PYTORCH_PAGES)}] {url}")
         try:
             pages.append(_scrape_pytorch_doc_page(url))
-            time.sleep(1)  # polite rate-limiting
+            time.sleep(PYTORCH_SCRAPE_DELAY_SECONDS)  # polite rate-limiting
         except Exception as exc:
             print(f"  Warning: {exc}")
 
