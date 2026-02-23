@@ -182,13 +182,41 @@ curl http://localhost:6333/collections
 
 ### Step 4: Collect Data
 
-Data collection (ArXiv papers for chat RAG, PyTorch docs for code RAG) is now done
-interactively via the notebook `experiments/scripts/prefetch_assets.ipynb`:
+Data collection (ArXiv papers for chat RAG, PyTorch docs for code RAG) can be done in
+two ways:
+
+#### Option A: Automated via Airflow DAGs (recommended for production)
+
+Start the full Docker Compose stack (including Airflow):
+
+```bash
+cd infra/compose
+docker-compose up -d
+```
+
+Two Airflow DAGs manage data collection automatically:
+
+| DAG | Schedule | What it does |
+|-----|----------|-------------|
+| `arxiv_rag_update` | Daily | Downloads latest ArXiv papers → DVC version → rebuilds `chat_documents` index |
+| `pytorch_docs_rag_update` | Weekly | Scrapes PyTorch docs → DVC version → rebuilds `code_documents` index |
+
+Open Airflow UI at `http://localhost:8080` (default login: `admin` / `admin`) to
+monitor DAG runs, trigger manual runs, or review logs.
+
+To trigger a DAG immediately (without waiting for the schedule):
+1. Open Airflow UI → DAGs page
+2. Toggle the DAG on (if paused)
+3. Click the "Trigger DAG" button (▶)
+
+#### Option B: Interactive via notebook (for development/exploration)
+
+Open `experiments/scripts/prefetch_assets.ipynb`:
 
 - **Section 8** — ArXiv papers (chat RAG)
 - **Section 9** — PyTorch documentation (code RAG)
 
-Open the notebook, set `PROJECT_ROOT`, and run the relevant sections.
+Set `PROJECT_ROOT` and run the relevant sections.
 
 **Outputs:**
 - `assets/rag_data/arxiv/arxiv_papers.json`
@@ -250,6 +278,7 @@ This starts:
 - vLLM (with base model)
 - Gateway (with RAG enabled)
 - UI
+- Airflow (scheduler + webserver — manages RAG data update DAGs)
 
 ### Check Service Health
 
@@ -474,16 +503,20 @@ agent-042/
 │           ├── rag_service.py       # Gateway RAG integration
 │           ├── prompt_builder.py    # Context injection
 │           └── processing.py        # RAG invocation
+├── dags/                             # Airflow DAGs (data pipelines)
+│   ├── arxiv_rag_update.py          # Daily: ArXiv download → DVC → index
+│   ├── pytorch_docs_rag_update.py   # Weekly: PyTorch docs → DVC → index
+│   └── requirements.txt             # DAG Python dependencies
 ├── experiments/scripts/
 │   ├── prefetch_assets.ipynb        # Data collection (ArXiv, PyTorch docs, etc.)
 │   └── rag_data/
-│       └── build_vector_index.py    # Index building
+│       └── build_vector_index.py    # Index building (used by DAGs)
 ├── assets/rag_data/
 │   ├── arxiv/                       # ArXiv papers JSON
 │   └── pytorch_docs/                # PyTorch docs JSON
 ├── infra/compose/
-│   ├── docker-compose.yaml          # Qdrant service added
-│   └── .env.example                 # RAG config
+│   ├── docker-compose.yaml          # Full stack (incl. Qdrant, Airflow)
+│   └── .env.example                 # RAG + Airflow config
 └── RAG-SETUP.md                     # This file
 ```
 

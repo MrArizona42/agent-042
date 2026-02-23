@@ -15,10 +15,14 @@ cp .env.example .env
 docker-compose up -d qdrant
 
 # 3. Collect data (ArXiv papers + PyTorch docs)
-#    Open experiments/scripts/prefetch_assets.ipynb and run sections 8 & 9,
-#    or use the notebook to download all project assets at once.
+#    Option A (automated): start Airflow — DAGs will run on schedule
+#      docker-compose up -d airflow-webserver airflow-scheduler
+#      Then open http://localhost:8080 and trigger DAGs manually, or wait.
+#
+#    Option B (interactive): open experiments/scripts/prefetch_assets.ipynb
+#      and run sections 8 & 9.
 
-# 4. Build vector indices
+# 4. Build vector indices (only needed with Option B; DAGs do this automatically)
 cd experiments/scripts/rag_data
 python build_vector_index.py --task both --qdrant-host localhost --force-recreate
 
@@ -72,6 +76,7 @@ docker-compose up -d
 - Qdrant vector database (Docker)
 - Lightweight embedding model (CPU-based)
 - 2 collections: chat (ArXiv), code (PyTorch)
+- Airflow DAGs for automated data refresh (daily ArXiv, weekly PyTorch docs)
 
 ✅ **Data**
 - ~100 ArXiv papers (ML/DL categories)
@@ -162,6 +167,9 @@ curl http://localhost:6333/collections
 - `src/rag/` - RAG module (embeddings, vector store, chunking, retrieval)
 - `src/gateway/services/rag_service.py` - Gateway integration
 - `experiments/scripts/rag_data/` - Data collection scripts
+- `dags/arxiv_rag_update.py` - Daily ArXiv data pipeline (Airflow DAG)
+- `dags/pytorch_docs_rag_update.py` - Weekly PyTorch docs pipeline (Airflow DAG)
+- `dags/requirements.txt` - DAG Python dependencies
 - `RAG-SETUP.md` - Full documentation (this file)
 
 **Modified Files**:
