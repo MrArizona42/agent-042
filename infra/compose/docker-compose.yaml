@@ -7,8 +7,6 @@ x-airflow-common-env: &airflow-common-env
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
   AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-  # DAG dependencies (installed at container start)
-  _PIP_ADDITIONAL_REQUIREMENTS: "arxiv>=2.1.3 beautifulsoup4>=4.12.3 lxml>=5.3.0 dvc[s3]>=3.66.1 qdrant-client>=1.12.0 sentence-transformers>=3.3.1 langchain-text-splitters>=0.4.2"
   # Project paths & service endpoints used by DAGs
   PROJECT_ROOT: /opt/airflow/project
   QDRANT_HOST: qdrant
@@ -17,6 +15,10 @@ x-airflow-common-env: &airflow-common-env
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+
+x-airflow-common-build: &airflow-common-build
+  context: ${PROJECT_ROOT}
+  dockerfile: infra/docker/airflow/Dockerfile
 
 x-airflow-common-volumes: &airflow-common-volumes
   - ${PROJECT_ROOT}/dags:/opt/airflow/dags
@@ -373,7 +375,7 @@ services:
   # Airflow – database migration & admin user (one-shot)
   # =====================
   airflow-init:
-    image: apache/airflow:2.10.4
+    build: *airflow-common-build
     entrypoint: /bin/bash
     command:
       - -c
@@ -429,7 +431,7 @@ services:
   # Airflow Webserver
   # =====================
   airflow-webserver:
-    image: apache/airflow:2.10.4
+    build: *airflow-common-build
     command: webserver
     environment:
       <<: *airflow-common-env
@@ -454,7 +456,7 @@ services:
   # Airflow Scheduler (LocalExecutor)
   # =====================
   airflow-scheduler:
-    image: apache/airflow:2.10.4
+    build: *airflow-common-build
     command: scheduler
     environment:
       <<: *airflow-common-env

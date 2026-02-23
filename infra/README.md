@@ -203,7 +203,16 @@ download / scrape  >>  dvc_version  >>  build_index
 
 ### Зависимости DAG'ов
 
-Зависимости, необходимые для выполнения DAG'ов, устанавливаются через переменную `_PIP_ADDITIONAL_REQUIREMENTS` (перечислены в `x-airflow-common-env` в `docker-compose.yaml`). Для production-среды рекомендуется собрать кастомный Airflow image — см. `dags/requirements.txt`.
+Зависимости, необходимые для выполнения DAG'ов, перечислены в `dags/requirements.txt` и устанавливаются при сборке кастомного Airflow-образа (`infra/docker/airflow/Dockerfile`). Все три Airflow-сервиса (`airflow-init`, `airflow-webserver`, `airflow-scheduler`) собираются из этого Dockerfile через `x-airflow-common-build` якорь в `docker-compose.yaml`.
+
+Чтобы обновить зависимости:
+```bash
+# 1. Отредактируйте dags/requirements.txt
+# 2. Пересоберите образ:
+cd infra/compose
+docker compose build airflow-webserver airflow-scheduler airflow-init
+docker compose up -d airflow-webserver airflow-scheduler
+```
 
 Переменные окружения (`.env`):
 - `AIRFLOW_DB` — имя базы в PostgreSQL (по умолчанию `airflow`)

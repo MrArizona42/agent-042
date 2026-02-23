@@ -1,16 +1,10 @@
-# Extra Python packages required by Airflow DAGs.
+# Python packages required by Airflow DAGs.
 #
-# Install in the Airflow image via one of:
+# These are installed at image build time via infra/docker/airflow/Dockerfile.
+# To add or update a dependency, edit this file and rebuild the Airflow image:
 #
-#   1. _PIP_ADDITIONAL_REQUIREMENTS env-var  (development / quick-start)
-#      Set in docker-compose.yaml – packages are installed at every
-#      container start, so startup is slower.
-#
-#   2. Custom Dockerfile                     (production)
-#      FROM apache/airflow:2.10.4
-#      Keep version in sync with infra/compose/docker-compose.yaml.
-#      COPY dags/requirements.txt /
-#      RUN pip install --no-cache-dir -r /requirements.txt
+#   cd infra/compose
+#   docker compose build airflow-webserver airflow-scheduler airflow-init
 #
 # ── Data fetching (lightweight) ─────────────────────────────────────────
 arxiv>=2.1.3
@@ -23,8 +17,6 @@ dvc[s3]>=3.66.1
 
 # ── Vector-index rebuild (heavy – pulls PyTorch + transformers) ─────────
 # Needed only for the build_*_index tasks.
-# If startup time matters, build a custom Airflow image instead of using
-# _PIP_ADDITIONAL_REQUIREMENTS.
 qdrant-client>=1.12.0
 sentence-transformers>=3.3.1
 langchain-text-splitters>=0.4.2
