@@ -249,3 +249,56 @@ JupyterLab предоставляет интерактивную среду дл
 ```
 
 Про обращение с данными см. в `agent-042/experiments/README.md`.
+
+## Устранение проблем (Troubleshooting)
+
+### PostgreSQL: «No space left on device» / Airflow не даёт залогиниться
+
+Если Airflow webserver показывает ошибки вида:
+```
+could not create relation-cache initialization file "global/pg_internal.init.XXXX": No space left on device
+```
+или
+```
+FATAL: the database system is in recovery mode
+```
+
+это означает, что Docker-volume PostgreSQL (`mlflow_pg_data`) заполнен.
+
+**Быстрое восстановление:**
+
+```bash
+cd infra/compose
+
+# 1. Остановить всё
+docker compose down
+
+# 2. Удалить заполненный volume (УДАЛИТ все данные MLflow и Airflow из БД!)
+docker volume rm compose_mlflow_pg_data   # имя может отличаться: docker volume ls | grep pg
+
+# 3. Поднять стек заново — БД будут пересозданы автоматически
+docker compose up --build -d
+```
+
+> ⚠️ Это удалит все данные в PostgreSQL (MLflow эксперименты, Airflow DAG runs).
+> MLflow-артефакты в S3 (Yandex Object Storage) остаются нетронутыми.
+
+**Если данные MLflow ценны:**
+
+```bash
+# Остановить всё, кроме Postgres
+docker compose stop airflow-webserver airflow-scheduler mlflow
+
+# Подключиться к Postgres и вручную очистить ненужные данные
+docker compose exec postgres psql -U mlflow -d airflow -c "DELETE FROM log WHERE dttm < NOW() - INTERVAL '7 days';"
+docker compose exec postgres psql -U mlflow -d airflow -c "VACUUM FULL;"
+
+# Перезапустить
+docker compose up -d
+```
+
+**Профилактика (уже включена в текущем compose):**
+
+- `shm_size: 256m` для контейнера PostgreSQL (Docker по умолчанию даёт только 64 MB)
+- Ограничение WAL-файлов: `max_wal_size=512MB`, `wal_keep_size=0`
+- Airflow: `MAX_ACTIVE_RUNS_PER_DAG=3` для снижения нагрузки на БД

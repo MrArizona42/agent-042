@@ -7,6 +7,10 @@ x-airflow-common-env: &airflow-common-env
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
   AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  # Limit parallel DAG runs to reduce DB + disk pressure
+  AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: "3"
+  # Auto-cleanup: keep metadata for 30 days only (scheduler must be running)
+  AIRFLOW__SCHEDULER__PARSING_CLEANUP_INTERVAL: "60"
   # Project paths & service endpoints used by DAGs
   PROJECT_ROOT: /opt/airflow/project
   QDRANT_HOST: qdrant
@@ -32,6 +36,21 @@ services:
   # =====================
   postgres:
     image: postgres:15
+
+    # Docker default shm is 64 MB; PostgreSQL needs more for shared buffers.
+    shm_size: 256m
+
+    # Limit WAL / checkpoint disk usage to prevent "No space left on device".
+    command:
+      - postgres
+      - -c
+      - max_wal_size=512MB
+      - -c
+      - min_wal_size=64MB
+      - -c
+      - wal_keep_size=0
+      - -c
+      - checkpoint_completion_target=0.9
 
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
