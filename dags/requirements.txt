@@ -30,7 +30,7 @@ lxml>=5.3.0
 requests>=2.31.0
 
 # ── DVC versioning ──────────────────────────────────────────────────────
-dvc[s3]>=3.55.0
+dvc[s3]>=3.66.1
 
 # ── Vector-index rebuild (heavy – pulls PyTorch + transformers) ─────────
 # Needed only for the build_*_index tasks.
