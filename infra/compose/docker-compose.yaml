@@ -9,7 +9,7 @@ x-airflow-common-env: &airflow-common-env
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   # Limit parallel DAG runs to reduce DB + disk pressure
   AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: "3"
-  # Auto-cleanup: keep metadata for 30 days only (scheduler must be running)
+  # How often (seconds) the scheduler cleans up stale parsing metadata
   AIRFLOW__SCHEDULER__PARSING_CLEANUP_INTERVAL: "60"
   # Project paths & service endpoints used by DAGs
   PROJECT_ROOT: /opt/airflow/project

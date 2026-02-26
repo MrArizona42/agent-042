@@ -270,13 +270,10 @@ FATAL: the database system is in recovery mode
 ```bash
 cd infra/compose
 
-# 1. Остановить всё
-docker compose down
+# 1. Остановить всё и удалить заполненные volume'ы (УДАЛИТ все данные MLflow и Airflow из БД!)
+docker compose down -v
 
-# 2. Удалить заполненный volume (УДАЛИТ все данные MLflow и Airflow из БД!)
-docker volume rm compose_mlflow_pg_data   # имя может отличаться: docker volume ls | grep pg
-
-# 3. Поднять стек заново — БД будут пересозданы автоматически
+# 2. Поднять стек заново — БД будут пересозданы автоматически
 docker compose up --build -d
 ```
 
@@ -289,7 +286,7 @@ docker compose up --build -d
 # Остановить всё, кроме Postgres
 docker compose stop airflow-webserver airflow-scheduler mlflow
 
-# Подключиться к Postgres и вручную очистить ненужные данные
+# Подключиться к Postgres и вручную очистить старые Airflow-логи
 docker compose exec postgres psql -U mlflow -d airflow -c "DELETE FROM log WHERE dttm < NOW() - INTERVAL '7 days';"
 docker compose exec postgres psql -U mlflow -d airflow -c "VACUUM FULL;"
 
