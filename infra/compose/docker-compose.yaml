@@ -106,6 +106,8 @@ services:
       - ${MLFLOW_BACKEND_URI}
       - --default-artifact-root
       - ${MLFLOW_ARTIFACT_ROOT}
+      - --allowed-hosts
+      - "agent.antonlab.ru,localhost"
       # - --serve-artifacts
 
     healthcheck:
