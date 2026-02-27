@@ -73,14 +73,13 @@ Total: 12GB
 **4. Retrieval Service**
 - Dense retrieval using cosine similarity
 - Top-k retrieval (default: 5 documents)
-- Score threshold filtering (default: 0.3)
-- Task-based collection routing (chat → ArXiv, code → PyTorch)
+- Score threshold filtering (default: 0.35)
+- Manual knowledge base selection from UI
 
 **5. Gateway Integration**
-- Automatic RAG activation when enabled
+- User-selected knowledge base passed via `knowledge_base` request field
 - Context injection into system prompt
-- Task-based retrieval (auto-detected)
-- Graceful fallback if RAG unavailable
+- Graceful fallback if RAG unavailable or no KB selected
 
 **6. Data Collection Scripts**
 - **ArXiv Collector**: Downloads ML/DL papers (cs.LG, cs.AI)
@@ -88,8 +87,8 @@ Total: 12GB
 - **Index Builder**: Chunks, embeds, and stores in Qdrant
 
 **7. UI Updates**
-- RAG status indicator in sidebar
-- Information about available collections
+- Knowledge base radio selector in sidebar (ArXiv papers / PyTorch docs / Disabled)
+- Selected KB is sent with every chat request
 
 ---
 
@@ -117,7 +116,6 @@ Total: 12GB
 - Latency profiling
 
 ### 🔄 Advanced Features
-- **Dynamic RAG toggle**: Per-query control from UI
 - **Context window management**: Smart truncation
 - **Query history**: Remember previous retrievals
 - **Citation extraction**: Show source papers/docs inline
@@ -299,8 +297,8 @@ Open browser: http://localhost:8501
 
 You should see:
 - Main chat interface
-- Sidebar with "RAG Settings" section
-- Info message about RAG being enabled
+- Sidebar with **Knowledge Base** selector (Disabled / ArXiv papers / PyTorch docs)
+- Max tokens setting
 
 ---
 
@@ -308,23 +306,23 @@ You should see:
 
 ### Test Query Examples
 
-**Test 1: Chat Query (ArXiv Papers)**
+**Test 1: ArXiv Knowledge Base (ML/AI Theory)**
 
-Try asking questions about ML/DL topics that would be in ArXiv papers:
+Select **"ArXiv papers (ML / AI theory)"** in the sidebar, then ask:
 
 ```
 User: "What are the main approaches to fine-tuning large language models?"
 ```
 
 Expected behavior:
-- Gateway detects task as "chat"
+- UI sends `knowledge_base: "arxiv"` with the request
 - Retrieves from `chat_documents` collection
 - Injects ArXiv paper abstracts into context
 - LLM generates answer using retrieved context
 
-**Test 2: Code Query (PyTorch Docs)**
+**Test 2: PyTorch Docs Knowledge Base (Coding)**
 
-Try asking about PyTorch APIs:
+Select **"PyTorch docs (coding)"** in the sidebar, then ask:
 
 ```
 User: "How do I create a neural network in PyTorch?"
@@ -332,22 +330,22 @@ User: "Show me python code for a simple CNN"
 ```
 
 Expected behavior:
-- Gateway detects task as "code"
+- UI sends `knowledge_base: "pytorch_docs"` with the request
 - Retrieves from `code_documents` collection
 - Injects PyTorch documentation into context
 - LLM generates code with proper API usage
 
-**Test 3: Summarization Query**
+**Test 3: No Knowledge Base (RAG Disabled)**
+
+Select **"Disabled"** in the sidebar, then ask:
 
 ```
 User: "Summarize the key concepts in attention mechanisms"
 ```
 
 Expected behavior:
-- Gateway detects task as "summarize"
-- Uses `chat_documents` collection
-- Retrieves relevant papers
-- Generates summary
+- No RAG retrieval is performed
+- LLM answers using its own knowledge
 
 ### Viewing Retrieved Context
 
@@ -359,9 +357,9 @@ docker-compose logs -f gateway
 
 Look for log messages like:
 ```
-INFO: RAG context retrieved for task: chat
+INFO: RAG — retrieving from knowledge base: arxiv
 INFO: Retrieved 5 documents
-INFO: Retrieved context of 2847 characters from 5 documents
+INFO: RAG context retrieved (kb=arxiv)
 ```
 
 ### Testing Without Docker
@@ -419,12 +417,14 @@ docker-compose restart gateway
 **Problem**: Queries return no documents
 
 **Possible causes**:
-1. Query too different from indexed content
-2. Score threshold too high
-3. Wrong collection
+1. No knowledge base selected in the UI sidebar
+2. Query too different from indexed content
+3. Score threshold too high
+4. Selected collection has no documents
 
 **Solution**:
-- Try lowering score threshold in `src/rag/config.py` (default: 0.3 → 0.1)
+- Make sure a knowledge base is selected in the sidebar (not "Disabled")
+- Try lowering `GATEWAY_SCORE_THRESHOLD` (default: 0.35)
 - Check collection has documents: `curl http://localhost:6333/collections/chat_documents`
 - Try more specific queries related to ML/DL topics
 

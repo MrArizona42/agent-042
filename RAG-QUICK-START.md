@@ -86,12 +86,13 @@ docker-compose up -d
 ✅ **Retrieval**
 - Dense vector search (cosine similarity)
 - Top-5 retrieval per query
-- Task-based routing (auto-detect)
+- Manual knowledge base selection from UI
+- Score threshold filtering (default: 0.35)
 
 ✅ **Integration**
-- Automatic context injection
+- Context injection into system prompt
 - Gateway-level RAG service
-- UI status indicator
+- UI knowledge base selector (ArXiv papers / PyTorch docs / disabled)
 
 ---
 
@@ -114,7 +115,6 @@ docker-compose up -d
 - Latency profiling
 
 ⏳ **Features**
-- Per-query RAG toggle
 - Citation extraction
 - Query history
 - Embedding caching
@@ -123,22 +123,24 @@ docker-compose up -d
 
 ## Testing RAG
 
-**Chat Query (ArXiv)**:
+**ArXiv knowledge base (ML/AI theory)**:
 ```
+Select "ArXiv papers (ML / AI theory)" in the sidebar, then ask:
 "What are the main approaches to fine-tuning LLMs?"
-→ Retrieves from chat_documents (ArXiv papers)
+→ Retrieves from chat_documents collection
 ```
 
-**Code Query (PyTorch)**:
+**PyTorch docs knowledge base (coding)**:
 ```
+Select "PyTorch docs (coding)" in the sidebar, then ask:
 "Show me Python code for a CNN"
-→ Retrieves from code_documents (PyTorch docs)
+→ Retrieves from code_documents collection
 ```
 
 **Check Logs**:
 ```bash
 docker-compose logs -f gateway | grep RAG
-# Should see: "RAG context retrieved for task: chat"
+# Should see: "RAG context retrieved (kb=arxiv)"
 ```
 
 ---
@@ -152,7 +154,8 @@ curl http://localhost:6333/collections
 ```
 
 ### No context retrieved
-- Lower score threshold in `src/rag/config.py` (0.3 → 0.1)
+- Make sure a knowledge base is selected in the UI sidebar
+- Try lowering `GATEWAY_SCORE_THRESHOLD` (default: 0.35)
 - Try queries about ML/DL topics (closer to ArXiv content)
 
 ### OOM on GPU
@@ -177,10 +180,12 @@ curl http://localhost:6333/collections
 - `requirements-gateway.txt` - Added RAG dependencies
 - `infra/compose/docker-compose.yaml` - Added Qdrant service
 - `infra/compose/.env.example` - Added RAG config
-- `src/gateway/config.py` - Added RAG settings
+- `src/shared/config.py` - Unified settings + `KNOWLEDGE_BASES` registry
+- `src/gateway/schemas/openai_chat.py` - Added `knowledge_base` field
 - `src/gateway/services/prompt_builder.py` - Context injection
-- `src/gateway/services/processing.py` - RAG invocation
-- `src/ui/app.py` - RAG status display
+- `src/gateway/services/processing.py` - RAG invocation with KB selection
+- `src/gateway/services/rag_service.py` - KB-based retriever initialization
+- `src/ui/app.py` - Knowledge base selector
 
 ---
 

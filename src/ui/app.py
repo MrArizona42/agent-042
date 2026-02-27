@@ -4,6 +4,7 @@ import re
 
 import streamlit as st
 
+from shared.config import KNOWLEDGE_BASES
 from ui.client import GatewayClient
 from ui.config import get_settings
 
@@ -63,16 +64,25 @@ client = GatewayClient(gateway_url)
 with st.sidebar:
     st.markdown("---")
     st.subheader("Model Settings")
-    temperature = st.slider("temperature", min_value=0.0, max_value=2.0, value=0.7, step=0.05)
     max_tokens = st.number_input("max_tokens", min_value=1, value=512, step=1)
 
     st.markdown("---")
-    st.subheader("RAG Settings")
-    st.info(
-        "RAG is automatically enabled on the gateway."
-        " The system will retrieve relevant context from the knowledge base based on your query."
+    st.subheader("Knowledge Base")
+
+    # Build options from the KNOWLEDGE_BASES registry
+    kb_options: dict[str, str | None] = {"Disabled": None}
+    for kb_key, kb_info in KNOWLEDGE_BASES.items():
+        kb_options[kb_info["label"]] = kb_key
+
+    selected_kb_label = st.radio(
+        "Select knowledge base for RAG retrieval",
+        options=list(kb_options.keys()),
+        index=0,
     )
-    st.caption("Available collections: chat (ArXiv papers), code (PyTorch docs)")
+    selected_kb = kb_options[selected_kb_label]
+
+    if selected_kb:
+        st.caption(KNOWLEDGE_BASES[selected_kb]["description"])
 
 
 if "messages" not in st.session_state:
@@ -95,9 +105,9 @@ if prompt:
     payload = {
         # "model": None,
         "messages": st.session_state.messages,
-        "temperature": temperature,
         "max_completion_tokens": int(max_tokens),
         "stream": False,
+        "knowledge_base": selected_kb,
     }
 
     with st.chat_message("assistant"):

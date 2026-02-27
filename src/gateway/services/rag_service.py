@@ -9,13 +9,17 @@ from gateway.config import get_settings
 from rag.embeddings import EmbeddingService
 from rag.retriever import Retriever
 from rag.vector_store import QdrantVectorStore
-from shared.config import Settings
+from shared.config import KNOWLEDGE_BASES, Settings
 
 logger = logging.getLogger(__name__)
 
 
 class RAGService:
-    """Service for retrieving relevant context using RAG."""
+    """Service for retrieving relevant context using RAG.
+
+    Each Qdrant collection is exposed as a named knowledge base that the
+    user can select explicitly from the UI.
+    """
 
     def __init__(self, settings: Optional[Settings] = None):
         """Initialize RAG service.
@@ -42,10 +46,10 @@ class RAGService:
             batch_size=settings.embedding_batch_size,
         )
 
-        # Initialize retrievers for each task
-        self.retrievers = {}
-        for task in ["chat", "code"]:
-            collection_name = f"{task}_documents"
+        # Initialize a retriever for each registered knowledge base
+        self.retrievers: dict[str, Retriever] = {}
+        for kb_name, kb_info in KNOWLEDGE_BASES.items():
+            collection_name = kb_info["collection"]
             vector_store = QdrantVectorStore(
                 host=settings.qdrant_host,
                 port=settings.qdrant_port,
@@ -55,31 +59,38 @@ class RAGService:
             # Check if collection exists
             if not vector_store.collection_exists():
                 logger.warning(
-                    f"Collection '{collection_name}' does not exist. Retrieval for task '{task}' "
-                    "will be disabled."
+                    f"Collection '{collection_name}' does not exist. "
+                    f"Knowledge base '{kb_name}' will be disabled."
                 )
                 continue
 
-            # Use the same settings instance - no need to create duplicate RAGSettings
-            self.retrievers[task] = Retriever(
+            self.retrievers[kb_name] = Retriever(
                 embedding_service=self.embedding_service,
                 vector_store=vector_store,
                 settings=settings,
             )
 
-        logger.info(f"RAG service initialized. Available tasks: {list(self.retrievers.keys())}")
+        logger.info(
+            f"RAG service initialized. Available knowledge bases: {list(self.retrievers.keys())}"
+        )
+
+    @staticmethod
+    def available_knowledge_bases() -> dict[str, dict[str, str]]:
+        """Return the registry of available knowledge bases."""
+        return KNOWLEDGE_BASES
 
     def retrieve_context(
         self,
         query: str,
-        task: str = "chat",
+        knowledge_base: Optional[str] = None,
         top_k: int = 5,
     ) -> Optional[str]:
         """Retrieve relevant context for a query.
 
         Args:
             query: User query
-            task: Task type (chat, code, summarize)
+            knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
+                If None the retrieval is skipped.
             top_k: Number of documents to retrieve
 
         Returns:
@@ -88,21 +99,22 @@ class RAGService:
         if not self.enabled:
             return None
 
-        # Map summarize task to chat collection
-        if task == "summarize":
-            task = "chat"
+        if not knowledge_base:
+            logger.info("No knowledge base selected — skipping RAG retrieval")
+            return None
 
-        # Check if retriever exists for this task
-        if task not in self.retrievers:
-            logger.warning(f"No retriever available for task: {task}")
+        # Check if retriever exists for this knowledge base
+        if knowledge_base not in self.retrievers:
+            logger.warning(f"No retriever available for knowledge base: {knowledge_base}")
             return None
 
         try:
+            retriever = self.retrievers[knowledge_base]
+
             # Retrieve documents
-            documents = self.retrievers[task].retrieve(
+            documents = retriever.retrieve(
                 query=query,
                 top_k=top_k,
-                task=task,
             )
 
             if not documents:
@@ -110,12 +122,13 @@ class RAGService:
                 return None
 
             # Format context using configured max length
-            context = self.retrievers[task].format_context(
+            context = retriever.format_context(
                 documents,
                 max_length=self.settings.context_max_length,
             )
             logger.info(
-                f"Retrieved context of {len(context)} characters from {len(documents)} documents"
+                f"Retrieved context of {len(context)} characters "
+                f"from {len(documents)} documents (kb={knowledge_base})"
             )
 
             return context

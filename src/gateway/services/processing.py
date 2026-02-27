@@ -60,23 +60,23 @@ class _ProcessChat:
         last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
         decision = self._router.decide(last_user)
 
-        # Try to retrieve RAG context
+        # Try to retrieve RAG context using explicitly selected knowledge base
         retrieved_context = None
         rag_mode = "off"
 
-        if self._rag_service and self._rag_service.enabled:
+        if self._rag_service and self._rag_service.enabled and req.knowledge_base:
             try:
-                logger.info(f"RAG - trying to retrieve context in task: {decision.task}")
+                logger.info(f"RAG — retrieving from knowledge base: {req.knowledge_base}")
                 retrieved_context = self._rag_service.retrieve_context(
                     query=last_user,
-                    task=decision.task,
+                    knowledge_base=req.knowledge_base,
                     top_k=5,
                 )
                 if retrieved_context:
                     rag_mode = "on"
-                    logger.info(f"RAG context retrieved for task: {decision.task}")
+                    logger.info(f"RAG context retrieved (kb={req.knowledge_base})")
                 else:
-                    logger.info(f"RAG context has not been retrieved for task: {decision.task}")
+                    logger.info(f"No RAG context found (kb={req.knowledge_base})")
             except Exception as e:
                 logger.error(f"Error retrieving RAG context: {e}")
 

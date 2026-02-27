@@ -22,6 +22,13 @@ class ChatCompletionRequest(BaseModel):
 
     stream: bool = False
 
+    # Knowledge base selection for RAG retrieval.
+    # Valid values: None (disabled), or a key from KNOWLEDGE_BASES (e.g. "arxiv", "pytorch_docs").
+    knowledge_base: str | None = Field(
+        default=None,
+        description="Knowledge base to use for RAG retrieval (None = disabled)",
+    )
+
     # passthrough for additional openai-ish fields (frequency_penalty, etc.)
     extra: dict[str, Any] = Field(default_factory=dict)
 
@@ -33,4 +40,3 @@ class ChatCompletionRequest(BaseModel):
 class ModelListResponse(BaseModel):
     object: str = "list"
     data: list[dict[str, Any]]
-

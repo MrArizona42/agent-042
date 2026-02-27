@@ -19,6 +19,23 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# =========================================================================
+# Knowledge Base Registry
+# Maps user-facing KB identifiers to Qdrant collection names.
+# =========================================================================
+KNOWLEDGE_BASES: dict[str, dict[str, str]] = {
+    "arxiv": {
+        "collection": "chat_documents",
+        "label": "ArXiv papers (ML / AI theory)",
+        "description": "Deep discussions about ML/AI theory and latest trends",
+    },
+    "pytorch_docs": {
+        "collection": "code_documents",
+        "label": "PyTorch docs (coding)",
+        "description": "PyTorch documentation for coding assistance",
+    },
+}
+
 
 class Settings(BaseSettings):
     """Unified settings for all services.
@@ -148,7 +165,7 @@ class Settings(BaseSettings):
         ge=1,
     )
     score_threshold: float = Field(
-        default=0.0,
+        default=0.35,
         description="Minimum similarity score for retrieval",
         ge=0.0,
         le=1.0,

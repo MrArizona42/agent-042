@@ -2,6 +2,15 @@
 
 Simple chat UI that talks to the FastAPI gateway.
 
+## Features
+
+- Chat interface with thinking-block rendering
+- **Knowledge Base selector** — choose which RAG collection to query:
+  - *Disabled* — no retrieval
+  - *ArXiv papers (ML / AI theory)* — latest ML/AI research
+  - *PyTorch docs (coding)* — PyTorch API documentation
+- Max tokens setting
+
 ## Environment
 
 - `GATEWAY_URL` (default `http://localhost:9000`)
