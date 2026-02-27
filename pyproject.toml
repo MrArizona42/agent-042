@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
-    "bitsandbytes>=0.49.1",
+    # "bitsandbytes>=0.49.1",
     "datasets>=4.4.2",
     "dvc[gdrive,s3,ssh]>=3.66.1",
     "fastapi>=0.128.0",
@@ -18,11 +18,11 @@ dependencies = [
     "pandas>=2.3.3",
     "peft>=0.18.1",
     "pre-commit>=4.5.1",
-    "pytorch-lightning>=2.6.0",
+    # "pytorch-lightning>=2.6.0",
     "ruff>=0.14.11",
-    "torch>=2.9.0",
-    "transformers>=4.57.3",
-    "vllm>=0.13.0",
+    # "torch>=2.9.0",
+    # "transformers>=4.57.3",
+    # "vllm>=0.13.0",
 
     # --- runtime deps for gateway + UI ---
     "httpx>=0.28.1",

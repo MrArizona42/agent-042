@@ -1,0 +1,6 @@
+outs:
+- md5: 0f9cd571295e3002d073bbd0350325bf.dir
+  size: 19240383240
+  nfiles: 43
+  hash: md5
+  path: open-code-instruct

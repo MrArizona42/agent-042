@@ -275,7 +275,10 @@ def main():
     if args.task in ["chat", "both"]:
         if not args.arxiv_file.exists():
             print(f"Error: ArXiv file not found: {args.arxiv_file}")
-            print("Run collect_arxiv.py first!")
+            print(
+                "Download ArXiv papers first"
+                " using experiments/scripts/prefetch_assets.ipynb (section 8)"
+            )
             sys.exit(1)
 
         build_chat_index(
@@ -289,7 +292,10 @@ def main():
     if args.task in ["code", "both"]:
         if not args.pytorch_docs_file.exists():
             print(f"Error: PyTorch docs file not found: {args.pytorch_docs_file}")
-            print("Run collect_pytorch_docs.py first!")
+            print(
+                "Scrape PyTorch docs first"
+                " using experiments/scripts/prefetch_assets.ipynb (section 9)"
+            )
             sys.exit(1)
 
         build_code_index(

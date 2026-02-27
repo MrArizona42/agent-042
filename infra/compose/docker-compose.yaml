@@ -1,3 +1,34 @@
+# =====================
+# Reusable fragments
+# =====================
+
+x-airflow-common-env: &airflow-common-env
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+  AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  # Limit parallel DAG runs to reduce DB + disk pressure
+  AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: "3"
+  # How often (seconds) the scheduler cleans up stale parsing metadata
+  AIRFLOW__SCHEDULER__PARSING_CLEANUP_INTERVAL: "60"
+  # Project paths & service endpoints used by DAGs
+  PROJECT_ROOT: /opt/airflow/project
+  QDRANT_HOST: qdrant
+  QDRANT_PORT: ${QDRANT_PORT}
+  EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+
+x-airflow-common-build: &airflow-common-build
+  context: ${PROJECT_ROOT}
+  dockerfile: infra/docker/airflow/Dockerfile
+
+x-airflow-common-volumes: &airflow-common-volumes
+  - ${PROJECT_ROOT}/dags:/opt/airflow/dags
+  - ${PROJECT_ROOT}:/opt/airflow/project
+  - airflow_logs:/opt/airflow/logs
+
 services:
 
   # =====================
@@ -5,6 +36,21 @@ services:
   # =====================
   postgres:
     image: postgres:15
+
+    # Docker default shm is 64 MB; PostgreSQL needs more for shared buffers.
+    shm_size: 256m
+
+    # Limit WAL / checkpoint disk usage to prevent "No space left on device".
+    command:
+      - postgres
+      - -c
+      - max_wal_size=512MB
+      - -c
+      - min_wal_size=64MB
+      - -c
+      - wal_keep_size=0
+      - -c
+      - checkpoint_completion_target=0.9
 
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -63,10 +109,11 @@ services:
       # - --serve-artifacts
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
       timeout: 5s
-      retries: 3
+      retries: 5
+      start_period: 30s
 
     networks:
       - mlflow_db_net
@@ -348,7 +395,7 @@ services:
   # Airflow – database migration & admin user (one-shot)
   # =====================
   airflow-init:
-    image: apache/airflow:2.10.4
+    build: *airflow-common-build
     entrypoint: /bin/bash
     command:
       - -c
@@ -404,19 +451,14 @@ services:
   # Airflow Webserver
   # =====================
   airflow-webserver:
-    image: apache/airflow:2.10.4
+    build: *airflow-common-build
     command: webserver
     environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      <<: *airflow-common-env
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
     ports:
       - "${AIRFLOW_PORT}:8080"
-    volumes:
-      - ${PROJECT_ROOT}/dags:/opt/airflow/dags
-      - airflow_logs:/opt/airflow/logs
+    volumes: *airflow-common-volumes
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -434,16 +476,11 @@ services:
   # Airflow Scheduler (LocalExecutor)
   # =====================
   airflow-scheduler:
-    image: apache/airflow:2.10.4
+    build: *airflow-common-build
     command: scheduler
     environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    volumes:
-      - ${PROJECT_ROOT}/dags:/opt/airflow/dags
-      - airflow_logs:/opt/airflow/logs
+      <<: *airflow-common-env
+    volumes: *airflow-common-volumes
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -461,14 +498,19 @@ services:
   # JupyterLab
   # =====================
   jupyter:
-    image: quay.io/jupyter/minimal-notebook:latest
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: infra/docker/jupyter/Dockerfile
     environment:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      # Makes train_adapter a proper importable package inside notebooks
+      PYTHONPATH: /home/jovyan/work/experiments/scripts
     ports:
       - "${JUPYTER_PORT}:8888"
     volumes:
-      - ${PROJECT_ROOT}/notebooks:/home/jovyan/work
-      - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
+      - ${PROJECT_ROOT}/experiments:/home/jovyan/experiments:rw
+      - ${PROJECT_ROOT}/assets:/home/jovyan/assets:rw
+      - ${PROJECT_ROOT}/dags:/home/jovyan/dags:rw
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8888/api || exit 1"]
       interval: 30s

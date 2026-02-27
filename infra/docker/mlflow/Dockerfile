@@ -11,19 +11,18 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Install system dependencies
-# curl → healthchecks
-RUN apt-get update && apt-get install -y \
+# curl → healthchecks, postgresql-client → pg_isready for wait logic
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-# mlflow → core service
-# psycopg2-binary → PostgreSQL backend store
-# boto3 → S3 / Yandex Object Storage support
+# Install Python dependencies with pinned versions for reproducible builds.
+# mlflow 3.x is the current major version used across the project.
 RUN pip install --no-cache-dir \
-    mlflow \
-    psycopg2-binary \
-    boto3
+    "mlflow>=3.8.1,<4" \
+    "psycopg2-binary>=2.9,<3" \
+    "boto3>=1.35,<2"
 
 # Expose MLflow default port (documentation only)
 EXPOSE 5000
