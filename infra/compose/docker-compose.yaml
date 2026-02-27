@@ -509,11 +509,10 @@ services:
       - "${JUPYTER_PORT}:8888"
     volumes:
       - ${PROJECT_ROOT}/notebooks:/home/jovyan/notebooks
-      # Expose the full experiments tree (includes prefetch_assets notebook + training scripts)
       - ${PROJECT_ROOT}/experiments:/home/jovyan/experiments:rw
-      # Assets (datasets / models) accessible at the same relative path as on the host
       - ${PROJECT_ROOT}/assets:/home/jovyan/assets:rw
       - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
+      - ${PROJECT_ROOT}/dags:/home/jovyan/dags:rw
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8888/api || exit 1"]
       interval: 30s
