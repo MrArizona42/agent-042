@@ -508,10 +508,8 @@ services:
     ports:
       - "${JUPYTER_PORT}:8888"
     volumes:
-      - ${PROJECT_ROOT}/notebooks:/home/jovyan/notebooks
       - ${PROJECT_ROOT}/experiments:/home/jovyan/experiments:rw
       - ${PROJECT_ROOT}/assets:/home/jovyan/assets:rw
-      - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
       - ${PROJECT_ROOT}/dags:/home/jovyan/dags:rw
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8888/api || exit 1"]
