@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Wait for PostgreSQL to be fully ready before running migrations.
-# pg_isready only checks TCP; we also verify we can connect to the target DB.
+# Wait for PostgreSQL to be fully ready before starting the server.
+# Docker Compose healthcheck already gates startup, but a belt-and-suspenders
+# check avoids transient issues on slow hosts.
 # ---------------------------------------------------------------------------
 PG_MAX_RETRIES=30
-MIGRATION_MAX_RETRIES=5
 RETRY_INTERVAL=2
 
 echo "Waiting for PostgreSQL to accept connections..."
@@ -23,22 +23,14 @@ for i in $(seq 1 "$PG_MAX_RETRIES"); do
 done
 
 # ---------------------------------------------------------------------------
-# Run database schema migration before starting the server.
-# This is idempotent — if the schema is already up-to-date, it's a no-op.
+# NOTE: We intentionally do NOT run "mlflow db upgrade" here.
+# The "mlflow server" command calls _safe_initialize_tables() on startup,
+# which correctly handles BOTH fresh databases (creates base tables first,
+# then applies Alembic migrations) and existing databases (applies only
+# pending migrations).  Running "mlflow db upgrade" directly would fail on
+# a fresh database because Alembic migrations assume the base tables
+# already exist (e.g. ALTER TABLE metrics ADD COLUMN step …).
 # ---------------------------------------------------------------------------
-echo "Running MLflow DB schema migration..."
-for i in $(seq 1 "$MIGRATION_MAX_RETRIES"); do
-    if mlflow db upgrade "${MLFLOW_BACKEND_URI}"; then
-        echo "Schema migration complete."
-        break
-    fi
-    if [ "$i" -eq "$MIGRATION_MAX_RETRIES" ]; then
-        echo "ERROR: MLflow DB migration failed after $MIGRATION_MAX_RETRIES attempts." >&2
-        exit 1
-    fi
-    echo "Migration attempt $i failed, retrying in ${RETRY_INTERVAL}s..."
-    sleep "$RETRY_INTERVAL"
-done
 
 # Hand off to the original command (mlflow server ...)
 exec mlflow "$@"
