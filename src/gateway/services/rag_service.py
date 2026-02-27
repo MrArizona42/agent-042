@@ -46,33 +46,52 @@ class RAGService:
             batch_size=settings.embedding_batch_size,
         )
 
-        # Initialize a retriever for each registered knowledge base
+        # Retrievers are created lazily on first request for each KB.
+        # This avoids a startup race when Qdrant is not yet ready.
         self.retrievers: dict[str, Retriever] = {}
-        for kb_name, kb_info in KNOWLEDGE_BASES.items():
-            collection_name = kb_info["collection"]
-            vector_store = QdrantVectorStore(
-                host=settings.qdrant_host,
-                port=settings.qdrant_port,
-                collection_name=collection_name,
-            )
+        self._unavailable_kbs: set[str] = set()
 
-            # Check if collection exists
-            if not vector_store.collection_exists():
+        logger.info("RAG service initialized (retrievers will be created lazily)")
+
+    # ------------------------------------------------------------------
+    def _get_retriever(self, kb_name: str) -> Optional[Retriever]:
+        """Return (and lazily create) a retriever for *kb_name*."""
+        if kb_name in self.retrievers:
+            return self.retrievers[kb_name]
+
+        if kb_name not in KNOWLEDGE_BASES:
+            return None
+
+        # If we already tried and the collection was missing, retry —
+        # it may have been created since last attempt.
+        kb_info = KNOWLEDGE_BASES[kb_name]
+        collection_name = kb_info["collection"]
+
+        vector_store = QdrantVectorStore(
+            host=self.settings.qdrant_host,
+            port=self.settings.qdrant_port,
+            collection_name=collection_name,
+        )
+
+        if not vector_store.collection_exists():
+            if kb_name not in self._unavailable_kbs:
                 logger.warning(
                     f"Collection '{collection_name}' does not exist. "
-                    f"Knowledge base '{kb_name}' will be disabled."
+                    f"Knowledge base '{kb_name}' is not available yet."
                 )
-                continue
+                self._unavailable_kbs.add(kb_name)
+            return None
 
-            self.retrievers[kb_name] = Retriever(
-                embedding_service=self.embedding_service,
-                vector_store=vector_store,
-                settings=settings,
-            )
-
-        logger.info(
-            f"RAG service initialized. Available knowledge bases: {list(self.retrievers.keys())}"
+        # Collection appeared — create the retriever and cache it
+        self._unavailable_kbs.discard(kb_name)
+        retriever = Retriever(
+            embedding_service=self.embedding_service,
+            vector_store=vector_store,
+            settings=self.settings,
         )
+        self.retrievers[kb_name] = retriever
+        logger.info(f"Retriever for knowledge base '{kb_name}' is now available")
+        return retriever
 
     @staticmethod
     def available_knowledge_bases() -> dict[str, dict[str, str]]:
@@ -104,13 +123,12 @@ class RAGService:
             return None
 
         # Check if retriever exists for this knowledge base
-        if knowledge_base not in self.retrievers:
+        retriever = self._get_retriever(knowledge_base)
+        if retriever is None:
             logger.warning(f"No retriever available for knowledge base: {knowledge_base}")
             return None
 
         try:
-            retriever = self.retrievers[knowledge_base]
-
             # Retrieve documents
             documents = retriever.retrieve(
                 query=query,
