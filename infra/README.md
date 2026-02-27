@@ -183,12 +183,47 @@ Airflow развёрнут с LocalExecutor (без Celery/Redis) и испол�
 - `airflow-scheduler` — планировщик задач (LocalExecutor)
 
 DAG-файлы размещаются в директории `dags/` в корне репозитория и монтируются в контейнеры Airflow.
+Корень проекта так же монтируется как `/opt/airflow/project` — это даёт DAG'ам доступ к скриптам, DVC-конфигурации и каталогам данных.
+
+### Доступные DAG'и
+
+| DAG | Расписание | Описание |
+|-----|-----------|----------|
+| `arxiv_rag_update` | `@daily` | Загрузка новых ArXiv статей → `dvc add/push` → пересборка индекса `chat_documents` в Qdrant |
+| `pytorch_docs_rag_update` | `@weekly` | Скрейпинг документации PyTorch → `dvc add/push` → пересборка индекса `code_documents` в Qdrant |
+
+Каждый DAG состоит из трёх задач:
+```
+download / scrape  >>  dvc_version  >>  build_index
+```
+
+- **download / scrape** — PythonOperator: загрузка данных (ArXiv API или web scraping)
+- **dvc_version** — BashOperator: `dvc add` + `dvc push` для версионирования данных
+- **build_index** — BashOperator: запуск `build_vector_index.py` для пересборки вектор-индекса
+
+### Зависимости DAG'ов
+
+Зависимости, необходимые для выполнения DAG'ов, перечислены в `dags/requirements.txt` и устанавливаются при сборке кастомного Airflow-образа (`infra/docker/airflow/Dockerfile`). Все три Airflow-сервиса (`airflow-init`, `airflow-webserver`, `airflow-scheduler`) собираются из этого Dockerfile через `x-airflow-common-build` якорь в `docker-compose.yaml`.
+
+Чтобы обновить зависимости:
+```bash
+# 1. Отредактируйте dags/requirements.txt
+# 2. Пересоберите образ:
+cd infra/compose
+docker compose build airflow-webserver airflow-scheduler airflow-init
+docker compose up -d airflow-webserver airflow-scheduler
+```
 
 Переменные окружения (`.env`):
 - `AIRFLOW_DB` — имя базы в PostgreSQL (по умолчанию `airflow`)
 - `AIRFLOW_PORT` — порт веб-интерфейса (по умолчанию `8080`)
 - `AIRFLOW_FERNET_KEY` — ключ шифрования; сгенерировать: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
 - `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` — логин/пароль admin-пользователя
+
+DAG'и также используют следующие переменные (передаются через `x-airflow-common-env`):
+- `QDRANT_HOST` / `QDRANT_PORT` — адрес Qdrant для пересборки индексов
+- `EMBEDDING_MODEL` — модель эмбеддингов (берётся из `GATEWAY_EMBEDDING_MODEL`)
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_DEFAULT_REGION` — для `dvc push` в Yandex Cloud S3
 
 Примечание: `airflow-init` автоматически проверяет наличие базы `airflow` в PostgreSQL и создаёт её при необходимости — никаких ручных шагов не требуется.
 
@@ -212,5 +247,3 @@ JupyterLab предоставляет интерактивную среду дл
     access_key_id = YCA...
     secret_access_key = YCM...
 ```
-
-Про обращение с данными см. в `agent-042/experiments/README.md`.

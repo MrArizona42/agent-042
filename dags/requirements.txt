@@ -1,0 +1,39 @@
+# Python packages required by Airflow DAGs.
+#
+# These are installed at image build time via infra/docker/airflow/Dockerfile.
+# To add or update a dependency, edit this file and rebuild the Airflow image:
+#
+#   cd infra/compose
+#   docker compose build airflow-webserver airflow-scheduler airflow-init
+#
+# NOTE: upper bounds below prevent breaking packages shipped with the
+# apache/airflow:2.10.4 base image (boto3, aiohttp, cffi, fsspec …).
+# Review these pins when upgrading the Airflow base image version.
+#
+# ── Airflow-compat constraints ──────────────────────────────────────────
+# Keep botocore/boto3 in the range expected by the base image's boto3.
+boto3>=1.35.36,<1.36.0
+botocore>=1.35.36,<1.36.0
+# aiobotocore 2.x is compatible with botocore 1.35.x; 3.x requires 1.42+.
+aiobotocore>=2.15.0,<3.0.0
+# s3fs 2024.x uses aiobotocore 2.x; 2025+ requires aiobotocore 3.x.
+s3fs>=2024.9.0,<2025.0.0
+# providers-http requires aiohttp<3.11
+aiohttp>=3.9.2,<3.11.0
+# snowflake-connector-python requires cffi<2
+cffi>=1.9,<2.0.0
+
+# ── Data fetching (lightweight) ─────────────────────────────────────────
+arxiv>=2.1.3
+beautifulsoup4>=4.12.3
+lxml>=5.3.0
+requests>=2.31.0
+
+# ── DVC versioning ──────────────────────────────────────────────────────
+dvc[s3]>=3.66.1
+
+# ── Vector-index rebuild (heavy – pulls PyTorch + transformers) ─────────
+# Needed only for the build_*_index tasks.
+qdrant-client>=1.12.0
+sentence-transformers>=3.3.1
+langchain-text-splitters>=0.4.2
