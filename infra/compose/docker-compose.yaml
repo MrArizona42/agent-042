@@ -90,7 +90,7 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
 
     ports:
-      - "${MLFLOW_PORT}:5000"
+      - "127.0.0.1:${MLFLOW_PORT}:5000"
 
     depends_on:
       postgres:
@@ -102,6 +102,8 @@ services:
       - "0.0.0.0"
       - --port
       - "5000"
+      - --static-prefix
+      - /mlflow
       - --backend-store-uri
       - ${MLFLOW_BACKEND_URI}
       - --default-artifact-root
@@ -149,7 +151,7 @@ services:
     ]
 
     ports:
-      - "${VLLM_PORT}:8000"
+      - "127.0.0.1:${VLLM_PORT}:8000"
 
     # Mount repo models and downloaded adapters
     volumes:
@@ -182,8 +184,8 @@ services:
     image: qdrant/qdrant:latest
 
     ports:
-      - "${QDRANT_PORT}:6333"
-      - "${QDRANT_GRPC_PORT}:6334"
+      - "127.0.0.1:${QDRANT_PORT}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_PORT}:6334"
 
     volumes:
       - qdrant_data:/qdrant/storage
@@ -206,8 +208,8 @@ services:
     image: rabbitmq:3-management
 
     ports:
-      - "${RABBITMQ_PORT}:5672"
-      - "${RABBITMQ_MGMT_PORT}:15672"
+      - "127.0.0.1:${RABBITMQ_PORT}:5672"
+      - "127.0.0.1:${RABBITMQ_MGMT_PORT}:15672"
 
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
@@ -215,6 +217,7 @@ services:
 
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      - ${PROJECT_ROOT}/infra/docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-path-prefix.conf:ro
 
     networks:
       - backend_net
@@ -234,7 +237,7 @@ services:
     image: redis:7-alpine
 
     ports:
-      - "${REDIS_PORT}:6379"
+      - "127.0.0.1:${REDIS_PORT}:6379"
 
     volumes:
       - redis_data:/data
@@ -297,7 +300,7 @@ services:
       REDIS_URL: redis://redis:6379/0
 
     ports:
-      - "${GATEWAY_PORT}:9000"
+      - "127.0.0.1:${GATEWAY_PORT}:9000"
 
     depends_on:
       vllm:
@@ -334,7 +337,7 @@ services:
       GATEWAY_URL: ${GATEWAY_URL}
 
     ports:
-      - "${UI_PORT}:8501"
+      - "127.0.0.1:${UI_PORT}:8501"
 
     depends_on:
       gateway:
@@ -354,9 +357,10 @@ services:
     environment:
       CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
       FLOWER_PORT: 5555
+      FLOWER_URL_PREFIX: /flower
 
     ports:
-      - "${FLOWER_PORT}:5555"
+      - "127.0.0.1:${FLOWER_PORT}:5555"
 
     depends_on:
       rabbitmq:
@@ -379,8 +383,11 @@ services:
   redisinsight:
     image: redis/redisinsight:latest
 
+    environment:
+      RI_PROXY_PATH: /redis-insight
+
     ports:
-      - "${REDISINSIGHT_PORT}:5540"
+      - "127.0.0.1:${REDISINSIGHT_PORT}:5540"
 
     volumes:
       - redisinsight_data:/data
@@ -456,8 +463,10 @@ services:
     environment:
       <<: *airflow-common-env
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX: "true"
+      AIRFLOW__WEBSERVER__BASE_URL: https://agent.antonlab.ru:8443/airflow
     ports:
-      - "${AIRFLOW_PORT}:8080"
+      - "127.0.0.1:${AIRFLOW_PORT}:8080"
     volumes: *airflow-common-volumes
     depends_on:
       airflow-init:
@@ -501,18 +510,19 @@ services:
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/jupyter/Dockerfile
+    command: start-notebook.py --ServerApp.base_url=/jupyter
     environment:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
       # Makes train_adapter a proper importable package inside notebooks
       PYTHONPATH: /home/jovyan/work/experiments/scripts
     ports:
-      - "${JUPYTER_PORT}:8888"
+      - "127.0.0.1:${JUPYTER_PORT}:8888"
     volumes:
       - ${PROJECT_ROOT}/experiments:/home/jovyan/experiments:rw
       - ${PROJECT_ROOT}/assets:/home/jovyan/assets:rw
       - ${PROJECT_ROOT}/dags:/home/jovyan/dags:rw
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8888/api || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8888/jupyter/api || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
