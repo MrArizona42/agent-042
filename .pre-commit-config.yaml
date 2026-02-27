@@ -16,5 +16,6 @@ repos:
     hooks:
       # Run the linter.
       - id: ruff-check
+        args: [ --fix ]  # This tells Ruff to apply fixes automatically
       # Run the formatter.
       - id: ruff-format
