@@ -7,7 +7,7 @@ set -euo pipefail
 # check avoids transient issues on slow hosts.
 # ---------------------------------------------------------------------------
 PG_MAX_RETRIES=30
-RETRY_INTERVAL=2
+PG_RETRY_INTERVAL=2
 
 echo "Waiting for PostgreSQL to accept connections..."
 for i in $(seq 1 "$PG_MAX_RETRIES"); do
@@ -19,7 +19,7 @@ for i in $(seq 1 "$PG_MAX_RETRIES"); do
         echo "ERROR: PostgreSQL did not become ready in time." >&2
         exit 1
     fi
-    sleep "$RETRY_INTERVAL"
+    sleep "$PG_RETRY_INTERVAL"
 done
 
 # ---------------------------------------------------------------------------
