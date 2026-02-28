@@ -28,7 +28,9 @@ from rag.chunking import get_chunker
 from rag.embeddings import EmbeddingService
 from rag.vector_store import QdrantVectorStore
 
-# Deterministic namespace for UUID5-based point IDs.
+# Arbitrary but fixed namespace for UUID5-based point IDs.  Must remain
+# constant across runs so the same (source, chunk_index) pair always
+# produces the same UUID, enabling upsert-based deduplication.
 _POINT_ID_NS = uuid.UUID("b8c9d0e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e")
 
 
@@ -171,7 +173,7 @@ def build_code_index(
         embedding_model: Embedding model name
     """
     alias_name = "code_documents"
-    staging_name = f"code_documents_{int(time.time())}"
+    staging_name = f"code_documents_{time.time_ns()}"
 
     print("=" * 60)
     print("Building CODE index from PyTorch docs  [replace mode]")
@@ -252,6 +254,10 @@ def build_code_index(
         # First run or migration from a pre-alias collection.
         # If a legacy collection with the same name as the alias exists,
         # remove it so the alias name becomes available.
+        # Check for a legacy collection whose name equals the alias name.
+        # We must query the real collections list (not collection_exists())
+        # because collection_exists() resolves aliases too, and here we
+        # specifically need to know if a *collection* is occupying the name.
         collections = vector_store.client.get_collections().collections
         if any(c.name == alias_name for c in collections):
             print(f"Migrating: deleting legacy collection '{alias_name}'")
