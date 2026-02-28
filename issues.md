@@ -32,7 +32,7 @@
 ### 1.2 Secrets in `.env.example`
 
 **Files affected:**
-- `infra/compose/.env.example:29-30` — `AWS_ACCESS_KEY_ID=YCAJ...`, `AWS_SECRET_ACCESS_KEY=YCN7o...`
+- `infra/compose/.env.example:29-30` — `AWS_ACCESS_KEY_ID=YCAJ***`, `AWS_SECRET_ACCESS_KEY=YCN***` (truncated real-looking credentials)
 - `infra/compose/.env.example:123` — `AIRFLOW_FERNET_KEY=ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=`
 - `infra/compose/.env.example:127-128` — `AIRFLOW_ADMIN_USER=admin`, `AIRFLOW_ADMIN_PASSWORD=admin`
 - `infra/compose/.env.example:38` — `POSTGRES_PASSWORD=mlflow`
@@ -122,7 +122,7 @@ cors_allow_origins: list[str] = Field(
 **Problem:** Every `docker build` sends the entire repository (including `assets/models/`, `.git/`, `node_modules/`, `experiments/outputs/`, etc.) to the Docker daemon. For a project with large ML models, this could mean sending gigabytes of data on each build, even though only `src/` or `infra/docker/` files are needed.
 
 **Fix:** Create a `.dockerignore` at the project root:
-```
+```dockerignore
 .git
 assets/models
 assets/datasets
