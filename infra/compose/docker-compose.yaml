@@ -416,7 +416,11 @@ services:
         mkdir -p /opt/airflow/project/assets/rag_data/pytorch_docs
         chown -R 50000:0 /opt/airflow/project/assets/rag_data
         chmod -R 775 /opt/airflow/project/assets/rag_data
-        echo "RAG data directories prepared."
+        # DVC uses .dvc/tmp/lock and other temp files during `dvc add/push`
+        mkdir -p /opt/airflow/project/.dvc/tmp
+        chown -R 50000:0 /opt/airflow/project/.dvc
+        chmod -R 775 /opt/airflow/project/.dvc
+        echo "RAG data & DVC directories prepared."
     volumes:
       - ${PROJECT_ROOT}:/opt/airflow/project
     restart: "no"
