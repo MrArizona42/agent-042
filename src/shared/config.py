@@ -95,6 +95,11 @@ class Settings(BaseSettings):
         default=None,
         description="Optional API key for vLLM authentication",
     )
+    max_completion_tokens: int = Field(
+        default=32768,
+        description="Maximum number of tokens the model can generate per response",
+        ge=1,
+    )
     vllm_timeout: float = Field(
         default=60.0,
         description="Timeout for vLLM requests in seconds",
