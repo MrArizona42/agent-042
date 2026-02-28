@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import sys
-import types
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, Mock, patch
 
 if "celery" not in sys.modules:
-    celery_module = types.ModuleType("celery")
+    celery_module = ModuleType("celery")
 
     class _CeleryStub:
         def __init__(self, *args, **kwargs):
@@ -20,9 +19,9 @@ if "celery" not in sys.modules:
     sys.modules["celery"] = celery_module
 
 if "redis.asyncio" not in sys.modules:
-    redis_module = types.ModuleType("redis")
-    redis_asyncio_module = types.ModuleType("redis.asyncio")
-    redis_exceptions_module = types.ModuleType("redis.exceptions")
+    redis_module = ModuleType("redis")
+    redis_asyncio_module = ModuleType("redis.asyncio")
+    redis_exceptions_module = ModuleType("redis.exceptions")
 
     class _RedisError(Exception):
         pass
