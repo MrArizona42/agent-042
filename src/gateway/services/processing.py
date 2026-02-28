@@ -6,8 +6,10 @@ from typing import Any, AsyncIterator, Dict
 
 from gateway.config import get_settings
 from gateway.schemas.openai_chat import ChatCompletionRequest
+from gateway.services.celery_client import CeleryClient
 from gateway.services.prompt_builder import PromptBuilder
 from gateway.services.rag_service import RAGService
+from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
 
@@ -28,28 +30,40 @@ class _ProcessChat:
             logger.error(f"Failed to initialize RAG service: {e}")
             self._rag_service = None
 
-        # Lazy-loaded async services
-        self._celery_client = None
-        self._redis_stream = None
+        # Services injected via init_services() during lifespan startup
+        self._celery_client: CeleryClient | None = None
+        self._redis_stream: RedisStreamService | None = None
+
+    def init_services(
+        self,
+        *,
+        redis_stream: RedisStreamService | None = None,
+        celery_client: CeleryClient | None = None,
+    ) -> None:
+        """Inject managed service instances (called from lifespan startup)."""
+        self._redis_stream = redis_stream
+        self._celery_client = celery_client
 
     def _client(self) -> VllmOpenAIClient:
         s = get_settings()
         return VllmOpenAIClient(base_url=s.vllm_base_url, api_key=None)
 
-    def _get_celery_client(self):
-        """Lazy-load Celery client (only when async mode is used)."""
+    def _get_celery_client(self) -> CeleryClient:
+        """Return the Celery client injected during lifespan startup."""
         if self._celery_client is None:
-            from gateway.services.celery_client import get_celery_client
-
-            self._celery_client = get_celery_client()
+            raise RuntimeError(
+                "CeleryClient is not available. "
+                "Ensure async_enabled=true and CELERY_BROKER_URL is set."
+            )
         return self._celery_client
 
-    def _get_redis_stream(self):
-        """Lazy-load Redis stream service (only when async mode is used)."""
+    def _get_redis_stream(self) -> RedisStreamService:
+        """Return the Redis stream service injected during lifespan startup."""
         if self._redis_stream is None:
-            from gateway.services.redis_stream import get_redis_stream_service
-
-            self._redis_stream = get_redis_stream_service()
+            raise RuntimeError(
+                "RedisStreamService is not available. "
+                "Ensure async_enabled=true and REDIS_URL is set."
+            )
         return self._redis_stream
 
     async def list_models(self) -> Any:

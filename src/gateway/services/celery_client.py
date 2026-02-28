@@ -7,7 +7,6 @@ the Celery worker without importing the worker's Celery app directly.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from celery import Celery
@@ -39,6 +38,13 @@ class CeleryClient:
                 accept_content=["json"],
             )
         return self._app
+
+    def close(self) -> None:
+        """Close the Celery app and its broker connection."""
+        if self._app is not None:
+            self._app.close()
+            self._app = None
+            logger.info("Celery client closed")
 
     def enqueue_generate_response(
         self,
@@ -100,27 +106,3 @@ class CeleryClient:
             "successful": result.successful() if result.ready() else None,
             "result": result.result if result.ready() else None,
         }
-
-
-# Global client instance (lazy initialization)
-_celery_client: CeleryClient | None = None
-
-
-def get_celery_client() -> CeleryClient:
-    """Get or create the global Celery client.
-
-    Uses CELERY_BROKER_URL environment variable for configuration.
-
-    Raises:
-        RuntimeError: If CELERY_BROKER_URL is not set.
-    """
-    global _celery_client
-    if _celery_client is None:
-        broker_url = os.environ.get("CELERY_BROKER_URL")
-        if not broker_url:
-            raise RuntimeError(
-                "CELERY_BROKER_URL environment variable is required but not set. "
-                "Example: amqp://user:password@rabbitmq:5672//"
-            )
-        _celery_client = CeleryClient(broker_url)
-    return _celery_client
