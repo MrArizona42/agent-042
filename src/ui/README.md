@@ -18,7 +18,7 @@ Simple chat UI that talks to the FastAPI gateway.
 ## Run (local)
 
 ```bash
-uv sync
+uv sync --extra ui --extra dev
 PYTHONPATH=src GATEWAY_URL=http://localhost:9000 streamlit run src/ui/app.py
 ```
 

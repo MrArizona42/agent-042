@@ -131,14 +131,11 @@ Total: 12GB
 
 ### Step 1: Update Dependencies
 
-The dependencies are already added to `pyproject.toml` and `requirements-gateway.txt`. Install them:
+Dependencies are declared in `pyproject.toml` (`[project.optional-dependencies]`). Install only the needed groups:
 
 ```bash
-# For local development (includes all dependencies)
-pip install -e .
-
-# Or with uv (faster)
-uv pip install -e .
+# For gateway + worker + RAG local development
+uv sync --extra gateway --extra worker --extra rag --extra dev
 ```
 
 ### Step 2: Update Environment Configuration
@@ -506,7 +503,6 @@ agent-042/
 ├── dags/                             # Airflow DAGs (data pipelines)
 │   ├── arxiv_rag_update.py          # Daily: ArXiv download → DVC → index
 │   ├── pytorch_docs_rag_update.py   # Weekly: PyTorch docs → DVC → index
-│   └── requirements.txt             # DAG Python dependencies
 ├── experiments/scripts/
 │   ├── prefetch_assets.ipynb        # Data collection (ArXiv, PyTorch docs, etc.)
 │   └── rag_data/
@@ -517,6 +513,8 @@ agent-042/
 ├── infra/compose/
 │   ├── docker-compose.yaml          # Full stack (incl. Qdrant, Airflow)
 │   └── .env.example                 # RAG + Airflow config
+├── infra/docker/airflow/
+│   └── requirements.txt             # DAG Python dependencies
 └── RAG-SETUP.md                     # This file
 ```
 

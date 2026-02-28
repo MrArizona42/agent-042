@@ -110,12 +110,17 @@ def get_celery_client() -> CeleryClient:
     """Get or create the global Celery client.
 
     Uses CELERY_BROKER_URL environment variable for configuration.
+
+    Raises:
+        RuntimeError: If CELERY_BROKER_URL is not set.
     """
     global _celery_client
     if _celery_client is None:
-        broker_url = os.environ.get(
-            "CELERY_BROKER_URL",
-            "amqp://agent:agent@localhost:5672//",
-        )
+        broker_url = os.environ.get("CELERY_BROKER_URL")
+        if not broker_url:
+            raise RuntimeError(
+                "CELERY_BROKER_URL environment variable is required but not set. "
+                "Example: amqp://user:password@rabbitmq:5672//"
+            )
         _celery_client = CeleryClient(broker_url)
     return _celery_client

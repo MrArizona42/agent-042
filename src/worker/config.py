@@ -11,11 +11,10 @@ from pydantic_settings import BaseSettings
 class WorkerSettings(BaseSettings):
     """Worker configuration loaded from environment variables."""
 
-    # Celery broker (RabbitMQ)
+    # Celery broker (RabbitMQ) — no default; CELERY_BROKER_URL must be set.
     celery_broker_url: str = Field(
-        default="amqp://agent:agent@localhost:5672//",
         alias="CELERY_BROKER_URL",
-        description="RabbitMQ connection URL",
+        description="RabbitMQ connection URL (e.g. amqp://user:password@rabbitmq:5672//)",
     )
 
     # Redis for pub/sub streaming

@@ -62,11 +62,6 @@ gateway_url = settings.url
 client = GatewayClient(gateway_url)
 
 with st.sidebar:
-    st.markdown("---")
-    st.subheader("Model Settings")
-    max_tokens = st.number_input("max_tokens", min_value=1, value=512, step=1)
-
-    st.markdown("---")
     st.subheader("Knowledge Base")
 
     # Build options from the KNOWLEDGE_BASES registry
@@ -105,7 +100,7 @@ if prompt:
     payload = {
         # "model": None,
         "messages": st.session_state.messages,
-        "max_completion_tokens": int(max_tokens),
+        "max_completion_tokens": settings.max_completion_tokens,
         "stream": False,
         "knowledge_base": selected_kb,
     }

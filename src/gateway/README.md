@@ -100,6 +100,6 @@ Example payload:
 ## Run (local)
 
 ```bash
-uv sync
+uv sync --extra gateway --extra worker --extra rag --extra dev
 PYTHONPATH=src GATEWAY_VLLM_BASE_URL=http://localhost:8000 uvicorn gateway.main:app --reload --port 9000
 ```
