@@ -28,8 +28,8 @@ graph TD
 
 - `main.py` — FastAPI app initialization
 - `api/routes.py` — router aggregation
-- `api/v1/discovery.py` — `/health` и `/config`
-- `api/v1/openai_compat.py` — `/v1/models` и `/v1/chat/completions`
+- `api/v1/discovery.py` — endpoints `/health` and `/config`
+- `api/v1/openai_compat.py` — endpoints `/v1/models` and `/v1/chat/completions`
 - `services/processing.py` — task routing, prompt building, RAG integration, sync/async execution
 
 ## Endpoints
