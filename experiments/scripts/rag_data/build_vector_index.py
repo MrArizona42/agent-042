@@ -317,6 +317,11 @@ def main():
         default="sentence-transformers/all-MiniLM-L6-v2",
         help="Embedding model to use",
     )
+    parser.add_argument(
+        "--force-recreate",
+        action="store_true",
+        help="(deprecated, ignored) Kept for backwards compatibility with cached DAGs",
+    )
 
     args = parser.parse_args()
 
