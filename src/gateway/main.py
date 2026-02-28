@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # --- Create managed connections ---
     redis_stream = RedisStreamService(settings.redis_url)
-    logger.info(f"Redis stream service initialised (url={settings.redis_url})")
+    logger.info(f"Redis stream service initialized (url={settings.redis_url})")
 
     celery_client: CeleryClient | None = None
     if settings.async_enabled:
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "Example: amqp://user:password@rabbitmq:5672//"
             )
         celery_client = CeleryClient(settings.celery_broker_url)
-        logger.info("Celery client initialised")
+        logger.info("Celery client initialized")
 
     # Inject services into the shared process_chat instance
     process_chat.init_services(
