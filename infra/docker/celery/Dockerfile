@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python deps from lock file for reproducible builds.
-# To update: uv pip compile requirements-celery.txt -o requirements-celery.lock
+# To update: uv --no-config pip compile --python-version 3.12 requirements-celery.txt -o requirements-celery.lock
 COPY infra/docker/celery/requirements-celery.lock /app/
 RUN pip install --no-cache-dir -r requirements-celery.lock
 

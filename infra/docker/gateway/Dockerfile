@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python deps from lock file for reproducible builds.
-# To update: uv pip compile requirements-gateway.txt -o requirements-gateway.lock
+# To update: uv --no-config pip compile --python-version 3.12 requirements-gateway.txt -o requirements-gateway.lock
 COPY infra/docker/gateway/requirements-gateway.lock /app/
 RUN pip install --no-cache-dir -r requirements-gateway.lock
 

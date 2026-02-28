@@ -4,7 +4,7 @@ FROM quay.io/jupyter/minimal-notebook:python-3.13.12
 USER root
 
 # Install from lock file for reproducible builds.
-# To update: uv pip compile requirements-jupyter.txt -o requirements-jupyter.lock
+# To update: uv --no-config pip compile --python-version 3.13 requirements-jupyter.txt -o requirements-jupyter.lock
 COPY infra/docker/jupyter/requirements-jupyter.lock /tmp/requirements-jupyter.lock
 
 RUN pip install --no-cache-dir -r /tmp/requirements-jupyter.lock
