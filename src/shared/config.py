@@ -16,8 +16,25 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# =========================================================================
+# Knowledge Base Registry
+# Maps user-facing KB identifiers to Qdrant collection names.
+# =========================================================================
+KNOWLEDGE_BASES: dict[str, dict[str, str]] = {
+    "arxiv": {
+        "collection": "chat_documents",
+        "label": "ArXiv papers (ML / AI theory)",
+        "description": "Deep discussions about ML/AI theory and latest trends",
+    },
+    "pytorch_docs": {
+        "collection": "code_documents",
+        "label": "PyTorch docs (coding)",
+        "description": "PyTorch documentation for coding assistance",
+    },
+}
 
 
 class Settings(BaseSettings):
@@ -78,6 +95,11 @@ class Settings(BaseSettings):
         default=None,
         description="Optional API key for vLLM authentication",
     )
+    max_completion_tokens: int = Field(
+        default=32768,
+        description="Maximum number of tokens the model can generate per response",
+        ge=1,
+    )
     vllm_timeout: float = Field(
         default=60.0,
         description="Timeout for vLLM requests in seconds",
@@ -90,6 +112,16 @@ class Settings(BaseSettings):
     async_enabled: bool = Field(
         default=True,
         description="Enable async inference via Celery workers",
+    )
+    celery_broker_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CELERY_BROKER_URL", "GATEWAY_CELERY_BROKER_URL"),
+        description="RabbitMQ broker URL for Celery (e.g. amqp://user:pass@rabbitmq:5672//)",
+    )
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias=AliasChoices("REDIS_URL", "GATEWAY_REDIS_URL"),
+        description="Redis connection URL for token streaming pub/sub",
     )
 
     # =========================================================================
@@ -148,7 +180,7 @@ class Settings(BaseSettings):
         ge=1,
     )
     score_threshold: float = Field(
-        default=0.0,
+        default=0.35,
         description="Minimum similarity score for retrieval",
         ge=0.0,
         le=1.0,

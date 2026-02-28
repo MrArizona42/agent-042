@@ -180,21 +180,3 @@ class RedisStreamService:
                     }
                 }
                 yield f"data: {json.dumps(error_chunk)}\n\n".encode()
-
-
-# Global service instance (lazy initialization)
-_redis_stream_service: RedisStreamService | None = None
-
-
-def get_redis_stream_service() -> RedisStreamService:
-    """Get or create the global Redis stream service.
-
-    Uses REDIS_URL environment variable for configuration.
-    """
-    global _redis_stream_service
-    if _redis_stream_service is None:
-        import os
-
-        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-        _redis_stream_service = RedisStreamService(redis_url)
-    return _redis_stream_service

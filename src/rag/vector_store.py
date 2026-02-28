@@ -7,7 +7,14 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, Filter, PointStruct, VectorParams
+from qdrant_client.models import (
+    CreateAlias,
+    CreateAliasOperation,
+    Distance,
+    Filter,
+    PointStruct,
+    VectorParams,
+)
 
 from shared.config import get_settings
 
@@ -174,9 +181,8 @@ class QdrantVectorStore:
         return documents
 
     def collection_exists(self) -> bool:
-        """Check if collection exists."""
-        collections = self.client.get_collections().collections
-        return any(c.name == self.collection_name for c in collections)
+        """Check if collection exists (supports aliases)."""
+        return self.client.collection_exists(self.collection_name)
 
     def get_collection_info(self) -> Dict[str, Any]:
         """Get information about the collection."""
@@ -190,3 +196,43 @@ class QdrantVectorStore:
             # vectors_count doesn't exist in newer Qdrant versions
             # points_count is the number of vectors/documents
         }
+
+    # ------------------------------------------------------------------
+    # Alias helpers (used by index-build scripts for zero-downtime swaps)
+    # ------------------------------------------------------------------
+
+    def resolve_alias(self, alias_name: str) -> Optional[str]:
+        """Resolve an alias to its target collection name.
+
+        Returns:
+            The collection name the alias points to, or None if the alias
+            does not exist.
+        """
+        for alias in self.client.get_aliases().aliases:
+            if alias.alias_name == alias_name:
+                return alias.collection_name
+        return None
+
+    def update_alias(self, alias_name: str, collection_name: str) -> None:
+        """Create or atomically update an alias to point to a collection.
+
+        If the alias already exists it is re-pointed in a single atomic
+        operation, so live queries see either the old *or* the new collection
+        — never an empty gap.
+        """
+        self.client.update_collection_aliases(
+            change_aliases_operations=[
+                CreateAliasOperation(
+                    create_alias=CreateAlias(
+                        collection_name=collection_name,
+                        alias_name=alias_name,
+                    )
+                )
+            ]
+        )
+        logger.info(f"Alias '{alias_name}' now points to collection '{collection_name}'")
+
+    def delete_collection(self, collection_name: str) -> None:
+        """Delete a collection by explicit name."""
+        self.client.delete_collection(collection_name)
+        logger.info(f"Deleted collection: {collection_name}")

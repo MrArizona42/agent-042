@@ -151,7 +151,7 @@ with DAG(
 
     dvc_version = BashOperator(
         task_id="dvc_version_pytorch",
-        bash_command=f"cd {_project_root} && dvc add {_pytorch_rel} && dvc push",
+        bash_command=f"cd {_project_root} && dvc add {_pytorch_rel} && dvc push ",
     )
 
     build_index = BashOperator(
@@ -165,7 +165,6 @@ with DAG(
             "--qdrant-port $QDRANT_PORT "
             "--embedding-model $EMBEDDING_MODEL "
             "--task code "
-            "--force-recreate"
         ),
     )
 

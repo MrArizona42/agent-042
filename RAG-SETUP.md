@@ -73,14 +73,13 @@ Total: 12GB
 **4. Retrieval Service**
 - Dense retrieval using cosine similarity
 - Top-k retrieval (default: 5 documents)
-- Score threshold filtering (default: 0.3)
-- Task-based collection routing (chat → ArXiv, code → PyTorch)
+- Score threshold filtering (default: 0.35)
+- Manual knowledge base selection from UI
 
 **5. Gateway Integration**
-- Automatic RAG activation when enabled
+- User-selected knowledge base passed via `knowledge_base` request field
 - Context injection into system prompt
-- Task-based retrieval (auto-detected)
-- Graceful fallback if RAG unavailable
+- Graceful fallback if RAG unavailable or no KB selected
 
 **6. Data Collection Scripts**
 - **ArXiv Collector**: Downloads ML/DL papers (cs.LG, cs.AI)
@@ -88,8 +87,8 @@ Total: 12GB
 - **Index Builder**: Chunks, embeds, and stores in Qdrant
 
 **7. UI Updates**
-- RAG status indicator in sidebar
-- Information about available collections
+- Knowledge base radio selector in sidebar (ArXiv papers / PyTorch docs / Disabled)
+- Selected KB is sent with every chat request
 
 ---
 
@@ -117,7 +116,6 @@ Total: 12GB
 - Latency profiling
 
 ### 🔄 Advanced Features
-- **Dynamic RAG toggle**: Per-query control from UI
 - **Context window management**: Smart truncation
 - **Query history**: Remember previous retrievals
 - **Citation extraction**: Show source papers/docs inline
@@ -133,14 +131,11 @@ Total: 12GB
 
 ### Step 1: Update Dependencies
 
-The dependencies are already added to `pyproject.toml` and `requirements-gateway.txt`. Install them:
+Dependencies are declared in `pyproject.toml` (`[project.optional-dependencies]`). Install only the needed groups:
 
 ```bash
-# For local development (includes all dependencies)
-pip install -e .
-
-# Or with uv (faster)
-uv pip install -e .
+# For gateway + worker + RAG local development
+uv sync --extra gateway --extra worker --extra rag --extra dev
 ```
 
 ### Step 2: Update Environment Configuration
@@ -171,7 +166,7 @@ Start Qdrant and other services:
 
 ```bash
 cd infra/compose
-docker-compose up -d postgres mlflow qdrant
+docker compose up -d postgres mlflow qdrant
 ```
 
 Verify Qdrant is running:
@@ -191,7 +186,7 @@ Start the full Docker Compose stack (including Airflow):
 
 ```bash
 cd infra/compose
-docker-compose up -d
+docker compose up -d
 ```
 
 Two Airflow DAGs manage data collection automatically:
@@ -232,8 +227,7 @@ python build_vector_index.py \
     --task both \
     --qdrant-host localhost \
     --qdrant-port 6333 \
-    --embedding-model sentence-transformers/all-MiniLM-L6-v2 \
-    --force-recreate
+    --embedding-model sentence-transformers/all-MiniLM-L6-v2
 
 # Or build separately:
 # python build_vector_index.py --task chat
@@ -268,7 +262,7 @@ curl http://localhost:6333/collections/code_documents
 
 ```bash
 cd infra/compose
-docker-compose up -d
+docker compose up -d
 ```
 
 This starts:
@@ -299,8 +293,8 @@ Open browser: http://localhost:8501
 
 You should see:
 - Main chat interface
-- Sidebar with "RAG Settings" section
-- Info message about RAG being enabled
+- Sidebar with **Knowledge Base** selector (Disabled / ArXiv papers / PyTorch docs)
+- Max tokens setting
 
 ---
 
@@ -308,23 +302,23 @@ You should see:
 
 ### Test Query Examples
 
-**Test 1: Chat Query (ArXiv Papers)**
+**Test 1: ArXiv Knowledge Base (ML/AI Theory)**
 
-Try asking questions about ML/DL topics that would be in ArXiv papers:
+Select **"ArXiv papers (ML / AI theory)"** in the sidebar, then ask:
 
 ```
 User: "What are the main approaches to fine-tuning large language models?"
 ```
 
 Expected behavior:
-- Gateway detects task as "chat"
+- UI sends `knowledge_base: "arxiv"` with the request
 - Retrieves from `chat_documents` collection
 - Injects ArXiv paper abstracts into context
 - LLM generates answer using retrieved context
 
-**Test 2: Code Query (PyTorch Docs)**
+**Test 2: PyTorch Docs Knowledge Base (Coding)**
 
-Try asking about PyTorch APIs:
+Select **"PyTorch docs (coding)"** in the sidebar, then ask:
 
 ```
 User: "How do I create a neural network in PyTorch?"
@@ -332,36 +326,36 @@ User: "Show me python code for a simple CNN"
 ```
 
 Expected behavior:
-- Gateway detects task as "code"
+- UI sends `knowledge_base: "pytorch_docs"` with the request
 - Retrieves from `code_documents` collection
 - Injects PyTorch documentation into context
 - LLM generates code with proper API usage
 
-**Test 3: Summarization Query**
+**Test 3: No Knowledge Base (RAG Disabled)**
+
+Select **"Disabled"** in the sidebar, then ask:
 
 ```
 User: "Summarize the key concepts in attention mechanisms"
 ```
 
 Expected behavior:
-- Gateway detects task as "summarize"
-- Uses `chat_documents` collection
-- Retrieves relevant papers
-- Generates summary
+- No RAG retrieval is performed
+- LLM answers using its own knowledge
 
 ### Viewing Retrieved Context
 
 Check gateway logs to see RAG in action:
 
 ```bash
-docker-compose logs -f gateway
+docker compose logs -f gateway
 ```
 
 Look for log messages like:
 ```
-INFO: RAG context retrieved for task: chat
+INFO: RAG — retrieving from knowledge base: arxiv
 INFO: Retrieved 5 documents
-INFO: Retrieved context of 2847 characters from 5 documents
+INFO: RAG context retrieved (kb=arxiv)
 ```
 
 ### Testing Without Docker
@@ -395,7 +389,7 @@ curl http://localhost:6333/collections
 
 # Rebuild indices
 cd experiments/scripts/rag_data
-python build_vector_index.py --task both --force-recreate
+python build_vector_index.py --task both
 ```
 
 ### Issue: Gateway crashes on startup
@@ -405,13 +399,13 @@ python build_vector_index.py --task both --force-recreate
 **Solution**:
 ```bash
 # Check Qdrant is running
-docker-compose ps qdrant
+docker compose ps qdrant
 
 # Check Qdrant logs
-docker-compose logs qdrant
+docker compose logs qdrant
 
 # Restart gateway
-docker-compose restart gateway
+docker compose restart gateway
 ```
 
 ### Issue: No context retrieved (empty results)
@@ -419,12 +413,14 @@ docker-compose restart gateway
 **Problem**: Queries return no documents
 
 **Possible causes**:
-1. Query too different from indexed content
-2. Score threshold too high
-3. Wrong collection
+1. No knowledge base selected in the UI sidebar
+2. Query too different from indexed content
+3. Score threshold too high
+4. Selected collection has no documents
 
 **Solution**:
-- Try lowering score threshold in `src/rag/config.py` (default: 0.3 → 0.1)
+- Make sure a knowledge base is selected in the sidebar (not "Disabled")
+- Try lowering `GATEWAY_SCORE_THRESHOLD` (default: 0.35)
 - Check collection has documents: `curl http://localhost:6333/collections/chat_documents`
 - Try more specific queries related to ML/DL topics
 
@@ -506,7 +502,6 @@ agent-042/
 ├── dags/                             # Airflow DAGs (data pipelines)
 │   ├── arxiv_rag_update.py          # Daily: ArXiv download → DVC → index
 │   ├── pytorch_docs_rag_update.py   # Weekly: PyTorch docs → DVC → index
-│   └── requirements.txt             # DAG Python dependencies
 ├── experiments/scripts/
 │   ├── prefetch_assets.ipynb        # Data collection (ArXiv, PyTorch docs, etc.)
 │   └── rag_data/
@@ -517,6 +512,8 @@ agent-042/
 ├── infra/compose/
 │   ├── docker-compose.yaml          # Full stack (incl. Qdrant, Airflow)
 │   └── .env.example                 # RAG + Airflow config
+├── infra/docker/airflow/
+│   └── requirements.lock           # DAG Python dependencies (lock file)
 └── RAG-SETUP.md                     # This file
 ```
 
@@ -525,7 +522,7 @@ agent-042/
 ## Support
 
 For issues or questions:
-1. Check logs: `docker-compose logs gateway qdrant`
+1. Check logs: `docker compose logs gateway qdrant`
 2. Verify collections: `curl http://localhost:6333/collections`
 3. Review this document's Troubleshooting section
 4. Check README.md for overall system architecture

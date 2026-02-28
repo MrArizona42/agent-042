@@ -17,12 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies with pinned versions for reproducible builds.
-# mlflow 3.x is the current major version used across the project.
-RUN pip install --no-cache-dir \
-    "mlflow>=3.8.1,<4" \
-    "psycopg2-binary>=2.9,<3" \
-    "boto3>=1.35,<2"
+# Install Python dependencies from lock file for reproducible builds.
+# To update: uv --no-config pip compile pyproject.toml --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/mlflow/requirements-mlflow.lock
+COPY infra/docker/mlflow/requirements-mlflow.lock /app/
+RUN pip install --no-cache-dir -r requirements-mlflow.lock
 
 # Expose MLflow default port (documentation only)
 EXPOSE 5000

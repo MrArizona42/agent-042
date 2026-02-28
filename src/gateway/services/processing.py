@@ -6,8 +6,10 @@ from typing import Any, AsyncIterator, Dict
 
 from gateway.config import get_settings
 from gateway.schemas.openai_chat import ChatCompletionRequest
+from gateway.services.celery_client import CeleryClient
 from gateway.services.prompt_builder import PromptBuilder
 from gateway.services.rag_service import RAGService
+from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
 
@@ -28,28 +30,40 @@ class _ProcessChat:
             logger.error(f"Failed to initialize RAG service: {e}")
             self._rag_service = None
 
-        # Lazy-loaded async services
-        self._celery_client = None
-        self._redis_stream = None
+        # Services injected via init_services() during lifespan startup
+        self._celery_client: CeleryClient | None = None
+        self._redis_stream: RedisStreamService | None = None
+
+    def init_services(
+        self,
+        *,
+        redis_stream: RedisStreamService | None = None,
+        celery_client: CeleryClient | None = None,
+    ) -> None:
+        """Inject managed service instances (called from lifespan startup)."""
+        self._redis_stream = redis_stream
+        self._celery_client = celery_client
 
     def _client(self) -> VllmOpenAIClient:
         s = get_settings()
         return VllmOpenAIClient(base_url=s.vllm_base_url, api_key=None)
 
-    def _get_celery_client(self):
-        """Lazy-load Celery client (only when async mode is used)."""
+    def _get_celery_client(self) -> CeleryClient:
+        """Return the Celery client injected during lifespan startup."""
         if self._celery_client is None:
-            from gateway.services.celery_client import get_celery_client
-
-            self._celery_client = get_celery_client()
+            raise RuntimeError(
+                "CeleryClient is not available. "
+                "Ensure async_enabled=true and CELERY_BROKER_URL is set."
+            )
         return self._celery_client
 
-    def _get_redis_stream(self):
-        """Lazy-load Redis stream service (only when async mode is used)."""
+    def _get_redis_stream(self) -> RedisStreamService:
+        """Return the Redis stream service injected during lifespan startup."""
         if self._redis_stream is None:
-            from gateway.services.redis_stream import get_redis_stream_service
-
-            self._redis_stream = get_redis_stream_service()
+            raise RuntimeError(
+                "RedisStreamService is not available. "
+                "Ensure async_enabled=true and REDIS_URL is set."
+            )
         return self._redis_stream
 
     async def list_models(self) -> Any:
@@ -60,23 +74,23 @@ class _ProcessChat:
         last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
         decision = self._router.decide(last_user)
 
-        # Try to retrieve RAG context
+        # Try to retrieve RAG context using explicitly selected knowledge base
         retrieved_context = None
         rag_mode = "off"
 
-        if self._rag_service and self._rag_service.enabled:
+        if self._rag_service and self._rag_service.enabled and req.knowledge_base:
             try:
-                logger.info(f"RAG - trying to retrieve context in task: {decision.task}")
+                logger.info(f"RAG — retrieving from knowledge base: {req.knowledge_base}")
                 retrieved_context = self._rag_service.retrieve_context(
                     query=last_user,
-                    task=decision.task,
+                    knowledge_base=req.knowledge_base,
                     top_k=5,
                 )
                 if retrieved_context:
                     rag_mode = "on"
-                    logger.info(f"RAG context retrieved for task: {decision.task}")
+                    logger.info(f"RAG context retrieved (kb={req.knowledge_base})")
                 else:
-                    logger.info(f"RAG context has not been retrieved for task: {decision.task}")
+                    logger.info(f"No RAG context found (kb={req.knowledge_base})")
             except Exception as e:
                 logger.error(f"Error retrieving RAG context: {e}")
 
