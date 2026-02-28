@@ -16,7 +16,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # =========================================================================
@@ -112,6 +112,16 @@ class Settings(BaseSettings):
     async_enabled: bool = Field(
         default=True,
         description="Enable async inference via Celery workers",
+    )
+    celery_broker_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CELERY_BROKER_URL", "GATEWAY_CELERY_BROKER_URL"),
+        description="RabbitMQ broker URL for Celery (e.g. amqp://user:pass@rabbitmq:5672//)",
+    )
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias=AliasChoices("REDIS_URL", "GATEWAY_REDIS_URL"),
+        description="Redis connection URL for token streaming pub/sub",
     )
 
     # =========================================================================

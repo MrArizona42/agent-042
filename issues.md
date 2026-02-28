@@ -257,7 +257,7 @@ For production, this is a single point of failure. Airflow heavy DAG parsing and
 
 ---
 
-### 3.2 Redis and Celery Connection Lifecycle Issues
+### 3.2 Redis and Celery Connection Lifecycle Issues — ✅ FIXED
 
 **Files affected:**
 - `src/gateway/services/redis_stream.py` — global `_redis_stream_service` singleton never closed
@@ -268,10 +268,17 @@ For production, this is a single point of failure. Airflow heavy DAG parsing and
 - Stale connections after Redis/RabbitMQ restarts
 - No reconnection logic if the broker goes down temporarily
 
-**Fix:**
-- Use FastAPI's lifespan context manager to create/close connections
-- Implement connection health checks and reconnection logic
-- Use connection pools for Redis
+**Fix (applied):**
+- Replaced deprecated `@app.on_event("startup")` with FastAPI `lifespan` async context manager
+- `RedisStreamService` and `CeleryClient` are created on startup and closed on shutdown
+- Removed global singleton patterns (`_redis_stream_service`, `_celery_client`) from service modules
+- Added `close()` method to `CeleryClient` for proper broker connection teardown
+- Added `redis_url` and `celery_broker_url` to unified `Settings` for consistent configuration
+- Services are injected into `process_chat` via `init_services()` instead of lazy-loading from globals
+
+**Remaining (separate tasks):**
+- Connection health checks and reconnection logic
+- Tests for the lifespan lifecycle
 
 ---
 
