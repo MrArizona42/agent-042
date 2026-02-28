@@ -24,7 +24,7 @@ docker compose up -d qdrant
 
 # 4. Build vector indices (only needed with Option B; DAGs do this automatically)
 cd experiments/scripts/rag_data
-python build_vector_index.py --task both --qdrant-host localhost --force-recreate
+python build_vector_index.py --task both --qdrant-host localhost
 
 # 5. Start full system
 cd ../../../infra/compose
@@ -150,7 +150,7 @@ docker compose logs -f gateway | grep RAG
 ### Collections not found
 ```bash
 curl http://localhost:6333/collections
-# If empty, rebuild: python build_vector_index.py --task both --force-recreate
+# If empty, rebuild: python build_vector_index.py --task both
 ```
 
 ### No context retrieved
@@ -206,5 +206,5 @@ docker compose logs gateway qdrant
 **Rebuild Indices**:
 ```bash
 cd experiments/scripts/rag_data
-python build_vector_index.py --task both --force-recreate
+python build_vector_index.py --task both
 ```

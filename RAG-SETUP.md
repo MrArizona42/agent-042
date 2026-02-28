@@ -227,8 +227,7 @@ python build_vector_index.py \
     --task both \
     --qdrant-host localhost \
     --qdrant-port 6333 \
-    --embedding-model sentence-transformers/all-MiniLM-L6-v2 \
-    --force-recreate
+    --embedding-model sentence-transformers/all-MiniLM-L6-v2
 
 # Or build separately:
 # python build_vector_index.py --task chat
@@ -390,7 +389,7 @@ curl http://localhost:6333/collections
 
 # Rebuild indices
 cd experiments/scripts/rag_data
-python build_vector_index.py --task both --force-recreate
+python build_vector_index.py --task both
 ```
 
 ### Issue: Gateway crashes on startup

@@ -218,22 +218,17 @@ For production, this is a single point of failure. Airflow heavy DAG parsing and
 
 ---
 
-### 2.7 Airflow Workers Run Index Builds With `--force-recreate`
+### ~~2.7 Airflow Workers Run Index Builds With `--force-recreate`~~ ✅ Resolved
 
 **Files affected:**
-- `dags/arxiv_rag_update.py:137` — `--force-recreate`
-- `dags/pytorch_docs_rag_update.py:169` — `--force-recreate`
+- `dags/arxiv_rag_update.py` — `--force-recreate` removed
+- `dags/pytorch_docs_rag_update.py` — `--force-recreate` removed
+- `src/rag/vector_store.py` — alias helpers added
+- `experiments/scripts/rag_data/build_vector_index.py` — merge / replace modes
 
-**Problem:** Every scheduled DAG run deletes and recreates the entire Qdrant collection from scratch. During the rebuild window:
-- The collection doesn't exist → live queries to the gateway return no RAG results
-- If the build fails halfway, the collection is permanently empty until the next successful run
-- All embeddings are recomputed from scratch every time, wasting CPU/GPU resources
-
-**Fix:**
-1. Build into a temporary collection (`chat_documents_staging`)
-2. Once complete, atomically swap the alias (Qdrant supports collection aliases)
-3. Delete the old collection only after the swap succeeds
-4. This ensures zero downtime and safe rollback
+**Resolution:**
+- **PyTorch docs (weekly, replace):** Index is built into a timestamped staging collection, then a Qdrant alias (`code_documents`) is atomically swapped to the new collection. The old collection is deleted only after the swap succeeds → zero downtime.
+- **ArXiv papers (daily, merge):** New papers are upserted into the existing `chat_documents` collection with deterministic UUID-based point IDs, preserving all previously-ingested data.
 
 ---
 
