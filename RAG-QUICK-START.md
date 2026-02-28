@@ -12,11 +12,11 @@ cd infra/compose
 cp .env.example .env
 
 # 2. Start Qdrant
-docker-compose up -d qdrant
+docker compose up -d qdrant
 
 # 3. Collect data (ArXiv papers + PyTorch docs)
 #    Option A (automated): start Airflow — DAGs will run on schedule
-#      docker-compose up -d airflow-webserver airflow-scheduler
+#      docker compose up -d airflow-webserver airflow-scheduler
 #      Then open http://localhost:8080 and trigger DAGs manually, or wait.
 #
 #    Option B (interactive): open experiments/scripts/prefetch_assets.ipynb
@@ -28,7 +28,7 @@ python build_vector_index.py --task both --qdrant-host localhost --force-recreat
 
 # 5. Start full system
 cd ../../../infra/compose
-docker-compose up -d
+docker compose up -d
 ```
 
 **Total time**: ~10-15 minutes
@@ -139,7 +139,7 @@ Select "PyTorch docs (coding)" in the sidebar, then ask:
 
 **Check Logs**:
 ```bash
-docker-compose logs -f gateway | grep RAG
+docker compose logs -f gateway | grep RAG
 # Should see: "RAG context retrieved (kb=arxiv)"
 ```
 
@@ -161,30 +161,6 @@ curl http://localhost:6333/collections
 ### OOM on GPU
 - Reduce `VLLM_GPU_UTIL` in `.env` (0.7 → 0.6)
 - Verify embeddings on CPU: check gateway logs
-
----
-
-## Files Changed
-
-**New Files**:
-- `src/rag/` - RAG module (embeddings, vector store, chunking, retrieval)
-- `src/gateway/services/rag_service.py` - Gateway integration
-- `experiments/scripts/rag_data/` - Data collection scripts
-- `dags/arxiv_rag_update.py` - Daily ArXiv data pipeline (Airflow DAG)
-- `dags/pytorch_docs_rag_update.py` - Weekly PyTorch docs pipeline (Airflow DAG)
-- `infra/docker/airflow/requirements.lock` - DAG Python dependencies lock
-- `RAG-SETUP.md` - Full documentation (this file)
-
-**Modified Files**:
-- `pyproject.toml` - RAG dependencies are maintained in optional groups
-- `infra/compose/docker-compose.yaml` - Added Qdrant service
-- `infra/compose/.env.example` - Added RAG config
-- `src/shared/config.py` - Unified settings + `KNOWLEDGE_BASES` registry
-- `src/gateway/schemas/openai_chat.py` - Added `knowledge_base` field
-- `src/gateway/services/prompt_builder.py` - Context injection
-- `src/gateway/services/processing.py` - RAG invocation with KB selection
-- `src/gateway/services/rag_service.py` - KB-based retriever initialization
-- `src/ui/app.py` - Knowledge base selector
 
 ---
 
@@ -220,7 +196,7 @@ curl http://localhost:6333/collections
 curl http://localhost:9000/health
 
 # Check logs
-docker-compose logs gateway qdrant
+docker compose logs gateway qdrant
 ```
 
 **Data Location**:

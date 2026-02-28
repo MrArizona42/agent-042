@@ -46,16 +46,16 @@ The UI is deployed behind nginx at `https://agent.antonlab.ru:8443`.
 ### Setup
 
 ```bash
-
-# 2. Install nginx config
+# 1. Install nginx config
 sudo cp infra/nginx/agent.antonlab.ru.conf /etc/nginx/sites-available/
 sudo ln -s /etc/nginx/sites-available/agent.antonlab.ru.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 
-# 1. Get SSL certificate
+# 2. Get SSL certificate
 sudo certbot --nginx -d agent.antonlab.ru
 
 # 3. Rebuild and start UI container
+cd infra/compose
 docker compose build ui
 docker compose up -d ui
 ```

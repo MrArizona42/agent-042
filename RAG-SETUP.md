@@ -166,7 +166,7 @@ Start Qdrant and other services:
 
 ```bash
 cd infra/compose
-docker-compose up -d postgres mlflow qdrant
+docker compose up -d postgres mlflow qdrant
 ```
 
 Verify Qdrant is running:
@@ -186,7 +186,7 @@ Start the full Docker Compose stack (including Airflow):
 
 ```bash
 cd infra/compose
-docker-compose up -d
+docker compose up -d
 ```
 
 Two Airflow DAGs manage data collection automatically:
@@ -263,7 +263,7 @@ curl http://localhost:6333/collections/code_documents
 
 ```bash
 cd infra/compose
-docker-compose up -d
+docker compose up -d
 ```
 
 This starts:
@@ -349,7 +349,7 @@ Expected behavior:
 Check gateway logs to see RAG in action:
 
 ```bash
-docker-compose logs -f gateway
+docker compose logs -f gateway
 ```
 
 Look for log messages like:
@@ -400,13 +400,13 @@ python build_vector_index.py --task both --force-recreate
 **Solution**:
 ```bash
 # Check Qdrant is running
-docker-compose ps qdrant
+docker compose ps qdrant
 
 # Check Qdrant logs
-docker-compose logs qdrant
+docker compose logs qdrant
 
 # Restart gateway
-docker-compose restart gateway
+docker compose restart gateway
 ```
 
 ### Issue: No context retrieved (empty results)
@@ -514,7 +514,7 @@ agent-042/
 │   ├── docker-compose.yaml          # Full stack (incl. Qdrant, Airflow)
 │   └── .env.example                 # RAG + Airflow config
 ├── infra/docker/airflow/
-│   └── requirements.txt             # DAG Python dependencies
+│   └── requirements.lock           # DAG Python dependencies (lock file)
 └── RAG-SETUP.md                     # This file
 ```
 
@@ -523,7 +523,7 @@ agent-042/
 ## Support
 
 For issues or questions:
-1. Check logs: `docker-compose logs gateway qdrant`
+1. Check logs: `docker compose logs gateway qdrant`
 2. Verify collections: `curl http://localhost:6333/collections`
 3. Review this document's Troubleshooting section
 4. Check README.md for overall system architecture

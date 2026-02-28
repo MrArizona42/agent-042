@@ -4,6 +4,10 @@
 
 * `./infra/README.md` - настройка окружения и инфраструктуры
 * `./experiments/README.md` - как проводить эксперименты
+* `./RAG-QUICK-START.md` - быстрый старт RAG-системы
+* `./RAG-SETUP.md` - подробная настройка RAG-системы
+* `./src/gateway/README.md` - документация Gateway (FastAPI)
+* `./src/ui/README.md` - документация UI (Streamlit)
 
 ## Постановка задачи. Scope / Область исследования.
 
@@ -563,10 +567,11 @@ train_hydra.py                 manage_registry.py            sync (model_registr
 
 **Pre-commit:**
 
-* black
-* isort
-* проверка YAML/JSON (Hydra configs)
-* trailing whitespace
+* ruff check (linting + import sorting, с автофиксом)
+* ruff format (форматирование кода)
+* проверка YAML/JSON
+* trailing whitespace, end-of-file-fixer, mixed-line-ending, check-case-conflict
+* check-added-large-files
 
 **CI (опционально, под вопросом):**
 
@@ -580,12 +585,7 @@ request из develop в main.
 
 **Pre-commit:**
 
-По сути то же самое, что и в Experiments
-
-* форматирование
-* import checks
-* базовый linting
-* валидация конфигов Hydra
+По сути то же самое, что и в Experiments (единый `.pre-commit-config.yaml` в корне проекта).
 
 ### Branch: main
 
