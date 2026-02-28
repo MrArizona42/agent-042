@@ -60,6 +60,16 @@ uv sync --extra gateway --extra worker --extra ui --extra dev
 uv sync --extra mlflow
 ```
 
+Сборка lock-файлов для Docker-сервисов (выполнять из корня репозитория):
+```bash
+uv --no-config pip compile pyproject.toml --extra gateway --torch-backend cpu --python-version 3.12 --python-platform linux -o infra/docker/gateway/requirements-gateway.lock
+uv --no-config pip compile pyproject.toml --extra ui --python-version 3.12 --python-platform linux -o infra/docker/ui/requirements-ui.lock
+uv --no-config pip compile pyproject.toml --extra worker --python-version 3.12 --python-platform linux -o infra/docker/celery/requirements-celery.lock
+uv --no-config pip compile pyproject.toml --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/mlflow/requirements-mlflow.lock
+uv --no-config pip compile pyproject.toml --extra airflow --torch-backend cpu --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
+uv --no-config pip compile pyproject.toml --extra training --extra rag --extra dev --torch-backend cpu --python-version 3.13 --python-platform linux -o infra/docker/jupyter/requirements-jupyter.lock
+```
+
 ## Docker / Docker Compose
 
 ### Что разворачивается в Compose
