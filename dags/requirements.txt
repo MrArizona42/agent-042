@@ -36,6 +36,9 @@ dvc[s3]>=3.66.1
 # Needed only for the build_*_index tasks.
 # qdrant-client uses `grpc.UpdateMode | None` at module level; protobuf
 # only supports the `|` operator on EnumTypeWrapper from 5.26.0 onwards.
+# Airflow base image already contains pandas; keep NumPy <2 to avoid
+# pandas/NumPy binary ABI mismatch in provider imports and DAG tasks.
+numpy>=1.26,<2.0
 protobuf>=5.26.0
 qdrant-client>=1.13.2
 sentence-transformers>=3.3.1

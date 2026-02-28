@@ -8,7 +8,7 @@ FROM apache/airflow:2.10.4
 # rm to succeed.
 # Install from lock file for reproducible builds.
 # The lock file pins torch to a +cpu wheel; the extra index lets pip find it.
-# To update: uv --no-config pip compile --torch-backend cpu --python-version 3.12 dags/requirements.txt -o dags/requirements.lock
+# To update: uv --no-config pip compile --upgrade --torch-backend cpu --python-version 3.12 --python-platform linux dags/requirements.txt -o dags/requirements.lock
 COPY --chown=airflow:root dags/requirements.lock /tmp/requirements.lock
 RUN pip install --no-cache-dir \
         --extra-index-url https://download.pytorch.org/whl/cpu \
