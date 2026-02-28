@@ -172,7 +172,7 @@ curl http://localhost:6333/collections
 - `experiments/scripts/rag_data/` - Data collection scripts
 - `dags/arxiv_rag_update.py` - Daily ArXiv data pipeline (Airflow DAG)
 - `dags/pytorch_docs_rag_update.py` - Weekly PyTorch docs pipeline (Airflow DAG)
-- `dags/requirements.txt` - DAG Python dependencies
+- `infra/docker/airflow/requirements.txt` - DAG Python dependencies
 - `RAG-SETUP.md` - Full documentation (this file)
 
 **Modified Files**:

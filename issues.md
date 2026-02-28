@@ -146,7 +146,7 @@ __pycache__
 - `infra/docker/jupyter/requirements-jupyter.txt` — same
 - `infra/docker/mlflow/Dockerfile` — inline pip install with ranges
 
-**Problem:** Using `>=` without upper bounds means builds are non-reproducible. A new major version of `fastapi`, `httpx`, `celery`, etc. could ship at any time and break the build. The `dags/requirements.txt` correctly pins upper bounds, but the service Dockerfiles don't.
+**Problem:** Using `>=` without upper bounds means builds are non-reproducible. A new major version of `fastapi`, `httpx`, `celery`, etc. could ship at any time and break the build. The `infra/docker/airflow/requirements.txt` correctly pins upper bounds, but the service Dockerfiles don't.
 
 **Fix:** Either:
 1. Pin exact versions (`==`) in all requirements files and update them explicitly, OR
@@ -464,7 +464,7 @@ CMD [..., "-c", "1", "-P", "solo"]
 
 **Problem:** Dependencies are specified in multiple places with potentially divergent versions:
 - `pyproject.toml` — project-level
-- `dags/requirements.txt` — Airflow DAGs
+- `infra/docker/airflow/requirements.txt` — Airflow DAGs
 - `infra/docker/gateway/requirements-gateway.txt` — gateway image
 - `infra/docker/ui/requirements-ui.txt` — UI image
 - `infra/docker/celery/requirements-celery.txt` — worker image
