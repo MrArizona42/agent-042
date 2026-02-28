@@ -126,7 +126,7 @@ services:
   # vLLM OpenAI-compatible server
   # =====================
   vllm:
-    image: vllm/vllm-openai:latest
+    image: vllm/vllm-openai:v0.16.0
 
     environment:
       VLLM_MODEL: ${VLLM_MODEL}
@@ -181,7 +181,7 @@ services:
   # Qdrant Vector Database
   # =====================
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.17.0
 
     ports:
       - "127.0.0.1:${QDRANT_PORT}:6333"
@@ -381,7 +381,7 @@ services:
   # RedisInsight (Redis Monitoring)
   # =====================
   redisinsight:
-    image: redis/redisinsight:latest
+    image: redis/redisinsight:3.2.0
 
     environment:
       RI_PROXY_PATH: /redis-insight

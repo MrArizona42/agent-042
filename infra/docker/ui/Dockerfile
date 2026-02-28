@@ -6,8 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY infra/docker/ui/requirements-ui.txt /app/
-RUN pip install -r requirements-ui.txt
+# Install python deps from lock file for reproducible builds.
+# To update: uv pip compile requirements-ui.txt -o requirements-ui.lock
+COPY infra/docker/ui/requirements-ui.lock /app/
+RUN pip install --no-cache-dir -r requirements-ui.lock
 
 COPY src /app/src
 

@@ -1,11 +1,13 @@
-FROM quay.io/jupyter/minimal-notebook:latest
+FROM quay.io/jupyter/minimal-notebook:python-3.13.12
 
 # Install as root so system-level pip deps land in the shared site-packages
 USER root
 
-COPY infra/docker/jupyter/requirements-jupyter.txt /tmp/requirements-jupyter.txt
+# Install from lock file for reproducible builds.
+# To update: uv pip compile requirements-jupyter.txt -o requirements-jupyter.lock
+COPY infra/docker/jupyter/requirements-jupyter.lock /tmp/requirements-jupyter.lock
 
-RUN pip install --no-cache-dir -r /tmp/requirements-jupyter.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-jupyter.lock
 
 # Restore unprivileged notebook user
 USER ${NB_USER}

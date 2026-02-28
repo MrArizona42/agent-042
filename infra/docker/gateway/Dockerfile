@@ -7,9 +7,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install python deps
-COPY infra/docker/gateway/requirements-gateway.txt /app/
-RUN pip install -r requirements-gateway.txt
+# Install python deps from lock file for reproducible builds.
+# To update: uv pip compile requirements-gateway.txt -o requirements-gateway.lock
+COPY infra/docker/gateway/requirements-gateway.lock /app/
+RUN pip install --no-cache-dir -r requirements-gateway.lock
 
 # Copy source
 COPY src /app/src
