@@ -5,8 +5,13 @@
 - MLflow Tracking Server + PostgreSQL (backend store)
 - vLLM (OpenAI-compatible LLM inference server) с доступом к GPU
 - Qdrant (векторная БД)
+- RabbitMQ (брокер сообщений для Celery)
+- Redis (pub/sub для потоковой передачи токенов)
+- Celery worker (асинхронное выполнение LLM-задач)
 - Gateway (FastAPI)
 - UI (Streamlit)
+- Flower (мониторинг Celery)
+- RedisInsight (мониторинг Redis)
 - Apache Airflow (LocalExecutor) — оркестрация пайплайнов, использует общий PostgreSQL
 - JupyterLab — интерактивная среда для экспериментов
 
@@ -81,8 +86,13 @@ uv --no-config pip compile pyproject.toml --extra training --extra rag --extra d
 - `mlflow` — MLflow Tracking Server (порт хоста по умолчанию `5050` → контейнер `5000`)
 - `vllm` — vLLM OpenAI server (порт хоста по умолчанию `8000` → контейнер `8000`), использует GPU
 - `qdrant` — Qdrant (порт хоста по умолчанию `6333` → контейнер `6333`, volume: `qdrant_data`)
+- `rabbitmq` — RabbitMQ (порт хоста по умолчанию `5672` → контейнер `5672`, Management UI: `15672`)
+- `redis` — Redis 7 (порт хоста по умолчанию `6379` → контейнер `6379`, volume: `redis_data`)
+- `celery-worker` — Celery worker для асинхронного выполнения LLM-задач (1 процесс, GPU-bound)
 - `gateway` — FastAPI gateway (порт хоста по умолчанию `9001` → контейнер `9000`)
 - `ui` — Streamlit UI (порт хоста по умолчанию `8501` → контейнер `8501`)
+- `flower` — Flower мониторинг Celery (порт хоста по умолчанию `5555` → контейнер `5555`)
+- `redisinsight` — RedisInsight мониторинг Redis (порт хоста по умолчанию `5540` → контейнер `5540`)
 - `airflow-init` — одноразовая миграция БД Airflow и создание admin-пользователя
 - `airflow-webserver` — Airflow UI (порт хоста по умолчанию `8080` → контейнер `8080`)
 - `airflow-scheduler` — Airflow Scheduler (LocalExecutor)
@@ -107,7 +117,11 @@ cp .env.example .env
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — креды для Yandex Object Storage (нужны MLflow)
 - `MLFLOW_*` — конфиг MLflow (backend store + artifact root)
 - `VLLM_*` — модель/квантизация/параметры GPU для vLLM
-- `GATEWAY_*` — настройки Gateway (RAG, Qdrant, vLLM)
+- `GATEWAY_*` — настройки Gateway (RAG, Qdrant, vLLM, async mode)
+- `RABBITMQ_*` — логин/пароль и порты RabbitMQ (брокер для Celery)
+- `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
+- `FLOWER_*` — порт Flower (мониторинг Celery)
+- `REDISINSIGHT_*` — порт RedisInsight (мониторинг Redis)
 - `AIRFLOW_*` — конфиг Airflow (порт, БД, Fernet-ключ, admin-пользователь)
 - `JUPYTER_*` — конфиг JupyterLab (порт, токен)
 
@@ -132,6 +146,9 @@ docker compose ps
 - vLLM OpenAI API: `http://<host>:8000/v1/models`
 - Gateway health: `http://<host>:9001/health`
 - UI (Streamlit): `http://<host>:8501`
+- Flower (мониторинг Celery): `http://<host>:5555`
+- RedisInsight (мониторинг Redis): `http://<host>:5540`
+- RabbitMQ Management: `http://<host>:15672`
 - Airflow UI: `http://<host>:8080`
 - JupyterLab: `http://<host>:8888`
 
@@ -253,8 +270,10 @@ DAG'и также используют следующие переменные (
 
 JupyterLab предоставляет интерактивную среду для экспериментов и анализа данных.
 
-Директория `notebooks/` в корне репозитория монтируется как рабочая папка `/home/jovyan/work`.
-Исходный код из `src/` доступен read-only в `/home/jovyan/src`.
+Монтируемые директории:
+- `experiments/` → `/home/jovyan/experiments` (rw) — скрипты и конфиги экспериментов
+- `assets/` → `/home/jovyan/assets` (rw) — данные, модели, адаптеры
+- `dags/` → `/home/jovyan/dags` (rw) — Airflow DAG-файлы
 
 Переменные окружения (`.env`):
 - `JUPYTER_PORT` — порт JupyterLab (по умолчанию `8888`)
