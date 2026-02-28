@@ -34,18 +34,8 @@ def render_message_with_thinking(content: str) -> None:
     # Render each part
     for part_type, part_content in parts:
         if part_type == "think":
-            st.markdown(
-                f"""<div style="
-                    background-color: rgba(128, 128, 128, 0.1);
-                    border-left: 3px solid rgba(128, 128, 128, 0.4);
-                    padding: 8px 12px;
-                    margin: 8px 0;
-                    border-radius: 4px;
-                    font-size: 0.85em;
-                    color: rgba(150, 150, 150, 1);
-                "><em>💭 Thinking...</em><br/>{part_content}</div>""",
-                unsafe_allow_html=True,
-            )
+            with st.expander("💭 Thinking...", expanded=False):
+                st.markdown(part_content)
         else:
             text = part_content.strip()
             if text:
