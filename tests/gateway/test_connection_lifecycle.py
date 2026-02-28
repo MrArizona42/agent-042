@@ -19,17 +19,6 @@ if "celery" not in sys.modules:
     celery_module.Celery = _CeleryStub
     sys.modules["celery"] = celery_module
 
-if "kombu.exceptions" not in sys.modules:
-    kombu_module = types.ModuleType("kombu")
-    kombu_exceptions_module = types.ModuleType("kombu.exceptions")
-
-    class _OperationalError(Exception):
-        pass
-
-    kombu_exceptions_module.OperationalError = _OperationalError
-    sys.modules["kombu"] = kombu_module
-    sys.modules["kombu.exceptions"] = kombu_exceptions_module
-
 if "redis.asyncio" not in sys.modules:
     redis_module = types.ModuleType("redis")
     redis_asyncio_module = types.ModuleType("redis.asyncio")
@@ -53,25 +42,18 @@ from gateway.services.redis_stream import RedisStreamService
 
 
 class TestCeleryClientLifecycle(TestCase):
-    def test_enqueue_retries_once_after_connection_error(self) -> None:
-        client = CeleryClient("amqp://localhost:5672//")
+    def test_configures_publish_retry_policy(self) -> None:
+        fake_app = Mock()
+        fake_app.conf = Mock()
 
-        failed_app = Mock()
-        failed_app.send_task.side_effect = celery_client_module.OperationalError("connection lost")
-        successful_app = Mock()
-        successful_app.send_task.return_value = SimpleNamespace(id="task-1")
+        with patch.object(celery_client_module, "Celery", return_value=fake_app):
+            client = CeleryClient("amqp://localhost:5672//")
+            client._get_app()
 
-        with (
-            patch.object(client, "_get_app", side_effect=[failed_app, successful_app]),
-            patch.object(client, "close") as close_mock,
-        ):
-            task_id = client.enqueue_generate_response(
-                conversation_id="conv-1",
-                messages=[{"role": "user", "content": "hello"}],
-            )
-
-        self.assertEqual(task_id, "task-1")
-        close_mock.assert_called_once()
+        fake_app.conf.update.assert_called_once()
+        conf_kwargs = fake_app.conf.update.call_args.kwargs
+        self.assertTrue(conf_kwargs["task_publish_retry"])
+        self.assertEqual(conf_kwargs["task_publish_retry_policy"]["max_retries"], 3)
 
     def test_close_global_client_resets_singleton(self) -> None:
         fake_client = Mock()

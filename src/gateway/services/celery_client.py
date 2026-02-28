@@ -11,7 +11,6 @@ import os
 from typing import Any
 
 from celery import Celery
-from kombu.exceptions import OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -78,33 +77,18 @@ class CeleryClient:
         """
         app = self._get_app()
 
-        try:
-            # Send task by name (worker.tasks.generate_response)
-            task = app.send_task(
-                "worker.tasks.generate_response",
-                kwargs={
-                    "conversation_id": conversation_id,
-                    "messages": messages,
-                    "model": model,
-                    "temperature": temperature,
-                    "top_p": top_p,
-                    "max_tokens": max_tokens,
-                },
-            )
-        except (OperationalError, ConnectionError, OSError):
-            logger.warning("Celery broker connection failed, recreating client and retrying once")
-            self.close()
-            task = self._get_app().send_task(
-                "worker.tasks.generate_response",
-                kwargs={
-                    "conversation_id": conversation_id,
-                    "messages": messages,
-                    "model": model,
-                    "temperature": temperature,
-                    "top_p": top_p,
-                    "max_tokens": max_tokens,
-                },
-            )
+        # Send task by name (worker.tasks.generate_response)
+        task = app.send_task(
+            "worker.tasks.generate_response",
+            kwargs={
+                "conversation_id": conversation_id,
+                "messages": messages,
+                "model": model,
+                "temperature": temperature,
+                "top_p": top_p,
+                "max_tokens": max_tokens,
+            },
+        )
 
         logger.info(f"Enqueued task {task.id} for conversation {conversation_id}")
 

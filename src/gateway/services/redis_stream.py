@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from typing import Any, AsyncIterator
 
 import redis.asyncio as aioredis
@@ -43,17 +42,19 @@ class RedisStreamService:
                 self._redis_url,
                 encoding="utf-8",
                 decode_responses=True,
+                # Periodic ping keeps idle connections fresh in long-running services.
                 health_check_interval=30,
             )
         try:
             await self._redis.ping()
-        except (RedisConnectionError, RedisTimeoutError, OSError):
+        except (RedisConnectionError, RedisTimeoutError):
             logger.warning("Redis connection is stale, reconnecting")
             await self.close()
             self._redis = aioredis.from_url(
                 self._redis_url,
                 encoding="utf-8",
                 decode_responses=True,
+                # Keep same health check policy after reconnect.
                 health_check_interval=30,
             )
         return self._redis
@@ -61,7 +62,15 @@ class RedisStreamService:
     async def close(self) -> None:
         """Close Redis connection."""
         if self._redis is not None:
-            await self._redis.aclose()
+            redis = self._redis
+            aclose = getattr(redis, "aclose", None)
+            if callable(aclose):
+                await aclose()
+            else:
+                await redis.close()
+                wait_closed = getattr(redis, "wait_closed", None)
+                if callable(wait_closed):
+                    await wait_closed()
             self._redis = None
 
     async def subscribe(
@@ -105,7 +114,7 @@ class RedisStreamService:
                         ignore_subscribe_messages=True,
                         timeout=1.0,
                     )
-                except (RedisConnectionError, RedisTimeoutError, OSError):
+                except (RedisConnectionError, RedisTimeoutError):
                     logger.warning(f"Lost Redis connection for {channel_name}, reconnecting")
                     await pubsub.close()
                     redis = await self._get_redis()
@@ -216,6 +225,8 @@ def get_redis_stream_service() -> RedisStreamService:
     """
     global _redis_stream_service
     if _redis_stream_service is None:
+        import os
+
         redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
         _redis_stream_service = RedisStreamService(redis_url)
     return _redis_stream_service
