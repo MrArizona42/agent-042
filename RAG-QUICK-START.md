@@ -172,12 +172,11 @@ curl http://localhost:6333/collections
 - `experiments/scripts/rag_data/` - Data collection scripts
 - `dags/arxiv_rag_update.py` - Daily ArXiv data pipeline (Airflow DAG)
 - `dags/pytorch_docs_rag_update.py` - Weekly PyTorch docs pipeline (Airflow DAG)
-- `infra/docker/airflow/requirements.txt` - DAG Python dependencies
+- `infra/docker/airflow/requirements.lock` - DAG Python dependencies lock
 - `RAG-SETUP.md` - Full documentation (this file)
 
 **Modified Files**:
-- `pyproject.toml` - Added RAG dependencies
-- `requirements-gateway.txt` - Added RAG dependencies
+- `pyproject.toml` - RAG dependencies are maintained in optional groups
 - `infra/compose/docker-compose.yaml` - Added Qdrant service
 - `infra/compose/.env.example` - Added RAG config
 - `src/shared/config.py` - Unified settings + `KNOWLEDGE_BASES` registry

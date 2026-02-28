@@ -46,9 +46,18 @@ nvidia-smi
 Нужен для запуска экспериментов/скриптов локально (вне Docker):
 
 * Установить [UV-менеджер](https://docs.astral.sh/uv/getting-started/installation/)
-* Запустить команду для синхронизации окружения:
+* Запустить синхронизацию только нужных групп зависимостей:
 ```bash
-uv sync
+uv sync --extra training --extra rag --extra dev
+```
+
+Примеры выборочной установки:
+```bash
+# только gateway + worker + UI для локального сервиса
+uv sync --extra gateway --extra worker --extra ui --extra dev
+
+# только инфраструктура MLflow
+uv sync --extra mlflow
 ```
 
 ## Docker / Docker Compose
@@ -203,12 +212,15 @@ download / scrape  >>  dvc_version  >>  build_index
 
 ### Зависимости DAG'ов
 
-Зависимости, необходимые для выполнения DAG'ов, перечислены в `infra/docker/airflow/requirements.txt` и устанавливаются при сборке кастомного Airflow-образа (`infra/docker/airflow/Dockerfile`). Все три Airflow-сервиса (`airflow-init`, `airflow-webserver`, `airflow-scheduler`) собираются из этого Dockerfile через `x-airflow-common-build` якорь в `docker-compose.yaml`.
+Зависимости, необходимые для выполнения DAG'ов, задаются в `pyproject.toml` в группе `airflow` (`[project.optional-dependencies]`) и устанавливаются при сборке кастомного Airflow-образа (`infra/docker/airflow/Dockerfile`) из lock-файла `infra/docker/airflow/requirements.lock`. Все три Airflow-сервиса (`airflow-init`, `airflow-webserver`, `airflow-scheduler`) собираются из этого Dockerfile через `x-airflow-common-build` якорь в `docker-compose.yaml`.
 
 Чтобы обновить зависимости:
 ```bash
-# 1. Отредактируйте infra/docker/airflow/requirements.txt
-# 2. Пересоберите образ:
+# 1. Отредактируйте группу airflow в pyproject.toml
+# 2. Пересоберите lock:
+uv --no-config pip compile pyproject.toml --extra airflow --torch-backend cpu --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
+
+# 3. Пересоберите образ:
 cd infra/compose
 docker compose build airflow-webserver airflow-scheduler airflow-init
 docker compose up -d airflow-webserver airflow-scheduler
@@ -240,7 +252,7 @@ JupyterLab предоставляет интерактивную среду дл
 
 ## DVC с бэкэндом Yandex Cloud S3
 
-* После команды `uv sync` dvc должен быть уже установлен
+* После команды `uv sync --extra training` dvc должен быть уже установлен
 * Добавить креды Yandex Cloud в файл `agent-042/.dvc/config.local`:
 ```text
 ['remote "ycloud"']

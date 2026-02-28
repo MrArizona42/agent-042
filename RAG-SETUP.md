@@ -131,14 +131,11 @@ Total: 12GB
 
 ### Step 1: Update Dependencies
 
-The dependencies are already added to `pyproject.toml` and `requirements-gateway.txt`. Install them:
+Dependencies are declared in `pyproject.toml` (`[project.optional-dependencies]`). Install only the needed groups:
 
 ```bash
-# For local development (includes all dependencies)
-pip install -e .
-
-# Or with uv (faster)
-uv pip install -e .
+# For gateway + worker + RAG local development
+uv sync --extra gateway --extra worker --extra rag --extra dev
 ```
 
 ### Step 2: Update Environment Configuration

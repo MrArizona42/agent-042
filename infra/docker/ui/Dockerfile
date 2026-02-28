@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python deps from lock file for reproducible builds.
-# To update: uv --no-config pip compile --python-version 3.12 requirements-ui.txt -o requirements-ui.lock
+# To update: uv --no-config pip compile pyproject.toml --extra ui --python-version 3.12 -o infra/docker/ui/requirements-ui.lock
 COPY infra/docker/ui/requirements-ui.lock /app/
 RUN pip install --no-cache-dir -r requirements-ui.lock
 
