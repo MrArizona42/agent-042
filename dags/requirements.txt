@@ -34,8 +34,9 @@ dvc[s3]>=3.66.1
 
 # ── Vector-index rebuild (heavy – pulls PyTorch + transformers) ─────────
 # Needed only for the build_*_index tasks.
-# qdrant-client 1.12.x has a runtime TypeError with protobuf's
-# EnumTypeWrapper (grpc.UpdateMode | None); fixed in 1.13+.
+# qdrant-client uses `grpc.UpdateMode | None` at module level; protobuf
+# only supports the `|` operator on EnumTypeWrapper from 5.26.0 onwards.
+protobuf>=5.26.0
 qdrant-client>=1.13.2
 sentence-transformers>=3.3.1
 langchain-text-splitters>=0.4.2
