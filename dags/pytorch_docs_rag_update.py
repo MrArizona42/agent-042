@@ -164,8 +164,7 @@ with DAG(
             "--qdrant-host $QDRANT_HOST "
             "--qdrant-port $QDRANT_PORT "
             "--embedding-model $EMBEDDING_MODEL "
-            "--task code "
-            "--force-recreate"
+            "--task code"
         ),
     )
 

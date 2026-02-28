@@ -133,8 +133,7 @@ with DAG(
             "--qdrant-host $QDRANT_HOST "
             "--qdrant-port $QDRANT_PORT "
             "--embedding-model $EMBEDDING_MODEL "
-            "--task chat "
-            "--force-recreate"
+            "--task chat"
         ),
     )
 
