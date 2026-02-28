@@ -11,6 +11,7 @@ import os
 from typing import Any
 
 from celery import Celery
+from kombu.exceptions import OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +38,21 @@ class CeleryClient:
             self._app.conf.update(
                 task_serializer="json",
                 accept_content=["json"],
+                task_publish_retry=True,
+                task_publish_retry_policy={
+                    "max_retries": 3,
+                    "interval_start": 0,
+                    "interval_step": 1,
+                    "interval_max": 2,
+                },
             )
         return self._app
+
+    def close(self) -> None:
+        """Close Celery client resources."""
+        if self._app is not None:
+            self._app.close()
+            self._app = None
 
     def enqueue_generate_response(
         self,
@@ -64,18 +78,33 @@ class CeleryClient:
         """
         app = self._get_app()
 
-        # Send task by name (worker.tasks.generate_response)
-        task = app.send_task(
-            "worker.tasks.generate_response",
-            kwargs={
-                "conversation_id": conversation_id,
-                "messages": messages,
-                "model": model,
-                "temperature": temperature,
-                "top_p": top_p,
-                "max_tokens": max_tokens,
-            },
-        )
+        try:
+            # Send task by name (worker.tasks.generate_response)
+            task = app.send_task(
+                "worker.tasks.generate_response",
+                kwargs={
+                    "conversation_id": conversation_id,
+                    "messages": messages,
+                    "model": model,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "max_tokens": max_tokens,
+                },
+            )
+        except (OperationalError, ConnectionError, OSError):
+            logger.warning("Celery broker connection failed, recreating client and retrying once")
+            self.close()
+            task = self._get_app().send_task(
+                "worker.tasks.generate_response",
+                kwargs={
+                    "conversation_id": conversation_id,
+                    "messages": messages,
+                    "model": model,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "max_tokens": max_tokens,
+                },
+            )
 
         logger.info(f"Enqueued task {task.id} for conversation {conversation_id}")
 
@@ -124,3 +153,11 @@ def get_celery_client() -> CeleryClient:
             )
         _celery_client = CeleryClient(broker_url)
     return _celery_client
+
+
+def close_celery_client() -> None:
+    """Close and reset global Celery client."""
+    global _celery_client
+    if _celery_client is not None:
+        _celery_client.close()
+        _celery_client = None
