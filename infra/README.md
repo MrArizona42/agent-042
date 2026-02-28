@@ -62,12 +62,12 @@ uv sync --extra mlflow
 
 Сборка lock-файлов для Docker-сервисов (выполнять из корня репозитория):
 ```bash
-uv --no-config pip compile pyproject.toml --extra gateway --torch-backend cpu --python-version 3.12 --python-platform linux -o infra/docker/gateway/requirements-gateway.lock
+uv --no-config pip compile pyproject.toml --extra gateway --python-version 3.12 --python-platform linux -o infra/docker/gateway/requirements-gateway.lock
 uv --no-config pip compile pyproject.toml --extra ui --python-version 3.12 --python-platform linux -o infra/docker/ui/requirements-ui.lock
 uv --no-config pip compile pyproject.toml --extra worker --python-version 3.12 --python-platform linux -o infra/docker/celery/requirements-celery.lock
 uv --no-config pip compile pyproject.toml --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/mlflow/requirements-mlflow.lock
-uv --no-config pip compile pyproject.toml --extra airflow --torch-backend cpu --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
-uv --no-config pip compile pyproject.toml --extra training --extra rag --extra dev --torch-backend cpu --python-version 3.13 --python-platform linux -o infra/docker/jupyter/requirements-jupyter.lock
+uv --no-config pip compile pyproject.toml --extra airflow --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
+uv --no-config pip compile pyproject.toml --extra training --extra rag --extra dev --python-version 3.13 --python-platform linux -o infra/docker/jupyter/requirements-jupyter.lock
 ```
 
 ## Docker / Docker Compose
@@ -228,7 +228,7 @@ download / scrape  >>  dvc_version  >>  build_index
 ```bash
 # 1. Отредактируйте группу airflow в pyproject.toml
 # 2. Пересоберите lock:
-uv --no-config pip compile pyproject.toml --extra airflow --torch-backend cpu --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
+uv --no-config pip compile pyproject.toml --extra airflow --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
 
 # 3. Пересоберите образ:
 cd infra/compose

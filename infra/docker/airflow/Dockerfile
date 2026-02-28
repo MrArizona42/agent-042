@@ -7,10 +7,7 @@ FROM apache/airflow:2.10.4
 # user, so the copied file must be owned by that user for the subsequent
 # rm to succeed.
 # Install from lock file for reproducible builds.
-# The lock file pins torch to a +cpu wheel; the extra index lets pip find it.
-# To update: uv --no-config pip compile pyproject.toml --extra airflow --torch-backend cpu --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
+# To update: uv --no-config pip compile pyproject.toml --extra airflow --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
 COPY --chown=airflow:root infra/docker/airflow/requirements.lock /tmp/requirements.lock
-RUN pip install --no-cache-dir \
-        --extra-index-url https://download.pytorch.org/whl/cpu \
-        -r /tmp/requirements.lock \
+RUN pip install --no-cache-dir -r /tmp/requirements.lock \
     && rm /tmp/requirements.lock
