@@ -81,8 +81,14 @@ uv --no-config pip compile pyproject.toml --extra training --extra rag --extra d
 - `mlflow` — MLflow Tracking Server (порт хоста по умолчанию `5050` → контейнер `5000`)
 - `vllm` — vLLM OpenAI server (порт хоста по умолчанию `8000` → контейнер `8000`), использует GPU
 - `qdrant` — Qdrant (порт хоста по умолчанию `6333` → контейнер `6333`, volume: `qdrant_data`)
+- `rabbitmq` — брокер очередей для Celery (AMQP `5672`, management `15672`)
+- `redis` — Pub/Sub и буфер стриминга ответов (`6379`)
+- `celery-worker` — асинхронная генерация ответов для Gateway
 - `gateway` — FastAPI gateway (порт хоста по умолчанию `9001` → контейнер `9000`)
 - `ui` — Streamlit UI (порт хоста по умолчанию `8501` → контейнер `8501`)
+- `flower` — мониторинг задач Celery (`5555`)
+- `redisinsight` — UI для мониторинга Redis (`5540`)
+- `airflow-prepare-dirs` — одноразовая подготовка прав на директории RAG/DVC
 - `airflow-init` — одноразовая миграция БД Airflow и создание admin-пользователя
 - `airflow-webserver` — Airflow UI (порт хоста по умолчанию `8080` → контейнер `8080`)
 - `airflow-scheduler` — Airflow Scheduler (LocalExecutor)
@@ -132,8 +138,11 @@ docker compose ps
 - vLLM OpenAI API: `http://<host>:8000/v1/models`
 - Gateway health: `http://<host>:9001/health`
 - UI (Streamlit): `http://<host>:8501`
-- Airflow UI: `http://<host>:8080`
-- JupyterLab: `http://<host>:8888`
+- Airflow UI: `http://<host>:8080/airflow`
+- JupyterLab: `http://<host>:8888/jupyter`
+- Flower UI: `http://<host>:5555/flower`
+- RedisInsight UI: `http://<host>:5540/redis-insight`
+- RabbitMQ management: `http://<host>:15672/rabbitmq`
 
 ### Запуск только части сервисов
 
@@ -253,8 +262,10 @@ DAG'и также используют следующие переменные (
 
 JupyterLab предоставляет интерактивную среду для экспериментов и анализа данных.
 
-Директория `notebooks/` в корне репозитория монтируется как рабочая папка `/home/jovyan/work`.
-Исходный код из `src/` доступен read-only в `/home/jovyan/src`.
+В контейнер монтируются директории:
+- `experiments/` → `/home/jovyan/experiments`
+- `assets/` → `/home/jovyan/assets`
+- `dags/` → `/home/jovyan/dags`
 
 Переменные окружения (`.env`):
 - `JUPYTER_PORT` — порт JupyterLab (по умолчанию `8888`)

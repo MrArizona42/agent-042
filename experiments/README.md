@@ -312,7 +312,7 @@ python experiments/scripts/manage_registry.py download lora-summarization ./my_a
 
 ```bash
 # Из корня проекта (с настроенным .env)
-python -m shared.model_registry sync --adapters-dir ./assets/adapters
+PYTHONPATH=src python -m shared.model_registry sync --adapters-dir ./assets/adapters
 ```
 
 Результат:
@@ -346,7 +346,7 @@ python experiments/scripts/manage_registry.py versions lora-summarization
 python experiments/scripts/manage_registry.py promote lora-summarization 3
 
 # 4. Синхронизировать адаптеры на inference-хосте
-python -m shared.model_registry sync --adapters-dir ./assets/adapters
+PYTHONPATH=src python -m shared.model_registry sync --adapters-dir ./assets/adapters
 
 # 5. Перезапустить vLLM (docker-compose) — он подхватит адаптеры из assets/adapters/
 docker compose -f infra/compose/docker-compose.yaml restart vllm

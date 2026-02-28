@@ -24,46 +24,13 @@ graph TD
     VllmClient -->|Proxy Request| vLLM[vLLM Server]
 ```
 
-## Structure & Classes
+## Structure
 
-```mermaid
-classDiagram
-    class FastAPIApp {
-        <<Entrypoint>>
-        main.py
-    }
-    class APIRoutes {
-        <<Router>>
-        routes.py
-        openai_compat.py
-    }
-    class ProcessingService {
-        <<Service>>
-        processing.py
-        +process_chat
-    }
-    class TaskRouter {
-        <<Logic>>
-        task_router.py
-        +decide(text)
-    }
-    class PromptBuilder {
-        <<Logic>>
-        prompt_builder.py
-        +build_system_prompt(task)
-    }
-    class vLLMClient {
-        <<Client>>
-        vllm_client.py
-        +chat_completions(payload)
-    }
-
-    FastAPIApp --> APIRoutes : includes
-    APIRoutes --> ProcessingService : calls
-    ProcessingService --> TaskRouter : uses
-    ProcessingService --> PromptBuilder : uses
-    ProcessingService --> vLLMClient : uses
-```
+- `main.py` — FastAPI app initialization
+- `api/routes.py` — router aggregation
+- `api/v1/discovery.py` — `/health` и `/config`
+- `api/v1/openai_compat.py` — `/v1/models` и `/v1/chat/completions`
+- `services/processing.py` — task routing, prompt building, RAG integration, sync/async execution
 
 ## Endpoints
 
@@ -96,10 +63,12 @@ Example payload:
 ## Environment
 
 - `GATEWAY_VLLM_BASE_URL` (default: `http://localhost:8000`)
+- `GATEWAY_ASYNC_ENABLED` (default: `true`)
+- `CELERY_BROKER_URL` and `REDIS_URL` (required when async mode is enabled)
 
 ## Run (local)
 
 ```bash
 uv sync --extra gateway --extra worker --extra rag --extra dev
-PYTHONPATH=src GATEWAY_VLLM_BASE_URL=http://localhost:8000 uvicorn gateway.main:app --reload --port 9000
+PYTHONPATH=src GATEWAY_ASYNC_ENABLED=false GATEWAY_VLLM_BASE_URL=http://localhost:8000 uvicorn gateway.main:app --reload --port 9000
 ```
