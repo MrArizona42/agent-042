@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install python deps from lock file for reproducible builds.
 # The lock file pins torch to a +cpu wheel; the extra index lets pip find it.
-# To update: uv --no-config pip compile pyproject.toml --extra gateway --torch-backend cpu --python-version 3.12 -o infra/docker/gateway/requirements-gateway.lock
+# To update: uv --no-config pip compile pyproject.toml --extra gateway --torch-backend cpu --python-version 3.12 --python-platform linux -o infra/docker/gateway/requirements-gateway.lock
 COPY infra/docker/gateway/requirements-gateway.lock /app/
 RUN pip install --no-cache-dir \
         --extra-index-url https://download.pytorch.org/whl/cpu \
