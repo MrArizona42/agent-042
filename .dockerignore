@@ -1,4 +1,5 @@
 .git
+.dvc
 assets/models
 assets/datasets
 assets/newly_trained
@@ -8,3 +9,7 @@ experiments/logs
 __pycache__
 .venv
 .env
+.idea
+.ruff_cache
+notebooks
+infra/compose/*data*
