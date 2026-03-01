@@ -12,7 +12,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
@@ -79,12 +79,16 @@ app = FastAPI(title="Embeddings Service", lifespan=lifespan)
 @app.get("/health")
 def health() -> dict:
     """Health check endpoint."""
+    if _model is None:
+        return {"status": "unavailable"}
     return {"status": "ok"}
 
 
 @app.get("/v1/dimension", response_model=DimensionResponse)
 def dimension() -> DimensionResponse:
     """Return the embedding dimension of the loaded model."""
+    if _model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
     settings = get_settings()
     dim = _model.get_sentence_embedding_dimension()
     return DimensionResponse(dimension=dim, model=settings.model)
@@ -93,6 +97,8 @@ def dimension() -> DimensionResponse:
 @app.post("/v1/embeddings", response_model=EmbeddingsResponse)
 def embed(request: EmbeddingsRequest) -> EmbeddingsResponse:
     """Generate embeddings for a list of texts."""
+    if _model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
     settings = get_settings()
 
     if not request.input:

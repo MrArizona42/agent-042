@@ -81,3 +81,7 @@ class EmbeddingService:
         resp = self._client.post("/v1/embeddings", json={"input": [text]})
         resp.raise_for_status()
         return resp.json()["data"][0]["embedding"]
+
+    def close(self) -> None:
+        """Close the underlying HTTP client."""
+        self._client.close()
