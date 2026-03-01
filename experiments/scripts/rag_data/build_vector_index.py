@@ -51,6 +51,7 @@ def build_chat_index(
     qdrant_host: str,
     qdrant_port: int,
     embedding_model: str,
+    embeddings_url: str | None = None,
 ):
     """Build / update vector index for chat task from ArXiv papers (merge mode).
 
@@ -62,7 +63,8 @@ def build_chat_index(
         arxiv_file: Path to arxiv_papers.json
         qdrant_host: Qdrant server host
         qdrant_port: Qdrant server port
-        embedding_model: Embedding model name
+        embedding_model: (deprecated, ignored) Model is configured on the embeddings service
+        embeddings_url: Optional override for the embeddings service URL
     """
     print("=" * 60)
     print("Building CHAT index from ArXiv papers  [merge mode]")
@@ -75,7 +77,9 @@ def build_chat_index(
 
     # Initialize services
     print(f"\nInitializing embedding service: {embedding_model}")
-    embedding_service = EmbeddingService(embedding_model, device="cpu")
+    embedding_service = EmbeddingService(
+        embedding_model, device="cpu", embeddings_url=embeddings_url,
+    )
 
     print(f"Connecting to Qdrant at {qdrant_host}:{qdrant_port}")
     vector_store = QdrantVectorStore(
@@ -159,6 +163,7 @@ def build_code_index(
     qdrant_host: str,
     qdrant_port: int,
     embedding_model: str,
+    embeddings_url: str | None = None,
 ):
     """Build vector index for code task from PyTorch docs (replace mode).
 
@@ -170,7 +175,8 @@ def build_code_index(
         pytorch_docs_file: Path to pytorch_docs.json
         qdrant_host: Qdrant server host
         qdrant_port: Qdrant server port
-        embedding_model: Embedding model name
+        embedding_model: (deprecated, ignored) Model is configured on the embeddings service
+        embeddings_url: Optional override for the embeddings service URL
     """
     alias_name = "code_documents"
     staging_name = f"code_documents_{time.time_ns()}"
@@ -187,7 +193,9 @@ def build_code_index(
 
     # Initialize services
     print(f"\nInitializing embedding service: {embedding_model}")
-    embedding_service = EmbeddingService(embedding_model, device="cpu")
+    embedding_service = EmbeddingService(
+        embedding_model, device="cpu", embeddings_url=embeddings_url,
+    )
 
     print(f"Connecting to Qdrant at {qdrant_host}:{qdrant_port}")
     vector_store = QdrantVectorStore(
@@ -315,7 +323,12 @@ def main():
     parser.add_argument(
         "--embedding-model",
         default="sentence-transformers/all-MiniLM-L6-v2",
-        help="Embedding model to use",
+        help="(deprecated, ignored) Model is now configured on the embeddings service",
+    )
+    parser.add_argument(
+        "--embeddings-url",
+        default=None,
+        help="URL of the embeddings microservice (defaults to GATEWAY_EMBEDDINGS_URL env var)",
     )
     parser.add_argument(
         "--force-recreate",
@@ -340,6 +353,7 @@ def main():
             qdrant_host=args.qdrant_host,
             qdrant_port=args.qdrant_port,
             embedding_model=args.embedding_model,
+            embeddings_url=args.embeddings_url,
         )
 
     if args.task in ["code", "both"]:
@@ -356,6 +370,7 @@ def main():
             qdrant_host=args.qdrant_host,
             qdrant_port=args.qdrant_port,
             embedding_model=args.embedding_model,
+            embeddings_url=args.embeddings_url,
         )
 
     print("\n✅ All requested indices built successfully!")

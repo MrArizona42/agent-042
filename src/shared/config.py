@@ -161,6 +161,10 @@ class Settings(BaseSettings):
         default=True,
         description="Enable RAG functionality",
     )
+    embeddings_url: str = Field(
+        default="http://localhost:8100",
+        description="URL of the embeddings microservice",
+    )
     embedding_model: str = Field(
         default="sentence-transformers/all-MiniLM-L6-v2",
         description="HuggingFace model for embeddings",
@@ -360,6 +364,7 @@ def validate_settings_on_startup() -> None:
     logger.info(f"  Async inference enabled: {settings.async_enabled}")
     logger.info(f"  Qdrant: {settings.qdrant_host}:{settings.qdrant_port}")
     logger.info(f"  RAG enabled: {settings.rag_enabled}")
+    logger.info(f"  Embeddings URL: {settings.embeddings_url}")
     logger.info(f"  Embedding model: {settings.embedding_model}")
     logger.info(f"  Embedding device: {settings.embedding_device}")
     logger.info(f"  Gateway URL (for UI): {settings.url}")
