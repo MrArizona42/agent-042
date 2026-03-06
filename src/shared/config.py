@@ -96,7 +96,7 @@ class Settings(BaseSettings):
         description="Optional API key for vLLM authentication",
     )
     max_completion_tokens: int = Field(
-        default=32768,
+        default=4096,
         description="Maximum number of tokens the model can generate per response",
         ge=1,
     )
