@@ -1,9 +1,0 @@
-defaults:
-  - paths: paths_config
-  - assets/dataset: arxiv-summarization-01
-  - assets/model: ministral-3b-instruct
-  - _self_
-
-hydra:
-  run:
-    dir: "${paths.project_root}/experiments/logs/hydra-logs/assets-hydra-logs/${now:%Y-%m-%d}/${now:%H-%M-%S}"

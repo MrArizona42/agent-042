@@ -1,0 +1,6 @@
+outs:
+- md5: 20b3b786d867bd5978f9953d3a82be0c.dir
+  size: 184489
+  nfiles: 1
+  hash: md5
+  path: arxiv

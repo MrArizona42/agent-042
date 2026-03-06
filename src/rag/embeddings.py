@@ -1,11 +1,16 @@
-"""Embedding service for document and query vectorization."""
+"""Embedding client for document and query vectorization.
+
+Calls the standalone embeddings microservice over HTTP instead of loading
+the model in-process, keeping heavy dependencies (PyTorch,
+sentence-transformers) out of the gateway and Airflow containers.
+"""
 
 from __future__ import annotations
 
 import logging
 from typing import List, Optional
 
-from sentence_transformers import SentenceTransformer
+import httpx
 
 from shared.config import get_settings
 
@@ -13,10 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
-    """Manages embedding model for converting text to vectors.
+    """HTTP client for the embeddings microservice.
 
-    Uses sentence-transformers for efficient embedding generation.
-    Model runs on CPU by default to save GPU memory for vLLM.
+    Drop-in replacement for the previous local-model implementation.
+    The public interface (embed_documents, embed_query, dimension) is
+    unchanged so that callers (Retriever, RAGService, build scripts) work
+    without modification.
     """
 
     def __init__(
@@ -24,24 +31,26 @@ class EmbeddingService:
         model_name: Optional[str] = None,
         device: Optional[str] = None,
         batch_size: Optional[int] = None,
+        embeddings_url: Optional[str] = None,
     ):
-        """Initialize embedding service.
+        """Initialize the embedding client.
 
         Args:
-            model_name: HuggingFace model identifier (uses config default if None)
-            device: Device to run model on - cpu, cuda, mps (uses config default if None)
-            batch_size: Batch size for embedding documents (uses config default if None)
+            model_name: Ignored (kept for backwards compatibility).
+            device: Ignored (kept for backwards compatibility).
+            batch_size: Ignored (kept for backwards compatibility).
+            embeddings_url: Override for the embeddings service URL.
         """
         settings = get_settings()
+        base_url = (embeddings_url or settings.embeddings_url).rstrip("/")
+        self._client = httpx.Client(base_url=base_url, timeout=120.0)
 
-        self._model_name = model_name or settings.embedding_model
-        self._device = device or settings.embedding_device
-        self._batch_size = batch_size or settings.embedding_batch_size
-
-        logger.info(f"Loading embedding model: {self._model_name} on device: {self._device}")
-        self.model = SentenceTransformer(self._model_name, device=self._device)
-        self.dimension = self.model.get_sentence_embedding_dimension()
-        logger.info(f"Embedding dimension: {self.dimension}")
+        logger.info(f"Connecting to embeddings service at {base_url}")
+        resp = self._client.get("/v1/dimension")
+        resp.raise_for_status()
+        data = resp.json()
+        self.dimension: int = data["dimension"]
+        logger.info(f"Embedding dimension: {self.dimension} (model: {data.get('model')})")
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed a list of documents.
@@ -55,13 +64,10 @@ class EmbeddingService:
         if not texts:
             return []
 
-        embeddings = self.model.encode(
-            texts,
-            batch_size=self._batch_size,
-            show_progress_bar=False,
-            convert_to_numpy=True,
-        )
-        return embeddings.tolist()
+        resp = self._client.post("/v1/embeddings", json={"input": texts})
+        resp.raise_for_status()
+        data = resp.json()
+        return [item["embedding"] for item in data["data"]]
 
     def embed_query(self, text: str) -> List[float]:
         """Embed a single query text.
@@ -72,8 +78,10 @@ class EmbeddingService:
         Returns:
             Embedding vector
         """
-        embedding = self.model.encode(
-            text,
-            convert_to_numpy=True,
-        )
-        return embedding.tolist()
+        resp = self._client.post("/v1/embeddings", json={"input": [text]})
+        resp.raise_for_status()
+        return resp.json()["data"][0]["embedding"]
+
+    def close(self) -> None:
+        """Close the underlying HTTP client."""
+        self._client.close()

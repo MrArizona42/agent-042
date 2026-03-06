@@ -16,8 +16,25 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# =========================================================================
+# Knowledge Base Registry
+# Maps user-facing KB identifiers to Qdrant collection names.
+# =========================================================================
+KNOWLEDGE_BASES: dict[str, dict[str, str]] = {
+    "arxiv": {
+        "collection": "chat_documents",
+        "label": "ArXiv papers (ML / AI theory)",
+        "description": "Deep discussions about ML/AI theory and latest trends",
+    },
+    "pytorch_docs": {
+        "collection": "code_documents",
+        "label": "PyTorch docs (coding)",
+        "description": "PyTorch documentation for coding assistance",
+    },
+}
 
 
 class Settings(BaseSettings):
@@ -78,10 +95,33 @@ class Settings(BaseSettings):
         default=None,
         description="Optional API key for vLLM authentication",
     )
+    max_completion_tokens: int = Field(
+        default=4096,
+        description="Maximum number of tokens the model can generate per response",
+        ge=1,
+    )
     vllm_timeout: float = Field(
         default=60.0,
         description="Timeout for vLLM requests in seconds",
         ge=1.0,
+    )
+
+    # =========================================================================
+    # Async Inference Settings (Phase 1)
+    # =========================================================================
+    async_enabled: bool = Field(
+        default=True,
+        description="Enable async inference via Celery workers",
+    )
+    celery_broker_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CELERY_BROKER_URL", "GATEWAY_CELERY_BROKER_URL"),
+        description="RabbitMQ broker URL for Celery (e.g. amqp://user:pass@rabbitmq:5672//)",
+    )
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias=AliasChoices("REDIS_URL", "GATEWAY_REDIS_URL"),
+        description="Redis connection URL for token streaming pub/sub",
     )
 
     # =========================================================================
@@ -121,6 +161,10 @@ class Settings(BaseSettings):
         default=True,
         description="Enable RAG functionality",
     )
+    embeddings_url: str = Field(
+        default="http://localhost:8100",
+        description="URL of the embeddings microservice",
+    )
     embedding_model: str = Field(
         default="sentence-transformers/all-MiniLM-L6-v2",
         description="HuggingFace model for embeddings",
@@ -140,7 +184,7 @@ class Settings(BaseSettings):
         ge=1,
     )
     score_threshold: float = Field(
-        default=0.0,
+        default=0.35,
         description="Minimum similarity score for retrieval",
         ge=0.0,
         le=1.0,
@@ -205,6 +249,36 @@ class Settings(BaseSettings):
         return v
 
 
+class ModelRegistrySettings(BaseSettings):
+    """Settings for MLflow Model Registry / adapter sync.
+
+    Environment Variables:
+        REGISTRY_MLFLOW_TRACKING_URI: MLflow tracking server URL.
+        REGISTRY_ADAPTERS_DIR: Local directory for downloaded LoRA adapters.
+        REGISTRY_AUTO_SYNC: Pull production adapters on service startup.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="REGISTRY_",
+        extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
+    mlflow_tracking_uri: str = Field(
+        default="http://localhost:5050",
+        description="MLflow tracking server URL",
+    )
+    adapters_dir: str = Field(
+        default="./adapters",
+        description="Local directory for downloaded LoRA adapters",
+    )
+    auto_sync: bool = Field(
+        default=False,
+        description="Automatically sync production adapters on startup",
+    )
+
+
 class UISettings(BaseSettings):
     """UI-specific settings with UI_ prefix.
 
@@ -252,6 +326,12 @@ def get_settings() -> Settings:
 
 
 @lru_cache
+def get_registry_settings() -> ModelRegistrySettings:
+    """Get cached model registry settings."""
+    return ModelRegistrySettings()
+
+
+@lru_cache
 def get_ui_settings() -> UISettings:
     """Get cached UI-specific settings.
 
@@ -281,8 +361,10 @@ def validate_settings_on_startup() -> None:
     logger.info("Configuration loaded successfully:")
     logger.info(f"  vLLM URL: {settings.vllm_base_url}")
     logger.info(f"  Default model: {settings.default_model}")
+    logger.info(f"  Async inference enabled: {settings.async_enabled}")
     logger.info(f"  Qdrant: {settings.qdrant_host}:{settings.qdrant_port}")
     logger.info(f"  RAG enabled: {settings.rag_enabled}")
+    logger.info(f"  Embeddings URL: {settings.embeddings_url}")
     logger.info(f"  Embedding model: {settings.embedding_model}")
     logger.info(f"  Embedding device: {settings.embedding_device}")
     logger.info(f"  Gateway URL (for UI): {settings.url}")

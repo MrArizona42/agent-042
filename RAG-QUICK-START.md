@@ -12,19 +12,23 @@ cd infra/compose
 cp .env.example .env
 
 # 2. Start Qdrant
-docker-compose up -d qdrant
+docker compose up -d qdrant
 
 # 3. Collect data (ArXiv papers + PyTorch docs)
-cd ../../experiments/scripts/rag_data
-python collect_arxiv.py --max-results 100 --output-dir ../../../assets/rag_data/arxiv
-python collect_pytorch_docs.py --output-dir ../../../assets/rag_data/pytorch_docs
+#    Option A (automated): start Airflow — DAGs will run on schedule
+#      docker compose up -d airflow-webserver airflow-scheduler
+#      Then open http://localhost:8080 and trigger DAGs manually, or wait.
+#
+#    Option B (interactive): open experiments/scripts/prefetch_assets.ipynb
+#      and run sections 8 & 9.
 
-# 4. Build vector indices
-python build_vector_index.py --task both --qdrant-host localhost --force-recreate
+# 4. Build vector indices (only needed with Option B; DAGs do this automatically)
+cd experiments/scripts/rag_data
+python build_vector_index.py --task both --qdrant-host localhost
 
 # 5. Start full system
 cd ../../../infra/compose
-docker-compose up -d
+docker compose up -d
 ```
 
 **Total time**: ~10-15 minutes
@@ -72,6 +76,7 @@ docker-compose up -d
 - Qdrant vector database (Docker)
 - Lightweight embedding model (CPU-based)
 - 2 collections: chat (ArXiv), code (PyTorch)
+- Airflow DAGs for automated data refresh (daily ArXiv, weekly PyTorch docs)
 
 ✅ **Data**
 - ~100 ArXiv papers (ML/DL categories)
@@ -81,12 +86,13 @@ docker-compose up -d
 ✅ **Retrieval**
 - Dense vector search (cosine similarity)
 - Top-5 retrieval per query
-- Task-based routing (auto-detect)
+- Manual knowledge base selection from UI
+- Score threshold filtering (default: 0.35)
 
 ✅ **Integration**
-- Automatic context injection
+- Context injection into system prompt
 - Gateway-level RAG service
-- UI status indicator
+- UI knowledge base selector (ArXiv papers / PyTorch docs / disabled)
 
 ---
 
@@ -109,7 +115,6 @@ docker-compose up -d
 - Latency profiling
 
 ⏳ **Features**
-- Per-query RAG toggle
 - Citation extraction
 - Query history
 - Embedding caching
@@ -118,22 +123,24 @@ docker-compose up -d
 
 ## Testing RAG
 
-**Chat Query (ArXiv)**:
+**ArXiv knowledge base (ML/AI theory)**:
 ```
+Select "ArXiv papers (ML / AI theory)" in the sidebar, then ask:
 "What are the main approaches to fine-tuning LLMs?"
-→ Retrieves from chat_documents (ArXiv papers)
+→ Retrieves from chat_documents collection
 ```
 
-**Code Query (PyTorch)**:
+**PyTorch docs knowledge base (coding)**:
 ```
+Select "PyTorch docs (coding)" in the sidebar, then ask:
 "Show me Python code for a CNN"
-→ Retrieves from code_documents (PyTorch docs)
+→ Retrieves from code_documents collection
 ```
 
 **Check Logs**:
 ```bash
-docker-compose logs -f gateway | grep RAG
-# Should see: "RAG context retrieved for task: chat"
+docker compose logs -f gateway | grep RAG
+# Should see: "RAG context retrieved (kb=arxiv)"
 ```
 
 ---
@@ -143,36 +150,17 @@ docker-compose logs -f gateway | grep RAG
 ### Collections not found
 ```bash
 curl http://localhost:6333/collections
-# If empty, rebuild: python build_vector_index.py --task both --force-recreate
+# If empty, rebuild: python build_vector_index.py --task both
 ```
 
 ### No context retrieved
-- Lower score threshold in `src/rag/config.py` (0.3 → 0.1)
+- Make sure a knowledge base is selected in the UI sidebar
+- Try lowering `GATEWAY_SCORE_THRESHOLD` (default: 0.35)
 - Try queries about ML/DL topics (closer to ArXiv content)
 
 ### OOM on GPU
 - Reduce `VLLM_GPU_UTIL` in `.env` (0.7 → 0.6)
 - Verify embeddings on CPU: check gateway logs
-
----
-
-## Files Changed
-
-**New Files**:
-- `src/rag/` - RAG module (embeddings, vector store, chunking, retrieval)
-- `src/gateway/services/rag_service.py` - Gateway integration
-- `experiments/scripts/rag_data/` - Data collection scripts
-- `RAG-SETUP.md` - Full documentation (this file)
-
-**Modified Files**:
-- `pyproject.toml` - Added RAG dependencies
-- `requirements-gateway.txt` - Added RAG dependencies
-- `infra/compose/docker-compose.yaml` - Added Qdrant service
-- `infra/compose/.env.example` - Added RAG config
-- `src/gateway/config.py` - Added RAG settings
-- `src/gateway/services/prompt_builder.py` - Context injection
-- `src/gateway/services/processing.py` - RAG invocation
-- `src/ui/app.py` - RAG status display
 
 ---
 
@@ -208,7 +196,7 @@ curl http://localhost:6333/collections
 curl http://localhost:9000/health
 
 # Check logs
-docker-compose logs gateway qdrant
+docker compose logs gateway qdrant
 ```
 
 **Data Location**:
@@ -218,5 +206,5 @@ docker-compose logs gateway qdrant
 **Rebuild Indices**:
 ```bash
 cd experiments/scripts/rag_data
-python build_vector_index.py --task both --force-recreate
+python build_vector_index.py --task both
 ```

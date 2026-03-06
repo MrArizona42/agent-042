@@ -4,6 +4,10 @@
 
 * `./infra/README.md` - настройка окружения и инфраструктуры
 * `./experiments/README.md` - как проводить эксперименты
+* `./RAG-QUICK-START.md` - быстрый старт RAG-системы
+* `./RAG-SETUP.md` - подробная настройка RAG-системы
+* `./src/gateway/README.md` - документация Gateway (FastAPI)
+* `./src/ui/README.md` - документация UI (Streamlit)
 
 ## Постановка задачи. Scope / Область исследования.
 
@@ -174,6 +178,8 @@ TBD
 
 * DVC with Yandex Cloud S3 remote
 * MLFlow with Yandex Cloud S3 remote
+* **MLflow Model Registry** — реестр версионированных LoRA-адаптеров с alias-based promotion
+  (champion / challenger) для перехода из экспериментов в production
 * Hydra для конфигурирования тренировок
 * Lightning AI (Pytorch Lightning) для организации тренировочных пайплайнов
 
@@ -503,6 +509,55 @@ RAG использует недетерминированные, обновля�
 * логирование параметров обучения;
 * сравнение LoRA-адаптеров.
 
+### 5. Model Registry и управление адаптерами (MLflow Model Registry)
+
+Для обеспечения плавного перехода от экспериментов к production используется **MLflow Model
+Registry** — единый реестр версионированных LoRA-адаптеров с alias-based lifecycle management.
+
+#### Жизненный цикл адаптера
+
+```
+train_hydra.py                 manage_registry.py            sync (model_registry.py)
+─────────────                  ────────────────────          ──────────────────────────
+  Обучение LoRA                  Просмотр метрик              Скачивание champion
+       ↓                        в MLflow UI                   адаптеров из S3
+  Сохранение локально                ↓                              ↓
+       ↓                        promote v3 → champion         Подготовка vLLM
+  Регистрация в MLflow                                        lora-modules.json
+  Model Registry                                                    ↓
+  (автоматически)                                             (Ре)старт vLLM
+                                                              с --enable-lora
+```
+
+#### Ключевые концепции
+
+* **Registered Model** — именованная группа адаптеров (например, `lora-summarization`,
+  `lora-code`, `lora-chat`). Имя соответствует задачам в `TaskRouter`.
+* **Model Version** — каждая регистрация создаёт новую версию. Версии иммутабельны.
+* **Aliases** — метки жизненного цикла:
+    * `champion` — текущий production-адаптер, загружается в vLLM.
+    * `challenger` — кандидат на A/B-тестирование или ручную оценку.
+
+#### Инфраструктура
+
+* **Registry backend**: PostgreSQL (тот же, что для MLflow Tracking).
+* **Artifact storage**: Yandex Object Storage (S3) — адаптеры хранятся рядом с MLflow-артефактами.
+* **Inference sync**: `python -m shared.model_registry sync` скачивает champion-адаптеры в
+  `assets/adapters/` и генерирует `lora-modules.json` для vLLM.
+* **vLLM multi-LoRA**: запускается с `--enable-lora`; адаптеры монтируются из `assets/adapters/`.
+
+**Подробности использования**: `./experiments/README.md` → раздел «Model Registry».
+
+### 6. Версионирование RAG-индексов
+
+Для обеспечения воспроизводимости RAG-системы, векторные индексы Qdrant также подлежат
+версионированию:
+
+* **Qdrant snapshots**: встроенный механизм снимков коллекций (`POST /collections/{name}/snapshots`).
+* **DVC**: снимки индексов хранятся в Yandex Cloud S3 через DVC, аналогично датасетам.
+* **Связь с адаптерами**: в тегах model version в MLflow фиксируется версия RAG-индекса,
+  которая использовалась при оценке адаптера, обеспечивая полную воспроизводимость.
+
 ## Workflow automation and CI/CD
 
 ### Branch: experiments
@@ -512,10 +567,11 @@ RAG использует недетерминированные, обновля�
 
 **Pre-commit:**
 
-* black
-* isort
-* проверка YAML/JSON (Hydra configs)
-* trailing whitespace
+* ruff check (linting + import sorting, с автофиксом)
+* ruff format (форматирование кода)
+* проверка YAML/JSON
+* trailing whitespace, end-of-file-fixer, mixed-line-ending, check-case-conflict
+* check-added-large-files
 
 **CI (опционально, под вопросом):**
 
@@ -529,12 +585,7 @@ request из develop в main.
 
 **Pre-commit:**
 
-По сути то же самое, что и в Experiments
-
-* форматирование
-* import checks
-* базовый linting
-* валидация конфигов Hydra
+По сути то же самое, что и в Experiments (единый `.pre-commit-config.yaml` в корне проекта).
 
 ### Branch: main
 

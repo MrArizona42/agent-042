@@ -1,0 +1,127 @@
+"""Embeddings microservice.
+
+A lightweight FastAPI service that wraps sentence-transformers and exposes
+an HTTP API for generating text embeddings.  Heavy dependencies (PyTorch,
+sentence-transformers) are isolated in this container, keeping the gateway
+and Airflow images small.
+"""
+
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, List
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from sentence_transformers import SentenceTransformer
+
+from embeddings.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Request / response schemas
+# ---------------------------------------------------------------------------
+
+
+class EmbeddingsRequest(BaseModel):
+    """Request body for the /v1/embeddings endpoint."""
+
+    input: List[str] = Field(..., description="List of texts to embed")
+
+
+class EmbeddingItem(BaseModel):
+    """Single embedding entry in the response."""
+
+    embedding: List[float]
+    index: int
+
+
+class EmbeddingsResponse(BaseModel):
+    """Response body for the /v1/embeddings endpoint."""
+
+    data: List[EmbeddingItem]
+    model: str
+    dimension: int
+
+
+class DimensionResponse(BaseModel):
+    """Response body for the /v1/dimension endpoint."""
+
+    dimension: int
+    model: str
+
+
+# ---------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------
+
+_model: SentenceTransformer | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Load the embedding model on startup."""
+    global _model
+    settings = get_settings()
+    logger.info(f"Loading embedding model: {settings.model} on device: {settings.device}")
+    _model = SentenceTransformer(settings.model, device=settings.device)
+    dimension = _model.get_sentence_embedding_dimension()
+    logger.info(f"Embedding model loaded — dimension: {dimension}")
+    yield
+    _model = None
+
+
+app = FastAPI(title="Embeddings Service", lifespan=lifespan)
+
+
+@app.get("/health")
+def health() -> dict:
+    """Health check endpoint."""
+    if _model is None:
+        return {"status": "unavailable"}
+    return {"status": "ok"}
+
+
+@app.get("/v1/dimension", response_model=DimensionResponse)
+def dimension() -> DimensionResponse:
+    """Return the embedding dimension of the loaded model."""
+    if _model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    settings = get_settings()
+    dim = _model.get_sentence_embedding_dimension()
+    return DimensionResponse(dimension=dim, model=settings.model)
+
+
+@app.post("/v1/embeddings", response_model=EmbeddingsResponse)
+def embed(request: EmbeddingsRequest) -> EmbeddingsResponse:
+    """Generate embeddings for a list of texts."""
+    if _model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    settings = get_settings()
+
+    if not request.input:
+        return EmbeddingsResponse(
+            data=[],
+            model=settings.model,
+            dimension=_model.get_sentence_embedding_dimension(),
+        )
+
+    vectors = _model.encode(
+        request.input,
+        batch_size=settings.batch_size,
+        show_progress_bar=False,
+        convert_to_numpy=True,
+    )
+
+    data = [
+        EmbeddingItem(embedding=vec.tolist(), index=i)
+        for i, vec in enumerate(vectors)
+    ]
+
+    return EmbeddingsResponse(
+        data=data,
+        model=settings.model,
+        dimension=_model.get_sentence_embedding_dimension(),
+    )

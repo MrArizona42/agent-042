@@ -1,0 +1,15 @@
+.git
+.dvc
+assets/models
+assets/datasets
+assets/newly_trained
+experiments/outputs
+experiments/logs
+*.pyc
+__pycache__
+.venv
+.env
+.idea
+.ruff_cache
+notebooks
+infra/compose/*data*

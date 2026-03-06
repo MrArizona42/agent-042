@@ -2,36 +2,56 @@
 name = "agent-042"
 version = "0.1.0"
 description = "Add your description here"
-requires-python = ">=3.12"
-dependencies = [
-    "bitsandbytes>=0.49.1",
-    "datasets>=4.4.2",
-    "dvc[gdrive,s3,ssh]>=3.66.1",
-    "fastapi>=0.128.0",
-    "hf-xet>=1.2.0",
-    "hydra-core>=1.3.2",
-    "ipykernel>=7.1.0",
-    "mlflow>=3.8.1",
-    "ninja>=1.13.0",
-    "numpy>=2.2.6",
-    "omegaconf>=2.3.0",
-    "pandas>=2.3.3",
-    "peft>=0.18.1",
-    "pre-commit>=4.5.1",
-    "pytorch-lightning>=2.6.0",
-    "ruff>=0.14.11",
-    "torch>=2.9.0",
-    "transformers>=4.57.3",
-    "vllm>=0.13.0",
+requires-python = ">=3.12,<3.14"
+dependencies = []
 
-    # --- runtime deps for gateway + UI ---
+[project.optional-dependencies]
+gateway = [
+    "fastapi>=0.128.0",
+    "uvicorn[standard]>=0.35.0",
     "httpx>=0.28.1",
     "pydantic-settings>=2.10.1",
-    "requests>=2.32.4",
-    "streamlit>=1.41.1",
-    "uvicorn[standard]>=0.35.0",
+    "qdrant-client>=1.12.0",
+    "langchain-text-splitters>=0.4.2",
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+]
 
-    # --- RAG dependencies ---
+ui = [
+    "streamlit>=1.41.1",
+    "requests>=2.32.4",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+]
+
+worker = [
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.10.1",
+]
+
+airflow = [
+    "boto3>=1.35.36,<1.36.0",
+    "botocore>=1.35.36,<1.36.0",
+    "aiobotocore>=2.15.0,<3.0.0",
+    "s3fs>=2024.9.0,<2025.0.0",
+    "aiohttp>=3.9.2,<3.11.0",
+    "cffi>=1.9,<2.0.0",
+    "arxiv>=2.1.3",
+    "beautifulsoup4>=4.12.3",
+    "lxml>=5.3.0",
+    "requests>=2.31.0",
+    "dvc[s3]>=3.66.1",
+    "numpy>=1.26,<2.0",
+    "protobuf>=5.26.0",
+    "qdrant-client>=1.13.2",
+    "httpx>=0.28.1",
+    "langchain-text-splitters>=0.4.2",
+]
+
+rag = [
     "qdrant-client>=1.12.0",
     "sentence-transformers>=3.3.1",
     "langchain-text-splitters>=0.4.2",
@@ -39,9 +59,60 @@ dependencies = [
     "beautifulsoup4>=4.12.3",
     "lxml>=5.3.0",
     "pypdf>=5.2.0",
+    "requests>=2.32.4",
+]
+
+embeddings = [
+    "fastapi>=0.128.0",
+    "uvicorn[standard]>=0.35.0",
+    "sentence-transformers>=3.3.1",
+    "pydantic-settings>=2.10.1",
+]
+
+training = [
+    "bitsandbytes>=0.49.1",
+    "datasets>=4.4.2",
+    "dvc[gdrive,s3,ssh]>=3.66.1",
+    "hf-xet>=1.2.0",
+    "hydra-core>=1.3.2",
+    "mlflow>=3.8.1",
+    "ninja>=1.13.0",
+    "numpy>=2.2.6",
+    "omegaconf>=2.3.0",
+    "pandas>=2.3.3",
+    "peft>=0.18.1",
+    "python-dotenv>=1.0.1",
+    "pytorch-lightning>=2.6.0",
+    "torch>=2.9.0",
+    "transformers>=4.57.3",
+]
+
+mlflow = [
+    "mlflow>=3.8.1,<4",
+    "psycopg2-binary>=2.9,<3",
+    "boto3>=1.35,<2",
+]
+
+dev = [
+    "ipykernel>=7.1.0",
+    "ipywidgets>=8.1.0",
+    "pre-commit>=4.5.1",
+    "pytest>=8.4.2",
+    "ruff>=0.14.11",
 ]
 
 
+
+[tool.uv]
+environments = [
+    "python_full_version < '3.13'",
+]
+conflicts = [
+    [
+        { extra = "training" },
+        { extra = "airflow" },
+    ],
+]
 
 [tool.uv.pip]
 torch-backend = "auto"

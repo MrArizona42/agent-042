@@ -11,23 +11,23 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Install system dependencies
-# curl → healthchecks
-RUN apt-get update && apt-get install -y \
+# curl → healthchecks, postgresql-client → pg_isready for wait logic
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-# mlflow → core service
-# psycopg2-binary → PostgreSQL backend store
-# boto3 → S3 / Yandex Object Storage support
-RUN pip install --no-cache-dir \
-    mlflow \
-    psycopg2-binary \
-    boto3
+# Install Python dependencies from lock file for reproducible builds.
+# To update: uv --no-config pip compile pyproject.toml --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/mlflow/requirements-mlflow.lock
+COPY infra/docker/mlflow/requirements-mlflow.lock /app/
+RUN pip install --no-cache-dir -r requirements-mlflow.lock
 
 # Expose MLflow default port (documentation only)
 EXPOSE 5000
 
-# ENTRYPOINT defines the executable
-# This makes the container behave like "mlflow <args>"
-ENTRYPOINT ["mlflow"]
+# Copy entrypoint script that runs DB migrations before starting
+COPY infra/docker/mlflow/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# ENTRYPOINT runs migrations then exec's "mlflow <args>"
+ENTRYPOINT ["/app/entrypoint.sh"]
