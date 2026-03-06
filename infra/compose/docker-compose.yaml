@@ -16,6 +16,7 @@ x-airflow-common-env: &airflow-common-env
   QDRANT_HOST: qdrant
   QDRANT_PORT: ${QDRANT_PORT}
   EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
+  GATEWAY_EMBEDDINGS_URL: http://embeddings:8100
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
@@ -254,6 +255,30 @@ services:
     restart: unless-stopped
 
   # =====================
+  # Embeddings Service (sentence-transformers)
+  # =====================
+  embeddings:
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: infra/docker/embeddings/Dockerfile
+
+    environment:
+      EMBEDDINGS_MODEL: ${GATEWAY_EMBEDDING_MODEL}
+      EMBEDDINGS_DEVICE: ${EMBEDDINGS_DEVICE:-cpu}
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    networks:
+      - backend_net
+
+    restart: unless-stopped
+
+  # =====================
   # Celery Worker (LLM Task Execution)
   # =====================
   celery-worker:
@@ -295,6 +320,7 @@ services:
       GATEWAY_QDRANT_PORT: ${GATEWAY_QDRANT_PORT}
       GATEWAY_RAG_ENABLED: ${GATEWAY_RAG_ENABLED}
       GATEWAY_EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
+      GATEWAY_EMBEDDINGS_URL: http://embeddings:8100
       GATEWAY_ASYNC_ENABLED: ${GATEWAY_ASYNC_ENABLED}
       CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
       REDIS_URL: redis://redis:6379/0
@@ -310,6 +336,8 @@ services:
       rabbitmq:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      embeddings:
         condition: service_healthy
 
     healthcheck:
