@@ -75,8 +75,7 @@ class OIDCClient:
             "access_type": "offline",
             "prompt": "consent",
         }
-        qs = "&".join(f"{k}={httpx.QueryParams({k: v})}" for k, v in params.items())
-        # Simpler: use httpx URL builder
+        # Use httpx URL builder
         url = httpx.URL(_GOOGLE_AUTH_ENDPOINT, params=params)
         return str(url)
 
@@ -130,18 +129,27 @@ class OIDCClient:
         jwks_client = self._get_jwks_client()
         signing_key = jwks_client.get_signing_key_from_jwt(id_token)
 
+        # Decode with signature and exp/aud verification.
+        # Issuer is checked manually because Google may use either
+        # "https://accounts.google.com" or "accounts.google.com",
+        # and older PyJWT versions don't accept a list for `issuer`.
         claims = jwt.decode(
             id_token,
             signing_key.key,
             algorithms=["RS256"],
             audience=self.client_id,
-            issuer=["https://accounts.google.com", "accounts.google.com"],
             options={
                 "verify_exp": True,
-                "verify_iss": True,
+                "verify_iss": False,  # Manual check below
                 "verify_aud": True,
             },
         )
+
+        # Manual issuer validation
+        allowed_issuers = {"https://accounts.google.com", "accounts.google.com"}
+        if claims.get("iss") not in allowed_issuers:
+            raise jwt.InvalidIssuerError("Invalid issuer")
+
         return claims
 
     # ------------------------------------------------------------------

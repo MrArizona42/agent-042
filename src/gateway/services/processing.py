@@ -160,7 +160,7 @@ class _ProcessChat:
         """Asynchronous chat: enqueue task and wait for result via Redis."""
         payload = self._build_payload(req)
 
-        conversation_id = str(uuid.uuid4())
+        conversation_id = str(_uuid.uuid4())
         celery_client = self._get_celery_client()
         redis_stream = self._get_redis_stream()
 
@@ -242,7 +242,7 @@ class _ProcessChat:
         """Asynchronous streaming: enqueue task and stream via Redis."""
         payload = self._build_payload(req)
 
-        conversation_id = str(uuid.uuid4())
+        conversation_id = str(_uuid.uuid4())
         celery_client = self._get_celery_client()
         redis_stream = self._get_redis_stream()
 
