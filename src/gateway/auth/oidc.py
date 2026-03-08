@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import os
@@ -39,23 +40,17 @@ class OIDCClient:
     @staticmethod
     def generate_code_verifier() -> str:
         """Generate a random code_verifier (43–128 chars, URL-safe)."""
-        import base64
-
         return base64.urlsafe_b64encode(os.urandom(32)).rstrip(b"=").decode("ascii")
 
     @staticmethod
     def generate_code_challenge(code_verifier: str) -> str:
         """SHA-256 code_challenge derived from *code_verifier*."""
-        import base64
-
         digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
         return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
     @staticmethod
     def generate_state() -> str:
         """Random opaque state string for CSRF protection."""
-        import base64
-
         return base64.urlsafe_b64encode(os.urandom(24)).rstrip(b"=").decode("ascii")
 
     # ------------------------------------------------------------------

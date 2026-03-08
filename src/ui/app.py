@@ -88,8 +88,8 @@ with st.sidebar:
                         {"role": m["role"], "content": m["content"]} for m in msgs
                     ]
                     st.rerun()
-        except Exception:
-            pass  # Silently skip if sessions API is unavailable
+        except Exception as e:
+            st.warning(f"Could not load chat sessions: {e}")
 
         st.divider()
 
@@ -119,8 +119,9 @@ if "chat_session_id" not in st.session_state:
         try:
             sess = client.create_chat_session()
             st.session_state.chat_session_id = sess["id"]
-        except Exception:
+        except Exception as e:
             st.session_state.chat_session_id = None
+            st.warning(f"Could not create chat session: {e}")
     else:
         st.session_state.chat_session_id = None
 
