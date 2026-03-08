@@ -324,6 +324,13 @@ services:
       GATEWAY_ASYNC_ENABLED: ${GATEWAY_ASYNC_ENABLED}
       CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
       REDIS_URL: redis://redis:6379/0
+      # OAuth2 / OIDC
+      GATEWAY_GOOGLE_CLIENT_ID: ${GATEWAY_GOOGLE_CLIENT_ID:-}
+      GATEWAY_GOOGLE_CLIENT_SECRET: ${GATEWAY_GOOGLE_CLIENT_SECRET:-}
+      GATEWAY_GOOGLE_REDIRECT_URI: ${GATEWAY_GOOGLE_REDIRECT_URI:-}
+      GATEWAY_AGENT042_DB_URL: ${GATEWAY_AGENT042_DB_URL:-}
+      GATEWAY_SESSION_SECRET_KEY: ${GATEWAY_SESSION_SECRET_KEY:-}
+      GATEWAY_SESSION_TTL_SECONDS: ${GATEWAY_SESSION_TTL_SECONDS:-86400}
 
     ports:
       - "127.0.0.1:${GATEWAY_PORT}:9000"
@@ -339,6 +346,8 @@ services:
         condition: service_healthy
       embeddings:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
@@ -350,6 +359,7 @@ services:
     networks:
       - backend_net
       - frontend_net
+      - mlflow_db_net
 
     restart: unless-stopped
 
@@ -479,6 +489,13 @@ services:
             print("Created database " + db)
         else:
             print("Database " + db + " already exists")
+        # Also create the agent042 application database
+        cur.execute("SELECT 1 FROM pg_database WHERE datname = 'agent042'")
+        if not cur.fetchone():
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier("agent042")))
+            print("Created database agent042")
+        else:
+            print("Database agent042 already exists")
         conn.close()
         PYEOF
         airflow db migrate &&

@@ -4,10 +4,15 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from gateway.api.routes import router as api_router
+from gateway.auth.middleware import AuthMiddleware
+from gateway.auth.oidc import OIDCClient
+from gateway.auth.router import router as auth_router
+from gateway.auth.session import SessionManager
 from gateway.config import get_settings, validate_settings_on_startup
 from gateway.services.celery_client import CeleryClient
 from gateway.services.processing import process_chat
@@ -60,6 +65,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         celery_client=celery_client,
     )
 
+    # --- Auth services ---
+    auth_redis: aioredis.Redis | None = None
+    if settings.google_client_id:
+        auth_redis = aioredis.from_url(
+            settings.redis_url, encoding="utf-8", decode_responses=True
+        )
+        app.state.oidc_client = OIDCClient(settings)
+        app.state.session_manager = SessionManager(auth_redis)
+        logger.info("OAuth2 / OIDC services initialized")
+    else:
+        # Auth disabled — install stubs so middleware skips gracefully
+        app.state.oidc_client = None
+        app.state.session_manager = None
+        logger.warning("OAuth2 disabled (GATEWAY_GOOGLE_CLIENT_ID not set)")
+
+    # --- Database engine ---
+    if settings.agent042_db_url:
+        from shared.db.engine import get_engine
+        from shared.db.models import Base
+
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("agent042 database tables ensured")
+
     yield
 
     # --- Cleanup on shutdown ---
@@ -67,6 +97,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await redis_stream.close()
     if celery_client is not None:
         celery_client.close()
+    if auth_redis is not None:
+        await auth_redis.close()
+    if settings.agent042_db_url:
+        from shared.db.engine import close_engine
+
+        await close_engine()
     logger.info("All managed connections closed")
 
 
@@ -74,6 +110,10 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(title=settings.service_name, lifespan=lifespan)
+
+    # Auth middleware (only enforced when OAuth is configured)
+    if settings.google_client_id:
+        app.add_middleware(AuthMiddleware)
 
     app.add_middleware(
         CORSMiddleware,
@@ -83,6 +123,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(auth_router)
     app.include_router(api_router)
     return app
 

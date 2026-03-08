@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-import uuid
+import uuid as _uuid
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict
 
 from gateway.config import get_settings
@@ -129,14 +130,26 @@ class _ProcessChat:
         payload.update(req.extra)
         return payload
 
-    async def chat(self, req: ChatCompletionRequest) -> Any:
+    async def chat(
+        self,
+        req: ChatCompletionRequest,
+        *,
+        user_id: str | None = None,
+        chat_session_id: str | None = None,
+    ) -> Any:
         """Process chat request (sync or async based on configuration)."""
         settings = get_settings()
 
         if settings.async_enabled:
-            return await self._chat_async(req)
+            result = await self._chat_async(req)
         else:
-            return await self._chat_sync(req)
+            result = await self._chat_sync(req)
+
+        # Persist messages if a chat session is associated
+        if chat_session_id and user_id:
+            await self._persist_exchange(req, result, chat_session_id)
+
+        return result
 
     async def _chat_sync(self, req: ChatCompletionRequest) -> Any:
         """Synchronous chat: direct call to vLLM."""
@@ -200,7 +213,13 @@ class _ProcessChat:
             },
         }
 
-    async def stream_chat(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
+    async def stream_chat(
+        self,
+        req: ChatCompletionRequest,
+        *,
+        user_id: str | None = None,
+        chat_session_id: str | None = None,
+    ) -> AsyncIterator[bytes]:
         """Stream chat response (sync or async based on configuration)."""
         settings = get_settings()
 
@@ -242,6 +261,65 @@ class _ProcessChat:
         # Stream from Redis
         async for chunk in redis_stream.subscribe_sse(conversation_id):
             yield chunk
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+
+    async def _persist_exchange(
+        self,
+        req: ChatCompletionRequest,
+        result: dict,
+        chat_session_id: str,
+    ) -> None:
+        """Persist the user message and assistant response to PostgreSQL."""
+        try:
+            from shared.db.engine import get_session_factory
+            from shared.db.models import ChatMessage, ChatSession
+
+            last_user_msg = next(
+                (m.content for m in reversed(req.messages) if m.role == "user"), None
+            )
+            assistant_content = (
+                result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            )
+
+            session_uuid = _uuid.UUID(chat_session_id)
+
+            async with get_session_factory()() as db:
+                # Update session title if empty (first message)
+                from sqlalchemy import select
+
+                sess_result = await db.execute(
+                    select(ChatSession).where(ChatSession.id == session_uuid)
+                )
+                session = sess_result.scalar_one_or_none()
+                if session and not session.title and last_user_msg:
+                    session.title = last_user_msg[:100]
+                    session.updated_at = datetime.now(timezone.utc)
+
+                if last_user_msg:
+                    db.add(
+                        ChatMessage(
+                            session_id=session_uuid,
+                            role="user",
+                            content=last_user_msg,
+                        )
+                    )
+                if assistant_content:
+                    db.add(
+                        ChatMessage(
+                            session_id=session_uuid,
+                            role="assistant",
+                            content=assistant_content,
+                        )
+                    )
+
+                if session:
+                    session.updated_at = datetime.now(timezone.utc)
+                await db.commit()
+        except Exception:
+            logger.warning("Failed to persist chat exchange", exc_info=True)
 
 
 process_chat = _ProcessChat()

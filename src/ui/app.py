@@ -51,7 +51,48 @@ settings = get_settings()
 gateway_url = settings.url
 client = GatewayClient(gateway_url)
 
+# ------------------------------------------------------------------
+# Auth check — redirect to /auth/login if not authenticated
+# ------------------------------------------------------------------
+user_info = client.me()
+
 with st.sidebar:
+    if user_info:
+        # Show user info + logout
+        col1, col2 = st.columns([1, 3])
+        if user_info.get("picture"):
+            col1.image(user_info["picture"], width=40)
+        col2.markdown(f"**{user_info.get('name', 'User')}**")
+        if st.button("Logout"):
+            client.logout()
+            st.rerun()
+
+        st.divider()
+
+        # ---- Chat sessions ----
+        st.subheader("Chat Sessions")
+        if st.button("➕ New Chat"):
+            sess = client.create_chat_session()
+            st.session_state.chat_session_id = sess["id"]
+            st.session_state.messages = []
+            st.rerun()
+
+        try:
+            sessions = client.list_chat_sessions()
+            for sess in sessions:
+                label = sess.get("title") or "Untitled"
+                if st.button(label, key=f"sess_{sess['id']}"):
+                    st.session_state.chat_session_id = sess["id"]
+                    msgs = client.get_session_messages(sess["id"])
+                    st.session_state.messages = [
+                        {"role": m["role"], "content": m["content"]} for m in msgs
+                    ]
+                    st.rerun()
+        except Exception:
+            pass  # Silently skip if sessions API is unavailable
+
+        st.divider()
+
     st.subheader("Knowledge Base")
 
     # Build options from the KNOWLEDGE_BASES registry
@@ -69,6 +110,19 @@ with st.sidebar:
     if selected_kb:
         st.caption(KNOWLEDGE_BASES[selected_kb]["description"])
 
+
+# ------------------------------------------------------------------
+# Ensure a chat session exists
+# ------------------------------------------------------------------
+if "chat_session_id" not in st.session_state:
+    if user_info:
+        try:
+            sess = client.create_chat_session()
+            st.session_state.chat_session_id = sess["id"]
+        except Exception:
+            st.session_state.chat_session_id = None
+    else:
+        st.session_state.chat_session_id = None
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -94,6 +148,8 @@ if prompt:
         "stream": False,
         "knowledge_base": selected_kb,
     }
+    if st.session_state.get("chat_session_id"):
+        payload["chat_session_id"] = st.session_state.chat_session_id
 
     with st.chat_message("assistant"):
         try:
@@ -104,6 +160,3 @@ if prompt:
         render_message_with_thinking(content)
 
     st.session_state.messages.append({"role": "assistant", "content": content})
-
-# with st.expander("Raw messages"):
-#     st.code(json.dumps(st.session_state.messages, ensure_ascii=False, indent=2))

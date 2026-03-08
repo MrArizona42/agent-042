@@ -22,6 +22,12 @@ class ChatCompletionRequest(BaseModel):
 
     stream: bool = False
 
+    # Chat session ID for persisting history in PostgreSQL.
+    chat_session_id: str | None = Field(
+        default=None,
+        description="Chat session UUID for server-side history persistence",
+    )
+
     # Knowledge base selection for RAG retrieval.
     # Valid values: None (disabled), or a key from KNOWLEDGE_BASES (e.g. "arxiv", "pytorch_docs").
     knowledge_base: str | None = Field(

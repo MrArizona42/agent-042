@@ -230,6 +230,39 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # OAuth2 / OIDC Settings
+    # =========================================================================
+    google_client_id: str = Field(
+        default="",
+        description="Google OAuth2 client ID",
+    )
+    google_client_secret: str = Field(
+        default="",
+        description="Google OAuth2 client secret",
+    )
+    google_redirect_uri: str = Field(
+        default="",
+        description="OAuth2 callback URL (e.g. https://agent.antonlab.ru:8443/auth/callback)",
+    )
+    google_discovery_url: str = Field(
+        default="https://accounts.google.com/.well-known/openid-configuration",
+        description="Google OIDC discovery URL",
+    )
+    agent042_db_url: str = Field(
+        default="",
+        description="PostgreSQL connection URL for agent042 DB (async: postgresql+asyncpg://...)",
+    )
+    session_secret_key: str = Field(
+        default="",
+        description="Secret key for signing session cookies (32-byte hex)",
+    )
+    session_ttl_seconds: int = Field(
+        default=86400,
+        description="Session TTL in seconds (default 24 hours)",
+        ge=60,
+    )
+
+    # =========================================================================
     # UI Settings (uses different prefix for some settings)
     # =========================================================================
     # Note: GATEWAY_URL is the full URL to access the gateway from UI
