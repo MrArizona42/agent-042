@@ -140,10 +140,15 @@ class _ProcessChat:
         """Process chat request (sync or async based on configuration)."""
         settings = get_settings()
 
+        payload = self._build_payload(req)
+
         if settings.async_enabled:
-            result = await self._chat_async(req)
+            result = await self._chat_async(req, payload)
         else:
-            result = await self._chat_sync(req)
+            result = await self._chat_sync(req, payload)
+
+        # Attach the full prompt messages for UI debugging display
+        result["_prompt_messages"] = payload.get("messages", [])
 
         # Persist messages if a chat session is associated
         if chat_session_id and user_id:
@@ -151,14 +156,20 @@ class _ProcessChat:
 
         return result
 
-    async def _chat_sync(self, req: ChatCompletionRequest) -> Any:
+    async def _chat_sync(
+        self, req: ChatCompletionRequest, payload: Dict[str, Any] | None = None
+    ) -> Any:
         """Synchronous chat: direct call to vLLM."""
-        payload = self._build_payload(req)
+        if payload is None:
+            payload = self._build_payload(req)
         return await self._client().chat_completions(payload)
 
-    async def _chat_async(self, req: ChatCompletionRequest) -> Any:
+    async def _chat_async(
+        self, req: ChatCompletionRequest, payload: Dict[str, Any] | None = None
+    ) -> Any:
         """Asynchronous chat: enqueue task and wait for result via Redis."""
-        payload = self._build_payload(req)
+        if payload is None:
+            payload = self._build_payload(req)
 
         conversation_id = str(_uuid.uuid4())
         celery_client = self._get_celery_client()

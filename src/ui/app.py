@@ -78,8 +78,7 @@ with st.sidebar:
         # ---- Chat sessions ----
         st.subheader("Chat Sessions")
         if st.button("➕ New Chat"):
-            sess = client.create_chat_session()
-            st.session_state.chat_session_id = sess["id"]
+            st.session_state.pop("chat_session_id", None)
             st.session_state.messages = []
             st.rerun()
 
@@ -144,18 +143,8 @@ with st.sidebar:
 
 
 # ------------------------------------------------------------------
-# Ensure a chat session exists
+# Chat session — created lazily on first message (avoids empty sessions)
 # ------------------------------------------------------------------
-if "chat_session_id" not in st.session_state:
-    if user_info:
-        try:
-            sess = client.create_chat_session()
-            st.session_state.chat_session_id = sess["id"]
-        except Exception as e:
-            st.session_state.chat_session_id = None
-            st.warning(f"Could not create chat session: {e}")
-    else:
-        st.session_state.chat_session_id = None
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -174,6 +163,14 @@ if prompt:
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # Lazily create a chat session on first message
+    if not st.session_state.get("chat_session_id"):
+        try:
+            sess = client.create_chat_session()
+            st.session_state.chat_session_id = sess["id"]
+        except Exception as e:
+            st.warning(f"Could not create chat session: {e}")
+
     payload = {
         # "model": None,
         "messages": st.session_state.messages,
@@ -188,6 +185,18 @@ if prompt:
         try:
             resp = client.chat(payload)
             content = resp["choices"][0]["message"]["content"]
+
+            # Show the full prompt sent to the LLM (system prompt + RAG context)
+            prompt_messages = resp.get("_prompt_messages")
+            if prompt_messages:
+                prompt_text = ""
+                for pm in prompt_messages:
+                    role = pm.get("role", "unknown").upper()
+                    body = pm.get("content", "")
+                    prompt_text += f"**[{role}]**\n\n{body}\n\n---\n\n"
+                with st.expander("📋 Full prompt", expanded=False):
+                    st.markdown(prompt_text)
+
         except Exception as e:
             content = f"Error: {e}"
         render_message_with_thinking(content)
