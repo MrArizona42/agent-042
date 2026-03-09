@@ -49,12 +49,20 @@ st.caption("Streamlit UI → FastAPI Gateway → vLLM (OpenAI-compatible)")
 settings = get_settings()
 
 gateway_url = settings.url
-client = GatewayClient(gateway_url)
+
+# Forward the browser's session cookie to the Gateway backend
+_browser_session_id = st.context.cookies.get("session_id")
+client = GatewayClient(gateway_url, session_id=_browser_session_id)
 
 # ------------------------------------------------------------------
 # Auth check — redirect to /auth/login if not authenticated
 # ------------------------------------------------------------------
 user_info = client.me()
+
+if user_info is None:
+    st.info("You need to sign in to use agent-042.")
+    st.link_button("Log in with Google", "/auth/login")
+    st.stop()
 
 with st.sidebar:
     if user_info:
@@ -63,9 +71,7 @@ with st.sidebar:
         if user_info.get("picture"):
             col1.image(user_info["picture"], width=40)
         col2.markdown(f"**{user_info.get('name', 'User')}**")
-        if st.button("Logout"):
-            client.logout()
-            st.rerun()
+        st.link_button("Logout", "/auth/logout")
 
         st.divider()
 

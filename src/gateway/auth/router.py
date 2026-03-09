@@ -111,15 +111,15 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     return response
 
 
-@router.post("/logout")
-async def logout(request: Request) -> JSONResponse:
-    """Delete the session from Redis and clear the cookie."""
+@router.get("/logout")
+async def logout(request: Request) -> RedirectResponse:
+    """Delete the session from Redis, clear the cookie, redirect to root."""
     session_id = request.cookies.get("session_id")
     if session_id:
         session_mgr = request.app.state.session_manager
         await session_mgr.delete_session(session_id)
 
-    response = JSONResponse({"detail": "Logged out"})
+    response = RedirectResponse("/", status_code=302)
     response.delete_cookie("session_id", path="/")
     return response
 
@@ -128,6 +128,10 @@ async def logout(request: Request) -> JSONResponse:
 async def me(request: Request) -> JSONResponse:
     """Return the currently authenticated user's profile."""
     session_id = request.cookies.get("session_id")
+    if not session_id:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            session_id = auth_header[7:].strip()
     if not session_id:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 

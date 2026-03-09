@@ -10,11 +10,12 @@ from ui.config import get_ui_settings
 class GatewayClient:
     """Client for communicating with the Gateway API."""
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, session_id: str | None = None):
         self.base_url = base_url.rstrip("/")
         self._ui_settings = get_ui_settings()
-        # Persistent session keeps cookies (session_id) across requests
         self._session = requests.Session()
+        if session_id:
+            self._session.headers["Authorization"] = f"Bearer {session_id}"
 
     # ------------------------------------------------------------------
     # Auth helpers
