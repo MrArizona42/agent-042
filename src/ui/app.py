@@ -170,6 +170,7 @@ if prompt:
             st.session_state.chat_session_id = sess["id"]
         except Exception as e:
             st.warning(f"Could not create chat session: {e}")
+            st.session_state.chat_session_id = None
 
     payload = {
         # "model": None,
@@ -189,13 +190,13 @@ if prompt:
             # Show the full prompt sent to the LLM (system prompt + RAG context)
             prompt_messages = resp.get("_prompt_messages")
             if prompt_messages:
-                prompt_text = ""
+                parts = []
                 for pm in prompt_messages:
                     role = pm.get("role", "unknown").upper()
                     body = pm.get("content", "")
-                    prompt_text += f"**[{role}]**\n\n{body}\n\n---\n\n"
+                    parts.append(f"**[{role}]**\n\n{body}\n\n---\n\n")
                 with st.expander("📋 Full prompt", expanded=False):
-                    st.markdown(prompt_text)
+                    st.markdown("".join(parts))
 
         except Exception as e:
             content = f"Error: {e}"
