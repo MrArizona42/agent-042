@@ -87,13 +87,36 @@ with st.sidebar:
             sessions = client.list_chat_sessions()
             for sess in sessions:
                 label = sess.get("title") or "Untitled"
-                if st.button(label, key=f"sess_{sess['id']}"):
-                    st.session_state.chat_session_id = sess["id"]
-                    msgs = client.get_session_messages(sess["id"])
-                    st.session_state.messages = [
-                        {"role": m["role"], "content": m["content"]} for m in msgs
-                    ]
-                    st.rerun()
+                col_name, col_del = st.columns([5, 1])
+                with col_name:
+                    if st.button(label, key=f"sess_{sess['id']}", use_container_width=True):
+                        st.session_state.chat_session_id = sess["id"]
+                        msgs = client.get_session_messages(sess["id"])
+                        st.session_state.messages = [
+                            {"role": m["role"], "content": m["content"]} for m in msgs
+                        ]
+                        st.rerun()
+                with col_del:
+                    if st.button("🗑️", key=f"del_{sess['id']}"):
+                        st.session_state.confirm_delete_id = sess["id"]
+
+                # Confirmation row appears below the session entry
+                if st.session_state.get("confirm_delete_id") == sess["id"]:
+                    st.warning(f"Delete **{label}**?")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("Yes, delete", key=f"yes_{sess['id']}"):
+                            client.delete_chat_session(sess["id"])
+                            # If we deleted the active session, reset
+                            if st.session_state.get("chat_session_id") == sess["id"]:
+                                st.session_state.pop("chat_session_id", None)
+                                st.session_state.messages = []
+                            st.session_state.pop("confirm_delete_id", None)
+                            st.rerun()
+                    with c2:
+                        if st.button("Cancel", key=f"no_{sess['id']}"):
+                            st.session_state.pop("confirm_delete_id", None)
+                            st.rerun()
         except Exception as e:
             st.warning(f"Could not load chat sessions: {e}")
 
