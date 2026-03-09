@@ -136,6 +136,9 @@ services:
       VLLM_GPU_UTIL: ${VLLM_GPU_UTIL}
       VLLM_KV_CACHE_DTYPE: ${VLLM_KV_CACHE_DTYPE}
       HF_HOME: /models/.cache
+      # Prioritise host-injected NVIDIA driver libs over the CUDA compat stubs
+      # bundled inside the image (prevents Error 803 when host driver is newer).
+      LD_LIBRARY_PATH: /lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
 
     command: [
       "--model", "${VLLM_MODEL}",
