@@ -96,7 +96,7 @@ class Settings(BaseSettings):
         description="Optional API key for vLLM authentication",
     )
     max_completion_tokens: int = Field(
-        default=4096,
+        default=512,
         description="Maximum number of tokens the model can generate per response",
         ge=1,
     )
@@ -227,6 +227,39 @@ class Settings(BaseSettings):
         default=100,
         description="Overlap for section chunks",
         ge=0,
+    )
+
+    # =========================================================================
+    # OAuth2 / OIDC Settings
+    # =========================================================================
+    google_client_id: str = Field(
+        default="",
+        description="Google OAuth2 client ID",
+    )
+    google_client_secret: str = Field(
+        default="",
+        description="Google OAuth2 client secret",
+    )
+    google_redirect_uri: str = Field(
+        default="",
+        description="OAuth2 callback URL (e.g. https://agent.antonlab.ru:8443/auth/callback)",
+    )
+    google_discovery_url: str = Field(
+        default="https://accounts.google.com/.well-known/openid-configuration",
+        description="Google OIDC discovery URL",
+    )
+    agent042_db_url: str = Field(
+        default="",
+        description="PostgreSQL connection URL for agent042 DB (async: postgresql+asyncpg://...)",
+    )
+    session_secret_key: str = Field(
+        default="",
+        description="Secret key for signing session cookies (32-byte hex)",
+    )
+    session_ttl_seconds: int = Field(
+        default=86400,
+        description="Session TTL in seconds (default 24 hours)",
+        ge=60,
     )
 
     # =========================================================================
