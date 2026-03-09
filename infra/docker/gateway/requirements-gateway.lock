@@ -11,6 +11,10 @@ anyio==4.12.1
     #   httpx
     #   starlette
     #   watchfiles
+asyncpg==0.31.0
+    # via agent-042 (pyproject.toml)
+authlib==1.6.9
+    # via agent-042 (pyproject.toml)
 billiard==4.2.4
     # via celery
 celery==5.6.2
@@ -20,6 +24,8 @@ certifi==2026.2.25
     #   httpcore
     #   httpx
     #   requests
+cffi==2.0.0
+    # via cryptography
 charset-normalizer==3.4.4
     # via requests
 click==8.3.1
@@ -35,8 +41,12 @@ click-plugins==1.1.1.2
     # via celery
 click-repl==0.3.0
     # via celery
+cryptography==46.0.5
+    # via authlib
 fastapi==0.134.0
     # via agent-042 (pyproject.toml)
+greenlet==3.3.2
+    # via sqlalchemy
 grpcio==1.78.0
     # via qdrant-client
 h11==0.16.0
@@ -90,6 +100,8 @@ prompt-toolkit==3.0.52
     # via click-repl
 protobuf==7.34.0
     # via qdrant-client
+pycparser==3.0
+    # via cffi
 pydantic==2.12.5
     # via
     #   fastapi
@@ -100,6 +112,8 @@ pydantic==2.12.5
 pydantic-core==2.41.5
     # via pydantic
 pydantic-settings==2.13.1
+    # via agent-042 (pyproject.toml)
+pyjwt==2.11.0
     # via agent-042 (pyproject.toml)
 python-dateutil==2.9.0.post0
     # via celery
@@ -123,6 +137,8 @@ requests-toolbelt==1.0.0
     # via langsmith
 six==1.17.0
     # via python-dateutil
+sqlalchemy==2.0.48
+    # via agent-042 (pyproject.toml)
 starlette==0.52.1
     # via fastapi
 tenacity==9.1.4
@@ -135,6 +151,7 @@ typing-extensions==4.15.0
     #   langchain-core
     #   pydantic
     #   pydantic-core
+    #   sqlalchemy
     #   starlette
     #   typing-inspection
 typing-inspection==0.4.2
