@@ -1,0 +1,6 @@
+outs:
+- md5: 211e4d57eba0b92797381c72591407bb.dir
+  size: 2164888
+  nfiles: 4
+  hash: md5
+  path: msmarco

@@ -1,0 +1,6 @@
+outs:
+- md5: 86565c49e86b4ea8aa47450feb734a0a.dir
+  size: 7878474
+  nfiles: 4
+  hash: md5
+  path: beir-scifact
