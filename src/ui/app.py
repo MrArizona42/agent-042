@@ -106,11 +106,14 @@ with st.sidebar:
                     c1, c2 = st.columns(2)
                     with c1:
                         if st.button("Yes, delete", key=f"yes_{sess['id']}"):
-                            client.delete_chat_session(sess["id"])
-                            # If we deleted the active session, reset
-                            if st.session_state.get("chat_session_id") == sess["id"]:
-                                st.session_state.pop("chat_session_id", None)
-                                st.session_state.messages = []
+                            try:
+                                client.delete_chat_session(sess["id"])
+                                # If we deleted the active session, reset
+                                if st.session_state.get("chat_session_id") == sess["id"]:
+                                    st.session_state.pop("chat_session_id", None)
+                                    st.session_state.messages = []
+                            except Exception as e:
+                                st.error(f"Failed to delete session: {e}")
                             st.session_state.pop("confirm_delete_id", None)
                             st.rerun()
                     with c2:
