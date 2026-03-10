@@ -8,17 +8,18 @@ evaluation and benchmarking subsystem of agent-042.
 ## Table of Contents
 
 1. [Goals and Non-Goals](#1-goals-and-non-goals)
-2. [Evaluation Taxonomy](#2-evaluation-taxonomy)
+2. [Evaluation Taxonomy and Datasets](#2-evaluation-taxonomy-and-datasets)
 3. [Pinning Configs — What Exactly Am I Evaluating?](#3-pinning-configs--what-exactly-am-i-evaluating)
 4. [Database Schema](#4-database-schema)
-5. [RAG Config Combinatorics](#5-rag-config-combinatorics)
-6. [LoRA Adapter Loading](#6-lora-adapter-loading)
-7. [LLM-as-Judge Strategy](#7-llm-as-judge-strategy)
-8. [Regression vs Full Eval](#8-regression-vs-full-eval)
-9. [Code Generation Evaluation (Sandboxed Execution)](#9-code-generation-evaluation-sandboxed-execution)
-10. [Streamlit Multi-Page Migration](#10-streamlit-multi-page-migration)
-11. [Eval Runner Architecture](#11-eval-runner-architecture)
-12. [Implementation Plan](#12-implementation-plan)
+5. [Hydra-Driven Eval Runner](#5-hydra-driven-eval-runner)
+6. [Parameter Sweeps](#6-parameter-sweeps)
+7. [LoRA Adapter Loading for Eval](#7-lora-adapter-loading-for-eval)
+8. [LLM-as-Judge — Gemini 2.0 Flash](#8-llm-as-judge--gemini-20-flash)
+9. [Regression vs Full Eval](#9-regression-vs-full-eval)
+10. [Integrating Evaluation with MLflow Experiment Tracking](#10-integrating-evaluation-with-mlflow-experiment-tracking)
+11. [Code Generation Evaluation (Sandboxed Execution)](#11-code-generation-evaluation-sandboxed-execution)
+12. [Streamlit Multi-Page Migration](#12-streamlit-multi-page-migration)
+13. [Implementation Plan](#13-implementation-plan)
 
 ---
 
@@ -31,38 +32,76 @@ evaluation and benchmarking subsystem of agent-042.
 - Results are stored in **PostgreSQL** (the same `agent042` database used by the app), queryable
   by structured config dimensions.
 - A dedicated **Streamlit benchmarks page** shows results, comparisons, and drill-downs.
-- Two eval tiers: **regression** (fast, CI-friendly, ~100–500 examples) and **full eval**
+- Two eval tiers: **regression** (fast, ~100–500 examples) and **full eval**
   (on-demand, hours-long, full dataset splits).
 - Code generation eval runs generated code in a **sandboxed environment**.
 - The system can evaluate **any** adapter version from MLflow, not just the currently loaded
   champion.
+- The eval runner is **Hydra-driven** — consistent with the training pipeline, reproducible
+  configs, override-friendly CLI.
 
 ### Non-Goals
 
 - Real-time online evaluation (user-facing A/B testing) — out of scope for now.
 - Evaluating third-party commercial models — we only evaluate our own vLLM-served models.
-- Building a standalone evaluation microservice — the eval runner is a CLI/Airflow task that
-  writes to the shared Postgres.
+- A separate eval vLLM instance — single-server setup uses the production vLLM with adapter
+  swapping.
 
 ---
 
-## 2. Evaluation Taxonomy
+## 2. Evaluation Taxonomy and Datasets
 
-The project has three task types, each requiring different metrics and methodologies:
+The project has three task types, each requiring different metrics and methodologies.
 
-| Task | Primary metrics | Judge method | Dataset (regression / full) |
+### Tasks, metrics, and datasets
+
+| Task | Primary metrics | Judge method | Dataset |
 |---|---|---|---|
-| **Chat (QA)** | Relevance (1–5), Correctness (1–5), BERTScore, ROUGE-L | LLM-as-judge + automatic | HotpotQA (500 / 7.4k), Natural Questions (500 / full) |
-| **Summarization** | Faithfulness (1–5), Coverage (1–5), BERTScore, ROUGE-L | LLM-as-judge + automatic | ArXiv-summarization val (500 / full) |
-| **Code generation** | Executable rate, Test pass rate (pass@1) | Sandboxed execution | HumanEval (all 164 — small enough for regression too) |
+| **Chat (QA)** | Relevance (1–5), Correctness (1–5), BERTScore, ROUGE-L | LLM-as-judge + automatic | HotpotQA, Natural Questions |
+| **Summarization** | Faithfulness (1–5), Coverage (1–5), BERTScore, ROUGE-L | LLM-as-judge + automatic | ArXiv-summarization |
+| **Code generation** | Executable rate, Test pass rate (pass@1) | Sandboxed execution | HumanEval |
 
 Additionally, **RAG-specific metrics** are evaluated independently of generation:
 
 | Metric | What it measures | Dataset |
 |---|---|---|
-| Recall@k | Fraction of queries with ≥1 relevant doc in top-k | MS MARCO (500 / full), BEIR-SciFact, BEIR-NFCorpus |
+| Recall@k | Fraction of queries with ≥1 relevant doc in top-k | MS MARCO, BEIR-SciFact, BEIR-NFCorpus |
 | nDCG@k | Ranking quality weighted by position | Same |
 | Groundedness | Fraction of answer claims supported by retrieved docs | Evaluated alongside chat/summarization runs |
+
+### Dataset sizes (as fetched in `experiments/notebooks/prefetch_assets.ipynb`)
+
+Full datasets currently on disk:
+
+| Dataset | Split | Rows | Disk size | Purpose |
+|---|---|---|---|---|
+| `ccdv/arxiv-summarization` | train | 203,037 | 6.9 GB | LoRA training (summarization) |
+| `ccdv/arxiv-summarization` | validation | 6,436 | (incl. above) | Eval — summarization |
+| `nvidia/OpenCodeInstruct` | train | 5,000,000 | 18 GB | LoRA training (code) |
+| `openai/openai_humaneval` | test | 164 | < 1 MB | Eval — code (small enough for regression too) |
+| `natural_questions` | validation (5%) | 392 | 169 MB | Eval — QA |
+| `hotpot_qa` (distractor) | validation (5%) | 370 | 2.3 MB | Eval — QA |
+| `ms_marco` (v1.1) | validation (5%) | 502 | 2.1 MB | Eval — retrieval |
+| `BeIR/scifact` | corpus | 5,183 | 7.6 MB | Eval — retrieval |
+| `BeIR/nfcorpus` | corpus | 3,633 | 5.7 MB | Eval — retrieval |
+
+> **Note on subsets:** HotpotQA, Natural Questions, and MS MARCO were downloaded as 5% subsets
+> in the notebook. The **full** validation splits are much larger: HotpotQA ~7,400 rows,
+> Natural Questions ~7,800 rows, MS MARCO validation ~100k rows.
+> For full eval, either download the complete splits or use the currently available subsets
+> as the "full" tier, and prepare smaller fixed regression splits from them.
+
+### Regression vs full split sizes
+
+| Dataset | Regression split | Full split |
+|---|---|---|
+| HotpotQA | 100–200 (from current 370) | 370 (current 5%) or full 7.4k |
+| Natural Questions | 100–200 (from current 392) | 392 (current 5%) or full 7.8k |
+| ArXiv-summarization | 200–500 (from 6,436 val) | 6,436 |
+| HumanEval | all 164 (small enough) | all 164 |
+| MS MARCO | 100–200 (from current 502) | 502 (current 5%) or full ~100k |
+| BEIR-SciFact | all 5,183 (corpus eval) | all 5,183 |
+| BEIR-NFCorpus | all 3,633 (corpus eval) | all 3,633 |
 
 ---
 
@@ -96,10 +135,10 @@ EvalConfig:
 
   # Eval
   dataset_name: str            # "hotpotqa" | "arxiv-summarization" | "humaneval" | ...
-  dataset_split: str           # "validation" | "test" | "regression_500"
+  dataset_split: str           # "validation" | "test" | "regression_200"
   dataset_dvc_hash: str | None # exact content hash from DVC
   task: str                    # "chat" | "summarize" | "code"
-  judge_model: str | None      # "google/gemini-2.0-flash" | None (for automatic-only metrics)
+  judge_model: str | None      # "gemini-2.0-flash" | None (for automatic-only metrics)
 
   # Generation params
   temperature: float
@@ -263,297 +302,660 @@ class EvalExample(Base):
 
 ---
 
-## 5. RAG Config Combinatorics
+## 5. Hydra-Driven Eval Runner
 
-Even modest options produce dozens of combinations:
+### Why Hydra?
+
+The training pipeline already uses Hydra (`experiments/scripts/train_hydra.py` +
+`experiments/conf/`). Using Hydra for eval too gives us:
+
+- **Consistency**: same config language for training and evaluation.
+- **CLI overrides**: `python run_eval.py task=chat tier=regression adapter.version=5` — no
+  argparse boilerplate, every config field is overridable.
+- **Config composition**: base config + task-specific overrides + RAG overrides, composed
+  via Hydra defaults.
+- **Reproducibility**: Hydra auto-saves the resolved config to the run output directory.
+  Combined with the JSONB snapshot in Postgres, the exact config is preserved in two places.
+- **Sweep support**: Hydra's `--multirun` with sweep syntax is the standard way to run
+  parameter grid searches (see [§6](#6-parameter-sweeps)).
+
+### Config structure
 
 ```
-KBs:        arxiv, pytorch_docs                    = 2
-Chunking:   fixed_token, code, section_aware       = 3
-Retrieval:  dense, sparse (BM25), hybrid           = 3
-Reranking:  none, cross_encoder, llm               = 3
-Top-k:      3, 5, 10                               = 3
+experiments/
+  conf/
+    config.yaml               # existing (training entrypoint)
+    eval_config.yaml           # new: eval entrypoint
+    eval/
+      task/
+        chat.yaml              # task-specific defaults for chat
+        summarize.yaml         # task-specific defaults for summarization
+        code.yaml              # task-specific defaults for code
+      rag/
+        default.yaml           # baseline RAG config
+        no_rag.yaml            # rag_enabled: false
+        arxiv.yaml             # KB=arxiv + recommended params
+        pytorch_docs.yaml      # KB=pytorch_docs + code-aware chunking
+      judge/
+        gemini.yaml            # Gemini 2.0 Flash config
+        none.yaml              # no judge (automatic metrics only)
 ```
 
-That's 2 × 3 × 3 × 3 × 3 = **162 combinations** per task, per adapter version. Running all of
-them on every eval is infeasible.
-
-### Strategy: structured sweep + targeted comparison
-
-1. **Baseline config**: Define a single "default" RAG config per task (the one currently deployed).
-   Every eval run uses this unless explicitly overridden.
-
-2. **Sweep mode**: A CLI flag `--sweep rag` generates a grid of configs from a YAML spec and
-   runs each combination on the **regression** dataset split. Results are stored as separate
-   `eval_runs` rows, each with its own `config` JSONB — queryable and comparable in the UI.
-
-3. **Single-dimension ablation**: For focused experiments, sweep only one dimension at a time
-   (e.g., `--sweep-dim retrieval_top_k --sweep-values 3,5,10,20`) while holding everything
-   else at the baseline.
-
-4. **UI comparison view**: The benchmarks page lets you select two or more eval runs and see
-   metric deltas side by side, grouped by the config dimension that differs.
-
-### Sweep config example (`experiments/conf/eval_sweep.yaml`)
+### `eval_config.yaml` — top-level eval config
 
 ```yaml
 defaults:
+  - eval/task: chat
+  - eval/rag: default
+  - eval/judge: gemini
+  - _self_
+
+# ── Model ──
+model:
+  base_model: /models/Qwen/Qwen3-0.6B
+  vllm_base_url: http://localhost:8000
+
+# ── Adapter (nullable — omit or set to null for base model) ──
+adapter:
+  name: null            # e.g. "lora-summarization"
+  version: null         # e.g. 3 (MLflow version number) or "champion"
+  # Resolved at runtime:
+  # mlflow_run_id: ...
+
+# ── Eval ──
+tier: regression        # regression | full
+dataset:
+  name: hotpotqa
+  split: validation
+  max_examples: 200     # null = use all
+  seed: 42              # for reproducible subsampling
+
+# ── Generation ──
+generation:
+  temperature: 0.1
+  top_p: 0.95
+  max_tokens: 512
+
+# ── Output ──
+db_url: ${oc.env:GATEWAY_AGENT042_DB_URL}
+
+hydra:
+  run:
+    dir: experiments/logs/eval-logs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+```
+
+### `eval/task/chat.yaml`
+
+```yaml
+task: chat
+dataset:
+  name: hotpotqa
+  split: validation
+  max_examples: 200
+metrics:
+  - relevance
+  - correctness
+  - rouge_l
+  - bert_score
+```
+
+### `eval/task/summarize.yaml`
+
+```yaml
+task: summarize
+dataset:
+  name: arxiv-summarization
+  split: validation
+  max_examples: 500
+metrics:
+  - faithfulness
+  - coverage
+  - rouge_l
+  - bert_score
+```
+
+### `eval/task/code.yaml`
+
+```yaml
+task: code
+dataset:
+  name: humaneval
+  split: test
+  max_examples: null  # all 164
+metrics:
+  - executable_rate
+  - pass_at_1
+judge:
+  enabled: false      # code uses sandbox execution, not LLM judge
+```
+
+### `eval/rag/default.yaml`
+
+```yaml
+rag:
+  enabled: true
   knowledge_base: arxiv
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
   chunking_strategy: fixed_token
   chunk_size: 512
   chunk_overlap: 50
   retrieval_top_k: 5
   score_threshold: 0.35
   reranking_strategy: none
-
-sweeps:
-  retrieval_top_k: [3, 5, 10, 20]
-  chunking_strategy: [fixed_token, section_aware]
-  reranking_strategy: [none, cross_encoder]
 ```
 
----
-
-## 6. LoRA Adapter Loading
-
-### Problem
-
-The gateway/vLLM currently loads whichever adapter has the `champion` alias. To evaluate a
-specific adapter version (e.g., a newly trained `challenger`), we need a mechanism to either:
-- (a) Tell vLLM to load a specific adapter at eval time, or
-- (b) Run a **dedicated eval vLLM instance** with the target adapter.
-
-### Solution: dedicated eval vLLM instance + on-demand adapter sync
-
-Since vLLM supports hot-loading LoRA adapters via `--enable-lora`, and our `AdapterSyncer`
-already generates `lora-modules.json`, the approach is:
-
-1. **Add an `eval-vllm` service** to docker-compose — a second vLLM instance on the same GPU
-   (or a different one if available). This avoids contention with production inference.
-   For a single-GPU setup, the eval vLLM starts only during eval and stops after — managed by
-   the eval runner or a dedicated Airflow DAG.
-
-2. **Extend `AdapterSyncer`** with a `sync_version(model_name, version)` method that downloads
-   a specific adapter version (not just champion) to a staging directory and writes a temporary
-   `lora-modules.json`.
-
-3. **The eval runner** receives `--adapter-name lora-summarization --adapter-version 3` as
-   arguments. It:
-   - Calls `sync_version()` to download the adapter.
-   - Starts (or reconfigures) the eval vLLM instance with the correct `lora-modules.json`.
-   - Points all inference requests at the eval vLLM endpoint.
-   - Records the exact `adapter_version` and `adapter_mlflow_run_id` in the eval config.
-
-4. **If no adapter is specified**, the eval runner uses the production vLLM endpoint with the
-   current champion adapter (or base model if no adapter is loaded). The adapter version is
-   still resolved and recorded.
-
-### Docker-compose addition
+### `eval/judge/gemini.yaml`
 
 ```yaml
-eval-vllm:
-  image: vllm/vllm-openai:v0.16.0
-  profiles: ["eval"]                  # only starts when explicitly requested
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: 1
-            capabilities: [gpu]
-  volumes:
-    - ${MODELS_DIR:-./assets/models}:/models:ro
-    - ${EVAL_ADAPTERS_DIR:-./assets/eval_adapters}:/adapters:ro
-  command: >
-    --model /models/Qwen/Qwen3-0.6B
-    --enable-lora
-    --max-loras 2
-    --max-lora-rank 64
-    --lora-modules /adapters/lora-modules.json
-    --port 8000
-  environment:
-    VLLM_ALLOW_RUNTIME_LORA_UPDATING: "true"
-  ports:
-    - "127.0.0.1:8002:8000"
-  networks:
-    - backend_net
+judge:
+  enabled: true
+  model: gemini-2.0-flash
+  api_key: ${oc.env:GEMINI_API_KEY}
+  max_rpm: 14            # stay under 15 RPM free tier
+  timeout: 30.0
+  structured_output: true
 ```
 
-The `profiles: ["eval"]` means this service is not started by default (`docker compose up`).
-It only starts with `docker compose --profile eval up eval-vllm`.
+### Entry point
+
+```python
+# experiments/scripts/eval/run_eval.py
+@hydra.main(config_path="../../conf", config_name="eval_config", version_base=None)
+def main(cfg: DictConfig) -> None:
+    eval_config = build_eval_config(cfg)
+    run_evaluation(eval_config)
+```
+
+### CLI examples
+
+```bash
+# Regression eval for chat task (uses defaults from eval_config.yaml + eval/task/chat.yaml)
+python experiments/scripts/eval/run_eval.py
+
+# Full eval for summarization with specific adapter
+python experiments/scripts/eval/run_eval.py \
+  eval/task=summarize \
+  tier=full \
+  dataset.max_examples=null \
+  adapter.name=lora-summarization \
+  adapter.version=3
+
+# Code eval (no judge, no RAG)
+python experiments/scripts/eval/run_eval.py \
+  eval/task=code \
+  eval/rag=no_rag
+
+# Override any parameter
+python experiments/scripts/eval/run_eval.py \
+  eval/rag=arxiv \
+  rag.retrieval_top_k=10 \
+  generation.temperature=0.3
+```
+
+### Execution flow
+
+```
+1. Hydra resolves config (composition + CLI overrides)
+2. Build EvalConfig from resolved OmegaConf
+3. Resolve versions:
+   - Query MLflow for adapter_version → get mlflow_run_id
+   - Snapshot Qdrant collection (if RAG enabled)
+   - Read dataset DVC hash
+4. Create eval_runs row in Postgres (status='running')
+5. Prepare inference:
+   - If specific adapter requested → sync to production vLLM (see §7)
+   - Resolve which model/adapter name to pass in vLLM requests
+6. Load dataset (subsample to max_examples with seed if set)
+7. For each example (with progress bar):
+   a. If RAG enabled: retrieve context via RAG service
+   b. Build prompt (system + optional context + user input)
+   c. Call vLLM for generation
+   d. Compute automatic metrics (ROUGE-L, BERTScore)
+   e. If task == "code": run sandbox execution
+   f. If judge enabled: call LLM-as-judge (with rate limiting)
+   g. Write eval_examples row
+8. Compute aggregate metrics → write eval_metrics rows
+9. Update eval_runs: status='completed', finished_at=now()
+10. Optionally log metrics to MLflow (see §10)
+11. Print summary to stdout
+```
 
 ---
 
-## 7. LLM-as-Judge Strategy
+## 6. Parameter Sweeps
+
+### The combinatorial problem
+
+Even modest options produce dozens of RAG combinations:
+
+```
+KBs:        arxiv, pytorch_docs                    = 2
+Chunking:   fixed_token, code, section_aware       = 3
+Retrieval:  dense, sparse (BM25), hybrid           = 3
+Reranking:  none, cross_encoder                    = 2
+Top-k:      3, 5, 10                               = 3
+```
+
+That's 2 × 3 × 3 × 2 × 3 = **108 combinations** per task, per adapter version. Running all of
+them on every eval is infeasible.
+
+### Hydra multirun for sweeps
+
+Hydra's `--multirun` flag with comma-separated values is the natural way to sweep:
+
+```bash
+# Single-dimension ablation: sweep top_k while holding everything else at baseline
+python experiments/scripts/eval/run_eval.py --multirun \
+  rag.retrieval_top_k=3,5,10,20
+
+# Two-dimension sweep: chunking × reranking
+python experiments/scripts/eval/run_eval.py --multirun \
+  rag.chunking_strategy=fixed_token,section_aware \
+  rag.reranking_strategy=none,cross_encoder
+
+# Full grid of some interesting dimensions
+python experiments/scripts/eval/run_eval.py --multirun \
+  rag.retrieval_top_k=3,5,10 \
+  rag.chunking_strategy=fixed_token,section_aware,code \
+  eval/rag=arxiv,pytorch_docs
+```
+
+Each combination becomes a separate Hydra run with its own output directory and its own
+`eval_runs` row in Postgres. The UI can then compare them by grouping on the config dimensions
+that differ.
+
+### Sweep strategy
+
+1. **Baseline first**: Run every task with the default RAG config. This is your anchor point.
+
+2. **Single-dimension ablations**: Sweep one parameter at a time against the baseline. This
+   isolates the effect of each parameter and is feasible even on a single GPU:
+   - `rag.retrieval_top_k=3,5,10,20` (4 runs)
+   - `rag.chunking_strategy=fixed_token,code,section_aware` (3 runs)
+   - `rag.reranking_strategy=none,cross_encoder` (2 runs)
+
+3. **Targeted grids**: Based on ablation results, run 2–3 dimension grids on the most
+   impactful parameters.
+
+4. **Always use regression splits for sweeps** — keep each run fast so the total wall time
+   stays manageable.
+
+### Hydra sweep plugins
+
+For more advanced sweeps (Bayesian optimization, random search), Hydra supports plugins like
+[Optuna Sweeper](https://hydra.cc/docs/plugins/optuna_sweeper/). This can be added later if
+grid search proves too expensive. The config structure stays the same.
+
+---
+
+## 7. LoRA Adapter Loading for Eval
+
+### Background
+
+The production vLLM instance runs with `--enable-lora --max-loras 4` and loads adapters from
+`assets/adapters/lora-modules.json`, which is generated by `AdapterSyncer.sync()`. Currently
+it syncs only `champion` aliases.
+
+On a single-server setup with one GPU, a dedicated eval vLLM instance is infeasible — it would
+compete for the same GPU memory. Instead, we load the target adapter into the **production
+vLLM**.
+
+### How vLLM LoRA loading works
+
+vLLM can serve multiple LoRA adapters simultaneously (up to `--max-loras`). The adapter is
+selected **per request** via the `model` field in the OpenAI-compatible API:
+
+```json
+{
+  "model": "lora-summarization",
+  "messages": [...]
+}
+```
+
+If the adapter is listed in `lora-modules.json` and loaded, vLLM routes the request to that
+adapter. The base model is always available as-is.
+
+### Eval flow for a specific adapter version
+
+1. **Extend `AdapterSyncer`** with a `sync_version(model_name, version)` method:
+   - Downloads the specific adapter version from MLflow (not just champion).
+   - Saves to `assets/adapters/<model_name>-v<version>/`.
+   - Appends an entry to `lora-modules.json`.
+
+2. **vLLM runtime LoRA loading**: vLLM supports loading new adapters at runtime via the
+   `VLLM_ALLOW_RUNTIME_LORA_UPDATING=true` environment variable and the
+   `POST /v1/load_lora_adapter` API endpoint. This means we can load an eval adapter without
+   restarting the server:
+
+   ```bash
+   curl -X POST http://localhost:8000/v1/load_lora_adapter \
+     -d '{"lora_name": "lora-summarization-v3", "lora_path": "/adapters/lora-summarization-v3"}'
+   ```
+
+3. **The eval runner** (`run_eval.py`):
+   - Reads `adapter.name` and `adapter.version` from Hydra config.
+   - If `adapter.version` is set: calls `sync_version()`, then
+     `POST /v1/load_lora_adapter` to load it into the running vLLM.
+   - If `adapter.version` is `"champion"` or `null`: resolves the current champion version
+     and uses the already-loaded adapter.
+   - Sets the `model` field in all vLLM requests to the adapter name.
+   - Records the exact version number and MLflow run ID in the eval config.
+
+4. **Cleanup**: After the eval run completes, the eval runner can optionally unload the eval
+   adapter via `POST /v1/unload_lora_adapter` to free GPU memory. This is optional — vLLM
+   manages LoRA memory within the `--max-loras` budget.
+
+### Important: eval during production hours
+
+Since we share the production vLLM, running a heavy eval with many requests will affect
+latency for real users. Best practice:
+- Run full evals during off-hours or when no users are active.
+- Regression evals (200 examples) are fast enough to run anytime.
+
+---
+
+## 8. LLM-as-Judge — Gemini 2.0 Flash
 
 ### The circularity problem
 
 Using the same model that generated the answer as the judge inflates scores. We need an
 external, stronger judge.
 
-### Free / low-cost external judge options
+### Why Gemini 2.0 Flash
 
-| Provider | Model | Free tier | Rate limits | Notes |
-|---|---|---|---|---|
-| **Google AI Studio** | `gemini-2.0-flash` | Free tier: 15 RPM, 1M tokens/day | Sufficient for regression (500 examples) | Best free option. Supports structured output. |
-| **Google AI Studio** | `gemini-2.5-flash-preview-05-20` | Free tier: same limits | Same | Stronger, good for full eval judging. |
-| **Groq** | `llama-3.3-70b-versatile` | Free: 30 RPM, 14.4k tokens/min | Tight for full eval, fine for regression | Open-weight alternative. |
-| **Mistral** | `mistral-small-latest` | Free tier with API key | 1 RPM free tier — too slow | Only viable as fallback. |
-
-### Recommended setup
-
-- **Primary judge: `gemini-2.0-flash`** via Google AI Studio API (free tier).
-  - For regression runs (500 examples), 500 judge calls ≈ 200k tokens — well within 1M/day.
-  - For full eval, can spread across hours or use the paid tier ($0.10/1M input tokens).
-- **Fallback judge: `llama-3.3-70b-versatile`** via Groq (free tier).
-  - Used if Gemini API is down or quota exceeded.
-- **No local judge model**: avoids GPU contention with the eval vLLM instance.
+- **Free tier**: 15 RPM, 1M tokens/day via Google AI Studio — sufficient for regression
+  (200–500 examples ≈ 100k–200k judge tokens).
+- **Structured output**: Gemini supports `response_mime_type: "application/json"` with a
+  schema, avoiding fragile output parsing.
+- **Quality**: Strong enough to judge small open-source models reliably.
+- **Cost for full eval**: Even beyond free tier, $0.10/1M input tokens makes full evals cheap.
 
 ### Judge prompt design
 
 For each eval task, a structured prompt asks the judge to score on specific rubrics:
 
+**Chat/QA rubric:**
 ```
-Chat/QA rubric:
-  - Relevance (1-5): Does the answer address the question?
-  - Correctness (1-5): Are the factual claims accurate given the reference?
+You are evaluating an AI assistant's answer to a question.
 
-Summarization rubric:
-  - Faithfulness (1-5): Does the summary introduce unsupported claims?
-  - Coverage (1-5): Does it cover the main points of the source?
+Question: {question}
+Reference answer: {reference}
+Model answer: {generated}
 
-Groundedness (RAG-specific):
-  - Given these retrieved documents and this answer, what fraction of
-    the answer's claims are supported by the documents? Return a float 0.0–1.0.
+Score on two dimensions (1-5 each):
+- Relevance: Does the answer address the question directly?
+- Correctness: Are the factual claims accurate given the reference?
+
+Return JSON: {"relevance": <int>, "correctness": <int>}
 ```
 
-The judge must return **structured JSON** (Gemini supports `response_mime_type: "application/json"`
-with a schema). This avoids fragile output parsing.
+**Summarization rubric:**
+```
+You are evaluating a summary of a scientific article.
 
-### Configuration
+Original article (excerpt): {source}
+Model summary: {generated}
 
-```python
-# src/shared/config.py — add to Settings
-class JudgeSettings:
-    judge_provider: str = "google"       # "google" | "groq"
-    judge_model: str = "gemini-2.0-flash"
-    judge_api_key: str                   # env: GATEWAY_JUDGE_API_KEY
-    judge_fallback_provider: str = "groq"
-    judge_fallback_model: str = "llama-3.3-70b-versatile"
-    judge_fallback_api_key: str          # env: GATEWAY_JUDGE_FALLBACK_API_KEY
-    judge_max_rpm: int = 14              # stay under 15 RPM free tier
-    judge_timeout: float = 30.0
+Score on two dimensions (1-5 each):
+- Faithfulness: Does the summary introduce unsupported claims? (5 = perfectly faithful)
+- Coverage: Does it cover the main points of the source? (5 = comprehensive)
+
+Return JSON: {"faithfulness": <int>, "coverage": <int>}
+```
+
+**Groundedness (RAG-specific):**
+```
+Given these retrieved documents and this answer, what fraction of
+the answer's claims are supported by the documents?
+
+Retrieved documents: {retrieved_docs}
+Answer: {generated}
+
+Return JSON: {"groundedness": <float>}   (0.0–1.0)
 ```
 
 ### Implementation
 
-A `JudgeClient` class in `src/eval/judge.py`:
-- Accepts provider + model + API key.
-- Methods: `score_qa(question, answer, reference) -> {relevance, correctness}`,
-  `score_summary(source, summary) -> {faithfulness, coverage}`,
-  `score_groundedness(answer, retrieved_docs) -> float`.
-- Handles rate limiting (sleep between calls to stay under RPM).
-- Falls back to the secondary provider on 429/5xx errors.
+A `JudgeClient` class in `experiments/scripts/eval/judge.py`:
+
+```python
+class GeminiJudge:
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash", max_rpm: int = 14):
+        self.client = genai.Client(api_key=api_key)
+        self.model = model
+        self.min_interval = 60.0 / max_rpm
+
+    def score_qa(self, question, answer, reference) -> dict:
+        """Returns {"relevance": int, "correctness": int}"""
+
+    def score_summary(self, source, summary) -> dict:
+        """Returns {"faithfulness": int, "coverage": int}"""
+
+    def score_groundedness(self, answer, retrieved_docs) -> dict:
+        """Returns {"groundedness": float}"""
+```
+
+- Rate limiting: sleeps between calls to stay under `max_rpm`.
+- Retries on 429/5xx with exponential backoff.
+- Structured JSON output enforced via Gemini's `response_mime_type`.
+
+### Configuration
+
+```yaml
+# experiments/conf/eval/judge/gemini.yaml
+judge:
+  enabled: true
+  model: gemini-2.0-flash
+  api_key: ${oc.env:GEMINI_API_KEY}
+  max_rpm: 14
+  timeout: 30.0
+  structured_output: true
+```
+
+### Environment variable
+
+```bash
+# .env (or experiments/.env)
+GEMINI_API_KEY=<your-google-ai-studio-api-key>
+```
 
 ---
 
-## 8. Regression vs Full Eval
+## 9. Regression vs Full Eval
 
 ### Two tiers, different purposes
 
 | | Regression | Full eval |
 |---|---|---|
 | **Purpose** | "Did we break anything?" | "How good is this config overall?" |
-| **Dataset size** | 100–500 fixed examples | Full dataset split (thousands) |
+| **Dataset size** | 100–200 fixed examples | Full dataset split (hundreds to thousands) |
 | **Runtime** | Minutes | Hours |
-| **When to run** | After training, before promotion; in CI | On-demand, before major releases |
-| **Trigger** | CLI command, CI pipeline, post-training hook | CLI command, Airflow DAG |
-| **Judge calls** | Yes (500 max) | Yes (batched, respecting rate limits) |
+| **When to run** | After training, before promotion; as sanity check | On-demand, before major releases, for sweep analysis |
+| **Trigger** | CLI command, post-training hook | CLI command |
+| **Judge calls** | Yes (200 max — well within free tier) | Yes (batched, may hit rate limits) |
 | **Stored in** | Same `eval_runs` table, `tier = 'regression'` | Same table, `tier = 'full'` |
 
 ### Regression dataset creation
 
-Fixed, reproducible subsets extracted by seed:
+Fixed, reproducible subsets, subsampled by seed in the eval config:
 
-```python
-# experiments/scripts/eval/prepare_regression_splits.py
-import hashlib
-from datasets import load_from_disk
-
-def sample_regression_split(dataset_path, n=500, seed=42):
-    ds = load_from_disk(dataset_path)
-    split = ds.shuffle(seed=seed).select(range(min(n, len(ds))))
-    # Save as a separate DVC-tracked file for reproducibility
-    split.save_to_disk(f"{dataset_path}_regression_{n}")
-    return split
+```yaml
+# Regression run — the default
+tier: regression
+dataset:
+  name: hotpotqa
+  split: validation
+  max_examples: 200
+  seed: 42
 ```
 
-These regression splits are DVC-tracked so their content hash is pinned.
+The `max_examples + seed` approach means we don't need separate DVC-tracked regression splits.
+The eval runner does `ds.shuffle(seed=seed).select(range(max_examples))` at load time. The
+seed is recorded in the eval config JSONB, so the exact subset is reproducible.
 
-### Where regression tests live
+For a **full** eval:
 
-Regression eval is **not** in `tests/`. The `tests/` directory is for unit/integration tests
-(pytest) that verify code correctness — they mock services and don't need GPU/vLLM.
+```yaml
+tier: full
+dataset:
+  name: hotpotqa
+  split: validation
+  max_examples: null   # no subsampling
+```
 
-Regression eval requires live infrastructure (vLLM, Qdrant, embeddings service). It belongs in:
+### Where eval code lives
+
+Eval requires live infrastructure (vLLM, Qdrant, embeddings service). It is **not** in
+`tests/` — that directory is for unit/integration tests that mock services and don't need GPU.
 
 ```
 experiments/
   scripts/
     eval/
-      run_eval.py          # main CLI entry point
-      judge.py             # LLM-as-judge client (also usable as src/eval/judge.py)
-      metrics.py           # ROUGE, BERTScore computation
-      sandbox.py           # code execution sandbox
-      prepare_regression_splits.py
+      __init__.py
+      run_eval.py               # Hydra entry point
+      config.py                 # EvalConfig pydantic model
+      judge.py                  # Gemini judge client
+      metrics.py                # ROUGE-L, BERTScore computation
+      sandbox.py                # code execution sandbox
+      humaneval.py              # HumanEval dataset loader
 ```
-
-### Post-training hook
-
-After `train_hydra.py` finishes and registers a new adapter version in MLflow, it can
-optionally trigger a regression eval:
-
-```bash
-# In training pipeline or CI:
-python experiments/scripts/eval/run_eval.py \
-  --task summarize \
-  --tier regression \
-  --adapter-name lora-summarization \
-  --adapter-version latest \
-  --dataset arxiv-summarization \
-  --split regression_500
-```
-
-The result is stored in Postgres. The training pipeline can gate promotion on regression metrics
-(e.g., "don't promote to champion if ROUGE-L dropped >5% vs. current champion").
-
-### MLflow integration for training metrics
-
-The training pipeline already logs metrics to MLflow. Regression eval metrics can **also** be
-logged to MLflow as post-training metrics on the same run — this allows comparing adapter
-versions in the MLflow UI as well:
-
-```python
-import mlflow
-mlflow.log_metrics({
-    "eval/rouge_l": 0.42,
-    "eval/relevance_mean": 3.8,
-    "eval/pass_at_1": 0.65,
-}, step=0)
-```
-
-This is in addition to (not instead of) storing full results in Postgres.
 
 ---
 
-## 9. Code Generation Evaluation (Sandboxed Execution)
+## 10. Integrating Evaluation with MLflow Experiment Tracking
+
+### The training → eval feedback loop
+
+The training pipeline (`train_hydra.py`) already:
+1. Trains a LoRA adapter.
+2. Logs training metrics (loss, learning rate, val loss) to an MLflow run.
+3. Registers the adapter as a new version in MLflow Model Registry.
+4. Stores artifacts (adapter weights) in S3.
+
+Evaluation should **close the loop** by attaching eval metrics to the same lineage, so that
+in the MLflow UI you can see training metrics, eval metrics, and the adapter version all in one
+place.
+
+### Strategy: two-level MLflow logging
+
+#### Level 1: Log eval metrics to the training run
+
+When the eval runner knows the `adapter_mlflow_run_id` (resolved from MLflow Model Registry),
+it can log eval metrics **to that same run** as post-hoc metrics:
+
+```python
+import mlflow
+
+with mlflow.start_run(run_id=adapter_mlflow_run_id):
+    mlflow.log_metrics({
+        "eval/rouge_l": 0.42,
+        "eval/bert_score": 0.78,
+        "eval/relevance_mean": 3.8,
+        "eval/correctness_mean": 4.1,
+        "eval/pass_at_1": 0.65,
+    })
+    mlflow.log_params({
+        "eval/tier": "regression",
+        "eval/dataset": "hotpotqa",
+        "eval/dataset_split": "validation",
+        "eval/max_examples": 200,
+        "eval/judge_model": "gemini-2.0-flash",
+    })
+```
+
+This means the MLflow experiment view shows training runs with their associated eval scores
+side by side — you can sort by `eval/rouge_l` to find the best adapter.
+
+**Limitation**: MLflow params are write-once. If you run eval multiple times on the same
+training run (e.g., regression then full), use a `step` parameter or eval-specific param keys
+like `eval_full/rouge_l` vs `eval_regression/rouge_l`.
+
+#### Level 2: Dedicated eval experiment in MLflow
+
+Additionally, create a separate MLflow experiment called `eval` where each eval run is its own
+MLflow run. This gives a dedicated view for comparing eval configs:
+
+```python
+mlflow.set_experiment("eval")
+with mlflow.start_run(run_name=f"eval-{task}-{adapter_name}-v{adapter_version}"):
+    mlflow.log_params(eval_config.dict())  # full config as params
+    mlflow.log_metrics(aggregate_metrics)
+    mlflow.log_artifact(hydra_config_path)  # the resolved Hydra config YAML
+```
+
+This experiment is useful for:
+- Comparing eval runs across different adapter versions.
+- Comparing different RAG configs on the same adapter.
+- Sweep results visualization (MLflow has built-in parallel coordinates plots).
+
+#### When each level applies
+
+| Scenario | Level 1 (training run) | Level 2 (eval experiment) |
+|---|---|---|
+| Post-training regression | Yes — attach to the training run | Yes |
+| Standalone full eval | Only if adapter_mlflow_run_id known | Yes |
+| RAG-only eval (no adapter) | No (no training run) | Yes |
+| Sweep runs | No (too many) | Yes — each sweep point is a run |
+
+### Post-training automation
+
+After `train_hydra.py` completes successfully, it can auto-trigger a regression eval:
+
+```python
+# In train_hydra.py (or a wrapper script)
+def main(cfg):
+    save_dir, logs_dir = run_training(cfg)
+
+    # Auto-trigger regression eval if configured
+    if cfg.get("auto_eval", False):
+        subprocess.run([
+            "python", "experiments/scripts/eval/run_eval.py",
+            f"adapter.name={cfg.mlflow.registered_model_name}",
+            "adapter.version=latest",
+            "tier=regression",
+        ], check=True)
+```
+
+Or more practically, as a separate step in a Makefile or shell script:
+
+```bash
+# Makefile
+train-and-eval:
+	python experiments/scripts/train_hydra.py $(TRAIN_ARGS)
+	python experiments/scripts/eval/run_eval.py \
+		adapter.name=$(ADAPTER_NAME) \
+		adapter.version=latest \
+		tier=regression
+```
+
+### Gating promotion on eval results
+
+The eval runner can enforce a quality gate before promoting an adapter to `champion`:
+
+```python
+# In run_eval.py, after computing metrics:
+if cfg.get("gate_promotion", False):
+    current_champion = get_champion_metrics(adapter_name)
+    if new_metrics["rouge_l"] < current_champion["rouge_l"] * 0.95:
+        log.warning("ROUGE-L dropped >5% vs champion. Skipping promotion.")
+        return
+    promote_adapter(adapter_name, adapter_version, alias="champion")
+```
+
+This keeps the `champion` alias stable — a new adapter only gets promoted if it meets or
+exceeds the current champion's eval scores.
+
+---
+
+## 11. Code Generation Evaluation (Sandboxed Execution)
 
 ### Why it's different
 
 For code tasks, LLM-as-judge and ROUGE are unreliable proxies. The only trustworthy signal is:
 does the generated code **run** and **pass the test cases**?
 
-HumanEval provides 164 problems, each with:
+HumanEval provides 164 problems (all on disk, < 1 MB), each with:
 - A function signature + docstring (the prompt).
 - A set of test assertions (the ground truth).
 
@@ -566,8 +968,7 @@ Generated code must run in an **isolated environment** to prevent:
 
 ### Implementation: subprocess with resource limits
 
-For a self-hosted system without Kubernetes, the simplest safe approach is a subprocess with
-`ulimit` restrictions:
+For a self-hosted system, the simplest safe approach is a subprocess with `firejail` isolation:
 
 ```python
 # experiments/scripts/eval/sandbox.py
@@ -593,7 +994,7 @@ def execute_code(code: str, test_code: str, timeout: int = 10) -> dict:
                 ],
                 capture_output=True,
                 text=True,
-                timeout=timeout + 5,  # subprocess timeout > firejail CPU limit
+                timeout=timeout + 5,
             )
             return {
                 "executable": True,
@@ -621,29 +1022,24 @@ def execute_code(code: str, test_code: str, timeout: int = 10) -> dict:
 - Available in Ubuntu repos (`apt install firejail`), no Docker-in-Docker needed.
 - `--net=none` blocks all network access.
 - `--rlimit-*` caps memory, CPU, and disk writes.
-- Runs as the current user — no privilege escalation.
 - Lightweight: ~1ms overhead per invocation.
-
-**Alternative for Docker environments:** If running inside Docker already (e.g., Airflow worker),
-use a second container with `--network=none --memory=512m --cpus=0.5 --read-only` and mount
-only the temp file. This is heavier but works when firejail isn't available.
 
 ### HumanEval integration
 
 ```python
 # experiments/scripts/eval/humaneval.py
-from datasets import load_dataset
+from datasets import load_from_disk
 
-def load_humaneval():
-    ds = load_dataset("openai/openai_humaneval", split="test")
+def load_humaneval(dataset_path: str):
+    ds = load_from_disk(dataset_path)
     return [
         {
             "task_id": row["task_id"],
-            "prompt": row["prompt"],       # function signature + docstring
-            "test": row["test"],           # assert statements
+            "prompt": row["prompt"],
+            "test": row["test"],
             "entry_point": row["entry_point"],
         }
-        for row in ds
+        for row in ds["train"]  # saved as "train" split in prefetch notebook
     ]
 ```
 
@@ -652,9 +1048,11 @@ The eval runner sends each `prompt` to the model, receives generated code, conca
 - `executable_rate = sum(executable) / total`
 - `pass_at_1 = sum(tests_passed) / total`
 
+All 164 problems are small enough to always run in full — no regression/full split needed.
+
 ---
 
-## 10. Streamlit Multi-Page Migration
+## 12. Streamlit Multi-Page Migration
 
 ### Current state
 
@@ -666,7 +1064,7 @@ Streamlit's [multi-page app structure](https://docs.streamlit.io/get-started/mul
 ```
 src/ui/
   app.py              # entrypoint: shared init (auth, client, settings, page config)
-  client.py           # GatewayClient (unchanged)
+  client.py           # GatewayClient (unchanged, extended with eval methods)
   config.py           # settings (unchanged)
   pages/
     1_Chat.py         # current chat functionality (extracted from app.py)
@@ -687,25 +1085,25 @@ Each page file in `pages/` accesses the shared client and auth state.
 
 The `2_Benchmarks.py` page provides:
 
-#### 1. Run list & filtering
+**1. Run list & filtering**
 - Table of recent eval runs with columns: date, task, tier, adapter, dataset, status.
 - Filters: by task, by tier, by adapter, by date range.
 - Click a run to see details.
 
-#### 2. Run detail view
+**2. Run detail view**
 - Full config display (collapsible JSON).
 - Aggregate metrics table.
 - Per-example drill-down: input, reference, generated output, scores.
 - For code tasks: execution status, error messages.
 - For RAG runs: retrieved documents with scores.
 
-#### 3. Comparison view
+**3. Comparison view**
 - Select 2+ runs to compare.
 - Side-by-side metric deltas (absolute and %).
 - Highlight which config dimensions differ between runs.
 - Chart: metric values across runs (bar chart or line over time).
 
-#### 4. Trends view
+**4. Trends view**
 - Select a task + metric.
 - Time-series chart of that metric across all runs.
 - Annotate with adapter version changes.
@@ -725,212 +1123,120 @@ These are read-only endpoints. The eval runner writes directly to Postgres (not 
 
 ---
 
-## 11. Eval Runner Architecture
+## 13. Implementation Plan
 
-### Entry point: CLI
+### Dependencies
 
-```bash
-python -m experiments.scripts.eval.run_eval \
-  --task chat \
-  --tier regression \
-  --adapter-name lora-chat \
-  --adapter-version 5 \
-  --dataset hotpotqa \
-  --split regression_500 \
-  --rag-config experiments/conf/eval_rag_default.yaml \
-  --judge google/gemini-2.0-flash
-```
-
-### Execution flow
-
-```
-1. Parse args → build EvalConfig
-2. Resolve versions:
-   - Query MLflow for adapter_version → get mlflow_run_id
-   - Snapshot Qdrant collection (if RAG enabled)
-   - Read dataset DVC hash
-3. Create eval_runs row in Postgres (status='running')
-4. Prepare inference:
-   - If specific adapter requested → sync_version() + start eval-vllm
-   - Else → use production vLLM endpoint
-5. Load dataset split
-6. For each example (with progress bar):
-   a. If RAG enabled: retrieve context via RAG service
-   b. Build prompt (system + optional context + user input)
-   c. Call vLLM for generation
-   d. Compute automatic metrics (ROUGE-L, BERTScore)
-   e. If task == "code": run sandbox execution
-   f. If judge configured: call LLM-as-judge (with rate limiting)
-   g. Write eval_examples row
-7. Compute aggregate metrics → write eval_metrics rows
-8. Update eval_runs: status='completed', finished_at=now()
-9. Print summary to stdout
-```
-
-### Parallel execution considerations
-
-- **Generation**: Sequential (1 request at a time to vLLM — it handles batching internally).
-- **Judge calls**: Sequential with rate-limiting sleep (stay under 15 RPM for free tier).
-- **Sandbox execution**: Can be parallelized (CPU-bound, no GPU), but sequential is fine for
-  164 HumanEval problems.
-- **Metric computation**: Batched (BERTScore works best in batches of 32+).
-
-### Airflow DAG (for scheduled full evals)
-
-```python
-# dags/eval_full.py
-from airflow import DAG
-from airflow.operators.bash import BashOperator
-
-with DAG("eval_full", schedule_interval=None, ...) as dag:
-    # Manually triggered — not scheduled
-    eval_chat = BashOperator(
-        task_id="eval_chat_full",
-        bash_command=(
-            "python -m experiments.scripts.eval.run_eval "
-            "--task chat --tier full "
-            "--dataset hotpotqa --split validation "
-            "--judge google/gemini-2.0-flash"
-        ),
-    )
-    eval_summarize = BashOperator(
-        task_id="eval_summarize_full",
-        bash_command=(
-            "python -m experiments.scripts.eval.run_eval "
-            "--task summarize --tier full "
-            "--dataset arxiv-summarization --split validation "
-            "--judge google/gemini-2.0-flash"
-        ),
-    )
-    eval_code = BashOperator(
-        task_id="eval_code_full",
-        bash_command=(
-            "python -m experiments.scripts.eval.run_eval "
-            "--task code --tier full "
-            "--dataset humaneval --split test"
-        ),
-    )
-    # All three can run in parallel (if resources allow) or sequentially
-    [eval_chat, eval_summarize, eval_code]
-```
-
----
-
-## 12. Implementation Plan
-
-### Phase 1: Foundation (database + eval runner skeleton)
-
-1. Add `EvalRun`, `EvalMetric`, `EvalExample` models to `src/shared/db/models.py`.
-2. Create the `experiments/scripts/eval/` package:
-   - `run_eval.py` — CLI arg parsing, main loop skeleton.
-   - `metrics.py` — ROUGE-L and BERTScore computation.
-   - `config.py` — `EvalConfig` pydantic model.
-3. Implement basic eval flow for **chat** task (no judge, automatic metrics only).
-4. Write regression split preparation script.
-5. Verify: run a chat regression eval, see results in Postgres.
-
-### Phase 2: LLM-as-Judge + adapter loading
-
-6. Implement `judge.py` — Gemini API client with structured output, rate limiting, fallback.
-7. Extend `AdapterSyncer` with `sync_version()`.
-8. Add `eval-vllm` profile to docker-compose.
-9. Wire judge scoring into the eval loop.
-10. Verify: run chat eval with judge, see relevance/correctness scores in DB.
-
-### Phase 3: Code evaluation sandbox
-
-11. Implement `sandbox.py` with firejail isolation.
-12. Implement `humaneval.py` — dataset loading + prompt construction.
-13. Wire code eval into `run_eval.py`.
-14. Verify: run code eval, see pass@1 in DB.
-
-### Phase 4: Streamlit migration + benchmarks page
-
-15. Migrate `app.py` to multi-page structure (`pages/1_Chat.py`).
-16. Add eval read endpoints to gateway (`/v1/eval/runs`, etc.).
-17. Build `pages/2_Benchmarks.py` — run list, detail, comparison, trends.
-18. Add `GatewayClient` methods for eval endpoints.
-19. Verify: full loop — run eval → see results in UI.
-
-### Phase 5: RAG eval + sweeps
-
-20. Add retrieval-only eval mode (Recall@k, nDCG@k without generation).
-21. Implement sweep config parsing and grid execution.
-22. Add groundedness scoring to the judge.
-23. Build sweep comparison views in the UI.
-
-### Phase 6: Airflow integration + polish
-
-24. Create `dags/eval_full.py` DAG.
-25. Configure Airflow connection to app's Postgres.
-26. Add post-training regression hook.
-27. MLflow metric cross-posting.
-
----
-
-## Appendix A: New Dependencies
+New Python packages (add to `pyproject.toml` under a new `eval` extras group):
 
 ```toml
-# pyproject.toml — new extras group
 [project.optional-dependencies]
 eval = [
     "rouge-score",
     "bert-score",
-    "google-genai",       # Google AI Studio SDK (for Gemini judge)
-    "groq",               # Groq SDK (fallback judge)
+    "google-genai",       # Google AI Studio SDK (Gemini judge)
     "datasets",           # HuggingFace datasets (HumanEval loading)
 ]
 ```
 
-`firejail` is a system package, installed via `apt install firejail` in the eval environment
-(Dockerfile or host).
+System package: `firejail` — install via `apt install firejail` on the host.
 
-## Appendix B: Environment Variables
+Environment variables:
 
 ```bash
-# .env additions for eval
-GATEWAY_JUDGE_API_KEY=<google-ai-studio-api-key>
-GATEWAY_JUDGE_FALLBACK_API_KEY=<groq-api-key>
-EVAL_VLLM_BASE_URL=http://eval-vllm:8000    # points to eval-vllm service
-EVAL_ADAPTERS_DIR=./assets/eval_adapters     # staging dir for eval adapter downloads
+GEMINI_API_KEY=<google-ai-studio-api-key>
 ```
 
-## Appendix C: File Tree (new files)
+### New file tree
 
 ```
 experiments/
   conf/
-    eval_rag_default.yaml       # default RAG config for eval
-    eval_sweep.yaml             # sweep grid definition
+    eval_config.yaml                # Hydra entrypoint for eval
+    eval/
+      task/
+        chat.yaml
+        summarize.yaml
+        code.yaml
+      rag/
+        default.yaml
+        no_rag.yaml
+        arxiv.yaml
+        pytorch_docs.yaml
+      judge/
+        gemini.yaml
+        none.yaml
   scripts/
     eval/
       __init__.py
-      run_eval.py               # CLI entry point
-      config.py                 # EvalConfig pydantic model
-      judge.py                  # LLM-as-judge client
-      metrics.py                # ROUGE-L, BERTScore
-      sandbox.py                # firejail code execution
-      humaneval.py              # HumanEval dataset interface
-      prepare_regression_splits.py
+      run_eval.py                   # Hydra-driven CLI entry point
+      config.py                     # EvalConfig pydantic model
+      judge.py                      # Gemini judge client
+      metrics.py                    # ROUGE-L, BERTScore
+      sandbox.py                    # firejail code execution
+      humaneval.py                  # HumanEval dataset loader
 
 src/
   shared/
     db/
-      models.py                 # +EvalRun, EvalMetric, EvalExample
+      models.py                     # +EvalRun, EvalMetric, EvalExample
   gateway/
     api/
       v1/
-        eval.py                 # read-only eval endpoints
+        eval.py                     # read-only eval endpoints
   ui/
-    app.py                      # refactored: shared init only
+    app.py                          # refactored: shared init only
     pages/
-      1_Chat.py                 # extracted chat page
-      2_Benchmarks.py           # new benchmarks dashboard
-
-dags/
-  eval_full.py                  # Airflow DAG for on-demand full eval
-
-infra/
-  compose/
-    docker-compose.yaml         # +eval-vllm service (profile: eval)
+      1_Chat.py                     # extracted chat page
+      2_Benchmarks.py               # new benchmarks dashboard
 ```
+
+### Phases
+
+#### Phase 1: Foundation — database + Hydra eval skeleton
+
+1. Add `EvalRun`, `EvalMetric`, `EvalExample` models to `src/shared/db/models.py`.
+2. Create Hydra config structure (`eval_config.yaml` + `eval/task/`, `eval/rag/`, `eval/judge/`).
+3. Create `experiments/scripts/eval/` package:
+   - `run_eval.py` — Hydra entry point, main loop skeleton.
+   - `config.py` — `EvalConfig` pydantic model.
+   - `metrics.py` — ROUGE-L and BERTScore computation.
+4. Implement basic eval flow for **chat** task (automatic metrics only, no judge).
+5. Verify: run a chat regression eval, see results in Postgres.
+
+#### Phase 2: LLM-as-Judge + adapter loading
+
+6. Implement `judge.py` — `GeminiJudge` class with structured output and rate limiting.
+7. Extend `AdapterSyncer` with `sync_version()` method.
+8. Add vLLM runtime LoRA loading (call `POST /v1/load_lora_adapter` from eval runner).
+9. Wire judge scoring into the eval loop.
+10. Verify: run chat eval with judge, see relevance/correctness scores in DB.
+
+#### Phase 3: Code evaluation sandbox
+
+11. Implement `sandbox.py` with `firejail` isolation.
+12. Implement `humaneval.py` — load from `assets/datasets/humaneval/`.
+13. Wire code eval path into `run_eval.py`.
+14. Verify: run code eval, see pass@1 in DB.
+
+#### Phase 4: MLflow integration
+
+15. Implement Level 1 logging (attach eval metrics to the training run).
+16. Implement Level 2 logging (dedicated `eval` MLflow experiment).
+17. Add `gate_promotion` flag and quality-gated promotion logic.
+18. Verify: eval metrics visible in MLflow UI alongside training metrics.
+
+#### Phase 5: Streamlit migration + benchmarks page
+
+19. Migrate `app.py` to multi-page structure (`pages/1_Chat.py`).
+20. Add eval read endpoints to gateway (`/v1/eval/runs`, etc.).
+21. Build `pages/2_Benchmarks.py` — run list, detail, comparison, trends.
+22. Extend `GatewayClient` with eval endpoint methods.
+23. Verify: full loop — run eval → see results in UI, compare runs.
+
+#### Phase 6: RAG eval + sweeps
+
+24. Add retrieval-only eval mode (Recall@k, nDCG@k without generation).
+25. Add groundedness scoring to the judge.
+26. Run initial sweeps with `--multirun`.
+27. Build sweep comparison views in the UI.
