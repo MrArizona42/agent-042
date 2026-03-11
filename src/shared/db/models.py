@@ -147,7 +147,7 @@ class EvalRun(Base):
     __table_args__ = (
         Index("idx_eval_runs_task", "task"),
         Index("idx_eval_runs_adapter", "adapter_name", "adapter_version"),
-        Index("idx_eval_runs_created", created_at.desc()),
+        Index("idx_eval_runs_created", "created_at"),
         Index("idx_eval_runs_config", "config", postgresql_using="gin"),
     )
 
