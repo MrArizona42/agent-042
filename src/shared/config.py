@@ -230,6 +230,14 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # Database Settings
+    # =========================================================================
+    agent042_db_url: str = Field(
+        default="",
+        description="PostgreSQL connection URL for agent042 DB (async: postgresql+asyncpg://...)",
+    )
+
+    # =========================================================================
     # UI Settings (uses different prefix for some settings)
     # =========================================================================
     # Note: GATEWAY_URL is the full URL to access the gateway from UI

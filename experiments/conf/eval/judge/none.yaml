@@ -1,0 +1,8 @@
+# @package _global_
+judge:
+  enabled: false
+  model: null
+  api_key: null
+  max_rpm: 14
+  timeout: 30.0
+  structured_output: false
