@@ -1,6 +1,6 @@
 outs:
-- md5: 760e9b760ee5c7c88a1148086bae5313.dir
-  size: 18585360
+- md5: a16adca8675dd3e3f6bf75ba7021eb32.dir
+  size: 187254
   nfiles: 1
   hash: md5
   path: arxiv

@@ -22,6 +22,7 @@ from typing import Any
 import mlflow
 from mlflow import artifacts as mlflow_artifacts
 from mlflow.exceptions import MlflowException
+from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
 from mlflow.tracking import MlflowClient
 
 logger = logging.getLogger(__name__)
@@ -201,9 +202,19 @@ class AdapterRegistry:
         Returns:
             ``{model_name: RegisteredAdapter}`` for each model with a
             ``"champion"`` alias.
+
+        Raises:
+            RuntimeError: If MLflow is unreachable or returns an unexpected error.
         """
+        try:
+            registered_models = list(self.client.search_registered_models())
+        except Exception as exc:
+            raise RuntimeError(
+                f"MLflow service unhealthy: {exc}"
+            ) from exc
+
         result: dict[str, RegisteredAdapter] = {}
-        for rm in self.client.search_registered_models():
+        for rm in registered_models:
             try:
                 mv = self.client.get_model_version_by_alias(rm.name, ALIAS_PRODUCTION)
                 result[rm.name] = RegisteredAdapter(
@@ -215,9 +226,13 @@ class AdapterRegistry:
                     tags=mv.tags or {},
                     description=mv.description,
                 )
-            except MlflowException:
-                # Model exists but has no champion alias — skip.
-                continue
+            except MlflowException as exc:
+                if exc.error_code == "RESOURCE_DOES_NOT_EXIST":
+                    # Model exists but has no champion alias — skip.
+                    continue
+                raise RuntimeError(
+                    f"MLflow error while querying alias for '{rm.name}': {exc}"
+                ) from exc
         return result
 
     # ── Download ─────────────────────────────────────────────────────────
