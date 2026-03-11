@@ -47,6 +47,7 @@ from typing import Any
 import mlflow
 from mlflow import artifacts as mlflow_artifacts
 from mlflow.exceptions import MlflowException
+from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
 from mlflow.tracking import MlflowClient
 
 logger = logging.getLogger(__name__)
@@ -97,14 +98,29 @@ class AdapterSyncer:
         self.adapters_dir = Path(adapters_dir)
 
     def discover_production_adapters(self) -> dict[str, Any]:
-        """Return ``{model_name: ModelVersion}`` for every champion adapter."""
+        """Return ``{model_name: ModelVersion}`` for every champion adapter.
+
+        Raises:
+            RuntimeError: If MLflow is unreachable or returns an unexpected error.
+        """
+        try:
+            registered_models = list(self.client.search_registered_models())
+        except Exception as exc:
+            raise RuntimeError(
+                f"MLflow service unhealthy: {exc}"
+            ) from exc
+
         result = {}
-        for rm in self.client.search_registered_models():
+        for rm in registered_models:
             try:
                 mv = self.client.get_model_version_by_alias(rm.name, ALIAS_PRODUCTION)
                 result[rm.name] = mv
-            except MlflowException:
-                continue
+            except MlflowException as exc:
+                if exc.error_code == "RESOURCE_DOES_NOT_EXIST":
+                    continue
+                raise RuntimeError(
+                    f"MLflow error while querying alias for '{rm.name}': {exc}"
+                ) from exc
         return result
 
     def sync(self, base_model_name: str | None = None) -> list[AdapterInfo]:
@@ -120,6 +136,11 @@ class AdapterSyncer:
         adapters_map = self.discover_production_adapters()
         if not adapters_map:
             logger.warning("No adapters with '%s' alias found.", ALIAS_PRODUCTION)
+            # Write an empty manifest so vLLM can start without LoRA modules.
+            manifest_path = self.adapters_dir / "lora-modules.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text("[]")
+            logger.info("Wrote empty vLLM manifest: %s", manifest_path)
             return []
 
         infos: list[AdapterInfo] = []
