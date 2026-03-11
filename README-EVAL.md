@@ -139,6 +139,7 @@ EvalConfig:
   dataset_dvc_hash: str | None # exact content hash from DVC
   task: str                    # "chat" | "summarize" | "code"
   judge_model: str | None      # "gemini-2.0-flash" | None (for automatic-only metrics)
+  bert_score_model: str        # "roberta-large" — pinned so scores stay comparable across runs
 
   # Generation params
   temperature: float
@@ -339,6 +340,8 @@ experiments/
       judge/
         gemini.yaml            # Gemini 2.0 Flash config
         none.yaml              # no judge (automatic metrics only)
+      metrics/
+        default.yaml           # BERTScore model and ROUGE settings
 ```
 
 ### `eval_config.yaml` — top-level eval config
@@ -348,6 +351,7 @@ defaults:
   - eval/task: chat
   - eval/rag: default
   - eval/judge: gemini
+  - eval/metrics: default
   - _self_
 
 # ── Model ──
@@ -379,6 +383,10 @@ generation:
 # ── Output ──
 db_url: ${oc.env:GATEWAY_AGENT042_DB_URL}
 
+# ── Automatic metrics ──
+metrics:
+  bert_score_model: roberta-large  # see eval/metrics/default.yaml
+
 hydra:
   run:
     dir: experiments/logs/eval-logs/${now:%Y-%m-%d}/${now:%H-%M-%S}
@@ -396,7 +404,7 @@ metrics:
   - relevance
   - correctness
   - rouge_l
-  - bert_score
+  - bert_score  # model pinned in eval/metrics/default.yaml
 ```
 
 ### `eval/task/summarize.yaml`
@@ -411,7 +419,7 @@ metrics:
   - faithfulness
   - coverage
   - rouge_l
-  - bert_score
+  - bert_score  # model pinned in eval/metrics/default.yaml
 ```
 
 ### `eval/task/code.yaml`
@@ -442,6 +450,23 @@ rag:
   retrieval_top_k: 5
   score_threshold: 0.35
   reranking_strategy: none
+```
+
+### `eval/metrics/default.yaml`
+
+```yaml
+metrics:
+  bert_score_model: roberta-large
+  # BERTScore uses its own internal encoder — NOT the RAG embedding model.
+  # roberta-large is the library default; it is well-calibrated and widely used
+  # as a reference point in the literature (~1.4 GB one-time download).
+  #
+  # Alternative: microsoft/deberta-xlarge-mnli — stronger correlation with human
+  # judgments per the BERTScore paper, but ~2.3 GB and noticeably slower.
+  #
+  # IMPORTANT: BERTScore values are NOT comparable across different model choices.
+  # Always fix bert_score_model and record it in EvalConfig so that results from
+  # different runs remain comparable.
 ```
 
 ### `eval/judge/gemini.yaml`
@@ -1172,7 +1197,7 @@ experiments/
       run_eval.py                   # Hydra-driven CLI entry point
       config.py                     # EvalConfig pydantic model
       judge.py                      # Gemini judge client
-      metrics.py                    # ROUGE-L, BERTScore
+      metrics.py                    # ROUGE-L, BERTScore (roberta-large)
       sandbox.py                    # firejail code execution
       humaneval.py                  # HumanEval dataset loader
 
@@ -1200,7 +1225,7 @@ src/
 3. Create `experiments/scripts/eval/` package:
    - `run_eval.py` — Hydra entry point, main loop skeleton.
    - `config.py` — `EvalConfig` pydantic model.
-   - `metrics.py` — ROUGE-L and BERTScore computation.
+   - `metrics.py` — ROUGE-L and BERTScore computation (`roberta-large` by default, controlled by `metrics.bert_score_model`).
 4. Implement basic eval flow for **chat** task (automatic metrics only, no judge).
 5. Verify: run a chat regression eval, see results in Postgres.
 
