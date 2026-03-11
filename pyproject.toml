@@ -95,6 +95,7 @@ mlflow = [
     "mlflow>=3.8.1,<4",
     "psycopg2-binary>=2.9,<3",
     "boto3>=1.35,<2",
+    "pydantic-settings>=2.10.1",
 ]
 
 dev = [

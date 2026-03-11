@@ -176,8 +176,11 @@ pydantic==2.12.5
     #   fastapi
     #   mlflow-skinny
     #   mlflow-tracing
+    #   pydantic-settings
 pydantic-core==2.41.5
     # via pydantic
+pydantic-settings==2.13.1
+    # via agent-042 (pyproject.toml)
 pyparsing==3.3.2
     # via matplotlib
 python-dateutil==2.9.0.post0
@@ -187,7 +190,9 @@ python-dateutil==2.9.0.post0
     #   matplotlib
     #   pandas
 python-dotenv==1.2.1
-    # via mlflow-skinny
+    # via
+    #   mlflow-skinny
+    #   pydantic-settings
 pytz==2025.2
     # via pandas
 pyyaml==6.0.3
@@ -245,6 +250,7 @@ typing-inspection==0.4.2
     # via
     #   fastapi
     #   pydantic
+    #   pydantic-settings
 tzdata==2025.3
     # via pandas
 urllib3==2.6.3
