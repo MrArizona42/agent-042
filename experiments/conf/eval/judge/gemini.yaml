@@ -1,0 +1,8 @@
+# @package _global_
+judge:
+  enabled: true
+  model: gemini-2.0-flash
+  api_key: ${oc.env:GEMINI_API_KEY}
+  max_rpm: 14            # stay under 15 RPM free tier
+  timeout: 30.0
+  structured_output: true

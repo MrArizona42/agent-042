@@ -1,0 +1,34 @@
+defaults:
+  - eval/task: chat
+  - eval/rag: default
+  - eval/judge: gemini
+  - eval/metrics: default
+  - _self_
+
+# ── Model ──
+model:
+  base_model: /models/Qwen/Qwen3-0.6B
+  vllm_base_url: http://localhost:8000
+
+# ── Adapter (nullable — omit or set to null for base model) ──
+adapter:
+  name: null            # e.g. "lora-summarization"
+  version: null         # e.g. 3 (MLflow version number) or "champion"
+
+# ── Eval ──
+tier: regression        # regression | full
+dataset:
+  seed: 42              # for reproducible subsampling
+
+# ── Generation ──
+generation:
+  temperature: 0.1
+  top_p: 0.95
+  max_tokens: 512
+
+# ── Output ──
+db_url: ${oc.env:GATEWAY_AGENT042_DB_URL}
+
+hydra:
+  run:
+    dir: experiments/logs/eval-logs/${now:%Y-%m-%d}/${now:%H-%M-%S}

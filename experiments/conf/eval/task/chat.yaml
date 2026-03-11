@@ -1,0 +1,12 @@
+# @package _global_
+task: chat
+dataset:
+  name: hotpotqa
+  split: validation
+  max_examples: 200
+  seed: 42
+task_metrics:
+  - relevance
+  - correctness
+  - rouge_l
+  - bert_score

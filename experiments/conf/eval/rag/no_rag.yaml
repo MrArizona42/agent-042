@@ -1,0 +1,11 @@
+# @package _global_
+rag:
+  enabled: false
+  knowledge_base: null
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  chunking_strategy: fixed_token
+  chunk_size: 512
+  chunk_overlap: 50
+  retrieval_top_k: 5
+  score_threshold: 0.35
+  reranking_strategy: none

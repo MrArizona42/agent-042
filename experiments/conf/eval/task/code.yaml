@@ -1,0 +1,12 @@
+# @package _global_
+task: code
+dataset:
+  name: humaneval
+  split: test
+  max_examples: null  # all 164
+  seed: 42
+task_metrics:
+  - executable_rate
+  - pass_at_1
+judge:
+  enabled: false      # code uses sandbox execution, not LLM judge
