@@ -232,8 +232,7 @@ def run_evaluation(eval_config: EvalConfig) -> None:
     from sqlalchemy.orm import Session
 
     logger.info(
-        "Starting %s eval — task=%s, tier=%s",
-        eval_config.task,
+        "Starting eval — task=%s, tier=%s",
         eval_config.task,
         eval_config.tier,
     )
