@@ -57,11 +57,45 @@ Gemini 2.0 Flash через Google AI Studio API — достаточно сил
 
 **Архитектура оценивания**
 
-Каждая проверка — отдельный DAG в Airflow.
+* Один Airflow DAG = один eval-suite (например: `eval_chat_hotpotqa`, `eval_retrieval_beir_scifact`,
+  `eval_code_humaneval`), а не отдельный DAG на каждую micro-metric.
+* Внутри DAG:
+    * шаг подготовки конфигурации run,
+    * шаг инференса/получения предсказаний,
+    * шаг расчёта метрик,
+    * шаг логирования в БД
+
+### Аргументы eval-run
+
+Каждый eval-run должен принимать два аргумента для матричного сравнения конфигураций:
+
+* `rag_aliases: list[str]` — список alias-ов RAG (Qdrant collection aliases).
+* `lora_aliases: list[str]` — список alias-ов LoRA (MLflow Model Registry aliases).
+
+По умолчанию:
+
+* `rag_aliases=["champion"]`
+* `lora_aliases=["champion"]`
+
+Оба аргумента поддерживают более одного значения, например:
+
+* `rag_aliases=["champion","challenger"]`
+* `lora_aliases=["champion","challenger"]`
+
+В таком случае один запуск формирует декартово произведение конфигураций и считает метрики для
+каждой пары `(rag_alias, lora_alias)`.
+
+Production inference policy:
+
+* По умолчанию online inference использует `rag_alias="champion"`.
+* Другие alias-ы (`challenger` и др.) используются только для экспериментов.
+
 
 ---
 
 **Схемы БД**
+
+Задача - залогировать для каждой проверки (task + dataset + metric) уникальный run_id, значение метрики и полную конфигурацию системы (модель, RAG, LoRA, параметры генерации и т.д.) для последующего анализа и построения дашбордов.
 
 ```sql
 CREATE TABLE eval_runs (
@@ -116,8 +150,7 @@ CREATE INDEX idx_eval_runs_extra ON eval_runs USING gin (extra);
 
 ```
 
-В JSONB-поле `extra` хранится только дополнительная информация, которая может гибко расширяться без миграций (например, `qdrant_snapshot_id`, `dataset_dvc_hash`, `reranking_strategy`).
-
+В JSONB-поле `extra` хранится только дополнительная информация, которая может гибко расширяться без миграций.
 
 ## Этапы реализации системы оценивания агентского сервиса
 
@@ -128,11 +161,9 @@ CREATE INDEX idx_eval_runs_extra ON eval_runs USING gin (extra);
 ### Этап 2: Базовая LLM + RAG
 
 **Что нужно сделать:**
-
 ### Этап 3: Базовая LLM + RAG + LoRA
 
 **Что нужно сделать:**
-
 ### Этап 4: Агентский сервис с оркестратором
 
 **Что нужно сделать:**

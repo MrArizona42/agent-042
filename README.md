@@ -98,6 +98,8 @@ ML/DL/AI/LLM, который ускоряет поиск информации, �
 * MLFlow with Yandex Cloud S3 remote
 * **MLflow Model Registry** — реестр версионированных LoRA-адаптеров с alias-based promotion
   (champion / challenger) для перехода из экспериментов в production
+* **Qdrant aliases для RAG-индексов** — alias-based promotion для retrieval-конфигураций
+  (champion / challenger) без полного релиза в production
 * Hydra для конфигурирования тренировок
 * Lightning AI (Pytorch Lightning) для организации тренировочных пайплайнов
 
@@ -296,6 +298,33 @@ train_hydra.py                 manage_registry.py            sync (model_registr
 * **DVC**: снимки индексов хранятся в Yandex Cloud S3 через DVC, аналогично датасетам.
 * **Связь с адаптерами**: в тегах model version в MLflow фиксируется версия RAG-индекса,
   которая использовалась при оценке адаптера, обеспечивая полную воспроизводимость.
+
+Для безопасного сравнения retrieval-архитектур без полного release вводится alias-based lifecycle:
+
+* **RAG alias `champion`** — текущая production retrieval-конфигурация.
+* **RAG alias `challenger`** — кандидатная retrieval-конфигурация (новый индекс, chunking,
+  reranking, top-k и т.д.).
+* **Atomic switch** — promotion выполняется через переключение alias на новую
+  коллекцию
+
+Политика обновления индексов:
+
+* Если происходит полная замена индекса (например, для pytorch docs), новый индекс строится в staging collection, тестируется и затем продвигается на alias-ы.
+* Если данные добавляются к существующему индексу (например, для arxiv статей), новые данные добавляются ко всем collection-ам, привязанным к исходному датасету. В этом случае нет необходимости в staging collection, так как индекс строится инкрементально.
+
+Production policy (текущее целевое поведение):
+
+* На production **всегда должен существовать alias `champion`**
+* На production **могут существовать дополнительные alias-ы** (`challenger` и др.) для тестов и
+  валидации.
+* Параметры `top_k`, `score_threshold`, `reranking` в текущей архитектуре считаются конфигурацией
+  всей RAG-системы и применяются ко всем collection-ам, которые участвуют в inference.
+* Эксперименты с этими параметрами выполняются через деплой новой production-конфигурации
+
+Политика маршрутизации трафика:
+
+* Production inference по умолчанию использует `rag_alias="champion"` (хардкод/дефолт).
+* Непродовые alias-ы (`challenger` и др.) используются для eval/тестов/ручных проверок.
 
 ## Workflow automation and CI/CD
 
