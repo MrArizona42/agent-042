@@ -1,101 +1,195 @@
 # Evaluation & Benchmarking
 
+## 1. Overview
 
-## Краткое описание
+### 1.1 Tasks, metrics, and datasets
 
-**Типы задач**
+| Task | Dataset | Metrics | Method |
+|---|---|---|---|
+| Chat (QA) | HotpotQA (validation) | Relevance (1–5), Correctness (1–5) | LLM-as-Judge |
+| Chat (QA) | HotpotQA (validation) | BERTScore, ROUGE-L | Automatic |
+| Chat (QA) | Natural Questions (validation) | Relevance (1–5), Correctness (1–5) | LLM-as-Judge |
+| Chat (QA) | Natural Questions (validation) | BERTScore, ROUGE-L | Automatic |
+| Summarization | ArXiv-summarization (validation) | Faithfulness (1–5), Coverage (1–5) | LLM-as-Judge |
+| Summarization | ArXiv-summarization (validation) | BERTScore, ROUGE-L | Automatic |
+| Code generation | HumanEval (test, 164 examples) | Executable rate, pass@1 | Sandboxed execution |
+| RAG + Chat | HotpotQA (validation) | Groundedness (1–5) | LLM-as-Judge |
+| RAG + Chat | Natural Questions (validation) | Groundedness (1–5) | LLM-as-Judge |
+| RAG + Code | HumanEval (test) | Groundedness (1–5) | LLM-as-Judge |
+| Retrieval-only | MS MARCO (validation) | Recall@k, nDCG@k | Automatic |
+| Retrieval-only | BEIR-SciFact (corpus) | Recall@k, nDCG@k | Automatic |
+| Retrieval-only | BEIR-NFCorpus (corpus) | Recall@k, nDCG@k | Automatic |
 
-* Chat (QA)
-* Summarization
-* Code generation
+### 1.2 Storage granularity
 
-**Метрики**
+Each eval run produces **one row per metric** in `eval_runs`. For example, `eval_chat_hotpotqa`
+with `rag_aliases=["champion","challenger"]` and `lora_aliases=["champion"]` produces:
+4 metrics × 2 rag_aliases × 1 lora_alias = **8 rows**.
 
-* Chat: Relevance (1–5), Correctness (1–5), BERTScore, ROUGE-L
-* Summarization: Faithfulness (1–5), Coverage (1–5), BERTScore, ROUGE-L
-* Code generation: Executable rate, pass@1
-* RAG-specific: Recall@k, nDCG@k, Groundedness
+### 1.3 LLM-as-Judge
 
-**Датасеты**
+Gemini 2.0 Flash via Google AI Studio API. Supports structured JSON output.
+Free tier: 15 RPM, 1M tokens/day.
 
-* Chat: HotpotQA, Natural Questions
-* Summarization: ArXiv-summarization
-* Code generation: HumanEval
-* RAG: MS MARCO, BEIR-SciFact, BEIR-NFCorpus
+<!-- USER-DECISION: eval subset size
+     HotpotQA validation has ~7k examples. At 15 RPM, one LLM-as-judge metric takes ~8 hours.
+     Options:
+     (a) Sample N examples per eval run (e.g., 200) — fast, but noisier.
+     (b) Use paid tier for higher RPM — faster, but costs money.
+     (c) Full dataset, accept long runtime — accurate, but blocks DAG slots for hours.
+     Pick subset size or rate limit strategy and update this section. -->
 
-**Полный список проверок**
+### 1.4 Code execution sandbox
 
-* Chat - HotpotQA - Relevance (llm-as-judge)
-* Chat - HotpotQA - Correctness (llm-as-judge)
-* Chat - HotpotQA - BERTScore (llm-encoder-based)
-* Chat - HotpotQA - ROUGE-L (automatic)
-* Chat - Natural Questions - Relevance (llm-as-judge)
-* Chat - Natural Questions - Correctness (llm-as-judge)
-* Chat - Natural Questions - BERTScore (llm-encoder-based)
-* Chat - Natural Questions - ROUGE-L (automatic)
-* Code generation - HumanEval - Executable rate (sandboxed execution)
-* Code generation - HumanEval - pass@1 (sandboxed execution)
-* Summarization - ArXiv-summarization - Faithfulness (llm-as-judge)
-* Summarization - ArXiv-summarization - Coverage (llm-as-judge)
-* Summarization - ArXiv-summarization - BERTScore (llm-encoder-based)
-* Summarization - ArXiv-summarization - ROUGE-L (automatic)
-* RAG in Chat - HotpotQA - Groundedness (llm-as-judge)
-* RAG in Chat - Natural Questions - Groundedness (llm-as-judge)
-* RAG in Code generation - HumanEval - Groundedness (llm-as-judge)
-* RAG-only, retrieval - MS MARCO - Recall@k (automatic)
-* RAG-only, retrieval - MS MARCO - nDCG@k (automatic)
-* RAG-only, retrieval - BEIR-SciFact - Recall@k (automatic)
-* RAG-only, retrieval - BEIR-SciFact - nDCG@k (automatic)
-* RAG-only, retrieval - BEIR-NFCorpus - Recall@k (automatic)
-* RAG-only, retrieval - BEIR-NFCorpus - nDCG@k (automatic)
+HumanEval requires executing untrusted generated Python code.
 
-**LLM-as-Judge**
-
-Gemini 2.0 Flash через Google AI Studio API — достаточно сильная модель для нашей системы (текущая реализация базируется на QWEN 3 0.6b), поддерживает структурированный JSON-вывод, и имеет бесплатный лимит (15 RPM, 1M токенов в день).
+<!-- USER-DECISION: sandbox mechanism
+     Options:
+     (a) Docker container with resource limits (CPU/memory/timeout per sample, no network).
+     (b) Restricted Python subprocess with resource.setrlimit + timeout.
+     (c) Dedicated sandboxing tool (e.g., bubblewrap, firejail).
+     Pick a mechanism and specify timeout per sample (e.g., 30s). -->
 
 ---
 
-**Архитектура оценивания**
+## 2. Eval architecture
 
-* Один Airflow DAG = один eval-suite (например: `eval_chat_hotpotqa`, `eval_retrieval_beir_scifact`,
-  `eval_code_humaneval`), а не отдельный DAG на каждую micro-metric.
-* Внутри DAG:
-    * шаг подготовки конфигурации run,
-    * шаг инференса/получения предсказаний,
-    * шаг расчёта метрик,
-    * шаг логирования в БД
+### 2.1 Two types of evaluation
 
-### Аргументы eval-run
+The system has two fundamentally different eval types with different execution paths:
 
-Каждый eval-run должен принимать два аргумента для матричного сравнения конфигураций:
+**Generation evals** (Chat, Summarization, Code, RAG+Chat, RAG+Code):
+- The eval runner calls the **gateway API** (`POST /v1/chat/completions`).
+- The gateway is the single source of truth for alias resolution, RAG retrieval, and inference.
+- The eval runner never imports `RAG/` or calls vLLM directly.
 
-* `rag_aliases: list[str]` — список alias-ов RAG (Qdrant collection aliases).
-* `lora_aliases: list[str]` — список alias-ов LoRA (MLflow Model Registry aliases).
+**Retrieval-only evals** (MS MARCO, BEIR-SciFact, BEIR-NFCorpus):
+- These use **benchmark-provided corpora and relevance judgments** — they do NOT query production
+  KBs (`arxiv`, `pytorch_docs`).
+- The eval runner uses the `RAG/` library directly (not the gateway API) to:
+  1. Build a temporary Qdrant collection from the benchmark corpus, using the same build config
+     (chunking strategy, embedding model) as the production collection being evaluated.
+  2. Run benchmark queries through the embedding + retrieval pipeline.
+  3. Compare retrieved results against gold relevance labels.
+- The build config is read from the `_meta` sentinel point of the production collection
+  (identified by `kb_name + rag_alias`). This ensures the retrieval eval measures the same
+  architecture that production uses.
+- Temporary benchmark collections are named `eval_{dataset}_{timestamp}` and deleted after the
+  eval completes.
 
-По умолчанию:
+### 2.2 Gateway API extensions for eval
 
-* `rag_aliases=["champion"]`
-* `lora_aliases=["champion"]`
+**Returning RAG context for Groundedness evaluation:**
 
-Оба аргумента поддерживают более одного значения, например:
+The gateway API response must include the retrieved RAG chunks alongside the generated answer.
+This is needed for Groundedness metrics (LLM-as-Judge evaluates whether the answer is supported
+by the retrieved context).
 
-* `rag_aliases=["champion","challenger"]`
-* `lora_aliases=["champion","challenger"]`
+The retrieved chunks are returned in a `rag_context` field in the response:
 
-В таком случае один запуск формирует декартово произведение конфигураций и считает метрики для
-каждой пары `(rag_alias, lora_alias)`.
+```json
+{
+    "choices": [{"message": {"role": "assistant", "content": "..."}}],
+    "rag_context": [
+        {"content": "chunk text...", "score": 0.87, "source": "arxiv_champion"},
+        {"content": "chunk text...", "score": 0.82, "source": "arxiv_champion"}
+    ]
+}
+```
 
-Production inference policy:
+When `rag_sources` is provided in the request, the response includes `rag_context`.
+When RAG is disabled, `rag_context` is omitted or null.
 
-* По умолчанию online inference использует `rag_alias="champion"`.
-* Другие alias-ы (`challenger` и др.) используются только для экспериментов.
+**LoRA adapter selection:**
 
+vLLM with `--enable-lora` accepts LoRA adapter names through the standard `model` field in the
+OpenAI-compatible API. The eval runner selects a LoRA adapter by setting `model` to the adapter
+name registered in vLLM (e.g., `lora-summarization`, `lora-code`).
+
+The adapter name is resolved via MLflow Model Registry:
+
+```
+lora_alias="champion" → MLflow: get model version by alias → adapter_name="lora-chat", version=3
+→ API request: model="lora-chat"
+```
+
+For base model evaluation (no LoRA), `lora_alias` is set to `"none"` and `model` uses the
+default base model from settings.
+
+### 2.3 Airflow DAG structure
+
+One Airflow DAG = one eval-suite. Each suite evaluates one `(task, dataset)` pair across a matrix
+of configurations.
+
+DAG examples: `eval_chat_hotpotqa`, `eval_retrieval_beir_scifact`, `eval_code_humaneval`,
+`eval_summarization_arxiv`.
+
+DAG steps:
+
+```
+1. prepare_config       — resolve aliases, read _meta, snapshot collection, build run config
+2. generate_predictions — call gateway API (or build temp collection for retrieval-only)
+3. compute_metrics      — calculate all metrics for this (task, dataset) pair
+4. log_to_db            — write one row per (metric, rag_alias, lora_alias) to eval_runs
+5. cleanup              — delete temp collections (retrieval-only evals)
+```
+
+### 2.4 Eval-run arguments
+
+Each eval-run takes arguments for cross-configuration comparison:
+
+* `rag_aliases: list[str]` — RAG alias roles (e.g., `["champion", "challenger"]`).
+* `lora_aliases: list[str]` — LoRA adapter alias roles (e.g., `["champion", "challenger"]`).
+
+Defaults: `rag_aliases=["champion"]`, `lora_aliases=["champion"]`.
+
+When multiple values are provided, the runner forms the **Cartesian product** and evaluates
+each `(rag_alias, lora_alias)` pair independently.
+
+**KB is fixed per eval-suite, not a parameter:**
+
+| Eval suite | Knowledge base | Why |
+|---|---|---|
+| `eval_chat_hotpotqa` | `arxiv` | Chat uses arxiv KB |
+| `eval_chat_nq` | `arxiv` | Chat uses arxiv KB |
+| `eval_code_humaneval` | `pytorch_docs` | Code uses pytorch_docs KB |
+| `eval_summarization_arxiv` | N/A | Summarization never uses RAG |
+| `eval_retrieval_*` | Reads config from target KB's collection `_meta` | See Section 2.5 |
+
+The `rag_alias` argument (e.g., `champion`, `challenger`) selects which alias role of the
+suite's fixed KB to use. The eval runner constructs the Qdrant alias name as
+`{kb_name}_{rag_alias}` — consistent with RAG-IMPROVEMENTS.md alias resolution logic.
+
+For suites where RAG is not applicable (Summarization), `rag_aliases` is ignored.
+
+### 2.5 Retrieval-only eval details
+
+For retrieval-only eval suites (`eval_retrieval_msmarco`, `eval_retrieval_beir_scifact`,
+`eval_retrieval_beir_nfcorpus`), the `rag_alias` determines **which production collection's
+build config to replicate** for the benchmark:
+
+```
+1. Resolve {kb_name}_{rag_alias} → get production collection name.
+2. Read _meta → extract build_config (chunking_strategy, embedding_model, etc.).
+3. Build temporary collection eval_{dataset}_{timestamp} from benchmark corpus
+   using the extracted build_config.
+4. Run benchmark queries → compute Recall@k, nDCG@k against gold labels.
+5. Log results to eval_runs (with rag_alias recorded).
+6. Delete temporary collection.
+```
+
+<!-- USER-DECISION: retrieval eval KB mapping
+     Current assumption: retrieval evals always replicate arxiv KB config (since arxiv
+     is the primary chat KB and retrieval quality matters most there).
+     If you want retrieval evals to also test pytorch_docs config, add a kb parameter
+     to retrieval eval suites or create separate suites per KB. -->
 
 ---
 
-**Схемы БД**
+## 3. Database schema
 
-Задача - залогировать для каждой проверки (task + dataset + metric) уникальный run_id, значение метрики и полную конфигурацию системы (модель, RAG, LoRA, параметры генерации и т.д.) для последующего анализа и построения дашбордов.
+One row per `(task, dataset, metric, rag_alias, lora_alias)` combination. The full system
+configuration is captured for reproducibility.
 
 ```sql
 CREATE TABLE eval_runs (
@@ -111,22 +205,25 @@ CREATE TABLE eval_runs (
 
     -- Model
     base_model            TEXT NOT NULL,
-    adapter_name          TEXT,
+    adapter_name          TEXT,                              -- e.g., lora-chat, lora-code
     adapter_version       INTEGER,
-    adapter_mlflow_run_id TEXT, --read from MLflow Model Registry at eval start.
+    adapter_mlflow_run_id TEXT,                              -- read from MLflow Model Registry
+    lora_alias            TEXT,                              -- champion | challenger | none
 
     -- RAG
     rag_enabled           BOOLEAN NOT NULL DEFAULT false,
-    knowledge_base        TEXT,
+    rag_alias             TEXT,                              -- champion | challenger | null
+    knowledge_base        TEXT,                              -- arxiv | pytorch_docs | null
+    qdrant_collection     TEXT,                              -- resolved collection name
     embedding_model       TEXT,
     chunking_strategy     TEXT,
     chunk_size            INTEGER,
     chunk_overlap         INTEGER,
     retrieval_top_k       INTEGER,
     score_threshold       DOUBLE PRECISION,
-    qdrant_snapshot_id    TEXT, -- call POST /collections/{name}/snapshots before eval, record the ID.
-    dataset_dvc_hash      TEXT, -- dvc status or read from .dvc file at eval start.
-    reranking_strategy    TEXT, -- none | cross_encoder | llm
+    qdrant_snapshot_id    TEXT,                              -- snapshot taken before eval
+    dataset_dvc_hash      TEXT,                              -- from .dvc file at eval start
+    reranking_strategy    TEXT,                              -- none | cross_encoder | llm
 
     -- Judge & metrics config
     judge_model           TEXT,
@@ -146,8 +243,119 @@ CREATE INDEX idx_eval_runs_dataset ON eval_runs (dataset_name);
 CREATE INDEX idx_eval_runs_adapter ON eval_runs (adapter_name, adapter_version);
 CREATE INDEX idx_eval_runs_created ON eval_runs (created_at DESC);
 CREATE INDEX idx_eval_runs_base_model ON eval_runs (base_model);
+CREATE INDEX idx_eval_runs_rag_alias ON eval_runs (rag_alias);
+CREATE INDEX idx_eval_runs_lora_alias ON eval_runs (lora_alias);
 CREATE INDEX idx_eval_runs_extra ON eval_runs USING gin (extra);
-
 ```
 
-В JSONB-поле `extra` хранится только дополнительная информация, которая может гибко расширяться без миграций.
+The `extra` JSONB field stores additional information that may expand without migrations.
+
+`rag_alias` and `lora_alias` store role names (`champion`, `challenger`, `none`), not resolved
+Qdrant alias names. The resolved collection name is in `qdrant_collection`.
+
+RAG build config fields (`embedding_model`, `chunking_strategy`, `chunk_size`, `chunk_overlap`)
+are populated by reading the `_meta` sentinel point from the target collection at eval start.
+
+---
+
+## 4. Auto-promotion comparison logic
+
+Used by the `pytorch_docs_rag_update` DAG (see RAG-IMPROVEMENTS.md, Section 5.1) to decide
+whether to auto-promote a newly built collection.
+
+### 4.1 Comparison query
+
+```sql
+SELECT metric_value
+FROM eval_runs
+WHERE task = 'retrieval'
+  AND dataset_name = 'beir_scifact'
+  AND metric_name = 'nDCG@10'
+  AND rag_alias = 'champion'
+  AND knowledge_base = :kb_name
+  AND status = 'completed'
+ORDER BY created_at DESC
+LIMIT 1;
+```
+
+### 4.2 Decision logic
+
+```
+if no previous champion score exists:
+    → auto-promote unconditionally (first-ever build)
+
+delta = (new_score - champion_score) / champion_score
+
+if -0.05 <= delta <= 0.20:
+    → auto-promote
+elif delta < -0.05:
+    → hold, log as regression
+elif delta > 0.20:
+    → hold, log as anomaly (suspiciously large improvement)
+```
+
+---
+
+## 5. Eval runner location and CLI
+
+Code location: `experiments/scripts/eval/`
+
+```
+experiments/scripts/eval/
+    __init__.py
+    runner.py              — main eval runner logic
+    metrics/
+        __init__.py
+        automatic.py       — BERTScore, ROUGE-L, Recall@k, nDCG@k
+        llm_judge.py       — Gemini API calls for Relevance, Correctness, etc.
+        code_exec.py       — sandboxed HumanEval execution
+    retrieval_bench.py     — temporary collection builder for retrieval-only evals
+```
+
+CLI:
+
+```bash
+# Chat eval with default aliases
+python -m experiments.scripts.eval.runner \
+    --task chat --dataset hotpotqa
+
+# Chat eval comparing champion vs challenger (RAG + LoRA matrix)
+python -m experiments.scripts.eval.runner \
+    --task chat --dataset hotpotqa \
+    --rag-aliases champion,challenger \
+    --lora-aliases champion,challenger
+
+# Retrieval-only eval
+python -m experiments.scripts.eval.runner \
+    --task retrieval --dataset beir_scifact \
+    --rag-aliases champion,challenger
+
+# Summarization (no RAG, LoRA comparison)
+python -m experiments.scripts.eval.runner \
+    --task summarize --dataset arxiv_summarization \
+    --lora-aliases champion,challenger
+```
+
+---
+
+## 6. Implementation stages
+
+### Stage 1: Base LLM (no RAG, no LoRA)
+
+Suites: `eval_chat_hotpotqa`, `eval_chat_nq`, `eval_summarization_arxiv`, `eval_code_humaneval`.
+All use `rag_aliases=["none"]`, `lora_aliases=["none"]`. Establishes baseline metrics.
+
+### Stage 2: Base LLM + RAG
+
+Add RAG-enabled generation suites and retrieval-only suites.
+Compare `rag_aliases=["champion"]` vs `["none"]` to measure RAG impact.
+Groundedness metrics computed when RAG is enabled.
+
+### Stage 3: Base LLM + RAG + LoRA
+
+Add LoRA dimension: `lora_aliases=["champion","none"]` to measure adapter impact.
+Full matrix: `(rag_alias, lora_alias)` Cartesian product.
+
+### Stage 4: Agent with orchestrator
+
+TBD — depends on orchestrator architecture.
