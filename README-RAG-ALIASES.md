@@ -30,9 +30,7 @@ Promotion — продвижение коллекции на более высо
 
 ### Retrieval parameters
 
-Параметры `top_k`, `score_threshold`, `reranking` задаются глобально для всей RAG-конфигурации,
-а не per-alias. Эксперименты с этими параметрами выполняются через деплой новой
-production-конфигурации.
+Параметры `top_k`, `score_threshold`, `reranking` задаются глобально для всей RAG-конфигурации. Эксперименты с этими параметрами выполняются через деплой новой production-конфигурации.
 
 ## 3. Naming conventions
 
@@ -133,18 +131,12 @@ Build script принимает `--profile baseline`. Имя профиля со
 
 ### 5.2. Multi-KB retrieval
 
-При запросах в несколько коллекций из каждой извлекается `top_k` чанков, результаты
-объединяются, сортируются по score (global reranking), и берётся финальный `top_k`.
-
-**Known limitation**: global reranking по cosine score корректен только если все коллекции
-собраны с одной и той же embedding model. Если champion и challenger используют разные модели,
-их scores не сравнимы напрямую. На практике multi-KB запросы обычно идут к коллекциям одного
-профиля.
+При запросах в несколько коллекций из каждой извлекается `top_k` чанков
 
 ### 5.3. Alias resolution
 
 Aliases резолвятся **при каждом запросе** (без кеширования). Gateway является единственным
-source of truth для резолва `(kb, alias)` → Qdrant alias name `{kb}_{alias}`.
+source of truth для резолва `(kb, alias)` → Qdrant collection name `{kb}_{alias}`.
 
 ### 5.4. Обработка ошибок
 
