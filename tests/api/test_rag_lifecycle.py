@@ -260,6 +260,19 @@ class TestKnowledgeBasesEndpoint:
 class TestMetadataExclusion:
     """Test that search() excludes _meta sentinel points."""
 
+    def test_meta_id_is_valid_uuid(self):
+        """Verify _META_ID is a valid UUID string (Qdrant requirement)."""
+        import uuid
+
+        from rag.vector_store import QdrantVectorStore
+
+        meta_id = QdrantVectorStore._META_ID
+        # Must be a string
+        assert isinstance(meta_id, str)
+        # Must be parseable as a UUID
+        parsed = uuid.UUID(meta_id)
+        assert str(parsed) == meta_id
+
     def test_search_filter_includes_meta_exclusion(self):
         """Verify the filter is built with must_not for collection_meta."""
         from qdrant_client.models import FieldCondition, Filter

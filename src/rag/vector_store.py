@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -252,14 +253,19 @@ class QdrantVectorStore:
     # Collection metadata helpers
     # ------------------------------------------------------------------
 
-    _META_ID = "_meta"
+    # Deterministic UUID for the metadata sentinel point.
+    # Qdrant requires point IDs to be integers or valid UUID strings.
+    # We use UUID5 with a fixed namespace so the ID is stable across runs.
+    _META_NS = uuid.UUID("b8c9d0e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e")
+    _META_ID = str(uuid.uuid5(_META_NS, "_meta"))
 
     def write_meta(self, payload: Dict[str, Any], dimension: int) -> None:
         """Write a metadata sentinel point to the collection.
 
-        The sentinel has ``id="_meta"`` and a zero-filled dummy vector so
-        that it does not influence similarity search (the ``search()``
-        method automatically excludes points with ``type=collection_meta``).
+        The sentinel uses a deterministic UUID as its ID and a zero-filled
+        dummy vector so that it does not influence similarity search (the
+        ``search()`` method automatically excludes points with
+        ``type=collection_meta``).
 
         Args:
             payload: Arbitrary metadata dict (build_config, kb_name, etc.).
