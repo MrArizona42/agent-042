@@ -75,23 +75,33 @@ class _ProcessChat:
         last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
         decision = self._router.decide(last_user)
 
-        # Try to retrieve RAG context using explicitly selected knowledge base
+        # Try to retrieve RAG context using rag_sources (multi-KB + alias)
         retrieved_context = None
         rag_mode = "off"
 
-        if self._rag_service and self._rag_service.enabled and req.knowledge_base:
+        if self._rag_service and self._rag_service.enabled and req.rag_sources:
             try:
-                logger.info(f"RAG — retrieving from knowledge base: {req.knowledge_base}")
-                retrieved_context = self._rag_service.retrieve_context(
-                    query=last_user,
-                    knowledge_base=req.knowledge_base,
-                    top_k=5,
-                )
-                if retrieved_context:
+                context_parts: list[str] = []
+                for src in req.rag_sources:
+                    logger.info(
+                        f"RAG — retrieving from kb={src.knowledge_base} alias={src.alias}"
+                    )
+                    ctx = self._rag_service.retrieve_context(
+                        query=last_user,
+                        knowledge_base=src.knowledge_base,
+                        alias=src.alias,
+                        top_k=5,
+                    )
+                    if ctx:
+                        context_parts.append(ctx)
+                if context_parts:
+                    retrieved_context = "\n\n".join(context_parts)
                     rag_mode = "on"
-                    logger.info(f"RAG context retrieved (kb={req.knowledge_base})")
+                    logger.info(
+                        f"RAG context retrieved from {len(context_parts)} source(s)"
+                    )
                 else:
-                    logger.info(f"No RAG context found (kb={req.knowledge_base})")
+                    logger.info("No RAG context found from any source")
             except Exception as e:
                 logger.error(f"Error retrieving RAG context: {e}")
 

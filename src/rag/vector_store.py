@@ -11,7 +11,9 @@ from qdrant_client.models import (
     CreateAlias,
     CreateAliasOperation,
     Distance,
+    FieldCondition,
     Filter,
+    MatchValue,
     PointStruct,
     VectorParams,
 )
@@ -139,6 +141,9 @@ class QdrantVectorStore:
     ) -> List[Document]:
         """Search for similar documents.
 
+        Automatically excludes collection metadata sentinel points
+        (``type=collection_meta``).
+
         Args:
             query_embedding: Query vector
             top_k: Number of results to return
@@ -148,13 +153,19 @@ class QdrantVectorStore:
         Returns:
             List of Document objects with content, metadata, and similarity scores
         """
-        # search_result = self.client.search(
-        #     collection_name=self.collection_name,
-        #     query_vector=query_embedding,
-        #     limit=top_k,
-        #     score_threshold=score_threshold,
-        #     query_filter=filter_dict,
-        # )
+        # Exclude metadata sentinel points from search results
+        meta_exclusion = FieldCondition(
+            key="type", match=MatchValue(value="collection_meta"),
+        )
+
+        if filter_dict:
+            qf = Filter(**filter_dict)
+            if qf.must_not is None:
+                qf.must_not = [meta_exclusion]
+            else:
+                qf.must_not.append(meta_exclusion)
+        else:
+            qf = Filter(must_not=[meta_exclusion])
 
         search_result = self.client.query_points(
             collection_name=self.collection_name,
@@ -162,7 +173,7 @@ class QdrantVectorStore:
             limit=top_k,
             score_threshold=score_threshold,
             with_payload=True,
-            query_filter=Filter(**filter_dict) if filter_dict else None,
+            query_filter=qf,
         )
 
         documents = []
@@ -236,3 +247,52 @@ class QdrantVectorStore:
         """Delete a collection by explicit name."""
         self.client.delete_collection(collection_name)
         logger.info(f"Deleted collection: {collection_name}")
+
+    # ------------------------------------------------------------------
+    # Collection metadata helpers
+    # ------------------------------------------------------------------
+
+    _META_ID = "_meta"
+
+    def write_meta(self, payload: Dict[str, Any], dimension: int) -> None:
+        """Write a metadata sentinel point to the collection.
+
+        The sentinel has ``id="_meta"`` and a zero-filled dummy vector so
+        that it does not influence similarity search (the ``search()``
+        method automatically excludes points with ``type=collection_meta``).
+
+        Args:
+            payload: Arbitrary metadata dict (build_config, kb_name, etc.).
+            dimension: Embedding vector dimension (needed for the dummy vector).
+        """
+        meta_payload = {"type": "collection_meta", **payload}
+        self.client.upsert(
+            collection_name=self.collection_name,
+            points=[
+                PointStruct(
+                    id=self._META_ID,
+                    vector=[0.0] * dimension,
+                    payload=meta_payload,
+                )
+            ],
+        )
+        logger.info(f"Wrote _meta point to '{self.collection_name}'")
+
+    def read_meta(self) -> Optional[Dict[str, Any]]:
+        """Read the metadata sentinel point from the collection.
+
+        Returns:
+            The payload dict of the ``_meta`` point, or ``None`` if it
+            does not exist.
+        """
+        try:
+            points = self.client.retrieve(
+                collection_name=self.collection_name,
+                ids=[self._META_ID],
+                with_payload=True,
+            )
+            if points:
+                return points[0].payload
+        except Exception:
+            logger.debug(f"No _meta point in '{self.collection_name}'", exc_info=True)
+        return None

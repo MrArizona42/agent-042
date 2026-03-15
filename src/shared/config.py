@@ -13,28 +13,128 @@ Usage:
 
 from __future__ import annotations
 
+import json
+import logging
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger(__name__)
+
 # =========================================================================
-# Knowledge Base Registry
-# Maps user-facing KB identifiers to Qdrant collection names.
+# Knowledge Base Registry (loaded from JSON config file)
 # =========================================================================
-KNOWLEDGE_BASES: dict[str, dict[str, str]] = {
-    "arxiv": {
-        "collection": "chat_documents",
-        "label": "ArXiv papers (ML / AI theory)",
-        "description": "Deep discussions about ML/AI theory and latest trends",
-    },
-    "pytorch_docs": {
-        "collection": "code_documents",
-        "label": "PyTorch docs (coding)",
-        "description": "PyTorch documentation for coding assistance",
-    },
-}
+
+_DEFAULT_KB_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "knowledge_bases.json"
+
+
+class KnowledgeBaseConfig(BaseModel):
+    """Single knowledge-base entry from config/knowledge_bases.json."""
+
+    knowledge_base: str
+    aliases: list[str] = Field(default_factory=lambda: ["champion"])
+    update_strategy: Literal["incremental", "replace"] = "replace"
+    label: str = ""
+    description: str = ""
+
+
+def _load_knowledge_bases(path: Path | str | None = None) -> dict[str, KnowledgeBaseConfig]:
+    """Load the knowledge-bases registry from a JSON file.
+
+    Returns:
+        Mapping of ``kb_name`` → ``KnowledgeBaseConfig``.
+    """
+    if path is None:
+        path = _DEFAULT_KB_PATH
+    path = Path(path)
+
+    if not path.exists():
+        logger.warning("Knowledge-bases config not found at %s — using empty registry", path)
+        return {}
+
+    with open(path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+
+    registry: dict[str, KnowledgeBaseConfig] = {}
+    for entry in raw:
+        cfg = KnowledgeBaseConfig(**entry)
+        registry[cfg.knowledge_base] = cfg
+    return registry
+
+
+# Module-level registry (populated lazily via get_knowledge_bases())
+_KB_REGISTRY: dict[str, KnowledgeBaseConfig] | None = None
+
+
+def get_knowledge_bases(path: Path | str | None = None) -> dict[str, KnowledgeBaseConfig]:
+    """Return the knowledge-base registry (cached after first call)."""
+    global _KB_REGISTRY  # noqa: PLW0603
+    if _KB_REGISTRY is None:
+        _KB_REGISTRY = _load_knowledge_bases(path)
+    return _KB_REGISTRY
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible KNOWLEDGE_BASES dict
+# ---------------------------------------------------------------------------
+# Legacy callers that import ``KNOWLEDGE_BASES`` from this module get a
+# lazy-loading proxy that returns the same dict structure as before:
+#   { "arxiv": { "collection": ..., "label": ..., "description": ... }, ... }
+# The proxy loads the JSON config on first access.
+
+class _KBProxy(dict):
+    """Lazy dict that loads KB config on first access."""
+
+    _loaded: bool = False
+
+    def _ensure(self) -> None:
+        if not self._loaded:
+            for name, cfg in get_knowledge_bases().items():
+                super().__setitem__(name, {
+                    "label": cfg.label,
+                    "description": cfg.description,
+                    "aliases": cfg.aliases,
+                    "update_strategy": cfg.update_strategy,
+                })
+            self._loaded = True
+
+    def __getitem__(self, key):
+        self._ensure()
+        return super().__getitem__(key)
+
+    def __contains__(self, key):
+        self._ensure()
+        return super().__contains__(key)
+
+    def __iter__(self):
+        self._ensure()
+        return super().__iter__()
+
+    def __len__(self):
+        self._ensure()
+        return super().__len__()
+
+    def keys(self):
+        self._ensure()
+        return super().keys()
+
+    def values(self):
+        self._ensure()
+        return super().values()
+
+    def items(self):
+        self._ensure()
+        return super().items()
+
+    def get(self, key, default=None):
+        self._ensure()
+        return super().get(key, default)
+
+
+KNOWLEDGE_BASES: dict[str, dict] = _KBProxy()
 
 
 class Settings(BaseSettings):
@@ -152,6 +252,10 @@ class Settings(BaseSettings):
         description="Qdrant server port",
         ge=1,
         le=65535,
+    )
+    knowledge_bases_path: str = Field(
+        default="config/knowledge_bases.json",
+        description="Path to knowledge_bases.json config file",
     )
 
     # =========================================================================

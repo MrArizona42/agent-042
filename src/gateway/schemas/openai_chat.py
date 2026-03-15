@@ -11,6 +11,16 @@ class ChatMessage(BaseModel):
     name: str | None = None
 
 
+class RAGSource(BaseModel):
+    """A single knowledge-base source for RAG retrieval."""
+
+    knowledge_base: str
+    alias: str = Field(
+        default="champion",
+        description="Alias role to use (e.g. 'champion', 'challenger')",
+    )
+
+
 class ChatCompletionRequest(BaseModel):
     # Keep request compatible with OpenAI-like clients.
     model: str | None = None
@@ -28,11 +38,10 @@ class ChatCompletionRequest(BaseModel):
         description="Chat session UUID for server-side history persistence",
     )
 
-    # Knowledge base selection for RAG retrieval.
-    # Valid values: None (disabled), or a key from KNOWLEDGE_BASES (e.g. "arxiv", "pytorch_docs").
-    knowledge_base: str | None = Field(
+    # RAG sources: multiple knowledge bases with explicit alias selection.
+    rag_sources: list[RAGSource] | None = Field(
         default=None,
-        description="Knowledge base to use for RAG retrieval (None = disabled)",
+        description="Knowledge bases for RAG retrieval. None = RAG disabled.",
     )
 
     # passthrough for additional openai-ish fields (frequency_penalty, etc.)
