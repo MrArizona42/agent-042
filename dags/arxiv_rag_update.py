@@ -2,7 +2,11 @@
 
 Downloads the latest ArXiv papers in target categories,
 versions the data with DVC, and rebuilds the chat vector
-index in Qdrant.
+index in Qdrant using the **incremental** strategy.
+
+The build script resolves all aliases for the ``arxiv`` KB,
+reads ``_meta`` from each to determine the build config, and
+upserts new papers into every active collection.
 
 Schedule: @daily
 """
@@ -123,6 +127,7 @@ with DAG(
         bash_command=f"cd {_project_root} && dvc add {_arxiv_rel} && dvc push ",
     )
 
+    # The build script handles all aliases for the arxiv KB automatically.
     build_index = BashOperator(
         task_id="build_arxiv_index",
         bash_command=(
@@ -134,6 +139,7 @@ with DAG(
             "--qdrant-port $QDRANT_PORT "
             "--embedding-model $EMBEDDING_MODEL "
             "--task chat "
+            "--kb arxiv "
         ),
     )
 

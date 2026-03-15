@@ -58,7 +58,7 @@ The system uses two separate configs with clearly different audiences.
 
 ### 2.1 Runtime config — Knowledge Bases registry
 
-**File**: `config/knowledge_bases.json`
+**File**: `src/shared/knowledge_bases.json`
 **Used by**: gateway, eval runner, build scripts.
 **Purpose**: defines which KBs exist, which alias roles are valid, and the update strategy.
 
@@ -78,7 +78,7 @@ The system uses two separate configs with clearly different audiences.
 ```
 
 Loaded into Pydantic `Settings` via the env var `GATEWAY_KNOWLEDGE_BASES_PATH`
-(default: `config/knowledge_bases.json`).
+(default: bundled `src/shared/knowledge_bases.json`).
 
 **Rules**:
 - If a KB has no `champion` in its `aliases` list, it is unavailable in production (UI). This is
@@ -398,7 +398,7 @@ Summary of what changes from the current codebase:
 
 | Component | Current state | Target state |
 |---|---|---|
-| `shared/config.py` `KNOWLEDGE_BASES` | Hardcoded dict mapping KB → single collection name | Loaded from `config/knowledge_bases.json` with aliases list and update strategy |
+| `shared/config.py` `KNOWLEDGE_BASES` | Hardcoded dict mapping KB → single collection name | Loaded from `src/shared/knowledge_bases.json` with aliases list and update strategy |
 | `ChatCompletionRequest` | `knowledge_base: str \| None` | `rag_sources: list[RAGSource] \| None` |
 | `RAGService._get_retriever()` | `KNOWLEDGE_BASES[kb]["collection"]` → single vector store | `(kb, alias)` → `{kb}_{alias}` → vector store, resolved per query |
 | `QdrantVectorStore.search()` | No metadata exclusion filter | Add `must_not` filter for `type=collection_meta` |
@@ -418,7 +418,7 @@ Suggested sequence for implementation:
 
 1. **Collection metadata point**: add `_meta` write to `build_vector_index.py`, add `must_not`
    filter to `QdrantVectorStore.search()`.
-2. **Runtime config**: create `config/knowledge_bases.json`, add Pydantic model and loader to
+2. **Runtime config**: create `src/shared/knowledge_bases.json`, add Pydantic model and loader to
    `shared/config.py`, replace `KNOWLEDGE_BASES` dict.
 3. **API contract**: add `RAGSource` schema, update `ChatCompletionRequest`, update
    `RAGService` resolution logic.

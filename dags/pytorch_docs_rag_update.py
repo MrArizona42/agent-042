@@ -2,7 +2,12 @@
 
 Scrapes a fresh copy of core PyTorch documentation pages,
 versions the data with DVC, and rebuilds the code vector
-index in Qdrant.
+index in Qdrant using the **replace** strategy.
+
+The DAG only rebuilds the **champion** alias.  It does NOT touch
+challenger.  The build script creates a new timestamped collection,
+writes ``_meta``, creates a staging alias, builds the index, and
+then atomically swaps the champion alias.
 
 Schedule: @weekly
 """
@@ -154,6 +159,10 @@ with DAG(
         bash_command=f"cd {_project_root} && dvc add {_pytorch_rel} && dvc push ",
     )
 
+    # Champion-only rebuild via the replace strategy.
+    # The build script reads _meta from the current champion, creates a
+    # new timestamped collection with a staging alias, builds the index,
+    # and then swaps the champion alias.
     build_index = BashOperator(
         task_id="build_pytorch_index",
         bash_command=(
@@ -165,6 +174,8 @@ with DAG(
             "--qdrant-port $QDRANT_PORT "
             "--embedding-model $EMBEDDING_MODEL "
             "--task code "
+            "--kb pytorch_docs "
+            "--alias champion "
         ),
     )
 
