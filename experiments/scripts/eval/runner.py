@@ -506,7 +506,7 @@ _DATASET_LOCAL: dict[str, tuple[str, str]] = {
     "hotpotqa": ("hotpotqa", "validation"),
     "nq": ("natural-questions", "validation"),
     "arxiv_summarization": ("arxiv-summarization", "validation"),
-    "humaneval": ("humaneval", "train"),  # HumanEval has only test→saved as "train"
+    "humaneval": ("humaneval", "train"),  # HumanEval test split saved as "train"
     "beir_scifact": ("beir-scifact", "train"),
     "beir_nfcorpus": ("beir-nfcorpus", "train"),
     "msmarco": ("msmarco", "validation"),
