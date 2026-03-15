@@ -177,8 +177,9 @@ if prompt:
         "messages": st.session_state.messages,
         "max_completion_tokens": settings.max_completion_tokens,
         "stream": False,
-        "knowledge_base": selected_kb,
     }
+    if selected_kb:
+        payload["rag_sources"] = [{"knowledge_base": selected_kb}]
     if st.session_state.get("chat_session_id"):
         payload["chat_session_id"] = st.session_state.chat_session_id
 
