@@ -1,0 +1,146 @@
+"""Automatic evaluation metrics: BERTScore, ROUGE-L, Recall@k, nDCG@k.
+
+These metrics are computed locally without any LLM calls.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def compute_rouge_l(prediction: str, reference: str) -> float:
+    """Compute ROUGE-L F1 between a single prediction and reference.
+
+    Uses longest common subsequence (LCS) based scoring.
+    """
+    if not prediction or not reference:
+        return 0.0
+
+    pred_tokens = prediction.split()
+    ref_tokens = reference.split()
+
+    if not pred_tokens or not ref_tokens:
+        return 0.0
+
+    # LCS via dynamic programming
+    m, n = len(pred_tokens), len(ref_tokens)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if pred_tokens[i - 1].lower() == ref_tokens[j - 1].lower():
+                dp[i][j] = dp[i - 1][j - 1] + 1
+            else:
+                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+    lcs_len = dp[m][n]
+
+    if lcs_len == 0:
+        return 0.0
+
+    precision = lcs_len / m
+    recall = lcs_len / n
+    f1 = 2 * precision * recall / (precision + recall)
+    return f1
+
+
+def compute_bertscore(
+    predictions: list[str],
+    references: list[str],
+    model_name: str = "microsoft/deberta-xlarge-mnli",
+) -> dict[str, float]:
+    """Compute BERTScore (precision, recall, F1) averaged over pairs.
+
+    Requires the ``bert-score`` package.
+
+    Returns:
+        Dict with keys ``bertscore_precision``, ``bertscore_recall``,
+        ``bertscore_f1``.
+    """
+    try:
+        from bert_score import score as bert_score_fn
+    except ImportError:
+        logger.warning("bert-score not installed; returning 0.0")
+        return {"bertscore_precision": 0.0, "bertscore_recall": 0.0, "bertscore_f1": 0.0}
+
+    P, R, F1 = bert_score_fn(
+        predictions,
+        references,
+        model_type=model_name,
+        verbose=False,
+    )
+    return {
+        "bertscore_precision": P.mean().item(),
+        "bertscore_recall": R.mean().item(),
+        "bertscore_f1": F1.mean().item(),
+    }
+
+
+def _dcg(relevances: list[float], k: int) -> float:
+    """Discounted Cumulative Gain at position *k*."""
+    dcg = 0.0
+    for i, rel in enumerate(relevances[:k]):
+        dcg += rel / math.log2(i + 2)  # i+2 because log2(1)=0
+    return dcg
+
+
+def compute_ndcg_at_k(
+    retrieved_ids: list[str],
+    relevance_labels: dict[str, float],
+    k: int = 10,
+) -> float:
+    """Normalised Discounted Cumulative Gain at *k*.
+
+    Args:
+        retrieved_ids: Ordered list of document IDs returned by retrieval.
+        relevance_labels: Gold relevance dict ``{doc_id: relevance_score}``.
+        k: Cutoff position.
+    """
+    rels = [relevance_labels.get(doc_id, 0.0) for doc_id in retrieved_ids[:k]]
+    dcg = _dcg(rels, k)
+    ideal_rels = sorted(relevance_labels.values(), reverse=True)[:k]
+    idcg = _dcg(ideal_rels, k)
+    return dcg / idcg if idcg > 0 else 0.0
+
+
+def compute_recall_at_k(
+    retrieved_ids: list[str],
+    relevant_ids: set[str],
+    k: int = 10,
+) -> float:
+    """Recall at *k*: fraction of relevant docs found in top-k results.
+
+    Args:
+        retrieved_ids: Ordered list of returned document IDs.
+        relevant_ids: Set of gold relevant document IDs.
+        k: Cutoff position.
+    """
+    if not relevant_ids:
+        return 0.0
+    retrieved_set = set(retrieved_ids[:k])
+    return len(retrieved_set & relevant_ids) / len(relevant_ids)
+
+
+def compute_automatic_metrics(
+    predictions: list[str],
+    references: list[str],
+    bert_score_model: str = "microsoft/deberta-xlarge-mnli",
+) -> dict[str, float]:
+    """Compute all automatic generation metrics (ROUGE-L + BERTScore).
+
+    Returns:
+        Dict with ``rouge_l``, ``bertscore_precision``, ``bertscore_recall``,
+        ``bertscore_f1``.
+    """
+    # ROUGE-L
+    rouge_scores = [
+        compute_rouge_l(pred, ref) for pred, ref in zip(predictions, references)
+    ]
+    avg_rouge = sum(rouge_scores) / len(rouge_scores) if rouge_scores else 0.0
+
+    # BERTScore
+    bert_results = compute_bertscore(predictions, references, model_name=bert_score_model)
+
+    return {"rouge_l": avg_rouge, **bert_results}

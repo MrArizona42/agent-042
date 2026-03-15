@@ -78,6 +78,7 @@ class _ProcessChat:
         # Try to retrieve RAG context using rag_sources (multi-KB + alias)
         retrieved_context = None
         rag_mode = "off"
+        rag_context_chunks: list[Dict[str, Any]] = []
 
         if self._rag_service and self._rag_service.enabled and req.rag_sources:
             try:
@@ -86,14 +87,23 @@ class _ProcessChat:
                     logger.info(
                         f"RAG — retrieving from kb={src.knowledge_base} alias={src.alias}"
                     )
-                    ctx = self._rag_service.retrieve_context(
+                    docs = self._rag_service.retrieve_documents(
                         query=last_user,
                         knowledge_base=src.knowledge_base,
                         alias=src.alias,
                         top_k=5,
                     )
-                    if ctx:
-                        context_parts.append(ctx)
+                    if docs:
+                        source_label = f"{src.knowledge_base}_{src.alias}"
+                        for doc in docs:
+                            rag_context_chunks.append({
+                                "content": doc.content,
+                                "score": doc.score,
+                                "source": source_label,
+                            })
+                        ctx = self._rag_service.format_documents(docs)
+                        if ctx:
+                            context_parts.append(ctx)
                 if context_parts:
                     retrieved_context = "\n\n".join(context_parts)
                     rag_mode = "on"
@@ -138,6 +148,10 @@ class _ProcessChat:
 
         # Include any extra openai-like fields.
         payload.update(req.extra)
+
+        # Attach RAG context chunks for eval groundedness scoring
+        payload["_rag_context_chunks"] = rag_context_chunks
+
         return payload
 
     async def chat(
@@ -152,6 +166,9 @@ class _ProcessChat:
 
         payload = self._build_payload(req)
 
+        # Extract RAG context chunks before forwarding to inference
+        rag_context_chunks = payload.pop("_rag_context_chunks", [])
+
         if settings.async_enabled:
             result = await self._chat_async(req, payload)
         else:
@@ -159,6 +176,10 @@ class _ProcessChat:
 
         # Attach the full prompt messages for UI debugging display
         result["_prompt_messages"] = payload.get("messages", [])
+
+        # Include RAG context in response when RAG was used
+        if rag_context_chunks:
+            result["rag_context"] = rag_context_chunks
 
         # Persist messages if a chat session is associated
         if chat_session_id and user_id:
@@ -254,6 +275,7 @@ class _ProcessChat:
     async def _stream_chat_sync(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
         """Synchronous streaming: direct call to vLLM."""
         payload = self._build_payload(req)
+        payload.pop("_rag_context_chunks", None)
         # Ensure stream true.
         payload["stream"] = True
         async for chunk in self._client().chat_completions_stream(payload):
@@ -262,6 +284,7 @@ class _ProcessChat:
     async def _stream_chat_async(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
         """Asynchronous streaming: enqueue task and stream via Redis."""
         payload = self._build_payload(req)
+        payload.pop("_rag_context_chunks", None)
 
         conversation_id = str(_uuid.uuid4())
         celery_client = self._get_celery_client()

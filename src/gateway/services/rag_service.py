@@ -153,45 +153,83 @@ class RAGService:
         Returns:
             Formatted context string or None if RAG is disabled/unavailable
         """
-        if not self.enabled:
+        docs = self.retrieve_documents(
+            query=query,
+            knowledge_base=knowledge_base,
+            alias=alias,
+            top_k=top_k,
+        )
+        if not docs:
             return None
+        return self.format_documents(docs)
+
+    def retrieve_documents(
+        self,
+        query: str,
+        knowledge_base: Optional[str] = None,
+        alias: str = "champion",
+        top_k: int = 5,
+    ) -> list:
+        """Retrieve relevant documents as a list of Document objects.
+
+        Args:
+            query: User query
+            knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
+            alias: Alias role (default ``"champion"``).
+            top_k: Number of documents to retrieve
+
+        Returns:
+            List of Document objects, or empty list if unavailable.
+        """
+        if not self.enabled:
+            return []
 
         if not knowledge_base:
             logger.info("No knowledge base selected — skipping RAG retrieval")
-            return None
+            return []
 
-        # Check if retriever exists for this (kb, alias) pair
         retriever = self._get_retriever(knowledge_base, alias)
         if retriever is None:
             logger.warning(
                 f"No retriever available for knowledge base: {knowledge_base} alias: {alias}"
             )
-            return None
+            return []
 
         try:
-            # Retrieve documents
-            documents = retriever.retrieve(
-                query=query,
-                top_k=top_k,
-            )
-
-            if not documents:
-                logger.info("No relevant documents found")
-                return None
-
-            # Format context using configured max length
-            context = retriever.format_context(
-                documents,
-                max_length=self.settings.context_max_length,
-            )
+            documents = retriever.retrieve(query=query, top_k=top_k)
             logger.info(
-                f"Retrieved context of {len(context)} characters "
-                f"from {len(documents)} documents "
+                f"Retrieved {len(documents)} documents "
                 f"(kb={knowledge_base}, alias={alias})"
             )
-
-            return context
-
+            return documents
         except Exception as e:
-            logger.error(f"Error retrieving context: {e}", exc_info=True)
+            logger.error(f"Error retrieving documents: {e}", exc_info=True)
+            return []
+
+    def format_documents(self, documents: list) -> Optional[str]:
+        """Format retrieved documents into a context string.
+
+        Args:
+            documents: List of Document objects.
+
+        Returns:
+            Formatted context string or None if no documents.
+        """
+        if not documents:
             return None
+
+        # Use a dummy retriever to access format_context
+        # (the formatting logic only needs settings, not a live connection)
+        parts: list[str] = []
+        for i, doc in enumerate(documents, 1):
+            source = doc.metadata.get("source", "unknown")
+            score = doc.score if doc.score is not None else 0.0
+            parts.append(
+                f"[Document {i}] (Source: {source}, Score: {score:.3f})\n{doc.content}"
+            )
+
+        context = "\n\n".join(parts)
+        max_len = self.settings.context_max_length
+        if len(context) > max_len:
+            context = context[:max_len]
+        return context

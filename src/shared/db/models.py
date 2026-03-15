@@ -5,6 +5,7 @@ Tables
 - users            — authenticated users (Google OIDC)
 - chat_sessions    — per-user conversation sessions
 - chat_messages    — individual messages within a session
+- eval_runs        — evaluation benchmark results
 """
 
 from __future__ import annotations
@@ -12,8 +13,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, DateTime, Double, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -80,3 +81,55 @@ class ChatMessage(Base):
     )
 
     session: Mapped[ChatSession] = relationship(back_populates="messages")
+
+
+class EvalRun(Base):
+    """One evaluation metric result per (task, dataset, metric, rag_alias, lora_alias)."""
+
+    __tablename__ = "eval_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="running")
+
+    # Task / dataset / metric
+    task: Mapped[str] = mapped_column(Text, nullable=False)
+    dataset_name: Mapped[str] = mapped_column(Text, nullable=False)
+    metric_name: Mapped[str] = mapped_column(Text, nullable=False)
+    metric_value: Mapped[float] = mapped_column(Double, nullable=False)
+
+    # Model
+    base_model: Mapped[str] = mapped_column(Text, nullable=False)
+    adapter_name: Mapped[str | None] = mapped_column(Text)
+    adapter_version: Mapped[int | None] = mapped_column(Integer)
+    adapter_mlflow_run_id: Mapped[str | None] = mapped_column(Text)
+    lora_alias: Mapped[str | None] = mapped_column(Text)
+
+    # RAG
+    rag_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    rag_alias: Mapped[str | None] = mapped_column(Text)
+    knowledge_base: Mapped[str | None] = mapped_column(Text)
+    qdrant_collection: Mapped[str | None] = mapped_column(Text)
+    embedding_model: Mapped[str | None] = mapped_column(Text)
+    chunking_strategy: Mapped[str | None] = mapped_column(Text)
+    chunk_size: Mapped[int | None] = mapped_column(Integer)
+    chunk_overlap: Mapped[int | None] = mapped_column(Integer)
+    retrieval_top_k: Mapped[int | None] = mapped_column(Integer)
+    score_threshold: Mapped[float | None] = mapped_column(Double)
+    qdrant_snapshot_id: Mapped[str | None] = mapped_column(Text)
+    dataset_dvc_hash: Mapped[str | None] = mapped_column(Text)
+    reranking_strategy: Mapped[str | None] = mapped_column(Text)
+
+    # Judge & metrics config
+    judge_model: Mapped[str | None] = mapped_column(Text)
+    bert_score_model: Mapped[str | None] = mapped_column(Text)
+
+    # Generation params
+    temperature: Mapped[float | None] = mapped_column(Double)
+    max_tokens: Mapped[int | None] = mapped_column(Integer)
+
+    extra: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    error_message: Mapped[str | None] = mapped_column(Text)

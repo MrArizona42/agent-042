@@ -420,6 +420,78 @@ class ModelRegistrySettings(BaseSettings):
     )
 
 
+class EvalSettings(BaseSettings):
+    """Settings for the evaluation runner.
+
+    Environment Variables:
+        EVAL_GATEWAY_URL: Gateway URL for generation evals.
+        EVAL_JUDGE_MODEL: Gemini model name for LLM-as-Judge.
+        EVAL_GOOGLE_AI_API_KEY: Google AI Studio API key (Gemini).
+        EVAL_BERT_SCORE_MODEL: Model for BERTScore computation.
+        EVAL_TEMPERATURE: Temperature for generation requests.
+        EVAL_MAX_TOKENS: Max tokens for generation requests.
+        EVAL_SAMPLE_LIMIT: Max samples per dataset (0 = unlimited).
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="EVAL_",
+        extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
+    gateway_url: str = Field(
+        default="http://localhost:9001",
+        description="Gateway URL for generation evals",
+    )
+    judge_model: str = Field(
+        default="gemini-2.0-flash",
+        description="Gemini model name for LLM-as-Judge",
+    )
+    google_ai_api_key: str = Field(
+        default="",
+        description="Google AI Studio API key for Gemini judge",
+    )
+    bert_score_model: str = Field(
+        default="microsoft/deberta-xlarge-mnli",
+        description="Model for BERTScore computation",
+    )
+    temperature: float = Field(
+        default=0.0,
+        description="Temperature for generation requests",
+        ge=0.0,
+    )
+    max_tokens: int = Field(
+        default=512,
+        description="Max tokens for generation requests",
+        ge=1,
+    )
+    sample_limit: int = Field(
+        default=0,
+        description="Max samples per dataset (0 = unlimited)",
+        ge=0,
+    )
+    code_exec_timeout: int = Field(
+        default=30,
+        description="Timeout in seconds for sandboxed code execution",
+        ge=1,
+    )
+    code_exec_image: str = Field(
+        default="python:3.11-slim",
+        description="Docker image for sandboxed code execution",
+    )
+    db_url: str = Field(
+        default="",
+        description="PostgreSQL connection URL for eval results (sync: postgresql://...)",
+    )
+
+
+@lru_cache
+def get_eval_settings() -> EvalSettings:
+    """Get cached evaluation settings."""
+    return EvalSettings()
+
+
 class UISettings(BaseSettings):
     """UI-specific settings with UI_ prefix.
 
