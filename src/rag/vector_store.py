@@ -293,6 +293,11 @@ class QdrantVectorStore:
             )
             if points:
                 return points[0].payload
-        except Exception:
+        except (
+            KeyError,
+            ValueError,
+            RuntimeError,
+        ):
+            # Collection may not exist or _meta point may be absent
             logger.debug(f"No _meta point in '{self.collection_name}'", exc_info=True)
         return None

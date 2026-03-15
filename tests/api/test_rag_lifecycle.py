@@ -154,10 +154,7 @@ class TestRAGSourceSchema:
         """The old knowledge_base field should not exist."""
         from gateway.schemas.openai_chat import ChatCompletionRequest
 
-        req = ChatCompletionRequest(
-            messages=[{"role": "user", "content": "hello"}],
-        )
-        assert not hasattr(req, "knowledge_base") or "knowledge_base" not in req.model_fields
+        assert "knowledge_base" not in ChatCompletionRequest.model_fields
 
 
 # ---------------------------------------------------------------------------

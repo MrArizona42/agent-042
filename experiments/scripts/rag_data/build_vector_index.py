@@ -172,7 +172,12 @@ def build_chat_index(
         effective_chunk_overlap = build_cfg.get("chunk_overlap", chunk_overlap)
         effective_strategy = build_cfg.get("chunking_strategy", chunking_strategy)
 
-        task = "chat" if effective_strategy == "fixed_token" else effective_strategy
+        # Map chunking strategies to get_chunker task parameter:
+        #   fixed_token → "chat", code → "code", section_aware → "section_aware"
+        _STRATEGY_TO_TASK = {
+            "fixed_token": "chat", "code": "code", "section_aware": "section_aware",
+        }
+        task = _STRATEGY_TO_TASK.get(effective_strategy, "chat")
         chunker = get_chunker(
             task=task, chunk_size=effective_chunk_size, chunk_overlap=effective_chunk_overlap,
         )
@@ -328,7 +333,9 @@ def build_code_index(
 
     # Chunk and embed documents
     print("\nChunking and embedding documents...")
-    task = "code" if chunking_strategy == "code" else chunking_strategy
+    # Map chunking strategies to get_chunker task parameter
+    _STRATEGY_TO_TASK = {"fixed_token": "chat", "code": "code", "section_aware": "section_aware"}
+    task = _STRATEGY_TO_TASK.get(chunking_strategy, "code")
     chunker = get_chunker(task=task, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     all_chunks = []

@@ -26,8 +26,10 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 RETENTION_DAYS = 7
 
-# Legacy collections that don't follow the naming convention.
-# These are never deleted by the cleanup DAG.
+# Legacy collections that don't follow the {kb}_{timestamp} naming convention.
+# These pre-date the alias-based lifecycle and are never deleted by the
+# cleanup DAG.  They will be migrated during rollout; update this list
+# if new legacy collections are discovered.
 SKIP_LIST: set[str] = {"chat_documents", "code_documents"}
 
 # Regex: {kb_name}_{YYYYMMDD}_{HHMMSS}
