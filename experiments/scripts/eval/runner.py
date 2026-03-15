@@ -127,9 +127,8 @@ def _resolve_lora_alias(
         return {"adapter_name": None, "adapter_version": None, "adapter_mlflow_run_id": None}
 
     try:
-        from shared.config import get_registry_settings
-
         from experiments.scripts.train_adapter.registry import AdapterRegistry
+        from shared.config import get_registry_settings
 
         reg_settings = get_registry_settings()
         registry = AdapterRegistry(tracking_uri=reg_settings.mlflow_tracking_uri)
@@ -287,7 +286,11 @@ def _evaluate_generation(
     )
     for metric_name in _TASK_METRICS.get(task, []):
         if metric_name in auto_metrics:
-            rows.append({**common, "metric_name": metric_name, "metric_value": auto_metrics[metric_name]})
+            rows.append({
+                **common,
+                "metric_name": metric_name,
+                "metric_value": auto_metrics[metric_name],
+            })
 
     # LLM-as-Judge metrics
     if eval_settings.google_ai_api_key:
@@ -299,7 +302,11 @@ def _evaluate_generation(
                     api_key=eval_settings.google_ai_api_key,
                     model=eval_settings.judge_model,
                 )
-                rows.append({**common, "metric_name": metric_name, "metric_value": result[metric_name]})
+                rows.append({
+                    **common,
+                    "metric_name": metric_name,
+                    "metric_value": result[metric_name],
+                })
 
         # Groundedness for RAG-enabled generation tasks
         if rag_enabled and task in _RAG_GENERATION_TASKS:
@@ -309,7 +316,11 @@ def _evaluate_generation(
                 api_key=eval_settings.google_ai_api_key,
                 model=eval_settings.judge_model,
             )
-            rows.append({**common, "metric_name": "groundedness", "metric_value": result["groundedness"]})
+            rows.append({
+                **common,
+                "metric_name": "groundedness",
+                "metric_value": result["groundedness"],
+            })
 
     # Mark completed
     finished = datetime.now(timezone.utc)
@@ -648,7 +659,10 @@ def _evaluate_retrieval(
     if not samples:
         return []
 
-    corpus = [{"doc_id": s.get("doc_id", str(i)), "text": s.get("text", "")} for i, s in enumerate(samples)]
+    corpus = [
+        {"doc_id": s.get("doc_id", str(i)), "text": s.get("text", "")}
+        for i, s in enumerate(samples)
+    ]
 
     # Build temp collection
     temp_collection = build_temp_collection(
@@ -665,7 +679,9 @@ def _evaluate_retrieval(
         from rag.embeddings import EmbeddingService
         from rag.vector_store import QdrantVectorStore
 
-        embedding_model = build_config.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")
+        embedding_model = build_config.get(
+            "embedding_model", "sentence-transformers/all-MiniLM-L6-v2"
+        )
         emb_service = EmbeddingService(model_name=embedding_model)
         vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
 
@@ -690,7 +706,11 @@ def _evaluate_retrieval(
 
     finally:
         try:
-            delete_temp_collection(temp_collection, qdrant_host=qdrant_host, qdrant_port=qdrant_port)
+            delete_temp_collection(
+                temp_collection,
+                qdrant_host=qdrant_host,
+                qdrant_port=qdrant_port,
+            )
         except Exception as e:
             logger.warning("Failed to delete temp collection: %s", e)
 
@@ -716,8 +736,20 @@ def _evaluate_retrieval(
     })
 
     rows = [
-        {**common, "metric_name": "recall_at_10", "metric_value": avg_recall, "finished_at": now, "status": "completed"},
-        {**common, "metric_name": "ndcg_at_10", "metric_value": avg_ndcg, "finished_at": now, "status": "completed"},
+        {
+            **common,
+            "metric_name": "recall_at_10",
+            "metric_value": avg_recall,
+            "finished_at": now,
+            "status": "completed",
+        },
+        {
+            **common,
+            "metric_name": "ndcg_at_10",
+            "metric_value": avg_ndcg,
+            "finished_at": now,
+            "status": "completed",
+        },
     ]
     return rows
 

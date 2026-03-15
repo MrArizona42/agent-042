@@ -61,7 +61,8 @@ Summary: {answer}
 Respond with JSON: {{"score": <int 1-5>, "reason": "<brief explanation>"}}"""
 
 _GROUNDEDNESS_PROMPT = """\
-You are an expert evaluator. Rate whether the answer is grounded in (supported by) the provided context.
+You are an expert evaluator. Rate whether the answer is grounded in \
+(supported by) the provided context.
 Score from 1 (not grounded at all) to 5 (fully grounded in context).
 
 Context: {context}

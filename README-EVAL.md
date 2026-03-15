@@ -375,3 +375,87 @@ Full matrix: `(rag_alias, lora_alias)` Cartesian product.
 ### Stage 4: Agent with orchestrator
 
 TBD — depends on orchestrator architecture.
+
+---
+
+## 7. Implementation Summary (Stages 1–3)
+
+Stages 1–3 of the evaluation workflow have been implemented. Below is an
+overview of what was added and how to start using it.
+
+### 7.1 What was implemented
+
+| Component | Files | Description |
+|---|---|---|
+| **DB model** | `src/shared/db/models.py` | `EvalRun` SQLAlchemy ORM model with all columns from the schema in Section 3. |
+| **Migration** | `migrations/eval_runs.sql` | Raw SQL script to create the `eval_runs` table and indexes. Run against the `agent042` PostgreSQL database. |
+| **Eval settings** | `src/shared/config.py` | `EvalSettings` class (env prefix `EVAL_`) with judge model, BERTScore model, gateway URL, code-exec settings, etc. |
+| **Gateway API** | `src/gateway/services/processing.py`, `src/gateway/services/rag_service.py` | The chat completions response now includes a `rag_context` field when RAG is used. `RAGService` gained `retrieve_documents()` and `format_documents()` methods while preserving full backward compatibility with `retrieve_context()`. |
+| **Eval runner** | `experiments/scripts/eval/runner.py` | CLI entry point with `--task`, `--dataset`, `--kb`, `--rag-aliases`, `--lora-aliases`. Handles all three stages via the Cartesian product of alias lists. |
+| **Automatic metrics** | `experiments/scripts/eval/metrics/automatic.py` | ROUGE-L, BERTScore (via `bert-score`), Recall@k, nDCG@k. |
+| **LLM-as-Judge** | `experiments/scripts/eval/metrics/llm_judge.py` | Gemini 2.0 Flash scoring for Relevance, Correctness, Faithfulness, Coverage, Groundedness. Rate-limited to stay under the free-tier 15 RPM cap. |
+| **Code execution** | `experiments/scripts/eval/metrics/code_exec.py` | Sandboxed HumanEval execution in ephemeral Docker containers (no network, 512 MB RAM, 30 s timeout). |
+| **Retrieval bench** | `experiments/scripts/eval/retrieval_bench.py` | Temporary collection builder that reads `_meta` from production collections and indexes benchmark corpora with the same config. |
+| **Airflow DAGs** | `dags/eval_dags.py` | Parameterised DAGs for all eval suites. Stage 1 DAGs (`eval_chat_hotpotqa`, `eval_chat_nq`, `eval_summarization_arxiv`, `eval_code_humaneval`) default to `none`/`none` aliases. Stage 2 DAGs (`eval_retrieval_arxiv_beir_scifact`, `eval_retrieval_arxiv_beir_nfcorpus`, `eval_retrieval_pytorch_msmarco`) target retrieval-only evals. Stage 3 is served by the same DAGs with different `params` (e.g. `rag_aliases=champion,challenger`, `lora_aliases=champion,none`). |
+| **Tests** | `tests/eval/test_eval_workflow.py` | 31 unit tests covering DB model, settings, automatic metrics, LLM judge, code exec, runner config, gateway rag_context, and migration SQL. |
+
+### 7.2 How to get started
+
+**1. Create the database table**
+
+```bash
+psql "$AGENT042_DB_URL" -f migrations/eval_runs.sql
+```
+
+**2. Set environment variables**
+
+```bash
+# Required for LLM-as-Judge
+export EVAL_GOOGLE_AI_API_KEY="your-google-ai-studio-key"
+
+# Required for database logging
+export EVAL_DB_URL="postgresql://user:pass@localhost:5432/agent042"
+
+# Optional overrides
+export EVAL_GATEWAY_URL="http://localhost:9001"
+export EVAL_JUDGE_MODEL="gemini-2.0-flash"
+export EVAL_SAMPLE_LIMIT="50"    # limit samples for quick testing
+```
+
+**3. Run evaluations from the CLI**
+
+```bash
+# Stage 1 — base model baselines
+python -m experiments.scripts.eval.runner \
+    --task chat --dataset hotpotqa
+
+python -m experiments.scripts.eval.runner \
+    --task code --dataset humaneval
+
+# Stage 2 — add RAG
+python -m experiments.scripts.eval.runner \
+    --task chat --dataset hotpotqa \
+    --rag-aliases champion
+
+# Stage 3 — full RAG + LoRA matrix
+python -m experiments.scripts.eval.runner \
+    --task chat --dataset hotpotqa \
+    --rag-aliases champion,challenger \
+    --lora-aliases champion,none
+```
+
+**4. Run evaluations from Airflow**
+
+Trigger any eval DAG from the Airflow UI or CLI. Override `params` to
+select different alias combinations:
+
+```bash
+airflow dags trigger eval_chat_hotpotqa \
+    --conf '{"rag_aliases": "champion,challenger", "lora_aliases": "champion,none"}'
+```
+
+**5. Run the tests**
+
+```bash
+PYTHONPATH=src:. python -m pytest tests/eval/ -v
+```
