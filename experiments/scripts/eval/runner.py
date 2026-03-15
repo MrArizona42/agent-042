@@ -6,20 +6,23 @@ Stage 1 (basic): Base LLM evaluation (no RAG, no LoRA).
 Stage 2 (rag):   Base LLM + RAG evaluation (with retrieval-only evals).
 Stage 3 (lora):  Base LLM + RAG + LoRA evaluation (full matrix).
 
+Each eval-suite is a unique ``(task, dataset, metric)`` triple.  The runner
+accepts a ``--metric`` flag to select exactly **one** metric per invocation.
+
 Usage::
 
-    # Stage 1 — base model chat eval
+    # Stage 1 — base model chat eval, single metric
     python -m experiments.scripts.eval.runner \\
-        --task chat --dataset hotpotqa
+        --task chat --dataset hotpotqa --metric rouge_l
 
-    # Stage 2 — RAG eval
+    # Stage 2 — RAG eval, LLM-as-judge metric
     python -m experiments.scripts.eval.runner \\
-        --task chat --dataset hotpotqa \\
+        --task chat --dataset hotpotqa --metric relevance \\
         --rag-aliases champion,challenger
 
     # Stage 3 — full matrix
     python -m experiments.scripts.eval.runner \\
-        --task chat --dataset hotpotqa \\
+        --task chat --dataset hotpotqa --metric correctness \\
         --rag-aliases champion,challenger \\
         --lora-aliases champion,challenger
 """
@@ -59,7 +62,7 @@ _SUITE_KB: dict[tuple[str, str], str | None] = {
     ("retrieval", "beir_nfcorpus"): None,
 }
 
-# Metrics produced per task
+# Valid metrics per task — each metric is a separate eval-suite
 _TASK_METRICS: dict[str, list[str]] = {
     "chat": ["relevance", "correctness", "bertscore_f1", "rouge_l"],
     "summarize": ["faithfulness", "coverage", "bertscore_f1", "rouge_l"],
@@ -69,6 +72,12 @@ _TASK_METRICS: dict[str, list[str]] = {
 
 # LLM-judge metrics (need Gemini API)
 _JUDGE_METRICS = {"relevance", "correctness", "faithfulness", "coverage", "groundedness"}
+
+# Automatic metrics (computed locally, no external API needed)
+_AUTOMATIC_METRICS = {"bertscore_f1", "rouge_l", "recall_at_10", "ndcg_at_10"}
+
+# Code-execution metrics (sandboxed Docker execution)
+_CODE_EXEC_METRICS = {"pass_at_1", "executable_rate"}
 
 # Groundedness added when RAG is enabled for generation tasks
 _RAG_GENERATION_TASKS = {"chat", "code"}
@@ -187,13 +196,14 @@ def _evaluate_generation(
     *,
     task: str,
     dataset_name: str,
+    metric: str,
     rag_alias: str,
     lora_alias: str,
     kb_name: str | None,
     eval_settings: Any,
     base_model: str,
 ) -> list[dict[str, Any]]:
-    """Run generation eval for a single (rag_alias, lora_alias) pair.
+    """Run generation eval for a single (rag_alias, lora_alias) pair and a single metric.
 
     Returns a list of metric result dicts ready for DB insertion.
     """
@@ -263,7 +273,7 @@ def _evaluate_generation(
             "context": rag_context,
         })
 
-    # Compute metrics
+    # Compute the single requested metric
     now = datetime.now(timezone.utc)
     common = _build_common_fields(
         task=task,
@@ -281,47 +291,34 @@ def _evaluate_generation(
     rows: list[dict[str, Any]] = []
 
     try:
-        # Automatic metrics
-        auto_metrics = compute_automatic_metrics(
-            predictions, references, bert_score_model=eval_settings.bert_score_model
-        )
-        for metric_name in _TASK_METRICS.get(task, []):
-            if metric_name in auto_metrics:
+        if metric in _AUTOMATIC_METRICS:
+            auto_metrics = compute_automatic_metrics(
+                predictions, references, bert_score_model=eval_settings.bert_score_model
+            )
+            if metric in auto_metrics:
                 rows.append({
                     **common,
-                    "metric_name": metric_name,
-                    "metric_value": auto_metrics[metric_name],
+                    "metric_name": metric,
+                    "metric_value": auto_metrics[metric],
                 })
 
-        # LLM-as-Judge metrics
-        if eval_settings.google_ai_api_key:
-            for metric_name in _TASK_METRICS.get(task, []):
-                if metric_name in _JUDGE_METRICS:
-                    result = judge_batch(
-                        metric_name,
-                        samples=judge_samples,
-                        api_key=eval_settings.google_ai_api_key,
-                        model=eval_settings.judge_model,
-                    )
-                    rows.append({
-                        **common,
-                        "metric_name": metric_name,
-                        "metric_value": result[metric_name],
-                    })
-
-            # Groundedness for RAG-enabled generation tasks
-            if rag_enabled and task in _RAG_GENERATION_TASKS:
-                result = judge_batch(
-                    "groundedness",
-                    samples=judge_samples,
-                    api_key=eval_settings.google_ai_api_key,
-                    model=eval_settings.judge_model,
+        elif metric in _JUDGE_METRICS:
+            if not eval_settings.google_ai_api_key:
+                logger.error(
+                    "LLM-as-Judge metric '%s' requires EVAL_GOOGLE_AI_API_KEY", metric,
                 )
-                rows.append({
-                    **common,
-                    "metric_name": "groundedness",
-                    "metric_value": result["groundedness"],
-                })
+                return []
+            result = judge_batch(
+                metric,
+                samples=judge_samples,
+                api_key=eval_settings.google_ai_api_key,
+                model=eval_settings.judge_model,
+            )
+            rows.append({
+                **common,
+                "metric_name": metric,
+                "metric_value": result[metric],
+            })
     except Exception as e:
         logger.error("Metric computation failed: %s", e, exc_info=True)
         finished = datetime.now(timezone.utc)
@@ -343,13 +340,14 @@ def _evaluate_generation(
 def _evaluate_code(
     *,
     dataset_name: str,
+    metric: str,
     rag_alias: str,
     lora_alias: str,
     kb_name: str | None,
     eval_settings: Any,
     base_model: str,
 ) -> list[dict[str, Any]]:
-    """Run HumanEval code generation eval."""
+    """Run HumanEval code generation eval for a single metric."""
     from experiments.scripts.eval.metrics.code_exec import (
         compute_pass_at_1,
         evaluate_humaneval_sample,
@@ -417,7 +415,7 @@ def _evaluate_code(
         )
         return [{
             **common,
-            "metric_name": "pass_at_1",
+            "metric_name": metric,
             "metric_value": 0.0,
             "finished_at": now,
             "status": "failed",
@@ -439,11 +437,11 @@ def _evaluate_code(
     )
 
     rows = []
-    for name, value in metrics.items():
+    if metric in metrics:
         rows.append({
             **common,
-            "metric_name": name,
-            "metric_value": value,
+            "metric_name": metric,
+            "metric_value": metrics[metric],
             "finished_at": now,
             "status": "completed",
         })
@@ -577,12 +575,14 @@ def run_eval(
     *,
     task: str,
     dataset_name: str,
+    metric: str,
     kb_name: str | None = None,
     rag_aliases: list[str],
     lora_aliases: list[str],
 ) -> list[dict[str, Any]]:
-    """Run evaluation for all combinations of (rag_alias, lora_alias).
+    """Run evaluation for a single metric across all (rag_alias, lora_alias) combinations.
 
+    Each call represents one eval-suite = ``(task, dataset, metric)``.
     Computes the Cartesian product of alias lists and runs each pair.
 
     Returns:
@@ -591,6 +591,14 @@ def run_eval(
     eval_settings = get_eval_settings()
     settings = get_settings()
     base_model = settings.default_model
+
+    # Validate metric is valid for this task
+    valid_metrics = _TASK_METRICS.get(task, [])
+    if metric not in valid_metrics:
+        raise ValueError(
+            f"Metric '{metric}' is not valid for task '{task}'. "
+            f"Valid metrics: {valid_metrics}"
+        )
 
     # Resolve fixed KB for this suite
     if kb_name is None:
@@ -608,14 +616,15 @@ def run_eval(
 
     for rag_alias, lora_alias in itertools.product(rag_aliases, lora_aliases):
         logger.info(
-            "Evaluating: task=%s dataset=%s rag=%s lora=%s",
-            task, dataset_name, rag_alias, lora_alias,
+            "Evaluating: task=%s dataset=%s metric=%s rag=%s lora=%s",
+            task, dataset_name, metric, rag_alias, lora_alias,
         )
 
         try:
             if task == "code":
                 rows = _evaluate_code(
                     dataset_name=dataset_name,
+                    metric=metric,
                     rag_alias=rag_alias,
                     lora_alias=lora_alias,
                     kb_name=kb_name,
@@ -625,6 +634,7 @@ def run_eval(
             elif task == "retrieval":
                 rows = _evaluate_retrieval(
                     dataset_name=dataset_name,
+                    metric=metric,
                     rag_alias=rag_alias,
                     kb_name=kb_name,
                     eval_settings=eval_settings,
@@ -634,6 +644,7 @@ def run_eval(
                 rows = _evaluate_generation(
                     task=task,
                     dataset_name=dataset_name,
+                    metric=metric,
                     rag_alias=rag_alias,
                     lora_alias=lora_alias,
                     kb_name=kb_name,
@@ -656,12 +667,13 @@ def run_eval(
 def _evaluate_retrieval(
     *,
     dataset_name: str,
+    metric: str,
     rag_alias: str,
     kb_name: str | None,
     eval_settings: Any,
     base_model: str,
 ) -> list[dict[str, Any]]:
-    """Run retrieval-only eval for one rag_alias."""
+    """Run retrieval-only eval for one rag_alias and a single metric."""
     from experiments.scripts.eval.metrics.automatic import compute_ndcg_at_k, compute_recall_at_k
     from experiments.scripts.eval.retrieval_bench import (
         build_temp_collection,
@@ -769,22 +781,23 @@ def _evaluate_retrieval(
         "chunk_overlap": build_config.get("chunk_overlap"),
     })
 
-    rows = [
-        {
+    rows = []
+    if metric == "recall_at_10":
+        rows.append({
             **common,
             "metric_name": "recall_at_10",
             "metric_value": avg_recall,
             "finished_at": now,
             "status": "completed",
-        },
-        {
+        })
+    elif metric == "ndcg_at_10":
+        rows.append({
             **common,
             "metric_name": "ndcg_at_10",
             "metric_value": avg_ndcg,
             "finished_at": now,
             "status": "completed",
-        },
-    ]
+        })
     return rows
 
 
@@ -800,6 +813,11 @@ def main() -> None:
     )
     parser.add_argument("--task", required=True, choices=["chat", "summarize", "code", "retrieval"])
     parser.add_argument("--dataset", required=True, help="Dataset name (e.g. hotpotqa, humaneval)")
+    parser.add_argument(
+        "--metric",
+        required=True,
+        help="Metric to compute (e.g. rouge_l, relevance, pass_at_1, recall_at_10)",
+    )
     parser.add_argument("--kb", default=None, help="Knowledge base (required for retrieval evals)")
     parser.add_argument(
         "--rag-aliases",
@@ -824,6 +842,7 @@ def main() -> None:
     rows = run_eval(
         task=args.task,
         dataset_name=args.dataset,
+        metric=args.metric,
         kb_name=args.kb,
         rag_aliases=rag_aliases,
         lora_aliases=lora_aliases,
@@ -836,9 +855,10 @@ def main() -> None:
     for row in rows:
         print(
             f"  {row['task']}/{row['dataset_name']} "
+            f"metric={row['metric_name']} "
             f"rag={row.get('rag_alias', 'none')} "
             f"lora={row.get('lora_alias', 'none')} "
-            f"→ {row['metric_name']}={row['metric_value']:.4f}"
+            f"→ {row['metric_value']:.4f}"
         )
 
 

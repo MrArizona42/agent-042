@@ -4,27 +4,41 @@
 
 ### 1.1 Tasks, metrics, and datasets
 
-| Task | Dataset | Metrics | Method |
+Each row below is a separate **eval-suite** = unique `(task, dataset, metric)`.
+One Airflow DAG = one eval-suite = one metric.
+
+| Task | Dataset | Metric | Method |
 |---|---|---|---|
-| Chat (QA) | HotpotQA (validation) | Relevance (1–5), Correctness (1–5) | LLM-as-Judge |
-| Chat (QA) | HotpotQA (validation) | BERTScore, ROUGE-L | Automatic |
-| Chat (QA) | Natural Questions (validation) | Relevance (1–5), Correctness (1–5) | LLM-as-Judge |
-| Chat (QA) | Natural Questions (validation) | BERTScore, ROUGE-L | Automatic |
-| Summarization | ArXiv-summarization (validation) | Faithfulness (1–5), Coverage (1–5) | LLM-as-Judge |
-| Summarization | ArXiv-summarization (validation) | BERTScore, ROUGE-L | Automatic |
-| Code generation | HumanEval (test, 164 examples) | Executable rate, pass@1 | Sandboxed execution |
+| Chat (QA) | HotpotQA (validation) | Relevance (1–5) | LLM-as-Judge |
+| Chat (QA) | HotpotQA (validation) | Correctness (1–5) | LLM-as-Judge |
+| Chat (QA) | HotpotQA (validation) | BERTScore | Automatic |
+| Chat (QA) | HotpotQA (validation) | ROUGE-L | Automatic |
+| Chat (QA) | Natural Questions (validation) | Relevance (1–5) | LLM-as-Judge |
+| Chat (QA) | Natural Questions (validation) | Correctness (1–5) | LLM-as-Judge |
+| Chat (QA) | Natural Questions (validation) | BERTScore | Automatic |
+| Chat (QA) | Natural Questions (validation) | ROUGE-L | Automatic |
+| Summarization | ArXiv-summarization (validation) | Faithfulness (1–5) | LLM-as-Judge |
+| Summarization | ArXiv-summarization (validation) | Coverage (1–5) | LLM-as-Judge |
+| Summarization | ArXiv-summarization (validation) | BERTScore | Automatic |
+| Summarization | ArXiv-summarization (validation) | ROUGE-L | Automatic |
+| Code generation | HumanEval (test, 164 examples) | pass@1 | Sandboxed execution |
+| Code generation | HumanEval (test, 164 examples) | Executable rate | Sandboxed execution |
 | RAG + Chat | HotpotQA (validation) | Groundedness (1–5) | LLM-as-Judge |
 | RAG + Chat | Natural Questions (validation) | Groundedness (1–5) | LLM-as-Judge |
 | RAG + Code | HumanEval (test) | Groundedness (1–5) | LLM-as-Judge |
-| Retrieval-only | MS MARCO (validation) | Recall@k, nDCG@k | Automatic |
-| Retrieval-only | BEIR-SciFact (corpus) | Recall@k, nDCG@k | Automatic |
-| Retrieval-only | BEIR-NFCorpus (corpus) | Recall@k, nDCG@k | Automatic |
+| Retrieval-only | MS MARCO (validation) | Recall@10 | Automatic |
+| Retrieval-only | MS MARCO (validation) | nDCG@10 | Automatic |
+| Retrieval-only | BEIR-SciFact (corpus) | Recall@10 | Automatic |
+| Retrieval-only | BEIR-SciFact (corpus) | nDCG@10 | Automatic |
+| Retrieval-only | BEIR-NFCorpus (corpus) | Recall@10 | Automatic |
+| Retrieval-only | BEIR-NFCorpus (corpus) | nDCG@10 | Automatic |
 
 ### 1.2 Storage granularity
 
-Each eval run produces **one row per metric** in `eval_runs`. For example, `eval_chat_hotpotqa`
-with `rag_aliases=["champion","challenger"]` and `lora_aliases=["champion"]` produces:
-4 metrics × 2 rag_aliases × 1 lora_alias = **8 rows**.
+Each eval-suite produces **one row per (rag_alias, lora_alias) pair** in `eval_runs`, because
+each suite targets exactly one metric.  For example, `eval_chat_hotpotqa_rouge_l` with
+`rag_aliases=["champion","challenger"]` and `lora_aliases=["champion"]` produces:
+1 metric × 2 rag_aliases × 1 lora_alias = **2 rows**.
 
 ### 1.3 LLM-as-Judge
 
@@ -118,25 +132,32 @@ default base model from settings.
 
 ### 2.3 Airflow DAG structure
 
-One Airflow DAG = one eval-suite.
+One Airflow DAG = one eval-suite = one `(task, dataset, metric)`.
 
+Each metric gets its own DAG.  This is intentional: LLM-as-Judge metrics may
+be unavailable or slow, while automatic metrics are fast and always available.
+Separating them at the DAG level gives maximum scheduling flexibility.
 
-Eval-suite - a combination of (task, dataset). Each combination can have more than one aliases (rag aliases and lora aiases). Those aliases will help compare different RAG and LoRA configurations in one eval run.
+DAG naming: ``eval_{task}_{dataset}_{metric}`` for generation evals,
+``eval_retrieval_{kb}_{dataset}_{metric}`` for retrieval-only evals.
 
-RAG-specific retrieval evals are different. Each retrieval dataset (MS MARCO, BEIR-SciFact, BEIR-NFCorpus) first should be indexed into a Qdrant collection. It means that we need to know the config of that collection.
+DAG examples: `eval_chat_hotpotqa_rouge_l`, `eval_chat_hotpotqa_relevance`,
+`eval_code_humaneval_pass_at_1`, `eval_retrieval_arxiv_beir_scifact_recall_at_10`,
+`eval_summarization_arxiv_faithfulness`.
 
-A combination  of (task, knowledge_base, dataset) is an eval-suite for RAG retrieval evals. For example, (retrieval, arxiv, beir_scifact) and (retrieval, pytorch_docs, msmarco) are two different eval-suites for retrieval evals. Each KB might have more than one alias. That helps to compare different RAG configurations in one eval run.
+RAG-specific retrieval evals include the KB in the DAG name since each
+retrieval dataset must be indexed using the config of that KB.
 
-DAG examples: `eval_chat_hotpotqa`, `eval_retrieval_arxiv_beir_scifact`,
-`eval_retrieval_pytorch_msmarco`, `eval_code_humaneval`, `eval_summarization_arxiv`.
+Each DAG accepts `rag_aliases` and `lora_aliases` parameters to compare
+different RAG and LoRA configurations within one eval run.
 
 DAG steps:
 
 ```
 1. prepare_config       — resolve aliases, read _meta, snapshot collection, build run config
 2. generate_predictions — call gateway API (or build temp collection for retrieval-only)
-3. compute_metrics      — calculate all metrics for this (task, dataset) pair
-4. log_to_db            — write one row per (metric, rag_alias, lora_alias) to eval_runs
+3. compute_metrics      — calculate the single metric for this suite
+4. log_to_db            — write one row per (rag_alias, lora_alias) to eval_runs
 5. cleanup              — delete temp collections (retrieval-only evals)
 ```
 
@@ -156,12 +177,12 @@ each `(rag_alias, lora_alias)` pair independently.
 
 | Eval suite | Knowledge base | Why |
 |---|---|---|
-| `eval_chat_hotpotqa` | `arxiv` | Chat uses arxiv KB |
-| `eval_chat_nq` | `arxiv` | Chat uses arxiv KB |
-| `eval_code_humaneval` | `pytorch_docs` | Code uses pytorch_docs KB |
-| `eval_summarization_arxiv` | N/A | Summarization never uses RAG |
-| `eval_retrieval_arxiv_*` | `arxiv` | Tests arxiv build config |
-| `eval_retrieval_pytorch_*` | `pytorch_docs` | Tests pytorch_docs build config |
+| `eval_chat_hotpotqa_{metric}` | `arxiv` | Chat uses arxiv KB |
+| `eval_chat_nq_{metric}` | `arxiv` | Chat uses arxiv KB |
+| `eval_code_humaneval_{metric}` | `pytorch_docs` | Code uses pytorch_docs KB |
+| `eval_summarization_arxiv_{metric}` | N/A | Summarization never uses RAG |
+| `eval_retrieval_arxiv_*_{metric}` | `arxiv` | Tests arxiv build config |
+| `eval_retrieval_pytorch_*_{metric}` | `pytorch_docs` | Tests pytorch_docs build config |
 
 The `rag_alias` argument (e.g., `champion`, `challenger`) selects which alias role of the
 suite's fixed KB to use. The eval runner constructs the Qdrant alias name as
@@ -199,7 +220,8 @@ comparison of retrieval quality between two different build configs for the same
 
 ## 3. Database schema
 
-One row per `(task, dataset, metric, rag_alias, lora_alias)` combination. The full system
+One row per `(task, dataset, metric, rag_alias, lora_alias)` combination (one row per
+alias pair because each eval-suite targets exactly one metric). The full system
 configuration is captured for reproducibility.
 
 ```sql
@@ -326,29 +348,37 @@ experiments/scripts/eval/
 CLI:
 
 ```bash
-# Chat eval with default aliases
+# Chat eval — single metric (automatic)
 python -m experiments.scripts.eval.runner \
-    --task chat --dataset hotpotqa
+    --task chat --dataset hotpotqa --metric rouge_l
 
-# Chat eval comparing champion vs challenger (RAG + LoRA matrix)
+# Chat eval — LLM-as-judge metric
 python -m experiments.scripts.eval.runner \
-    --task chat --dataset hotpotqa \
+    --task chat --dataset hotpotqa --metric relevance
+
+# Chat eval — LLM-as-judge, comparing champion vs challenger RAG + LoRA matrix
+python -m experiments.scripts.eval.runner \
+    --task chat --dataset hotpotqa --metric correctness \
     --rag-aliases champion,challenger \
     --lora-aliases champion,challenger
 
 # Retrieval-only eval (arxiv KB config vs BEIR-SciFact benchmark)
 python -m experiments.scripts.eval.runner \
-    --task retrieval --kb arxiv --dataset beir_scifact \
+    --task retrieval --kb arxiv --dataset beir_scifact --metric recall_at_10 \
     --rag-aliases champion,challenger
 
 # Retrieval-only eval (pytorch_docs KB config vs MS MARCO benchmark)
 python -m experiments.scripts.eval.runner \
-    --task retrieval --kb pytorch_docs --dataset msmarco \
+    --task retrieval --kb pytorch_docs --dataset msmarco --metric ndcg_at_10 \
     --rag-aliases champion,challenger
 
-# Summarization (no RAG, LoRA comparison)
+# Code eval — pass@1
 python -m experiments.scripts.eval.runner \
-    --task summarize --dataset arxiv_summarization \
+    --task code --dataset humaneval --metric pass_at_1
+
+# Summarization — LLM-as-judge metric (no RAG, LoRA comparison)
+python -m experiments.scripts.eval.runner \
+    --task summarize --dataset arxiv_summarization --metric faithfulness \
     --lora-aliases champion,challenger
 ```
 
@@ -358,7 +388,8 @@ python -m experiments.scripts.eval.runner \
 
 ### Stage 1: Base LLM (no RAG, no LoRA)
 
-Suites: `eval_chat_hotpotqa`, `eval_chat_nq`, `eval_summarization_arxiv`, `eval_code_humaneval`.
+Suites: `eval_chat_hotpotqa_{metric}`, `eval_chat_nq_{metric}`,
+`eval_summarization_arxiv_{metric}`, `eval_code_humaneval_{metric}`.
 All use `rag_aliases=["none"]`, `lora_aliases=["none"]`. Establishes baseline metrics.
 
 ### Stage 2: Base LLM + RAG
@@ -391,12 +422,12 @@ overview of what was added and how to start using it.
 | **Migration** | `migrations/eval_runs.sql` | Raw SQL script to create the `eval_runs` table and indexes. Run against the `agent042` PostgreSQL database. |
 | **Eval settings** | `src/shared/config.py` | `EvalSettings` class (env prefix `EVAL_`) with judge model, BERTScore model, gateway URL, code-exec settings, etc. |
 | **Gateway API** | `src/gateway/services/processing.py`, `src/gateway/services/rag_service.py` | The chat completions response now includes a `rag_context` field when RAG is used. `RAGService` gained `retrieve_documents()` and `format_documents()` methods while preserving full backward compatibility with `retrieve_context()`. |
-| **Eval runner** | `experiments/scripts/eval/runner.py` | CLI entry point with `--task`, `--dataset`, `--kb`, `--rag-aliases`, `--lora-aliases`. Handles all three stages via the Cartesian product of alias lists. |
+| **Eval runner** | `experiments/scripts/eval/runner.py` | CLI entry point with `--task`, `--dataset`, `--metric`, `--kb`, `--rag-aliases`, `--lora-aliases`. Each invocation computes exactly **one metric** (one eval-suite). Alias lists form the Cartesian product for cross-configuration comparison. |
 | **Automatic metrics** | `experiments/scripts/eval/metrics/automatic.py` | ROUGE-L, BERTScore (via `bert-score`), Recall@k, nDCG@k. |
 | **LLM-as-Judge** | `experiments/scripts/eval/metrics/llm_judge.py` | Gemini 2.0 Flash scoring for Relevance, Correctness, Faithfulness, Coverage, Groundedness. Rate-limited to stay under the free-tier 15 RPM cap. |
 | **Code execution** | `experiments/scripts/eval/metrics/code_exec.py` | Sandboxed HumanEval execution in ephemeral Docker containers (no network, 512 MB RAM, 30 s timeout). |
 | **Retrieval bench** | `experiments/scripts/eval/retrieval_bench.py` | Temporary collection builder that reads `_meta` from production collections and indexes benchmark corpora with the same config. |
-| **Airflow DAGs** | `dags/eval_dags.py` | Parameterised DAGs for all eval suites. Stage 1 DAGs (`eval_chat_hotpotqa`, `eval_chat_nq`, `eval_summarization_arxiv`, `eval_code_humaneval`) default to `none`/`none` aliases. Stage 2 DAGs (`eval_retrieval_arxiv_beir_scifact`, `eval_retrieval_arxiv_beir_nfcorpus`, `eval_retrieval_pytorch_msmarco`) target retrieval-only evals. Stage 3 is served by the same DAGs with different `params` (e.g. `rag_aliases=champion,challenger`, `lora_aliases=champion,none`). |
+| **Airflow DAGs** | `dags/eval_dags.py` | One DAG per eval-suite = per `(task, dataset, metric)`. Stage 1 DAGs (`eval_chat_hotpotqa_{metric}`, `eval_chat_nq_{metric}`, `eval_summarization_arxiv_{metric}`, `eval_code_humaneval_{metric}`) default to `none`/`none` aliases. Stage 2 DAGs (`eval_retrieval_arxiv_beir_scifact_{metric}`, `eval_retrieval_arxiv_beir_nfcorpus_{metric}`, `eval_retrieval_pytorch_msmarco_{metric}`) target retrieval-only evals. Stage 3 is served by the same DAGs with different `params`. |
 | **Tests** | `tests/eval/test_eval_workflow.py` | 31 unit tests covering DB model, settings, automatic metrics, LLM judge, code exec, runner config, gateway rag_context, and migration SQL. |
 
 ### 7.2 How to get started
@@ -425,21 +456,24 @@ export EVAL_SAMPLE_LIMIT="50"    # limit samples for quick testing
 **3. Run evaluations from the CLI**
 
 ```bash
-# Stage 1 — base model baselines
+# Stage 1 — base model baselines (one metric per invocation)
 python -m experiments.scripts.eval.runner \
-    --task chat --dataset hotpotqa
+    --task chat --dataset hotpotqa --metric rouge_l
 
 python -m experiments.scripts.eval.runner \
-    --task code --dataset humaneval
+    --task chat --dataset hotpotqa --metric relevance
+
+python -m experiments.scripts.eval.runner \
+    --task code --dataset humaneval --metric pass_at_1
 
 # Stage 2 — add RAG
 python -m experiments.scripts.eval.runner \
-    --task chat --dataset hotpotqa \
+    --task chat --dataset hotpotqa --metric bertscore_f1 \
     --rag-aliases champion
 
 # Stage 3 — full RAG + LoRA matrix
 python -m experiments.scripts.eval.runner \
-    --task chat --dataset hotpotqa \
+    --task chat --dataset hotpotqa --metric correctness \
     --rag-aliases champion,challenger \
     --lora-aliases champion,none
 ```
@@ -450,7 +484,7 @@ Trigger any eval DAG from the Airflow UI or CLI. Override `params` to
 select different alias combinations:
 
 ```bash
-airflow dags trigger eval_chat_hotpotqa \
+airflow dags trigger eval_chat_hotpotqa_rouge_l \
     --conf '{"rag_aliases": "champion,challenger", "lora_aliases": "champion,none"}'
 ```
 

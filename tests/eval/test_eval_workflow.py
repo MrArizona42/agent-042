@@ -307,6 +307,41 @@ class TestRunnerConfig:
         assert "recall_at_10" in _TASK_METRICS["retrieval"]
         assert "ndcg_at_10" in _TASK_METRICS["retrieval"]
 
+    def test_metric_category_sets(self):
+        """Each metric belongs to exactly one category set."""
+        from experiments.scripts.eval.runner import (
+            _AUTOMATIC_METRICS,
+            _CODE_EXEC_METRICS,
+            _JUDGE_METRICS,
+        )
+
+        assert "rouge_l" in _AUTOMATIC_METRICS
+        assert "bertscore_f1" in _AUTOMATIC_METRICS
+        assert "recall_at_10" in _AUTOMATIC_METRICS
+        assert "ndcg_at_10" in _AUTOMATIC_METRICS
+        assert "relevance" in _JUDGE_METRICS
+        assert "correctness" in _JUDGE_METRICS
+        assert "groundedness" in _JUDGE_METRICS
+        assert "pass_at_1" in _CODE_EXEC_METRICS
+        assert "executable_rate" in _CODE_EXEC_METRICS
+        # No overlap between automatic and judge
+        assert _AUTOMATIC_METRICS.isdisjoint(_JUDGE_METRICS)
+        assert _AUTOMATIC_METRICS.isdisjoint(_CODE_EXEC_METRICS)
+        assert _JUDGE_METRICS.isdisjoint(_CODE_EXEC_METRICS)
+
+    def test_run_eval_validates_metric(self):
+        """run_eval raises ValueError for invalid task/metric combination."""
+        from experiments.scripts.eval.runner import run_eval
+
+        with pytest.raises(ValueError, match="not valid for task"):
+            run_eval(
+                task="chat",
+                dataset_name="hotpotqa",
+                metric="pass_at_1",  # not valid for chat
+                rag_aliases=["none"],
+                lora_aliases=["none"],
+            )
+
     def test_build_common_fields(self):
         from experiments.scripts.eval.runner import _build_common_fields
 
