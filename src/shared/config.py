@@ -28,11 +28,11 @@ logger = logging.getLogger(__name__)
 # Knowledge Base Registry (loaded from JSON config file)
 # =========================================================================
 
-_DEFAULT_KB_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "knowledge_bases.json"
+_DEFAULT_KB_PATH = Path(__file__).resolve().parent / "knowledge_bases.json"
 
 
 class KnowledgeBaseConfig(BaseModel):
-    """Single knowledge-base entry from config/knowledge_bases.json."""
+    """Single knowledge-base entry from shared/knowledge_bases.json."""
 
     knowledge_base: str
     aliases: list[str] = Field(default_factory=lambda: ["champion"])
@@ -85,6 +85,7 @@ def get_knowledge_bases(path: Path | str | None = None) -> dict[str, KnowledgeBa
 #   { "arxiv": { "collection": ..., "label": ..., "description": ... }, ... }
 # The proxy loads the JSON config on first access.
 
+
 class _KBProxy(dict):
     """Lazy dict that loads KB config on first access."""
 
@@ -93,12 +94,15 @@ class _KBProxy(dict):
     def _ensure(self) -> None:
         if not self._loaded:
             for name, cfg in get_knowledge_bases().items():
-                super().__setitem__(name, {
-                    "label": cfg.label,
-                    "description": cfg.description,
-                    "aliases": cfg.aliases,
-                    "update_strategy": cfg.update_strategy,
-                })
+                super().__setitem__(
+                    name,
+                    {
+                        "label": cfg.label,
+                        "description": cfg.description,
+                        "aliases": cfg.aliases,
+                        "update_strategy": cfg.update_strategy,
+                    },
+                )
             self._loaded = True
 
     def __getitem__(self, key):
@@ -254,8 +258,8 @@ class Settings(BaseSettings):
         le=65535,
     )
     knowledge_bases_path: str = Field(
-        default="config/knowledge_bases.json",
-        description="Path to knowledge_bases.json config file",
+        default="",
+        description="Override path to knowledge_bases.json (leave empty to use bundled default)",
     )
 
     # =========================================================================
