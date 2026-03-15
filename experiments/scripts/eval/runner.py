@@ -489,81 +489,98 @@ def _build_common_fields(
     }
 
 
+# ---------------------------------------------------------------------------
+# Dataset path helpers
+# ---------------------------------------------------------------------------
+
+# Project root (repo top-level directory)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+# Canonical directory for pre-downloaded datasets (HF Arrow format).
+DATASETS_DIR = _PROJECT_ROOT / "assets" / "datasets"
+
+# Mapping from eval runner dataset_name → local folder under assets/datasets/
+# and the split to read.  Datasets are saved via ``save_to_disk`` in the
+# prefetch notebook and pulled via DVC.
+_DATASET_LOCAL: dict[str, tuple[str, str]] = {
+    "hotpotqa": ("hotpotqa", "validation"),
+    "nq": ("natural-questions", "validation"),
+    "arxiv_summarization": ("arxiv-summarization", "validation"),
+    "humaneval": ("humaneval", "train"),  # HumanEval has only test→saved as "train"
+    "beir_scifact": ("beir-scifact", "train"),
+    "beir_nfcorpus": ("beir-nfcorpus", "train"),
+    "msmarco": ("msmarco", "validation"),
+}
+
+
 def _load_dataset_samples(
     task: str, dataset_name: str, limit: int = 0
 ) -> list[dict[str, str]]:
-    """Load evaluation dataset samples.
+    """Load evaluation dataset samples from local Arrow files.
 
-    Attempts to load from HuggingFace ``datasets`` library.  Falls back
-    to a local JSON file at ``assets/eval_data/{dataset_name}.json``.
+    Datasets must be pre-downloaded to ``assets/datasets/{folder_name}``
+    (HuggingFace Arrow format, saved via ``DatasetDict.save_to_disk``).
+    Use ``experiments/scripts/prefetch_assets.ipynb`` or ``dvc pull`` to
+    populate the directory.
 
     Returns:
         List of sample dicts with at least ``question`` and ``answer`` keys
         (or ``prompt`` and ``test`` for code tasks).
     """
-    # Try local file first
-    local_path = (
-        Path(__file__).resolve().parent.parent.parent.parent
-        / "assets"
-        / "eval_data"
-        / f"{dataset_name}.json"
+    from datasets import load_from_disk
+
+    if dataset_name not in _DATASET_LOCAL:
+        logger.warning("Unknown dataset: %s", dataset_name)
+        return []
+
+    folder_name, split_name = _DATASET_LOCAL[dataset_name]
+    dataset_path = DATASETS_DIR / folder_name
+
+    if not dataset_path.exists():
+        logger.error(
+            "Dataset directory not found: %s — run prefetch_assets notebook or "
+            "'dvc pull' to download datasets",
+            dataset_path,
+        )
+        return []
+
+    ds_dict = load_from_disk(str(dataset_path))
+    if split_name not in ds_dict:
+        logger.error(
+            "Split '%s' not found in %s (available: %s)",
+            split_name, dataset_path, list(ds_dict.keys()),
+        )
+        return []
+
+    ds = ds_dict[split_name]
+
+    samples: list[dict[str, str]] = []
+    for item in ds:
+        if task == "code":
+            samples.append({
+                "prompt": item.get("prompt", ""),
+                "test": item.get("test", ""),
+                "answer": item.get("canonical_solution", ""),
+            })
+        elif task == "summarize":
+            samples.append({
+                "question": item.get("article", "")[:2000],
+                "answer": item.get("abstract", ""),
+            })
+        else:
+            # chat / QA
+            samples.append({
+                "question": item.get("question", ""),
+                "answer": item.get("answer", ""),
+            })
+
+        if limit > 0 and len(samples) >= limit:
+            break
+
+    logger.info(
+        "Loaded %d samples from %s [%s]", len(samples), dataset_path, split_name,
     )
-    if local_path.exists():
-        with open(local_path, encoding="utf-8") as f:
-            samples = json.load(f)
-        if limit > 0:
-            samples = samples[:limit]
-        logger.info("Loaded %d samples from %s", len(samples), local_path)
-        return samples
-
-    # Try HuggingFace datasets
-    try:
-        from datasets import load_dataset
-
-        _HF_DATASETS = {
-            "hotpotqa": ("hotpot_qa", "distractor", "validation"),
-            "nq": ("natural_questions", "default", "validation"),
-            "arxiv_summarization": ("ccdv/arxiv-summarization", "default", "validation"),
-            "humaneval": ("openai_humaneval", "default", "test"),
-        }
-        if dataset_name not in _HF_DATASETS:
-            logger.warning("Unknown dataset: %s", dataset_name)
-            return []
-
-        ds_name, ds_config, ds_split = _HF_DATASETS[dataset_name]
-        ds = load_dataset(ds_name, ds_config, split=ds_split)
-
-        samples = []
-        for item in ds:
-            if task == "code":
-                samples.append({
-                    "prompt": item.get("prompt", ""),
-                    "test": item.get("test", ""),
-                    "answer": item.get("canonical_solution", ""),
-                })
-            elif task == "summarize":
-                samples.append({
-                    "question": item.get("article", "")[:2000],
-                    "answer": item.get("abstract", ""),
-                })
-            else:
-                # chat / QA
-                samples.append({
-                    "question": item.get("question", ""),
-                    "answer": item.get("answer", ""),
-                })
-
-            if limit > 0 and len(samples) >= limit:
-                break
-
-        logger.info("Loaded %d samples from HuggingFace: %s", len(samples), ds_name)
-        return samples
-    except ImportError:
-        logger.warning("datasets package not installed")
-        return []
-    except Exception as e:
-        logger.warning("Failed to load dataset %s: %s", dataset_name, e)
-        return []
+    return samples
 
 
 # ---------------------------------------------------------------------------

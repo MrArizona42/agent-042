@@ -21,7 +21,7 @@ data:
   max_seq_length: 768  # Allows enough context without blowing 12GB VRAM
   batch_size: 1
   num_workers: 2  # Light parallelism keeps CPU/RAM usage modest
-  local_path: "${paths.project_root}/assets/datasets/arxiv-summarization-01"
+  local_path: "${paths.project_root}/assets/datasets/arxiv-summarization"
   prompt_template: | # Keep prompts short yet structured for summarization
     Summarize the following article into an abstract:
 

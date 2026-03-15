@@ -342,6 +342,39 @@ class TestRunnerConfig:
                 lora_aliases=["none"],
             )
 
+    def test_dataset_local_mapping_covers_all_suites(self):
+        """All datasets used in _SUITE_KB have a local mapping."""
+        from experiments.scripts.eval.runner import _DATASET_LOCAL, _SUITE_KB
+
+        for (_task, dataset_name), _kb in _SUITE_KB.items():
+            assert dataset_name in _DATASET_LOCAL, (
+                f"Dataset '{dataset_name}' in _SUITE_KB but not in _DATASET_LOCAL"
+            )
+
+    def test_dataset_local_mapping_points_to_datasets_dir(self):
+        """All local dataset folders live under assets/datasets/."""
+        from experiments.scripts.eval.runner import DATASETS_DIR, _DATASET_LOCAL
+
+        for name, (folder, _split) in _DATASET_LOCAL.items():
+            expected = DATASETS_DIR / folder
+            assert expected.parent == DATASETS_DIR, (
+                f"{name}: {expected} is not under {DATASETS_DIR}"
+            )
+
+    def test_load_dataset_samples_unknown_returns_empty(self):
+        """_load_dataset_samples returns [] for an unknown dataset."""
+        from experiments.scripts.eval.runner import _load_dataset_samples
+
+        assert _load_dataset_samples("chat", "nonexistent_dataset") == []
+
+    def test_load_dataset_samples_missing_dir_returns_empty(self):
+        """_load_dataset_samples returns [] when dataset dir does not exist."""
+        from experiments.scripts.eval.runner import _load_dataset_samples
+
+        # hotpotqa is valid but its directory won't exist in test env
+        result = _load_dataset_samples("chat", "hotpotqa")
+        assert result == []
+
     def test_build_common_fields(self):
         from experiments.scripts.eval.runner import _build_common_fields
 
