@@ -218,8 +218,6 @@ class RAGService:
         if not documents:
             return None
 
-        # Use a dummy retriever to access format_context
-        # (the formatting logic only needs settings, not a live connection)
         parts: list[str] = []
         for i, doc in enumerate(documents, 1):
             source = doc.metadata.get("source", "unknown")

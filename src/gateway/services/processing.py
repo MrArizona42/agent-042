@@ -98,7 +98,7 @@ class _ProcessChat:
                         for doc in docs:
                             rag_context_chunks.append({
                                 "content": doc.content,
-                                "score": doc.score,
+                                "score": doc.score if doc.score is not None else 0.0,
                                 "source": source_label,
                             })
                         ctx = self._rag_service.format_documents(docs)

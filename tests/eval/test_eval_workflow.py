@@ -291,6 +291,11 @@ class TestRunnerConfig:
         assert _SUITE_KB[("code", "humaneval")] == "pytorch_docs"
         assert _SUITE_KB[("summarize", "arxiv_summarization")] is None
 
+    def test_suite_kb_missing_returns_none(self):
+        from experiments.scripts.eval.runner import _SUITE_KB
+
+        assert _SUITE_KB.get(("unknown_task", "unknown_dataset")) is None
+
     def test_task_metrics(self):
         from experiments.scripts.eval.runner import _TASK_METRICS
 

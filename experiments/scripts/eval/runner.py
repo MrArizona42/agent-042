@@ -280,47 +280,56 @@ def _evaluate_generation(
 
     rows: list[dict[str, Any]] = []
 
-    # Automatic metrics
-    auto_metrics = compute_automatic_metrics(
-        predictions, references, bert_score_model=eval_settings.bert_score_model
-    )
-    for metric_name in _TASK_METRICS.get(task, []):
-        if metric_name in auto_metrics:
-            rows.append({
-                **common,
-                "metric_name": metric_name,
-                "metric_value": auto_metrics[metric_name],
-            })
-
-    # LLM-as-Judge metrics
-    if eval_settings.google_ai_api_key:
+    try:
+        # Automatic metrics
+        auto_metrics = compute_automatic_metrics(
+            predictions, references, bert_score_model=eval_settings.bert_score_model
+        )
         for metric_name in _TASK_METRICS.get(task, []):
-            if metric_name in _JUDGE_METRICS:
+            if metric_name in auto_metrics:
+                rows.append({
+                    **common,
+                    "metric_name": metric_name,
+                    "metric_value": auto_metrics[metric_name],
+                })
+
+        # LLM-as-Judge metrics
+        if eval_settings.google_ai_api_key:
+            for metric_name in _TASK_METRICS.get(task, []):
+                if metric_name in _JUDGE_METRICS:
+                    result = judge_batch(
+                        metric_name,
+                        samples=judge_samples,
+                        api_key=eval_settings.google_ai_api_key,
+                        model=eval_settings.judge_model,
+                    )
+                    rows.append({
+                        **common,
+                        "metric_name": metric_name,
+                        "metric_value": result[metric_name],
+                    })
+
+            # Groundedness for RAG-enabled generation tasks
+            if rag_enabled and task in _RAG_GENERATION_TASKS:
                 result = judge_batch(
-                    metric_name,
+                    "groundedness",
                     samples=judge_samples,
                     api_key=eval_settings.google_ai_api_key,
                     model=eval_settings.judge_model,
                 )
                 rows.append({
                     **common,
-                    "metric_name": metric_name,
-                    "metric_value": result[metric_name],
+                    "metric_name": "groundedness",
+                    "metric_value": result["groundedness"],
                 })
-
-        # Groundedness for RAG-enabled generation tasks
-        if rag_enabled and task in _RAG_GENERATION_TASKS:
-            result = judge_batch(
-                "groundedness",
-                samples=judge_samples,
-                api_key=eval_settings.google_ai_api_key,
-                model=eval_settings.judge_model,
-            )
-            rows.append({
-                **common,
-                "metric_name": "groundedness",
-                "metric_value": result["groundedness"],
-            })
+    except Exception as e:
+        logger.error("Metric computation failed: %s", e, exc_info=True)
+        finished = datetime.now(timezone.utc)
+        for row in rows:
+            row["finished_at"] = finished
+            row["status"] = "failed"
+            row["error_message"] = str(e)
+        return rows
 
     # Mark completed
     finished = datetime.now(timezone.utc)
@@ -389,7 +398,32 @@ def _evaluate_code(
         )
         exec_results.append(result)
 
-    metrics = compute_pass_at_1(exec_results)
+    try:
+        metrics = compute_pass_at_1(exec_results)
+    except Exception as e:
+        logger.error("Code metric computation failed: %s", e, exc_info=True)
+        now = datetime.now(timezone.utc)
+        common = _build_common_fields(
+            task="code",
+            dataset_name=dataset_name,
+            base_model=base_model,
+            lora_alias=lora_alias,
+            lora_info=lora_info,
+            rag_alias=rag_alias,
+            rag_enabled=rag_enabled,
+            kb_name=kb_name,
+            eval_settings=eval_settings,
+            now=now,
+        )
+        return [{
+            **common,
+            "metric_name": "pass_at_1",
+            "metric_value": 0.0,
+            "finished_at": now,
+            "status": "failed",
+            "error_message": str(e),
+        }]
+
     now = datetime.now(timezone.utc)
     common = _build_common_fields(
         task="code",

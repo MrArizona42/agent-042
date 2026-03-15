@@ -16,7 +16,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # Gemini free tier: 15 RPM
-_RPM_DELAY = 4.5  # seconds between calls to stay under 15 RPM
+_RPM_DELAY = 4.0  # seconds between calls to stay under 15 RPM
 
 # ---------------------------------------------------------------------------
 # Prompt templates
