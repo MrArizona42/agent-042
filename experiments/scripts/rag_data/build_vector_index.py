@@ -485,7 +485,7 @@ def main():
             print(f"Error: ArXiv file not found: {args.arxiv_file}")
             print(
                 "Download ArXiv papers first"
-                " using experiments/scripts/prefetch_assets.ipynb (section 8)"
+                " using experiments/notebooks/prefetch_assets.ipynb (section 8)"
             )
             sys.exit(1)
 
@@ -515,7 +515,7 @@ def main():
             print(f"Error: PyTorch docs file not found: {args.pytorch_docs_file}")
             print(
                 "Scrape PyTorch docs first"
-                " using experiments/scripts/prefetch_assets.ipynb (section 9)"
+                " using experiments/notebooks/prefetch_assets.ipynb (section 9)"
             )
             sys.exit(1)
 

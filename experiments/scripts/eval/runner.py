@@ -520,7 +520,7 @@ def _load_dataset_samples(
 
     Datasets must be pre-downloaded to ``assets/datasets/{folder_name}``
     (HuggingFace Arrow format, saved via ``DatasetDict.save_to_disk``).
-    Use ``experiments/scripts/prefetch_assets.ipynb`` or ``dvc pull`` to
+    Use ``experiments/notebooks/prefetch_assets.ipynb`` or ``dvc pull`` to
     populate the directory.
 
     Returns:

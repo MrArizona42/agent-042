@@ -13,7 +13,7 @@
 
 ## 🚀 Быстрый старт
 
-1. Скачать датасет и модель — откройте ноутбук `experiments/scripts/prefetch_assets.ipynb`,
+1. Скачать датасет и модель — откройте ноутбук `experiments/notebooks/prefetch_assets.ipynb`,
    задайте `PROJECT_ROOT` и выполните нужные ячейки.
 2. Запустить обучение адаптера:
 
@@ -57,7 +57,7 @@ Remote хранилище называется ycloud
 - Скрипт обучения читает конфиги через декоратор `@hydra.main(..., config_path="../conf", ...)` и
   принимает оверрайды из CLI.
 - Скачивание датасетов и моделей выполняется интерактивно через ноутбук
-  `experiments/scripts/prefetch_assets.ipynb` (без Hydra).
+  `experiments/notebooks/prefetch_assets.ipynb` (без Hydra).
 
 - Группы конфигов:
     - `conf/paths/paths_config.yaml` — ключ `paths.project_root` (по умолчанию проставлен
@@ -115,7 +115,7 @@ python ./experiments/scripts/train_hydra.py --info
 ### Запуск скриптов
 
 1) **Скачивание датасета и модели** — используйте ноутбук
-   `experiments/scripts/prefetch_assets.ipynb`.
+   `experiments/notebooks/prefetch_assets.ipynb`.
    Задайте `PROJECT_ROOT`, выберите конфигурацию датасета / модели и запустите ячейки.
    Ноутбук позволяет интерактивно изучить скачанные данные перед добавлением в DVC.
 
@@ -181,7 +181,7 @@ python ./experiments/scripts/train_hydra.py -m \
   переопределяйте через CLI `paths.project_root=...`.
 - Для Windows используйте прямые слэши (`C:/...`) или экранируйте обратные слэши в кавычках.
 - Чтобы скачать новый датасет или модель — отредактируйте параметры в ноутбуке
-  `experiments/scripts/prefetch_assets.ipynb` и запустите нужные ячейки.
+  `experiments/notebooks/prefetch_assets.ipynb` и запустите нужные ячейки.
 
 ## Куда что складывается (данные, логи, метрики, артефакты, параметры)
 
