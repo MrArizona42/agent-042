@@ -31,24 +31,24 @@ with `rag_aliases=["champion","challenger"]` and `lora_aliases=["champion"]` pro
 Gemini 2.0 Flash via Google AI Studio API. Supports structured JSON output.
 Free tier: 15 RPM, 1M tokens/day.
 
-<!-- USER-DECISION: eval subset size
-     HotpotQA validation has ~7k examples. At 15 RPM, one LLM-as-judge metric takes ~8 hours.
-     Options:
-     (a) Sample N examples per eval run (e.g., 200) — fast, but noisier.
-     (b) Use paid tier for higher RPM — faster, but costs money.
-     (c) Full dataset, accept long runtime — accurate, but blocks DAG slots for hours.
-     Pick subset size or rate limit strategy and update this section. -->
-
 ### 1.4 Code execution sandbox
 
 HumanEval requires executing untrusted generated Python code.
 
-<!-- USER-DECISION: sandbox mechanism
-     Options:
-     (a) Docker container with resource limits (CPU/memory/timeout per sample, no network).
-     (b) Restricted Python subprocess with resource.setrlimit + timeout.
-     (c) Dedicated sandboxing tool (e.g., bubblewrap, firejail).
-     Pick a mechanism and specify timeout per sample (e.g., 30s). -->
+Execution runs in **ephemeral Docker containers** with resource limits:
+
+* Image: minimal Python (e.g., `python:3.11-slim`) — no extra packages beyond stdlib.
+* Limits per sample: 1 CPU, 512 MB RAM, 30 s timeout, no network (`--network=none`).
+* The eval runner uses the Docker SDK for Python (`docker` package) to create, start, and
+  remove a container per code sample.
+* The generated code is written to a temp file and bind-mounted read-only into the container.
+* Exit code 0 + expected stdout → pass. Non-zero or timeout → fail.
+
+This fits the existing Docker Compose infrastructure. In k8s, the same approach translates to
+ephemeral Jobs with resource limits and no network policy — no architectural change needed.
+
+The eval runner container requires access to the Docker socket (`/var/run/docker.sock` mounted
+in the Compose service definition).
 
 ---
 
@@ -74,8 +74,8 @@ The system has two fundamentally different eval types with different execution p
 - The build config is read from the `_meta` sentinel point of the production collection
   (identified by `kb_name + rag_alias`). This ensures the retrieval eval measures the same
   architecture that production uses.
-- Temporary benchmark collections are named `eval_{dataset}_{timestamp}` and deleted after the
-  eval completes.
+- Temporary benchmark collections are named `eval_{kb}_{dataset}_{rag_alias}_{timestamp}` and
+  deleted after the eval completes.
 
 ### 2.2 Gateway API extensions for eval
 
@@ -118,11 +118,17 @@ default base model from settings.
 
 ### 2.3 Airflow DAG structure
 
-One Airflow DAG = one eval-suite. Each suite evaluates one `(task, dataset)` pair across a matrix
-of configurations.
+One Airflow DAG = one eval-suite.
 
-DAG examples: `eval_chat_hotpotqa`, `eval_retrieval_beir_scifact`, `eval_code_humaneval`,
-`eval_summarization_arxiv`.
+
+Eval-suite - a combination of (task, dataset). Each combination can have more than one aliases (rag aliases and lora aiases). Those aliases will help compare different RAG and LoRA configurations in one eval run.
+
+RAG-specific retrieval evals are different. Each retrieval dataset (MS MARCO, BEIR-SciFact, BEIR-NFCorpus) first should be indexed into a Qdrant collection. It means that we need to know the config of that collection.
+
+A combination  of (task, knowledge_base, dataset) is an eval-suite for RAG retrieval evals. For example, (retrieval, arxiv, beir_scifact) and (retrieval, pytorch_docs, msmarco) are two different eval-suites for retrieval evals. Each KB might have more than one alias. That helps to compare different RAG configurations in one eval run.
+
+DAG examples: `eval_chat_hotpotqa`, `eval_retrieval_arxiv_beir_scifact`,
+`eval_retrieval_pytorch_msmarco`, `eval_code_humaneval`, `eval_summarization_arxiv`.
 
 DAG steps:
 
@@ -154,7 +160,8 @@ each `(rag_alias, lora_alias)` pair independently.
 | `eval_chat_nq` | `arxiv` | Chat uses arxiv KB |
 | `eval_code_humaneval` | `pytorch_docs` | Code uses pytorch_docs KB |
 | `eval_summarization_arxiv` | N/A | Summarization never uses RAG |
-| `eval_retrieval_*` | Reads config from target KB's collection `_meta` | See Section 2.5 |
+| `eval_retrieval_arxiv_*` | `arxiv` | Tests arxiv build config |
+| `eval_retrieval_pytorch_*` | `pytorch_docs` | Tests pytorch_docs build config |
 
 The `rag_alias` argument (e.g., `champion`, `challenger`) selects which alias role of the
 suite's fixed KB to use. The eval runner constructs the Qdrant alias name as
@@ -164,25 +171,29 @@ For suites where RAG is not applicable (Summarization), `rag_aliases` is ignored
 
 ### 2.5 Retrieval-only eval details
 
-For retrieval-only eval suites (`eval_retrieval_msmarco`, `eval_retrieval_beir_scifact`,
-`eval_retrieval_beir_nfcorpus`), the `rag_alias` determines **which production collection's
-build config to replicate** for the benchmark:
+Retrieval-only eval suites follow the same pattern as generation suites: each suite has a
+**fixed KB** and iterates over the `rag_aliases` list.
+
+Suite naming: `eval_retrieval_{kb}_{dataset}` — e.g., `eval_retrieval_arxiv_beir_scifact`,
+`eval_retrieval_pytorch_msmarco`.
+
+For each `rag_alias` in the list, the runner:
 
 ```
 1. Resolve {kb_name}_{rag_alias} → get production collection name.
 2. Read _meta → extract build_config (chunking_strategy, embedding_model, etc.).
-3. Build temporary collection eval_{dataset}_{timestamp} from benchmark corpus
-   using the extracted build_config.
+3. Build temporary collection eval_{kb}_{dataset}_{rag_alias}_{timestamp}
+   from benchmark corpus using the extracted build_config.
 4. Run benchmark queries → compute Recall@k, nDCG@k against gold labels.
-5. Log results to eval_runs (with rag_alias recorded).
+5. Log results to eval_runs (with rag_alias and knowledge_base recorded).
 6. Delete temporary collection.
 ```
 
-<!-- USER-DECISION: retrieval eval KB mapping
-     Current assumption: retrieval evals always replicate arxiv KB config (since arxiv
-     is the primary chat KB and retrieval quality matters most there).
-     If you want retrieval evals to also test pytorch_docs config, add a kb parameter
-     to retrieval eval suites or create separate suites per KB. -->
+This means `--rag-aliases champion,challenger` runs the full benchmark **twice** — once
+replicating the champion collection's config, once with the challenger's — producing a direct
+comparison of retrieval quality between two different build configs for the same KB.
+
+`lora_aliases` is ignored for retrieval-only suites (no generation involved).
 
 ---
 
@@ -325,9 +336,14 @@ python -m experiments.scripts.eval.runner \
     --rag-aliases champion,challenger \
     --lora-aliases champion,challenger
 
-# Retrieval-only eval
+# Retrieval-only eval (arxiv KB config vs BEIR-SciFact benchmark)
 python -m experiments.scripts.eval.runner \
-    --task retrieval --dataset beir_scifact \
+    --task retrieval --kb arxiv --dataset beir_scifact \
+    --rag-aliases champion,challenger
+
+# Retrieval-only eval (pytorch_docs KB config vs MS MARCO benchmark)
+python -m experiments.scripts.eval.runner \
+    --task retrieval --kb pytorch_docs --dataset msmarco \
     --rag-aliases champion,challenger
 
 # Summarization (no RAG, LoRA comparison)

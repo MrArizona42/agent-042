@@ -300,10 +300,13 @@ Step-by-step:
 
 2. **Evaluate** against champion:
    ```bash
-   python eval_retrieval.py --kb pytorch_docs --rag-aliases champion,challenger
+   python -m experiments.scripts.eval.runner \
+       --task retrieval --kb pytorch_docs --dataset beir_scifact \
+       --rag-aliases champion,challenger
    ```
-   The eval runner calls the gateway API for retrieval (the gateway is the single source of truth
-   for alias resolution). Results are logged to `eval_runs` with the `rag_alias` column.
+   For each alias, the eval runner resolves `pytorch_docs_{alias}` → reads `_meta` → builds a
+   temporary benchmark collection with the same config → computes retrieval metrics. Results are
+   logged to `eval_runs` with the `rag_alias` and `knowledge_base` columns.
 
 3. **Promote** if results are good:
    ```bash
@@ -355,10 +358,15 @@ A daily Airflow DAG (`rag_collection_cleanup`) handles garbage collection:
 | Caller | What is sent | Alias resolution |
 |---|---|---|
 | **UI** | `knowledge_base` only (alias defaults to `champion`) | Gateway resolves `{kb}_champion` |
-| **Eval runner** | `knowledge_base` + explicit `alias` | Gateway resolves `{kb}_{alias}` |
+| **Eval runner (generation)** | `knowledge_base` + explicit `alias` | Gateway resolves `{kb}_{alias}` |
+| **Eval runner (retrieval-only)** | `kb_name` + `rag_alias` | Resolves `{kb}_{alias}` → reads `_meta` → builds temp collection |
 
-The eval runner calls the **gateway API** for retrieval — the gateway is the single source of
-truth for alias resolution. The eval runner does not import `RAG/` directly.
+**Generation evals** (Chat, Summarization, Code, RAG+Chat, RAG+Code) call the **gateway API**.
+The gateway is the single source of truth for alias resolution, RAG retrieval, and inference.
+
+**Retrieval-only evals** use the `RAG/` library directly (not the gateway) to build temporary
+benchmark collections replicating a production collection's build config. See README-EVAL.md
+Section 2.5 for details.
 
 ### 7.2 Eval runs table
 
