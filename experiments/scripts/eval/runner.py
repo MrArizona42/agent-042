@@ -96,6 +96,7 @@ def _call_gateway(
     rag_sources: list[dict[str, str]] | None = None,
     temperature: float = 0.0,
     max_tokens: int = 512,
+    internal_api_key: str = "",
 ) -> dict[str, Any]:
     """Call the gateway chat completions API."""
     payload: dict[str, Any] = {
@@ -108,9 +109,14 @@ def _call_gateway(
     if rag_sources:
         payload["rag_sources"] = rag_sources
 
+    headers: dict[str, str] = {}
+    if internal_api_key:
+        headers["X-API-Key"] = internal_api_key
+
     resp = httpx.post(
         f"{gateway_url}/v1/chat/completions",
         json=payload,
+        headers=headers,
         timeout=120,
     )
     resp.raise_for_status()
@@ -214,6 +220,7 @@ def _evaluate_generation(
     temperature = eval_settings.temperature
     max_tokens = eval_settings.max_tokens
     sample_limit = eval_settings.sample_limit
+    internal_api_key = eval_settings.internal_api_key
 
     # Resolve LoRA adapter
     lora_info = _resolve_lora_alias(lora_alias, task)
@@ -236,6 +243,7 @@ def _evaluate_generation(
     predictions: list[str] = []
     references: list[str] = []
     judge_samples: list[dict[str, str]] = []
+    gateway_failures = 0
 
     for sample in samples:
         question = sample["question"]
@@ -250,6 +258,7 @@ def _evaluate_generation(
                 rag_sources=rag_sources,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                internal_api_key=internal_api_key,
             )
             answer = response["choices"][0]["message"]["content"]
 
@@ -263,6 +272,7 @@ def _evaluate_generation(
             logger.error("Gateway call failed: %s", e)
             answer = ""
             rag_context = ""
+            gateway_failures += 1
 
         predictions.append(answer)
         references.append(reference)
@@ -272,6 +282,12 @@ def _evaluate_generation(
             "reference": reference,
             "context": rag_context,
         })
+
+    if gateway_failures == len(samples):
+        raise RuntimeError(
+            f"All {gateway_failures} gateway calls failed for {task}/{dataset_name}; "
+            "check that the gateway service is reachable"
+        )
 
     # Compute the single requested metric
     now = datetime.now(timezone.utc)
@@ -293,7 +309,9 @@ def _evaluate_generation(
     try:
         if metric in _AUTOMATIC_METRICS:
             auto_metrics = compute_automatic_metrics(
-                predictions, references, bert_score_model=eval_settings.bert_score_model
+                predictions, references,
+                bert_score_model=eval_settings.bert_score_model,
+                metric=metric,
             )
             if metric in auto_metrics:
                 rows.append({
@@ -354,6 +372,7 @@ def _evaluate_code(
     )
 
     gateway_url = eval_settings.gateway_url
+    internal_api_key = eval_settings.internal_api_key
     lora_info = _resolve_lora_alias(lora_alias, "code")
     model_name = lora_info["adapter_name"] if lora_info["adapter_name"] else None
 
@@ -381,6 +400,7 @@ def _evaluate_code(
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
                 max_tokens=eval_settings.max_tokens,
+                internal_api_key=internal_api_key,
             )
             generated = response["choices"][0]["message"]["content"]
         except Exception as e:
@@ -630,6 +650,7 @@ def run_eval(
         lora_aliases = ["none"]
 
     all_rows: list[dict[str, Any]] = []
+    failures: list[tuple[str, str, BaseException]] = []
 
     for rag_alias, lora_alias in itertools.product(rag_aliases, lora_aliases):
         logger.info(
@@ -673,9 +694,16 @@ def run_eval(
             logger.error(
                 "Eval failed for rag=%s lora=%s: %s", rag_alias, lora_alias, e, exc_info=True
             )
+            failures.append((rag_alias, lora_alias, e))
 
     # Log to DB
     _log_to_db(all_rows, eval_settings.db_url)
+
+    if failures:
+        failed_pairs = ", ".join(f"rag={r} lora={l}" for r, l, _ in failures)
+        raise RuntimeError(
+            f"{len(failures)} eval combination(s) failed ({failed_pairs}): {failures[0][2]}"
+        )
 
     logger.info("Evaluation complete: %d metric rows", len(all_rows))
     return all_rows
@@ -873,8 +901,8 @@ def main() -> None:
         print(
             f"  {row['task']}/{row['dataset_name']} "
             f"metric={row['metric_name']} "
-            f"rag={row.get('rag_alias', 'none')} "
-            f"lora={row.get('lora_alias', 'none')} "
+            f"rag={row.get('rag_alias') or 'none'} "
+            f"lora={row.get('lora_alias') or 'none'} "
             f"→ {row['metric_value']:.4f}"
         )
 

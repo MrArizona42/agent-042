@@ -356,8 +356,8 @@ class Settings(BaseSettings):
         default="https://accounts.google.com/.well-known/openid-configuration",
         description="Google OIDC discovery URL",
     )
-    agent042_db_url: str = Field(
-        default="",
+    agent042_db_url: str | None = Field(
+        default=None,
         description="PostgreSQL connection URL for agent042 DB (async: postgresql+asyncpg://...)",
     )
     session_secret_key: str = Field(
@@ -368,6 +368,14 @@ class Settings(BaseSettings):
         default=86400,
         description="Session TTL in seconds (default 24 hours)",
         ge=60,
+    )
+
+    # =========================================================================
+    # Internal Service API Key
+    # =========================================================================
+    internal_api_key: str = Field(
+        default="",
+        description="Pre-shared API key for internal service-to-service calls (e.g. Airflow eval runner)",
     )
 
     # =========================================================================
@@ -480,8 +488,12 @@ class EvalSettings(BaseSettings):
         default="python:3.11-slim",
         description="Docker image for sandboxed code execution",
     )
-    db_url: str = Field(
+    internal_api_key: str = Field(
         default="",
+        description="Internal API key for authenticating with the gateway",
+    )
+    db_url: str | None = Field(
+        default=None,
         description="PostgreSQL connection URL for eval results (sync: postgresql://...)",
     )
 

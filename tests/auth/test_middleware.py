@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from gateway.auth.middleware import AuthMiddleware
+from gateway.auth.middleware import AuthMiddleware, _SERVICE_USER_ID
 
 
 def _make_app(session_data=None):
@@ -112,4 +112,45 @@ class TestProtectedRoutes:
         client = TestClient(app, raise_server_exceptions=False)
         client.cookies.set("session_id", "expired-session")
         resp = client.get("/v1/models")
+        assert resp.status_code == 401
+
+
+class TestInternalAPIKey:
+    """Internal service-to-service authentication via X-API-Key header."""
+
+    def _patch_settings(self, key: str):
+        """Return a mock that makes get_settings().internal_api_key return *key*."""
+        mock_settings = type("S", (), {"internal_api_key": key})()
+        return patch("gateway.auth.middleware.get_settings", return_value=mock_settings)
+
+    def test_valid_api_key_grants_access(self):
+        app = _make_app(session_data=None)
+        client = TestClient(app, raise_server_exceptions=False)
+        with self._patch_settings("test-secret-key"):
+            resp = client.get(
+                "/v1/models",
+                headers={"X-API-Key": "test-secret-key"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["user_id"] == _SERVICE_USER_ID
+
+    def test_invalid_api_key_returns_401(self):
+        app = _make_app(session_data=None)
+        client = TestClient(app, raise_server_exceptions=False)
+        with self._patch_settings("correct-key"):
+            resp = client.get(
+                "/v1/models",
+                headers={"X-API-Key": "wrong-key"},
+            )
+        assert resp.status_code == 401
+
+    def test_api_key_without_configured_key_returns_401(self):
+        """If GATEWAY_INTERNAL_API_KEY is not configured (empty), API key auth is rejected."""
+        app = _make_app(session_data=None)
+        client = TestClient(app, raise_server_exceptions=False)
+        with self._patch_settings(""):
+            resp = client.get(
+                "/v1/models",
+                headers={"X-API-Key": "any-key"},
+            )
         assert resp.status_code == 401

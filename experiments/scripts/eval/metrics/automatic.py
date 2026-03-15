@@ -126,20 +126,30 @@ def compute_automatic_metrics(
     predictions: list[str],
     references: list[str],
     bert_score_model: str = "microsoft/deberta-xlarge-mnli",
+    metric: str | None = None,
 ) -> dict[str, float]:
-    """Compute all automatic generation metrics (ROUGE-L + BERTScore).
+    """Compute automatic generation metrics (ROUGE-L and/or BERTScore).
+
+    Args:
+        metric: If provided, only compute this specific metric.
+            Avoids expensive BERTScore computation when only ROUGE-L
+            is needed (and vice-versa).
 
     Returns:
-        Dict with ``rouge_l``, ``bertscore_precision``, ``bertscore_recall``,
-        ``bertscore_f1``.
+        Dict with computed metric values.
     """
+    results: dict[str, float] = {}
+
     # ROUGE-L
-    rouge_scores = [
-        compute_rouge_l(pred, ref) for pred, ref in zip(predictions, references)
-    ]
-    avg_rouge = sum(rouge_scores) / len(rouge_scores) if rouge_scores else 0.0
+    if metric is None or metric == "rouge_l":
+        rouge_scores = [
+            compute_rouge_l(pred, ref) for pred, ref in zip(predictions, references)
+        ]
+        results["rouge_l"] = sum(rouge_scores) / len(rouge_scores) if rouge_scores else 0.0
 
     # BERTScore
-    bert_results = compute_bertscore(predictions, references, model_name=bert_score_model)
+    if metric is None or metric.startswith("bertscore"):
+        bert_results = compute_bertscore(predictions, references, model_name=bert_score_model)
+        results.update(bert_results)
 
-    return {"rouge_l": avg_rouge, **bert_results}
+    return results

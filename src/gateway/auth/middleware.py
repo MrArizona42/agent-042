@@ -1,13 +1,16 @@
-"""Auth middleware — validates session cookie on every protected request."""
+"""Auth middleware — validates session cookie or internal API key on every protected request."""
 
 from __future__ import annotations
 
+import hmac
 import logging
 import time
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse
+
+from shared.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +28,18 @@ _SESSION_COOKIE = "session_id"
 # Refresh the access token if it expires within this many seconds.
 _REFRESH_WINDOW_SECONDS = 120
 
+# Internal service identity used when authenticating via API key.
+_SERVICE_USER_ID = "__service__"
+
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """Reject unauthenticated requests to protected routes.
 
-    On every non-public request:
-    1. Read the ``session_id`` cookie (or ``Authorization: Bearer`` header).
-    2. Look up the session in Redis.
-    3. If the access token is near expiry, refresh it transparently.
-    4. Inject ``request.state.user_id`` and ``request.state.session_id``.
+    On every non-public request the middleware tries, in order:
+    1. ``X-API-Key`` header — compared against ``GATEWAY_INTERNAL_API_KEY``
+       for service-to-service calls (e.g. Airflow eval runner).
+    2. ``session_id`` cookie (or ``Authorization: Bearer`` header) — looked
+       up in Redis for user sessions via OAuth2/OIDC.
     """
 
     async def dispatch(
@@ -44,6 +50,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Allow public routes through without auth
         if any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES):
             return await call_next(request)
+
+        # --- Internal API key authentication ---
+        api_key = request.headers.get("x-api-key")
+        if api_key:
+            internal_key = get_settings().internal_api_key
+            if internal_key and hmac.compare_digest(api_key, internal_key):
+                request.state.user_id = _SERVICE_USER_ID
+                request.state.session_id = None
+                return await call_next(request)
+            return JSONResponse({"detail": "Invalid API key"}, status_code=401)
 
         # --- Extract session id ---
         session_id: str | None = request.cookies.get(_SESSION_COOKIE)
