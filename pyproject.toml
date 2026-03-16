@@ -47,6 +47,7 @@ airflow = [
     "beautifulsoup4>=4.12.3",
     "lxml>=5.3.0",
     "requests>=2.31.0",
+    "datasets>=4.4.2",
     "dvc[s3]>=3.66.1",
     "numpy>=1.26,<2.0",
     "protobuf>=5.26.0",

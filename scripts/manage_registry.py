@@ -6,25 +6,29 @@ The MLflow tracking URI is read from environment variables or the experiments
 
 Usage
 -----
+Register an adapter from a completed MLflow run::
+
+    python scripts/manage_registry.py register lora-summarization --run-id <RUN_ID>
+
 List all registered adapters::
 
-    python experiments/scripts/manage_registry.py list
+    python scripts/manage_registry.py list
 
 Show versions of a specific adapter::
 
-    python experiments/scripts/manage_registry.py versions lora-summarization
+    python scripts/manage_registry.py versions lora-summarization
 
 Promote a version to production (alias "champion")::
 
-    python experiments/scripts/manage_registry.py promote lora-summarization 3
+    python scripts/manage_registry.py promote lora-summarization 3
 
 Promote a version to staging (alias "challenger")::
 
-    python experiments/scripts/manage_registry.py promote lora-summarization 5 --alias challenger
+    python scripts/manage_registry.py promote lora-summarization 5 --alias challenger
 
 Download the production adapter locally::
 
-    python experiments/scripts/manage_registry.py download lora-summarization ./adapters
+    python scripts/manage_registry.py download lora-summarization ./adapters
 
 Environment
 -----------
@@ -47,11 +51,11 @@ import dotenv
 # Ensure imports work regardless of working directory
 # ---------------------------------------------------------------------------
 _SCRIPT_DIR = Path(__file__).resolve().parent
-_PROJECT_ROOT = _SCRIPT_DIR.parent.parent  # …/agent-042
+_PROJECT_ROOT = _SCRIPT_DIR.parent  # …/agent-042
 
-sys.path.insert(0, str(_SCRIPT_DIR))  # for train_adapter package
+sys.path.insert(0, str(_PROJECT_ROOT / "src"))  # for shared package
 
-from train_adapter.registry import (  # noqa: E402
+from shared.model_registry import (  # noqa: E402
     ALIAS_PRODUCTION,
     AdapterRegistry,
 )
@@ -155,6 +159,19 @@ def cmd_download(args: argparse.Namespace) -> None:
     print(f"✓ Downloaded '{args.model}' ({alias}) → {path}")
 
 
+def cmd_register(args: argparse.Namespace) -> None:
+    """Register a trained adapter from an MLflow run into the Model Registry."""
+    registry = _build_registry()
+    mv = registry.register_adapter(
+        run_id=args.run_id,
+        artifact_path=args.artifact_path,
+        model_name=args.model,
+        tags=dict(tag.split("=", 1) for tag in args.tag) if args.tag else None,
+        description=args.description,
+    )
+    print(f"✓ Registered '{args.model}' version {mv.version} from run {args.run_id[:8]}…")
+
+
 def cmd_production(_args: argparse.Namespace) -> None:
     """Show all adapters currently tagged as production (champion)."""
     registry = _build_registry()
@@ -180,6 +197,22 @@ def main() -> None:
 
     # list
     sub.add_parser("list", help="List all registered adapter models.")
+
+    # register
+    p_reg = sub.add_parser("register", help="Register a trained adapter from an MLflow run.")
+    p_reg.add_argument("model", help="Registered model name (e.g. lora-summarization).")
+    p_reg.add_argument(
+        "--run-id", required=True, help="MLflow run ID containing the adapter artifacts."
+    )
+    p_reg.add_argument(
+        "--artifact-path", default="model", help="Artifact sub-path in the run (default: 'model')."
+    )
+    p_reg.add_argument(
+        "--tag", action="append", default=[], help="Tag in KEY=VALUE format (repeatable)."
+    )
+    p_reg.add_argument(
+        "--description", default=None, help="Human-readable description for this version."
+    )
 
     # versions
     p_ver = sub.add_parser("versions", help="List all versions of a model.")
@@ -229,6 +262,7 @@ def main() -> None:
 
     dispatch = {
         "list": cmd_list,
+        "register": cmd_register,
         "versions": cmd_versions,
         "promote": cmd_promote,
         "demote": cmd_demote,
