@@ -12,7 +12,7 @@ Typical flow
 ------------
 1. Researcher promotes an adapter::
 
-       python experiments/scripts/manage_registry.py promote lora-summarization 3
+       python scripts/manage_registry.py promote lora-summarization 3
 
 2. Ops (or CI/CD) syncs adapters to the inference host::
 
@@ -47,7 +47,6 @@ from typing import Any
 import mlflow
 from mlflow import artifacts as mlflow_artifacts
 from mlflow.exceptions import MlflowException
-from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
 from mlflow.tracking import MlflowClient
 
 logger = logging.getLogger(__name__)
@@ -106,9 +105,7 @@ class AdapterSyncer:
         try:
             registered_models = list(self.client.search_registered_models())
         except Exception as exc:
-            raise RuntimeError(
-                f"MLflow service unhealthy: {exc}"
-            ) from exc
+            raise RuntimeError(f"MLflow service unhealthy: {exc}") from exc
 
         result = {}
         for rm in registered_models:

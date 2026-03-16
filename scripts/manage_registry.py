@@ -8,23 +8,23 @@ Usage
 -----
 List all registered adapters::
 
-    python experiments/scripts/manage_registry.py list
+    python scripts/manage_registry.py list
 
 Show versions of a specific adapter::
 
-    python experiments/scripts/manage_registry.py versions lora-summarization
+    python scripts/manage_registry.py versions lora-summarization
 
 Promote a version to production (alias "champion")::
 
-    python experiments/scripts/manage_registry.py promote lora-summarization 3
+    python scripts/manage_registry.py promote lora-summarization 3
 
 Promote a version to staging (alias "challenger")::
 
-    python experiments/scripts/manage_registry.py promote lora-summarization 5 --alias challenger
+    python scripts/manage_registry.py promote lora-summarization 5 --alias challenger
 
 Download the production adapter locally::
 
-    python experiments/scripts/manage_registry.py download lora-summarization ./adapters
+    python scripts/manage_registry.py download lora-summarization ./adapters
 
 Environment
 -----------
@@ -47,9 +47,9 @@ import dotenv
 # Ensure imports work regardless of working directory
 # ---------------------------------------------------------------------------
 _SCRIPT_DIR = Path(__file__).resolve().parent
-_PROJECT_ROOT = _SCRIPT_DIR.parent.parent  # …/agent-042
+_PROJECT_ROOT = _SCRIPT_DIR.parent  # …/agent-042
 
-sys.path.insert(0, str(_SCRIPT_DIR))  # for train_adapter package
+sys.path.insert(0, str(_PROJECT_ROOT / "experiments" / "scripts"))  # for train_adapter package
 
 from train_adapter.registry import (  # noqa: E402
     ALIAS_PRODUCTION,

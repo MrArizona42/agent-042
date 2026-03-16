@@ -419,7 +419,7 @@ overview of what was added and how to start using it.
 | Component | Files | Description |
 |---|---|---|
 | **DB model** | `src/shared/db/models.py` | `EvalRun` SQLAlchemy ORM model with all columns from the schema in Section 3. |
-| **Migration** | `migrations/eval_runs.sql` | Raw SQL script to create the `eval_runs` table and indexes. Run against the `agent042` PostgreSQL database. |
+| **Migration** | `src/shared/db/eval_runs.sql` | Raw SQL script to create the `eval_runs` table and indexes. Run against the `agent042` PostgreSQL database. |
 | **Eval settings** | `src/shared/config.py` | `EvalSettings` class (env prefix `EVAL_`) with judge model, BERTScore model, gateway URL, code-exec settings, etc. |
 | **Gateway API** | `src/gateway/services/processing.py`, `src/gateway/services/rag_service.py` | The chat completions response now includes a `rag_context` field when RAG is used. `RAGService` gained `retrieve_documents()` and `format_documents()` methods while preserving full backward compatibility with `retrieve_context()`. |
 | **Eval runner** | `experiments/scripts/eval/runner.py` | CLI entry point with `--task`, `--dataset`, `--metric`, `--kb`, `--rag-aliases`, `--lora-aliases`. Each invocation computes exactly **one metric** (one eval-suite). Alias lists form the Cartesian product for cross-configuration comparison. |
@@ -435,7 +435,7 @@ overview of what was added and how to start using it.
 **1. Create the database table**
 
 ```bash
-psql "$AGENT042_DB_URL" -f migrations/eval_runs.sql
+psql "$AGENT042_DB_URL" -f src/shared/db/eval_runs.sql
 ```
 
 **2. Set environment variables**

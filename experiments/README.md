@@ -260,49 +260,49 @@ python ./experiments/scripts/train_hydra.py \
 
 ### CLI для управления реестром: `manage_registry.py`
 
-Скрипт `experiments/scripts/manage_registry.py` — операционный инструмент (не Hydra) для просмотра
+Скрипт `scripts/manage_registry.py` — операционный инструмент (не Hydra) для просмотра
 и управления адаптерами в реестре. Читает `MLFLOW_BACKEND_URI` из `experiments/.env`.
 
 **Просмотр всех зарегистрированных адаптеров:**
 
 ```bash
-python experiments/scripts/manage_registry.py list
+python scripts/manage_registry.py list
 ```
 
 **Все версии конкретного адаптера:**
 
 ```bash
-python experiments/scripts/manage_registry.py versions lora-summarization
+python scripts/manage_registry.py versions lora-summarization
 ```
 
 **Промотирование версии в production (alias champion):**
 
 ```bash
-python experiments/scripts/manage_registry.py promote lora-summarization 3
+python scripts/manage_registry.py promote lora-summarization 3
 ```
 
 **Промотировать в staging (alias challenger):**
 
 ```bash
-python experiments/scripts/manage_registry.py promote lora-summarization 5 --alias challenger
+python scripts/manage_registry.py promote lora-summarization 5 --alias challenger
 ```
 
 **Снять alias:**
 
 ```bash
-python experiments/scripts/manage_registry.py demote lora-summarization
+python scripts/manage_registry.py demote lora-summarization
 ```
 
 **Посмотреть, какие адаптеры сейчас в production:**
 
 ```bash
-python experiments/scripts/manage_registry.py production
+python scripts/manage_registry.py production
 ```
 
 **Скачать production-адаптер локально:**
 
 ```bash
-python experiments/scripts/manage_registry.py download lora-summarization ./my_adapters
+python scripts/manage_registry.py download lora-summarization ./my_adapters
 ```
 
 ### Синхронизация адаптеров на inference-хосте
@@ -340,10 +340,10 @@ python ./experiments/scripts/train_hydra.py \
   experiment.mlflow.registered_model_name="lora-summarization"
 
 # 2. Посмотреть версии, метрики в MLflow UI, выбрать лучшую
-python experiments/scripts/manage_registry.py versions lora-summarization
+python scripts/manage_registry.py versions lora-summarization
 
 # 3. Промотировать лучшую версию в production
-python experiments/scripts/manage_registry.py promote lora-summarization 3
+python scripts/manage_registry.py promote lora-summarization 3
 
 # 4. Синхронизировать адаптеры на inference-хосте
 python -m shared.model_registry sync --adapters-dir ./assets/adapters

@@ -55,18 +55,38 @@ class TestEvalRunModel:
 
         columns = {c.name for c in EvalRun.__table__.columns}
         required = {
-            "id", "created_at", "finished_at", "status",
-            "task", "dataset_name", "metric_name", "metric_value",
-            "base_model", "adapter_name", "adapter_version",
-            "adapter_mlflow_run_id", "lora_alias",
-            "rag_enabled", "rag_alias", "knowledge_base",
-            "qdrant_collection", "embedding_model",
-            "chunking_strategy", "chunk_size", "chunk_overlap",
-            "retrieval_top_k", "score_threshold",
-            "qdrant_snapshot_id", "dataset_dvc_hash", "reranking_strategy",
-            "judge_model", "bert_score_model",
-            "temperature", "max_tokens",
-            "extra", "error_message",
+            "id",
+            "created_at",
+            "finished_at",
+            "status",
+            "task",
+            "dataset_name",
+            "metric_name",
+            "metric_value",
+            "base_model",
+            "adapter_name",
+            "adapter_version",
+            "adapter_mlflow_run_id",
+            "lora_alias",
+            "rag_enabled",
+            "rag_alias",
+            "knowledge_base",
+            "qdrant_collection",
+            "embedding_model",
+            "chunking_strategy",
+            "chunk_size",
+            "chunk_overlap",
+            "retrieval_top_k",
+            "score_threshold",
+            "qdrant_snapshot_id",
+            "dataset_dvc_hash",
+            "reranking_strategy",
+            "judge_model",
+            "bert_score_model",
+            "temperature",
+            "max_tokens",
+            "extra",
+            "error_message",
         }
         assert required.issubset(columns)
 
@@ -353,7 +373,7 @@ class TestRunnerConfig:
 
     def test_dataset_local_mapping_points_to_datasets_dir(self):
         """All local dataset folders live under assets/datasets/."""
-        from experiments.scripts.eval.runner import DATASETS_DIR, _DATASET_LOCAL
+        from experiments.scripts.eval.runner import _DATASET_LOCAL, DATASETS_DIR
 
         for name, (folder, _split) in _DATASET_LOCAL.items():
             expected = DATASETS_DIR / folder
@@ -482,18 +502,36 @@ class TestMigrationSQL:
     """Tests that the migration SQL file exists and is well-formed."""
 
     def test_migration_file_exists(self):
-        path = Path(__file__).resolve().parent.parent.parent / "migrations" / "eval_runs.sql"
+        path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "src"
+            / "shared"
+            / "db"
+            / "eval_runs.sql"
+        )
         assert path.exists()
 
     def test_migration_creates_table(self):
-        path = Path(__file__).resolve().parent.parent.parent / "migrations" / "eval_runs.sql"
+        path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "src"
+            / "shared"
+            / "db"
+            / "eval_runs.sql"
+        )
         sql = path.read_text()
         assert "CREATE TABLE" in sql
         assert "eval_runs" in sql
         assert "gen_random_uuid()" in sql
 
     def test_migration_creates_indexes(self):
-        path = Path(__file__).resolve().parent.parent.parent / "migrations" / "eval_runs.sql"
+        path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "src"
+            / "shared"
+            / "db"
+            / "eval_runs.sql"
+        )
         sql = path.read_text()
         assert "idx_eval_runs_task" in sql
         assert "idx_eval_runs_dataset" in sql
