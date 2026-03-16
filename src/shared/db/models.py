@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Double, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -99,7 +99,7 @@ class EvalRun(Base):
     task: Mapped[str] = mapped_column(Text, nullable=False)
     dataset_name: Mapped[str] = mapped_column(Text, nullable=False)
     metric_name: Mapped[str] = mapped_column(Text, nullable=False)
-    metric_value: Mapped[float] = mapped_column(Double, nullable=False)
+    metric_value: Mapped[float] = mapped_column(Float, nullable=False)
 
     # Model
     base_model: Mapped[str] = mapped_column(Text, nullable=False)
@@ -118,7 +118,7 @@ class EvalRun(Base):
     chunk_size: Mapped[int | None] = mapped_column(Integer)
     chunk_overlap: Mapped[int | None] = mapped_column(Integer)
     retrieval_top_k: Mapped[int | None] = mapped_column(Integer)
-    score_threshold: Mapped[float | None] = mapped_column(Double)
+    score_threshold: Mapped[float | None] = mapped_column(Float)
     qdrant_snapshot_id: Mapped[str | None] = mapped_column(Text)
     dataset_dvc_hash: Mapped[str | None] = mapped_column(Text)
     reranking_strategy: Mapped[str | None] = mapped_column(Text)
@@ -128,7 +128,7 @@ class EvalRun(Base):
     bert_score_model: Mapped[str | None] = mapped_column(Text)
 
     # Generation params
-    temperature: Mapped[float | None] = mapped_column(Double)
+    temperature: Mapped[float | None] = mapped_column(Float)
     max_tokens: Mapped[int | None] = mapped_column(Integer)
 
     extra: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)

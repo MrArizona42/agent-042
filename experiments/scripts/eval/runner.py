@@ -174,20 +174,68 @@ def _log_to_db(rows: list[dict[str, Any]], db_url: str) -> None:
         return
 
     try:
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import Session
+        from sqlalchemy import (
+            Boolean,
+            Column,
+            DateTime,
+            Float,
+            Integer,
+            MetaData,
+            Table,
+            Text,
+            create_engine,
+            insert,
+        )
+        from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 
         engine = create_engine(db_url)
-        # Import the model lazily to avoid circular imports
-        from shared.db.models import Base, EvalRun
+        meta = MetaData()
 
-        Base.metadata.create_all(engine, tables=[EvalRun.__table__], checkfirst=True)
+        eval_runs = Table(
+            "eval_runs",
+            meta,
+            Column("id", PG_UUID(as_uuid=True), primary_key=True),
+            Column("created_at", DateTime(timezone=True), nullable=False),
+            Column("finished_at", DateTime(timezone=True)),
+            Column("status", Text, nullable=False, server_default="running"),
+            Column("task", Text, nullable=False),
+            Column("dataset_name", Text, nullable=False),
+            Column("metric_name", Text, nullable=False),
+            Column("metric_value", Float, nullable=False),
+            Column("base_model", Text, nullable=False),
+            Column("adapter_name", Text),
+            Column("adapter_version", Integer),
+            Column("adapter_mlflow_run_id", Text),
+            Column("lora_alias", Text),
+            Column("rag_enabled", Boolean, nullable=False, server_default="false"),
+            Column("rag_alias", Text),
+            Column("knowledge_base", Text),
+            Column("qdrant_collection", Text),
+            Column("embedding_model", Text),
+            Column("chunking_strategy", Text),
+            Column("chunk_size", Integer),
+            Column("chunk_overlap", Integer),
+            Column("retrieval_top_k", Integer),
+            Column("score_threshold", Float),
+            Column("qdrant_snapshot_id", Text),
+            Column("dataset_dvc_hash", Text),
+            Column("reranking_strategy", Text),
+            Column("judge_model", Text),
+            Column("bert_score_model", Text),
+            Column("temperature", Float),
+            Column("max_tokens", Integer),
+            Column("extra", JSONB, nullable=False, server_default="{}"),
+            Column("error_message", Text),
+        )
 
-        with Session(engine) as session:
+        meta.create_all(engine, tables=[eval_runs], checkfirst=True)
+
+        with engine.begin() as conn:
             for row in rows:
-                run = EvalRun(**row)
-                session.add(run)
-            session.commit()
+                if "id" not in row:
+                    row["id"] = uuid.uuid4()
+                conn.execute(insert(eval_runs).values(**row))
+
         logger.info("Logged %d eval rows to database", len(rows))
     except Exception as e:
         logger.error("Failed to log to database: %s", e)
