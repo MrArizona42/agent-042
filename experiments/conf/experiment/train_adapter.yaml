@@ -64,5 +64,5 @@ mlflow:
   experiment_name: "train_adapter"
   run_name: "train_adapter"
   env_path: "experiments/.env" # relative to project root
-  register_model: true  # register trained adapter in MLflow Model Registry
-  registered_model_name: "lora-summarization"  # registry name; set to lora-chat / lora-code / etc. via CLI override
+  # To register a trained adapter in the Model Registry, use the CLI:
+  #   python scripts/manage_registry.py register <model-name> --run-id <run-id>

@@ -207,8 +207,8 @@ python ./experiments/scripts/train_hydra.py -m \
   - Вся папка Hydra - отправляется в Yandex Cloud (триггерится MLFlow, но НЕ проксируются через
     MLFlow server!)
 
-- **Model Registry (MLflow)**: после обучения адаптер автоматически регистрируется в MLflow Model
-  Registry (если `experiment.mlflow.register_model=true`). Подробнее — ниже.
+- **Model Registry (MLflow)**: после обучения адаптер можно вручную зарегистрировать в MLflow Model
+  Registry через CLI `scripts/manage_registry.py register`. Подробнее — ниже.
 
 - Базовый корень для относительных путей: `paths.project_root` (обязательно указывайте корректный
   путь для своей машины).
@@ -234,29 +234,24 @@ python ./experiments/scripts/train_hydra.py -m \
 - **`champion`** — текущий production-адаптер. Именно он загружается в vLLM.
 - **`challenger`** — кандидат на замену champion (для A/B-тестирования или ревью).
 
-### Автоматическая регистрация при обучении
+### Регистрация адаптера в реестре
 
-При обучении через `train_hydra.py` адаптер автоматически регистрируется в реестре, если в
-конфиге указано:
-
-```yaml
-# conf/experiment/train_adapter.yaml
-mlflow:
-  register_model: true
-  registered_model_name: "lora-summarization"
-```
-
-Чтобы обучить адаптер под другую задачу, переопределите имя через CLI:
+Обучение через `train_hydra.py` только логирует метрики и артефакты в MLflow Tracking.
+Регистрация в Model Registry — отдельный осознанный шаг через CLI:
 
 ```bash
-# Обучить и зарегистрировать адаптер для генерации кода
+# 1. Обучить адаптер (без регистрации в Registry)
 python ./experiments/scripts/train_hydra.py \
-  paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  experiment.mlflow.registered_model_name="lora-code"
+  paths.project_root="C:/Users/user/MyGitRepos/agent-042"
+
+# 2. Просмотреть результаты в MLflow UI, выбрать лучший run
+
+# 3. Зарегистрировать выбранный run в Model Registry
+python scripts/manage_registry.py register lora-summarization --run-id <RUN_ID>
 ```
 
-Если `registered_model_name` не задано, имя формируется автоматически по шаблону
-`lora-<experiment_name>`.
+Такое разделение не засоряет реестр промежуточными экспериментами и обеспечивает
+осознанный контроль над тем, какие адаптеры попадают в каталог развёртывания.
 
 ### CLI для управления реестром: `manage_registry.py`
 
@@ -334,15 +329,16 @@ assets/adapters/
 ### Полный рабочий процесс: от обучения до inference
 
 ```bash
-# 1. Обучить адаптер (автоматически регистрируется в Registry)
+# 1. Обучить адаптер (метрики и артефакты логируются в MLflow)
 python ./experiments/scripts/train_hydra.py \
-  paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  experiment.mlflow.registered_model_name="lora-summarization"
+  paths.project_root="C:/Users/user/MyGitRepos/agent-042"
 
-# 2. Посмотреть версии, метрики в MLflow UI, выбрать лучшую
-python scripts/manage_registry.py versions lora-summarization
+# 2. Посмотреть версии, метрики в MLflow UI, выбрать лучший run
 
-# 3. Промотировать лучшую версию в production
+# 3. Зарегистрировать лучший run в Model Registry
+python scripts/manage_registry.py register lora-summarization --run-id <RUN_ID>
+
+# 4. Промотировать зарегистрированную версию в production
 python scripts/manage_registry.py promote lora-summarization 3
 
 # 4. Синхронизировать адаптеры на inference-хосте

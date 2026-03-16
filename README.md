@@ -262,11 +262,11 @@ train_hydra.py                 manage_registry.py            sync (model_registr
 ─────────────                  ────────────────────          ──────────────────────────
   Обучение LoRA                  Просмотр метрик              Скачивание champion
        ↓                        в MLflow UI                   адаптеров из S3
-  Сохранение локально                ↓                              ↓
-       ↓                        promote v3 → champion         Подготовка vLLM
-  Регистрация в MLflow                                        lora-modules.json
-  Model Registry                                                    ↓
-  (автоматически)                                             (Ре)старт vLLM
+  Логирование метрик                   ↓                              ↓
+  и артефактов в MLflow          register run → v4             Подготовка vLLM
+  Tracking                             ↓                       lora-modules.json
+                                 promote v4 → champion               ↓
+                                                              (Ре)старт vLLM
                                                               с --enable-lora
 ```
 
