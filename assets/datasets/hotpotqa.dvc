@@ -1,0 +1,6 @@
+outs:
+- md5: 32c9ff4a44945b127fa786e12a0b8c10.dir
+  size: 2309429
+  nfiles: 4
+  hash: md5
+  path: hotpotqa

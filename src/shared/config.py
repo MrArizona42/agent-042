@@ -13,28 +13,132 @@ Usage:
 
 from __future__ import annotations
 
+import json
+import logging
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger(__name__)
+
 # =========================================================================
-# Knowledge Base Registry
-# Maps user-facing KB identifiers to Qdrant collection names.
+# Knowledge Base Registry (loaded from JSON config file)
 # =========================================================================
-KNOWLEDGE_BASES: dict[str, dict[str, str]] = {
-    "arxiv": {
-        "collection": "chat_documents",
-        "label": "ArXiv papers (ML / AI theory)",
-        "description": "Deep discussions about ML/AI theory and latest trends",
-    },
-    "pytorch_docs": {
-        "collection": "code_documents",
-        "label": "PyTorch docs (coding)",
-        "description": "PyTorch documentation for coding assistance",
-    },
-}
+
+_DEFAULT_KB_PATH = Path(__file__).resolve().parent / "knowledge_bases.json"
+
+
+class KnowledgeBaseConfig(BaseModel):
+    """Single knowledge-base entry from shared/knowledge_bases.json."""
+
+    knowledge_base: str
+    aliases: list[str] = Field(default_factory=lambda: ["champion"])
+    update_strategy: Literal["incremental", "replace"] = "replace"
+    label: str = ""
+    description: str = ""
+
+
+def _load_knowledge_bases(path: Path | str | None = None) -> dict[str, KnowledgeBaseConfig]:
+    """Load the knowledge-bases registry from a JSON file.
+
+    Returns:
+        Mapping of ``kb_name`` → ``KnowledgeBaseConfig``.
+    """
+    if path is None:
+        path = _DEFAULT_KB_PATH
+    path = Path(path)
+
+    if not path.exists():
+        logger.warning("Knowledge-bases config not found at %s — using empty registry", path)
+        return {}
+
+    with open(path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+
+    registry: dict[str, KnowledgeBaseConfig] = {}
+    for entry in raw:
+        cfg = KnowledgeBaseConfig(**entry)
+        registry[cfg.knowledge_base] = cfg
+    return registry
+
+
+# Module-level registry (populated lazily via get_knowledge_bases())
+_KB_REGISTRY: dict[str, KnowledgeBaseConfig] | None = None
+
+
+def get_knowledge_bases(path: Path | str | None = None) -> dict[str, KnowledgeBaseConfig]:
+    """Return the knowledge-base registry (cached after first call)."""
+    global _KB_REGISTRY  # noqa: PLW0603
+    if _KB_REGISTRY is None:
+        _KB_REGISTRY = _load_knowledge_bases(path)
+    return _KB_REGISTRY
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible KNOWLEDGE_BASES dict
+# ---------------------------------------------------------------------------
+# Legacy callers that import ``KNOWLEDGE_BASES`` from this module get a
+# lazy-loading proxy that returns the same dict structure as before:
+#   { "arxiv": { "collection": ..., "label": ..., "description": ... }, ... }
+# The proxy loads the JSON config on first access.
+
+
+class _KBProxy(dict):
+    """Lazy dict that loads KB config on first access."""
+
+    _loaded: bool = False
+
+    def _ensure(self) -> None:
+        if not self._loaded:
+            for name, cfg in get_knowledge_bases().items():
+                super().__setitem__(
+                    name,
+                    {
+                        "label": cfg.label,
+                        "description": cfg.description,
+                        "aliases": cfg.aliases,
+                        "update_strategy": cfg.update_strategy,
+                    },
+                )
+            self._loaded = True
+
+    def __getitem__(self, key):
+        self._ensure()
+        return super().__getitem__(key)
+
+    def __contains__(self, key):
+        self._ensure()
+        return super().__contains__(key)
+
+    def __iter__(self):
+        self._ensure()
+        return super().__iter__()
+
+    def __len__(self):
+        self._ensure()
+        return super().__len__()
+
+    def keys(self):
+        self._ensure()
+        return super().keys()
+
+    def values(self):
+        self._ensure()
+        return super().values()
+
+    def items(self):
+        self._ensure()
+        return super().items()
+
+    def get(self, key, default=None):
+        self._ensure()
+        return super().get(key, default)
+
+
+KNOWLEDGE_BASES: dict[str, dict] = _KBProxy()
 
 
 class Settings(BaseSettings):
@@ -96,7 +200,7 @@ class Settings(BaseSettings):
         description="Optional API key for vLLM authentication",
     )
     max_completion_tokens: int = Field(
-        default=4096,
+        default=512,
         description="Maximum number of tokens the model can generate per response",
         ge=1,
     )
@@ -152,6 +256,10 @@ class Settings(BaseSettings):
         description="Qdrant server port",
         ge=1,
         le=65535,
+    )
+    knowledge_bases_path: str = Field(
+        default="",
+        description="Override path to knowledge_bases.json (leave empty to use bundled default)",
     )
 
     # =========================================================================
@@ -230,6 +338,47 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # OAuth2 / OIDC Settings
+    # =========================================================================
+    google_client_id: str = Field(
+        default="",
+        description="Google OAuth2 client ID",
+    )
+    google_client_secret: str = Field(
+        default="",
+        description="Google OAuth2 client secret",
+    )
+    google_redirect_uri: str = Field(
+        default="",
+        description="OAuth2 callback URL (e.g. https://agent.antonlab.ru:8443/auth/callback)",
+    )
+    google_discovery_url: str = Field(
+        default="https://accounts.google.com/.well-known/openid-configuration",
+        description="Google OIDC discovery URL",
+    )
+    agent042_db_url: str | None = Field(
+        default=None,
+        description="PostgreSQL connection URL for agent042 DB (async: postgresql+asyncpg://...)",
+    )
+    session_secret_key: str = Field(
+        default="",
+        description="Secret key for signing session cookies (32-byte hex)",
+    )
+    session_ttl_seconds: int = Field(
+        default=86400,
+        description="Session TTL in seconds (default 24 hours)",
+        ge=60,
+    )
+
+    # =========================================================================
+    # Internal Service API Key
+    # =========================================================================
+    internal_api_key: str = Field(
+        default="",
+        description="Pre-shared API key for internal service-to-service calls (e.g. Airflow eval runner)",
+    )
+
+    # =========================================================================
     # UI Settings (uses different prefix for some settings)
     # =========================================================================
     # Note: GATEWAY_URL is the full URL to access the gateway from UI
@@ -277,6 +426,82 @@ class ModelRegistrySettings(BaseSettings):
         default=False,
         description="Automatically sync production adapters on startup",
     )
+
+
+class EvalSettings(BaseSettings):
+    """Settings for the evaluation runner.
+
+    Environment Variables:
+        EVAL_GATEWAY_URL: Gateway URL for generation evals.
+        EVAL_JUDGE_MODEL: Gemini model name for LLM-as-Judge.
+        EVAL_GOOGLE_AI_API_KEY: Google AI Studio API key (Gemini).
+        EVAL_BERT_SCORE_MODEL: Model for BERTScore computation.
+        EVAL_TEMPERATURE: Temperature for generation requests.
+        EVAL_MAX_TOKENS: Max tokens for generation requests.
+        EVAL_SAMPLE_LIMIT: Max samples per dataset (0 = unlimited).
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="EVAL_",
+        extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
+    gateway_url: str = Field(
+        default="http://localhost:9001",
+        description="Gateway URL for generation evals",
+    )
+    judge_model: str = Field(
+        default="gemini-2.0-flash",
+        description="Gemini model name for LLM-as-Judge",
+    )
+    google_ai_api_key: str = Field(
+        default="",
+        description="Google AI Studio API key for Gemini judge",
+    )
+    bert_score_model: str = Field(
+        default="microsoft/deberta-xlarge-mnli",
+        description="Model for BERTScore computation",
+    )
+    temperature: float = Field(
+        default=0.0,
+        description="Temperature for generation requests",
+        ge=0.0,
+    )
+    max_tokens: int = Field(
+        default=512,
+        description="Max tokens for generation requests",
+        ge=1,
+    )
+    sample_limit: int = Field(
+        default=0,
+        description="Max samples per dataset (0 = unlimited)",
+        ge=0,
+    )
+    code_exec_timeout: int = Field(
+        default=30,
+        description="Timeout in seconds for sandboxed code execution",
+        ge=1,
+    )
+    code_exec_image: str = Field(
+        default="python:3.11-slim",
+        description="Docker image for sandboxed code execution",
+    )
+    internal_api_key: str = Field(
+        default="",
+        description="Internal API key for authenticating with the gateway",
+    )
+    db_url: str | None = Field(
+        default=None,
+        description="PostgreSQL connection URL for eval results (sync: postgresql://...)",
+    )
+
+
+@lru_cache
+def get_eval_settings() -> EvalSettings:
+    """Get cached evaluation settings."""
+    return EvalSettings()
 
 
 class UISettings(BaseSettings):

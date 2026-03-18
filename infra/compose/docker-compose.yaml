@@ -17,6 +17,9 @@ x-airflow-common-env: &airflow-common-env
   QDRANT_PORT: ${QDRANT_PORT}
   EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
   GATEWAY_EMBEDDINGS_URL: http://embeddings:8100
+  EVAL_GATEWAY_URL: http://gateway:9000
+  EVAL_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY}
+  EVAL_DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
@@ -57,6 +60,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
 
     volumes:
       - mlflow_pg_data:/var/lib/postgresql/data
@@ -124,10 +130,43 @@ services:
     restart: unless-stopped
 
   # =====================
+  # LoRA adapter sync (init container)
+  # Downloads champion adapters from MLflow Model Registry into
+  # the shared /adapters volume and writes lora-modules.json.
+  # =====================
+  vllm-adapter-sync:
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: infra/docker/adapter-sync/Dockerfile
+
+    environment:
+      MLFLOW_BACKEND_URI: ${MLFLOW_BACKEND_URI}
+      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      REGISTRY_ADAPTERS_DIR: /adapters
+      VLLM_BASE_MODEL: ${VLLM_MODEL}
+
+    volumes:
+      - ${PROJECT_ROOT}/assets/adapters:/adapters:rw
+
+    depends_on:
+      mlflow:
+        condition: service_healthy
+
+    networks:
+      - mlflow_db_net
+
+    restart: "no"
+
+  # =====================
   # vLLM OpenAI-compatible server
   # =====================
   vllm:
-    image: vllm/vllm-openai:v0.16.0
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: infra/docker/vllm/Dockerfile
 
     environment:
       VLLM_MODEL: ${VLLM_MODEL}
@@ -136,7 +175,14 @@ services:
       VLLM_GPU_UTIL: ${VLLM_GPU_UTIL}
       VLLM_KV_CACHE_DTYPE: ${VLLM_KV_CACHE_DTYPE}
       HF_HOME: /models/.cache
+      # Prioritise host-injected NVIDIA driver libs over the CUDA compat stubs
+      # bundled inside the image (prevents Error 803 when host driver is newer).
+      LD_LIBRARY_PATH: /lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+      # Allow loading/unloading LoRA adapters at runtime via the API
+      VLLM_ALLOW_RUNTIME_LORA_UPDATING: "true"
 
+    # Args forwarded to the entrypoint; --lora-modules is injected
+    # automatically by vllm-entrypoint.sh when lora-modules.json exists.
     command: [
       "--model", "${VLLM_MODEL}",
       "--dtype", "${VLLM_DTYPE}",
@@ -154,10 +200,14 @@ services:
     ports:
       - "127.0.0.1:${VLLM_PORT}:8000"
 
-    # Mount repo models and downloaded adapters
+    # Mount repo models and downloaded adapters (rw: entrypoint reads manifest)
     volumes:
       - ${PROJECT_ROOT}/assets/models:/models:rw
-      - ${PROJECT_ROOT}/assets/adapters:/adapters:ro
+      - ${PROJECT_ROOT}/assets/adapters:/adapters:rw
+
+    depends_on:
+      vllm-adapter-sync:
+        condition: service_completed_successfully
 
     deploy:
       resources:
@@ -324,6 +374,14 @@ services:
       GATEWAY_ASYNC_ENABLED: ${GATEWAY_ASYNC_ENABLED}
       CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
       REDIS_URL: redis://redis:6379/0
+      # OAuth2 / OIDC
+      GATEWAY_GOOGLE_CLIENT_ID: ${GATEWAY_GOOGLE_CLIENT_ID:-}
+      GATEWAY_GOOGLE_CLIENT_SECRET: ${GATEWAY_GOOGLE_CLIENT_SECRET:-}
+      GATEWAY_GOOGLE_REDIRECT_URI: ${GATEWAY_GOOGLE_REDIRECT_URI:-}
+      GATEWAY_AGENT042_DB_URL: ${GATEWAY_AGENT042_DB_URL:-}
+      GATEWAY_SESSION_SECRET_KEY: ${GATEWAY_SESSION_SECRET_KEY:-}
+      GATEWAY_SESSION_TTL_SECONDS: ${GATEWAY_SESSION_TTL_SECONDS:-86400}
+      GATEWAY_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY:-}
 
     ports:
       - "127.0.0.1:${GATEWAY_PORT}:9000"
@@ -339,6 +397,8 @@ services:
         condition: service_healthy
       embeddings:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
@@ -350,6 +410,7 @@ services:
     networks:
       - backend_net
       - frontend_net
+      - mlflow_db_net
 
     restart: unless-stopped
 
@@ -479,6 +540,13 @@ services:
             print("Created database " + db)
         else:
             print("Database " + db + " already exists")
+        # Also create the agent042 application database
+        cur.execute("SELECT 1 FROM pg_database WHERE datname = 'agent042'")
+        if not cur.fetchone():
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier("agent042")))
+            print("Created database agent042")
+        else:
+            print("Database agent042 already exists")
         conn.close()
         PYEOF
         airflow db migrate &&

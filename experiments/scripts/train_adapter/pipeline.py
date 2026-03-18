@@ -12,7 +12,6 @@ from .data_module import ArxivDataModule
 from .lit_module import PeftCausalLMModule
 from .mlflow_utils import log_hydra_artifacts_via_logger, setup_mlflow, teardown_mlflow
 from .modeling import build_model_and_tokenizer
-from .registry import AdapterRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -97,36 +96,13 @@ def run_training(cfg: AppConfig) -> Tuple[str, str]:
         except Exception as e:
             logger.warning("Failed to log model artifacts: %s", e)
 
-        # ── Register adapter in MLflow Model Registry ────────────────────
-        mlflow_cfg = cfg.experiment.mlflow
-        if mlflow_cfg.register_model:
-            model_name = mlflow_cfg.registered_model_name
-            if not model_name:
-                # Derive name from experiment name: train_adapter → lora-train-adapter
-                model_name = f"lora-{mlflow_cfg.experiment_name}"
-
-            try:
-                registry = AdapterRegistry()
-                registry.register_adapter(
-                    run_id=mlf_logger.run_id,
-                    artifact_path="model",
-                    model_name=model_name,
-                    tags={
-                        "base_model": cfg.experiment.model.local_path,
-                        "lora_r": str(cfg.experiment.lora.r),
-                        "lora_alpha": str(cfg.experiment.lora.lora_alpha),
-                        "max_seq_length": str(cfg.experiment.data.max_seq_length),
-                        "task": mlflow_cfg.experiment_name,
-                    },
-                    description=(
-                        f"LoRA r={cfg.experiment.lora.r} trained on "
-                        f"{Path(cfg.experiment.data.local_path).name} "
-                        f"(base: {Path(cfg.experiment.model.local_path).name})"
-                    ),
-                )
-                logger.info("Adapter registered as '%s' in Model Registry", model_name)
-            except Exception as e:
-                logger.warning("Model Registry registration failed: %s", e)
+        logger.info(
+            "Training complete. Run ID: %s. To register in Model Registry:\n"
+            "  python scripts/manage_registry.py register %s --run-id %s",
+            mlf_logger.run_id,
+            cfg.experiment.mlflow.experiment_name,
+            mlf_logger.run_id,
+        )
 
         return str(save_dir), str(lightning_logs_dir)
     finally:

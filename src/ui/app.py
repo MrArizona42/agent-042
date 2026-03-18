@@ -49,9 +49,81 @@ st.caption("Streamlit UI → FastAPI Gateway → vLLM (OpenAI-compatible)")
 settings = get_settings()
 
 gateway_url = settings.url
-client = GatewayClient(gateway_url)
+
+# Forward the browser's session cookie to the Gateway backend
+_browser_session_id = st.context.cookies.get("session_id")
+client = GatewayClient(gateway_url, session_id=_browser_session_id)
+
+# ------------------------------------------------------------------
+# Auth check — redirect to /auth/login if not authenticated
+# ------------------------------------------------------------------
+user_info = client.me()
+
+if user_info is None:
+    st.info("You need to sign in to use agent-042.")
+    st.link_button("Log in with Google", "/auth/login")
+    st.stop()
 
 with st.sidebar:
+    if user_info:
+        # Show user info + logout
+        col1, col2 = st.columns([1, 3])
+        if user_info.get("picture"):
+            col1.image(user_info["picture"], width=40)
+        col2.markdown(f"**{user_info.get('name', 'User')}**")
+        st.link_button("Logout", "/auth/logout")
+
+        st.divider()
+
+        # ---- Chat sessions ----
+        st.subheader("Chat Sessions")
+        if st.button("➕ New Chat"):
+            st.session_state.pop("chat_session_id", None)
+            st.session_state.messages = []
+            st.rerun()
+
+        try:
+            sessions = client.list_chat_sessions()
+            for sess in sessions:
+                label = sess.get("title") or "Untitled"
+                col_name, col_del = st.columns([5, 1])
+                with col_name:
+                    if st.button(label, key=f"sess_{sess['id']}", use_container_width=True):
+                        st.session_state.chat_session_id = sess["id"]
+                        msgs = client.get_session_messages(sess["id"])
+                        st.session_state.messages = [
+                            {"role": m["role"], "content": m["content"]} for m in msgs
+                        ]
+                        st.rerun()
+                with col_del:
+                    if st.button("🗑️", key=f"del_{sess['id']}"):
+                        st.session_state.confirm_delete_id = sess["id"]
+
+                # Confirmation row appears below the session entry
+                if st.session_state.get("confirm_delete_id") == sess["id"]:
+                    st.warning(f"Delete **{label}**?")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("Yes, delete", key=f"yes_{sess['id']}"):
+                            try:
+                                client.delete_chat_session(sess["id"])
+                                # If we deleted the active session, reset
+                                if st.session_state.get("chat_session_id") == sess["id"]:
+                                    st.session_state.pop("chat_session_id", None)
+                                    st.session_state.messages = []
+                            except Exception as e:
+                                st.error(f"Failed to delete session: {e}")
+                            st.session_state.pop("confirm_delete_id", None)
+                            st.rerun()
+                    with c2:
+                        if st.button("Cancel", key=f"no_{sess['id']}"):
+                            st.session_state.pop("confirm_delete_id", None)
+                            st.rerun()
+        except Exception as e:
+            st.warning(f"Could not load chat sessions: {e}")
+
+        st.divider()
+
     st.subheader("Knowledge Base")
 
     # Build options from the KNOWLEDGE_BASES registry
@@ -70,6 +142,10 @@ with st.sidebar:
         st.caption(KNOWLEDGE_BASES[selected_kb]["description"])
 
 
+# ------------------------------------------------------------------
+# Chat session — created lazily on first message (avoids empty sessions)
+# ------------------------------------------------------------------
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -87,23 +163,44 @@ if prompt:
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # Lazily create a chat session on first message
+    if not st.session_state.get("chat_session_id"):
+        try:
+            sess = client.create_chat_session()
+            st.session_state.chat_session_id = sess["id"]
+        except Exception as e:
+            st.warning(f"Could not create chat session: {e}")
+            st.session_state.chat_session_id = None
+
     payload = {
         # "model": None,
         "messages": st.session_state.messages,
         "max_completion_tokens": settings.max_completion_tokens,
         "stream": False,
-        "knowledge_base": selected_kb,
     }
+    if selected_kb:
+        payload["rag_sources"] = [{"knowledge_base": selected_kb}]
+    if st.session_state.get("chat_session_id"):
+        payload["chat_session_id"] = st.session_state.chat_session_id
 
     with st.chat_message("assistant"):
         try:
             resp = client.chat(payload)
             content = resp["choices"][0]["message"]["content"]
+
+            # Show the full prompt sent to the LLM (system prompt + RAG context)
+            prompt_messages = resp.get("_prompt_messages")
+            if prompt_messages:
+                parts = []
+                for pm in prompt_messages:
+                    role = pm.get("role", "unknown").upper()
+                    body = pm.get("content", "")
+                    parts.append(f"**[{role}]**\n\n{body}\n\n---\n\n")
+                with st.expander("📋 Full prompt", expanded=False):
+                    st.markdown("".join(parts))
+
         except Exception as e:
             content = f"Error: {e}"
         render_message_with_thinking(content)
 
     st.session_state.messages.append({"role": "assistant", "content": content})
-
-# with st.expander("Raw messages"):
-#     st.code(json.dumps(st.session_state.messages, ensure_ascii=False, indent=2))

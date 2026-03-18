@@ -21,7 +21,7 @@ data:
   max_seq_length: 768  # Allows enough context without blowing 12GB VRAM
   batch_size: 1
   num_workers: 2  # Light parallelism keeps CPU/RAM usage modest
-  local_path: "${paths.project_root}/assets/datasets/arxiv-summarization-01"
+  local_path: "${paths.project_root}/assets/datasets/arxiv-summarization"
   prompt_template: | # Keep prompts short yet structured for summarization
     Summarize the following article into an abstract:
 
@@ -64,5 +64,5 @@ mlflow:
   experiment_name: "train_adapter"
   run_name: "train_adapter"
   env_path: "experiments/.env" # relative to project root
-  register_model: true  # register trained adapter in MLflow Model Registry
-  registered_model_name: "lora-summarization"  # registry name; set to lora-chat / lora-code / etc. via CLI override
+  # To register a trained adapter in the Model Registry, use the CLI:
+  #   python scripts/manage_registry.py register <model-name> --run-id <run-id>

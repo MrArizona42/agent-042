@@ -1,0 +1,16 @@
+[
+    {
+        "knowledge_base": "arxiv",
+        "aliases": ["champion", "challenger"],
+        "update_strategy": "incremental",
+        "label": "ArXiv papers (ML / AI theory)",
+        "description": "Deep discussions about ML/AI theory and latest trends"
+    },
+    {
+        "knowledge_base": "pytorch_docs",
+        "aliases": ["champion", "challenger"],
+        "update_strategy": "replace",
+        "label": "PyTorch docs (coding)",
+        "description": "PyTorch documentation for coding assistance"
+    }
+]

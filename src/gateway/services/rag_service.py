@@ -9,7 +9,7 @@ from gateway.config import get_settings
 from rag.embeddings import EmbeddingService
 from rag.retriever import Retriever
 from rag.vector_store import QdrantVectorStore
-from shared.config import KNOWLEDGE_BASES, Settings
+from shared.config import Settings, get_knowledge_bases
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 class RAGService:
     """Service for retrieving relevant context using RAG.
 
-    Each Qdrant collection is exposed as a named knowledge base that the
-    user can select explicitly from the UI.
+    Each Qdrant collection is exposed via alias-based resolution:
+    ``(knowledge_base, alias)`` → ``{kb}_{alias}`` → Qdrant alias.
     """
 
     def __init__(self, settings: Optional[Settings] = None):
@@ -46,62 +46,99 @@ class RAGService:
             batch_size=settings.embedding_batch_size,
         )
 
-        # Retrievers are created lazily on first request for each KB.
+        # Retrievers are created lazily on first request for each (kb, alias).
         # This avoids a startup race when Qdrant is not yet ready.
-        self.retrievers: dict[str, Retriever] = {}
-        self._unavailable_kbs: set[str] = set()
+        self._retrievers: dict[str, Retriever] = {}
+        self._unavailable: set[str] = set()
 
         logger.info("RAG service initialized (retrievers will be created lazily)")
 
     # ------------------------------------------------------------------
-    def _get_retriever(self, kb_name: str) -> Optional[Retriever]:
-        """Return (and lazily create) a retriever for *kb_name*."""
-        if kb_name in self.retrievers:
-            return self.retrievers[kb_name]
+    # Internal helpers
+    # ------------------------------------------------------------------
 
-        if kb_name not in KNOWLEDGE_BASES:
+    @staticmethod
+    def _qdrant_alias(kb_name: str, alias: str) -> str:
+        """Construct the Qdrant alias name: ``{kb}_{alias}``."""
+        return f"{kb_name}_{alias}"
+
+    def _get_retriever(self, kb_name: str, alias: str = "champion") -> Optional[Retriever]:
+        """Return (and lazily create) a retriever for *(kb_name, alias)*.
+
+        Validates that the KB exists in the registry and that the alias
+        is in the allowed list before attempting to connect.
+        """
+        cache_key = self._qdrant_alias(kb_name, alias)
+
+        if cache_key in self._retrievers:
+            return self._retrievers[cache_key]
+
+        kb_registry = get_knowledge_bases()
+
+        if kb_name not in kb_registry:
             return None
 
-        # If we already tried and the collection was missing, retry —
-        # it may have been created since last attempt.
-        kb_info = KNOWLEDGE_BASES[kb_name]
-        collection_name = kb_info["collection"]
+        kb_cfg = kb_registry[kb_name]
+        if alias not in kb_cfg.aliases:
+            return None
+
+        qdrant_alias_name = cache_key
 
         vector_store = QdrantVectorStore(
             host=self.settings.qdrant_host,
             port=self.settings.qdrant_port,
-            collection_name=collection_name,
+            collection_name=qdrant_alias_name,
         )
 
         if not vector_store.collection_exists():
-            if kb_name not in self._unavailable_kbs:
+            if cache_key not in self._unavailable:
                 logger.warning(
-                    f"Collection '{collection_name}' does not exist. "
-                    f"Knowledge base '{kb_name}' is not available yet."
+                    f"Qdrant alias '{qdrant_alias_name}' does not resolve. "
+                    f"Knowledge base '{kb_name}' alias '{alias}' is not available."
                 )
-                self._unavailable_kbs.add(kb_name)
+                self._unavailable.add(cache_key)
             return None
 
-        # Collection appeared — create the retriever and cache it
-        self._unavailable_kbs.discard(kb_name)
+        # Alias resolved — create the retriever and cache it
+        self._unavailable.discard(cache_key)
         retriever = Retriever(
             embedding_service=self.embedding_service,
             vector_store=vector_store,
             settings=self.settings,
         )
-        self.retrievers[kb_name] = retriever
-        logger.info(f"Retriever for knowledge base '{kb_name}' is now available")
+        self._retrievers[cache_key] = retriever
+        logger.info(
+            f"Retriever for '{kb_name}' alias '{alias}' is now available "
+            f"(Qdrant alias: {qdrant_alias_name})"
+        )
         return retriever
 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     @staticmethod
-    def available_knowledge_bases() -> dict[str, dict[str, str]]:
-        """Return the registry of available knowledge bases."""
-        return KNOWLEDGE_BASES
+    def available_knowledge_bases() -> dict[str, dict]:
+        """Return the registry of available knowledge bases.
+
+        Returns a dict keyed by KB name with ``label``, ``description``,
+        ``aliases``, and ``update_strategy``.
+        """
+        result: dict[str, dict] = {}
+        for name, cfg in get_knowledge_bases().items():
+            result[name] = {
+                "label": cfg.label,
+                "description": cfg.description,
+                "aliases": cfg.aliases,
+                "update_strategy": cfg.update_strategy,
+            }
+        return result
 
     def retrieve_context(
         self,
         query: str,
         knowledge_base: Optional[str] = None,
+        alias: str = "champion",
         top_k: int = 5,
     ) -> Optional[str]:
         """Retrieve relevant context for a query.
@@ -110,47 +147,87 @@ class RAGService:
             query: User query
             knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
                 If None the retrieval is skipped.
+            alias: Alias role (default ``"champion"``).
             top_k: Number of documents to retrieve
 
         Returns:
             Formatted context string or None if RAG is disabled/unavailable
         """
-        if not self.enabled:
+        docs = self.retrieve_documents(
+            query=query,
+            knowledge_base=knowledge_base,
+            alias=alias,
+            top_k=top_k,
+        )
+        if not docs:
             return None
+        return self.format_documents(docs)
+
+    def retrieve_documents(
+        self,
+        query: str,
+        knowledge_base: Optional[str] = None,
+        alias: str = "champion",
+        top_k: int = 5,
+    ) -> list:
+        """Retrieve relevant documents as a list of Document objects.
+
+        Args:
+            query: User query
+            knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
+            alias: Alias role (default ``"champion"``).
+            top_k: Number of documents to retrieve
+
+        Returns:
+            List of Document objects, or empty list if unavailable.
+        """
+        if not self.enabled:
+            return []
 
         if not knowledge_base:
             logger.info("No knowledge base selected — skipping RAG retrieval")
-            return None
+            return []
 
-        # Check if retriever exists for this knowledge base
-        retriever = self._get_retriever(knowledge_base)
+        retriever = self._get_retriever(knowledge_base, alias)
         if retriever is None:
-            logger.warning(f"No retriever available for knowledge base: {knowledge_base}")
-            return None
+            logger.warning(
+                f"No retriever available for knowledge base: {knowledge_base} alias: {alias}"
+            )
+            return []
 
         try:
-            # Retrieve documents
-            documents = retriever.retrieve(
-                query=query,
-                top_k=top_k,
-            )
-
-            if not documents:
-                logger.info("No relevant documents found")
-                return None
-
-            # Format context using configured max length
-            context = retriever.format_context(
-                documents,
-                max_length=self.settings.context_max_length,
-            )
+            documents = retriever.retrieve(query=query, top_k=top_k)
             logger.info(
-                f"Retrieved context of {len(context)} characters "
-                f"from {len(documents)} documents (kb={knowledge_base})"
+                f"Retrieved {len(documents)} documents "
+                f"(kb={knowledge_base}, alias={alias})"
+            )
+            return documents
+        except Exception as e:
+            logger.error(f"Error retrieving documents: {e}", exc_info=True)
+            return []
+
+    def format_documents(self, documents: list) -> Optional[str]:
+        """Format retrieved documents into a context string.
+
+        Args:
+            documents: List of Document objects.
+
+        Returns:
+            Formatted context string or None if no documents.
+        """
+        if not documents:
+            return None
+
+        parts: list[str] = []
+        for i, doc in enumerate(documents, 1):
+            source = doc.metadata.get("source", "unknown")
+            score = doc.score if doc.score is not None else 0.0
+            parts.append(
+                f"[Document {i}] (Source: {source}, Score: {score:.3f})\n{doc.content}"
             )
 
-            return context
-
-        except Exception as e:
-            logger.error(f"Error retrieving context: {e}", exc_info=True)
-            return None
+        context = "\n\n".join(parts)
+        max_len = self.settings.context_max_length
+        if len(context) > max_len:
+            context = context[:max_len]
+        return context

@@ -1,0 +1,6 @@
+outs:
+- md5: 579280a1ddd6c69f6833c65602bbaeb2.dir
+  size: 5859570
+  nfiles: 4
+  hash: md5
+  path: beir-nfcorpus
