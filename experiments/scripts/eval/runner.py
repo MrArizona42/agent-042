@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import argparse
 import itertools
-import json
 import logging
 import sys
 import uuid
@@ -186,7 +185,8 @@ def _log_to_db(rows: list[dict[str, Any]], db_url: str) -> None:
             create_engine,
             insert,
         )
-        from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+        from sqlalchemy.dialects.postgresql import JSONB
+        from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
         engine = create_engine(db_url)
         meta = MetaData()
@@ -324,12 +324,14 @@ def _evaluate_generation(
 
         predictions.append(answer)
         references.append(reference)
-        judge_samples.append({
-            "question": question,
-            "answer": answer,
-            "reference": reference,
-            "context": rag_context,
-        })
+        judge_samples.append(
+            {
+                "question": question,
+                "answer": answer,
+                "reference": reference,
+                "context": rag_context,
+            }
+        )
 
     if gateway_failures == len(samples):
         raise RuntimeError(
@@ -357,21 +359,26 @@ def _evaluate_generation(
     try:
         if metric in _AUTOMATIC_METRICS:
             auto_metrics = compute_automatic_metrics(
-                predictions, references,
+                predictions,
+                references,
                 bert_score_model=eval_settings.bert_score_model,
                 metric=metric,
+                max_length=eval_settings.max_tokens,
             )
             if metric in auto_metrics:
-                rows.append({
-                    **common,
-                    "metric_name": metric,
-                    "metric_value": auto_metrics[metric],
-                })
+                rows.append(
+                    {
+                        **common,
+                        "metric_name": metric,
+                        "metric_value": auto_metrics[metric],
+                    }
+                )
 
         elif metric in _JUDGE_METRICS:
             if not eval_settings.google_ai_api_key:
                 logger.error(
-                    "LLM-as-Judge metric '%s' requires EVAL_GOOGLE_AI_API_KEY", metric,
+                    "LLM-as-Judge metric '%s' requires EVAL_GOOGLE_AI_API_KEY",
+                    metric,
                 )
                 return []
             result = judge_batch(
@@ -380,11 +387,13 @@ def _evaluate_generation(
                 api_key=eval_settings.google_ai_api_key,
                 model=eval_settings.judge_model,
             )
-            rows.append({
-                **common,
-                "metric_name": metric,
-                "metric_value": result[metric],
-            })
+            rows.append(
+                {
+                    **common,
+                    "metric_name": metric,
+                    "metric_value": result[metric],
+                }
+            )
     except Exception as e:
         logger.error("Metric computation failed: %s", e, exc_info=True)
         finished = datetime.now(timezone.utc)
@@ -481,14 +490,16 @@ def _evaluate_code(
             eval_settings=eval_settings,
             now=now,
         )
-        return [{
-            **common,
-            "metric_name": metric,
-            "metric_value": 0.0,
-            "finished_at": now,
-            "status": "failed",
-            "error_message": str(e),
-        }]
+        return [
+            {
+                **common,
+                "metric_name": metric,
+                "metric_value": 0.0,
+                "finished_at": now,
+                "status": "failed",
+                "error_message": str(e),
+            }
+        ]
 
     now = datetime.now(timezone.utc)
     common = _build_common_fields(
@@ -506,13 +517,15 @@ def _evaluate_code(
 
     rows = []
     if metric in metrics:
-        rows.append({
-            **common,
-            "metric_name": metric,
-            "metric_value": metrics[metric],
-            "finished_at": now,
-            "status": "completed",
-        })
+        rows.append(
+            {
+                **common,
+                "metric_name": metric,
+                "metric_value": metrics[metric],
+                "finished_at": now,
+                "status": "completed",
+            }
+        )
     return rows
 
 
@@ -581,9 +594,7 @@ _DATASET_LOCAL: dict[str, tuple[str, str]] = {
 }
 
 
-def _load_dataset_samples(
-    task: str, dataset_name: str, limit: int = 0
-) -> list[dict[str, str]]:
+def _load_dataset_samples(task: str, dataset_name: str, limit: int = 0) -> list[dict[str, str]]:
     """Load evaluation dataset samples from local Arrow files.
 
     Datasets must be pre-downloaded to ``assets/datasets/{folder_name}``
@@ -616,7 +627,9 @@ def _load_dataset_samples(
     if split_name not in ds_dict:
         logger.error(
             "Split '%s' not found in %s (available: %s)",
-            split_name, dataset_path, list(ds_dict.keys()),
+            split_name,
+            dataset_path,
+            list(ds_dict.keys()),
         )
         return []
 
@@ -625,28 +638,37 @@ def _load_dataset_samples(
     samples: list[dict[str, str]] = []
     for item in ds:
         if task == "code":
-            samples.append({
-                "prompt": item.get("prompt", ""),
-                "test": item.get("test", ""),
-                "answer": item.get("canonical_solution", ""),
-            })
+            samples.append(
+                {
+                    "prompt": item.get("prompt", ""),
+                    "test": item.get("test", ""),
+                    "answer": item.get("canonical_solution", ""),
+                }
+            )
         elif task == "summarize":
-            samples.append({
-                "question": item.get("article", "")[:2000],
-                "answer": item.get("abstract", ""),
-            })
+            samples.append(
+                {
+                    "question": item.get("article", "")[:2000],
+                    "answer": item.get("abstract", ""),
+                }
+            )
         else:
             # chat / QA
-            samples.append({
-                "question": item.get("question", ""),
-                "answer": item.get("answer", ""),
-            })
+            samples.append(
+                {
+                    "question": item.get("question", ""),
+                    "answer": item.get("answer", ""),
+                }
+            )
 
         if limit > 0 and len(samples) >= limit:
             break
 
     logger.info(
-        "Loaded %d samples from %s [%s]", len(samples), dataset_path, split_name,
+        "Loaded %d samples from %s [%s]",
+        len(samples),
+        dataset_path,
+        split_name,
     )
     return samples
 
@@ -681,8 +703,7 @@ def run_eval(
     valid_metrics = _TASK_METRICS.get(task, [])
     if metric not in valid_metrics:
         raise ValueError(
-            f"Metric '{metric}' is not valid for task '{task}'. "
-            f"Valid metrics: {valid_metrics}"
+            f"Metric '{metric}' is not valid for task '{task}'. Valid metrics: {valid_metrics}"
         )
 
     # Resolve fixed KB for this suite
@@ -703,7 +724,11 @@ def run_eval(
     for rag_alias, lora_alias in itertools.product(rag_aliases, lora_aliases):
         logger.info(
             "Evaluating: task=%s dataset=%s metric=%s rag=%s lora=%s",
-            task, dataset_name, metric, rag_alias, lora_alias,
+            task,
+            dataset_name,
+            metric,
+            rag_alias,
+            lora_alias,
         )
 
         try:
@@ -748,7 +773,7 @@ def run_eval(
     _log_to_db(all_rows, eval_settings.db_url)
 
     if failures:
-        failed_pairs = ", ".join(f"rag={r} lora={l}" for r, l, _ in failures)
+        failed_pairs = ", ".join(f"rag={r} lora={lo}" for r, lo, _ in failures)
         raise RuntimeError(
             f"{len(failures)} eval combination(s) failed ({failed_pairs}): {failures[0][2]}"
         )
@@ -866,31 +891,37 @@ def _evaluate_retrieval(
         eval_settings=eval_settings,
         now=now,
     )
-    common.update({
-        "qdrant_collection": temp_collection,
-        "embedding_model": build_config.get("embedding_model"),
-        "chunking_strategy": build_config.get("chunking_strategy"),
-        "chunk_size": build_config.get("chunk_size"),
-        "chunk_overlap": build_config.get("chunk_overlap"),
-    })
+    common.update(
+        {
+            "qdrant_collection": temp_collection,
+            "embedding_model": build_config.get("embedding_model"),
+            "chunking_strategy": build_config.get("chunking_strategy"),
+            "chunk_size": build_config.get("chunk_size"),
+            "chunk_overlap": build_config.get("chunk_overlap"),
+        }
+    )
 
     rows = []
     if metric == "recall_at_10":
-        rows.append({
-            **common,
-            "metric_name": "recall_at_10",
-            "metric_value": avg_recall,
-            "finished_at": now,
-            "status": "completed",
-        })
+        rows.append(
+            {
+                **common,
+                "metric_name": "recall_at_10",
+                "metric_value": avg_recall,
+                "finished_at": now,
+                "status": "completed",
+            }
+        )
     elif metric == "ndcg_at_10":
-        rows.append({
-            **common,
-            "metric_name": "ndcg_at_10",
-            "metric_value": avg_ndcg,
-            "finished_at": now,
-            "status": "completed",
-        })
+        rows.append(
+            {
+                **common,
+                "metric_name": "ndcg_at_10",
+                "metric_value": avg_ndcg,
+                "finished_at": now,
+                "status": "completed",
+            }
+        )
     return rows
 
 
@@ -942,9 +973,9 @@ def main() -> None:
     )
 
     # Print summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Eval complete: {len(rows)} metric rows")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for row in rows:
         print(
             f"  {row['task']}/{row['dataset_name']} "

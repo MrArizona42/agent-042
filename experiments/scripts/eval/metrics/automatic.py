@@ -49,27 +49,35 @@ def compute_bertscore(
     predictions: list[str],
     references: list[str],
     model_name: str = "microsoft/deberta-xlarge-mnli",
+    max_length: int = 512,
 ) -> dict[str, float]:
     """Compute BERTScore (precision, recall, F1) averaged over pairs.
 
     Requires the ``bert-score`` package.
+
+    Args:
+        max_length: Cap the tokenizer's ``model_max_length`` to this value.
+            Should match the max generation tokens used during evaluation.
 
     Returns:
         Dict with keys ``bertscore_precision``, ``bertscore_recall``,
         ``bertscore_f1``.
     """
     try:
-        from bert_score import score as bert_score_fn
+        from bert_score import BERTScorer
     except ImportError:
         logger.warning("bert-score not installed; returning 0.0")
         return {"bertscore_precision": 0.0, "bertscore_recall": 0.0, "bertscore_f1": 0.0}
 
-    P, R, F1 = bert_score_fn(
-        predictions,
-        references,
-        model_type=model_name,
-        verbose=False,
-    )
+    scorer = BERTScorer(model_type=model_name)
+
+    # Workaround: some models (e.g. DeBERTa) report a huge model_max_length
+    # that overflows the Rust tokenizer's usize when enable_truncation() is
+    # called inside bert_score.  Cap it to the eval max generation tokens.
+    if scorer._tokenizer.model_max_length > max_length:
+        scorer._tokenizer.model_max_length = max_length
+
+    P, R, F1 = scorer.score(predictions, references)
     return {
         "bertscore_precision": P.mean().item(),
         "bertscore_recall": R.mean().item(),
@@ -127,6 +135,7 @@ def compute_automatic_metrics(
     references: list[str],
     bert_score_model: str = "microsoft/deberta-xlarge-mnli",
     metric: str | None = None,
+    max_length: int = 512,
 ) -> dict[str, float]:
     """Compute automatic generation metrics (ROUGE-L and/or BERTScore).
 
@@ -134,6 +143,8 @@ def compute_automatic_metrics(
         metric: If provided, only compute this specific metric.
             Avoids expensive BERTScore computation when only ROUGE-L
             is needed (and vice-versa).
+        max_length: Passed to BERTScore tokenizer truncation limit.
+            Should match the max generation tokens used during evaluation.
 
     Returns:
         Dict with computed metric values.
@@ -142,14 +153,17 @@ def compute_automatic_metrics(
 
     # ROUGE-L
     if metric is None or metric == "rouge_l":
-        rouge_scores = [
-            compute_rouge_l(pred, ref) for pred, ref in zip(predictions, references)
-        ]
+        rouge_scores = [compute_rouge_l(pred, ref) for pred, ref in zip(predictions, references)]
         results["rouge_l"] = sum(rouge_scores) / len(rouge_scores) if rouge_scores else 0.0
 
     # BERTScore
     if metric is None or metric.startswith("bertscore"):
-        bert_results = compute_bertscore(predictions, references, model_name=bert_score_model)
+        bert_results = compute_bertscore(
+            predictions,
+            references,
+            model_name=bert_score_model,
+            max_length=max_length,
+        )
         results.update(bert_results)
 
     return results
