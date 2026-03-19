@@ -363,7 +363,6 @@ def _evaluate_generation(
                 references,
                 bert_score_model=eval_settings.bert_score_model,
                 metric=metric,
-                max_length=eval_settings.max_tokens,
             )
             if metric in auto_metrics:
                 rows.append(

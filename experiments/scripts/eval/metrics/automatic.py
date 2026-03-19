@@ -49,15 +49,10 @@ def compute_bertscore(
     predictions: list[str],
     references: list[str],
     model_name: str = "microsoft/deberta-xlarge-mnli",
-    max_length: int = 512,
 ) -> dict[str, float]:
     """Compute BERTScore (precision, recall, F1) averaged over pairs.
 
     Requires the ``bert-score`` package.
-
-    Args:
-        max_length: Cap the tokenizer's ``model_max_length`` to this value.
-            Should match the max generation tokens used during evaluation.
 
     Returns:
         Dict with keys ``bertscore_precision``, ``bertscore_recall``,
@@ -72,10 +67,11 @@ def compute_bertscore(
     scorer = BERTScorer(model_type=model_name)
 
     # Workaround: some models (e.g. DeBERTa) report a huge model_max_length
-    # that overflows the Rust tokenizer's usize when enable_truncation() is
-    # called inside bert_score.  Cap it to the eval max generation tokens.
-    if scorer._tokenizer.model_max_length > max_length:
-        scorer._tokenizer.model_max_length = max_length
+    # (~10^30) that overflows the Rust tokenizer's usize in
+    # enable_truncation().  Cap it to the model's actual positional limit.
+    max_pos = getattr(scorer._model.config, "max_position_embeddings", None)
+    if max_pos and scorer._tokenizer.model_max_length > max_pos:
+        scorer._tokenizer.model_max_length = max_pos
 
     P, R, F1 = scorer.score(predictions, references)
     return {
@@ -135,7 +131,6 @@ def compute_automatic_metrics(
     references: list[str],
     bert_score_model: str = "microsoft/deberta-xlarge-mnli",
     metric: str | None = None,
-    max_length: int = 512,
 ) -> dict[str, float]:
     """Compute automatic generation metrics (ROUGE-L and/or BERTScore).
 
@@ -143,8 +138,6 @@ def compute_automatic_metrics(
         metric: If provided, only compute this specific metric.
             Avoids expensive BERTScore computation when only ROUGE-L
             is needed (and vice-versa).
-        max_length: Passed to BERTScore tokenizer truncation limit.
-            Should match the max generation tokens used during evaluation.
 
     Returns:
         Dict with computed metric values.
@@ -162,7 +155,6 @@ def compute_automatic_metrics(
             predictions,
             references,
             model_name=bert_score_model,
-            max_length=max_length,
         )
         results.update(bert_results)
 
