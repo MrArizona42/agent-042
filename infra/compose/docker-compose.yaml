@@ -580,6 +580,7 @@ services:
   # =====================
   airflow-webserver:
     build: *airflow-common-build
+    hostname: airflow-local
     command: webserver
     environment:
       <<: *airflow-common-env
@@ -609,6 +610,7 @@ services:
   # =====================
   airflow-scheduler:
     build: *airflow-common-build
+    hostname: airflow-local
     command: scheduler
     environment:
       <<: *airflow-common-env

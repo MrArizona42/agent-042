@@ -42,17 +42,26 @@ default_args = {
 
 
 def _run_eval(
-    task: str,
+    eval_task: str,
     dataset: str,
     metric: str,
     kb: str | None = None,
     **context: object,
 ) -> None:
     """PythonOperator callable — delegates to ``runner.run_eval``."""
+    log = logging.getLogger(__name__)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
+    log.info(
+        "_run_eval started: eval_task=%s dataset=%s metric=%s kb=%s",
+        eval_task,
+        dataset,
+        metric,
+        kb,
+    )
+
     from experiments.scripts.eval.runner import run_eval
 
     params = context.get("params", {})
@@ -60,7 +69,7 @@ def _run_eval(
     lora_aliases = [a.strip() for a in str(params.get("lora_aliases", "none")).split(",")]
 
     rows = run_eval(
-        task=task,
+        task=eval_task,
         dataset_name=dataset,
         metric=metric,
         kb_name=kb,
@@ -68,7 +77,6 @@ def _run_eval(
         lora_aliases=lora_aliases,
     )
 
-    log = logging.getLogger(__name__)
     log.info("Eval complete: %d metric rows", len(rows))
     for row in rows:
         log.info(
@@ -105,7 +113,7 @@ for _metric in ("relevance", "correctness", "bertscore_f1", "rouge_l"):
         PythonOperator(
             task_id="run_eval",
             python_callable=_run_eval,
-            op_kwargs={"task": "chat", "dataset": "hotpotqa", "metric": _metric},
+            op_kwargs={"eval_task": "chat", "dataset": "hotpotqa", "metric": _metric},
         )
 
 # --- Chat / Natural Questions ---
@@ -127,7 +135,7 @@ for _metric in ("relevance", "correctness", "bertscore_f1", "rouge_l"):
         PythonOperator(
             task_id="run_eval",
             python_callable=_run_eval,
-            op_kwargs={"task": "chat", "dataset": "nq", "metric": _metric},
+            op_kwargs={"eval_task": "chat", "dataset": "nq", "metric": _metric},
         )
 
 # =========================================================================
@@ -151,7 +159,11 @@ for _metric in ("faithfulness", "coverage", "bertscore_f1", "rouge_l"):
         PythonOperator(
             task_id="run_eval",
             python_callable=_run_eval,
-            op_kwargs={"task": "summarize", "dataset": "arxiv_summarization", "metric": _metric},
+            op_kwargs={
+                "eval_task": "summarize",
+                "dataset": "arxiv_summarization",
+                "metric": _metric,
+            },
         )
 
 # =========================================================================
@@ -176,7 +188,7 @@ for _metric in ("pass_at_1", "executable_rate"):
         PythonOperator(
             task_id="run_eval",
             python_callable=_run_eval,
-            op_kwargs={"task": "code", "dataset": "humaneval", "metric": _metric},
+            op_kwargs={"eval_task": "code", "dataset": "humaneval", "metric": _metric},
         )
 
 # =========================================================================
@@ -201,7 +213,7 @@ for _metric in ("recall_at_10", "ndcg_at_10"):
             task_id="run_eval",
             python_callable=_run_eval,
             op_kwargs={
-                "task": "retrieval",
+                "eval_task": "retrieval",
                 "dataset": "beir_scifact",
                 "metric": _metric,
                 "kb": "arxiv",
@@ -225,7 +237,7 @@ for _metric in ("recall_at_10", "ndcg_at_10"):
             task_id="run_eval",
             python_callable=_run_eval,
             op_kwargs={
-                "task": "retrieval",
+                "eval_task": "retrieval",
                 "dataset": "beir_nfcorpus",
                 "metric": _metric,
                 "kb": "arxiv",
@@ -249,7 +261,7 @@ for _metric in ("recall_at_10", "ndcg_at_10"):
             task_id="run_eval",
             python_callable=_run_eval,
             op_kwargs={
-                "task": "retrieval",
+                "eval_task": "retrieval",
                 "dataset": "msmarco",
                 "metric": _metric,
                 "kb": "pytorch_docs",

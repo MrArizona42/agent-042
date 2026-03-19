@@ -64,6 +64,8 @@ def compute_bertscore(
         logger.warning("bert-score not installed; returning 0.0")
         return {"bertscore_precision": 0.0, "bertscore_recall": 0.0, "bertscore_f1": 0.0}
 
+    import torch
+
     scorer = BERTScorer(model_type=model_name)
 
     # Workaround: some models (e.g. DeBERTa) report a huge model_max_length
@@ -73,12 +75,18 @@ def compute_bertscore(
     if max_pos and scorer._tokenizer.model_max_length > max_pos:
         scorer._tokenizer.model_max_length = max_pos
 
-    P, R, F1 = scorer.score(predictions, references)
-    return {
-        "bertscore_precision": P.mean().item(),
-        "bertscore_recall": R.mean().item(),
-        "bertscore_f1": F1.mean().item(),
-    }
+    try:
+        with torch.no_grad():
+            P, R, F1 = scorer.score(predictions, references)
+        return {
+            "bertscore_precision": P.mean().item(),
+            "bertscore_recall": R.mean().item(),
+            "bertscore_f1": F1.mean().item(),
+        }
+    finally:
+        del scorer
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 def _dcg(relevances: list[float], k: int) -> float:
