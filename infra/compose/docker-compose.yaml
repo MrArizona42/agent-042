@@ -639,8 +639,6 @@ services:
     command: start-notebook.py --ServerApp.base_url=/jupyter
     environment:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
-      # Makes train_adapter a proper importable package inside notebooks
-      PYTHONPATH: /home/jovyan/work/experiments/scripts
       # MLflow — direct container-to-container access (no auth needed)
       MLFLOW_TRACKING_URI: http://mlflow:5000
       # S3 / Yandex Object Storage — needed for artifact upload/download
