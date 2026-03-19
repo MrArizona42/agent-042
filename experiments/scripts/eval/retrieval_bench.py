@@ -22,8 +22,8 @@ def read_build_config(
     *,
     kb_name: str,
     rag_alias: str,
-    qdrant_host: str = "localhost",
-    qdrant_port: int = 6333,
+    qdrant_host: str,
+    qdrant_port: int,
 ) -> dict[str, Any] | None:
     """Read the ``_meta`` sentinel from the production collection.
 
@@ -50,9 +50,9 @@ def build_temp_collection(
     rag_alias: str,
     corpus: list[dict[str, Any]],
     build_config: dict[str, Any],
-    qdrant_host: str = "localhost",
-    qdrant_port: int = 6333,
-    embeddings_url: str = "http://localhost:8100",
+    qdrant_host: str,
+    qdrant_port: int,
+    embeddings_url: str,
 ) -> str:
     """Build a temporary Qdrant collection from benchmark corpus.
 
@@ -79,10 +79,14 @@ def build_temp_collection(
     collection_name = f"eval_{kb_name}_{dataset_name}_{rag_alias}_{_timestamp()}"
     logger.info("Building temporary collection: %s", collection_name)
 
-    embedding_model = build_config.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")
-    chunk_size = build_config.get("chunk_size", 512)
-    chunk_overlap = build_config.get("chunk_overlap", 50)
-    task = build_config.get("task", "chat")
+    embedding_model = build_config["embedding_model"]
+    chunk_size = build_config["chunk_size"]
+    chunk_overlap = build_config["chunk_overlap"]
+    chunking_strategy = build_config["chunking_strategy"]
+
+    # Map chunking strategy to get_chunker task parameter
+    _STRATEGY_TO_TASK = {"fixed_token": "chat", "code": "code", "section_aware": "section_aware"}
+    task = _STRATEGY_TO_TASK.get(chunking_strategy, "chat")
 
     emb_service = EmbeddingService(model_name=embedding_model)
     chunker = get_chunker(task=task, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
@@ -111,17 +115,15 @@ def build_temp_collection(
     vs.create_collection(dimension=dimension)
     vs.add_documents(documents=all_texts, embeddings=embeddings, metadatas=all_meta, ids=all_ids)
 
-    logger.info(
-        "Built temporary collection '%s' with %d chunks", collection_name, len(all_texts)
-    )
+    logger.info("Built temporary collection '%s' with %d chunks", collection_name, len(all_texts))
     return collection_name
 
 
 def delete_temp_collection(
     collection_name: str,
     *,
-    qdrant_host: str = "localhost",
-    qdrant_port: int = 6333,
+    qdrant_host: str,
+    qdrant_port: int,
 ) -> None:
     """Delete a temporary evaluation collection."""
     from rag.vector_store import QdrantVectorStore

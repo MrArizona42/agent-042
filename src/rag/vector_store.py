@@ -19,8 +19,6 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from shared.config import get_settings
-
 logger = logging.getLogger(__name__)
 
 
@@ -38,21 +36,17 @@ class QdrantVectorStore:
 
     def __init__(
         self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        collection_name: str = "documents",
+        host: str,
+        port: int,
+        collection_name: str,
     ):
         """Initialize Qdrant client.
 
         Args:
-            host: Qdrant server host (uses config default if None)
-            port: Qdrant server port (uses config default if None)
+            host: Qdrant server host
+            port: Qdrant server port
             collection_name: Name of the collection to use
         """
-        settings = get_settings()
-        host = host if host is not None else settings.qdrant_host
-        port = port if port is not None else settings.qdrant_port
-
         self.client = QdrantClient(host=host, port=port)
         self.collection_name = collection_name
         logger.info(f"Connected to Qdrant at {host}:{port}")
@@ -136,8 +130,8 @@ class QdrantVectorStore:
     def search(
         self,
         query_embedding: List[float],
-        top_k: int = 5,
-        score_threshold: float = 0.0,
+        top_k: int,
+        score_threshold: float,
         filter_dict: Optional[Dict[str, Any]] = None,
     ) -> List[Document]:
         """Search for similar documents.
@@ -156,7 +150,8 @@ class QdrantVectorStore:
         """
         # Exclude metadata sentinel points from search results
         meta_exclusion = FieldCondition(
-            key="type", match=MatchValue(value="collection_meta"),
+            key="type",
+            match=MatchValue(value="collection_meta"),
         )
 
         if filter_dict:

@@ -24,7 +24,7 @@ from airflow.operators.python import PythonOperator
 # Configuration
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", "/opt/airflow/project"))
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 
 # Ensure project sources are importable inside the Airflow process.
 for _p in (str(PROJECT_ROOT / "src"), str(PROJECT_ROOT)):

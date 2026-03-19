@@ -69,11 +69,11 @@ def build_chat_index(
     embedding_model: str,
     embeddings_url: str | None = None,
     *,
-    kb_name: str = "arxiv",
+    kb_name: str,
     alias: str | None = None,
-    chunking_strategy: str = "fixed_token",
-    chunk_size: int = 512,
-    chunk_overlap: int = 50,
+    chunking_strategy: str,
+    chunk_size: int,
+    chunk_overlap: int,
 ):
     """Build / update vector index for ArXiv papers (incremental mode).
 
@@ -106,7 +106,9 @@ def build_chat_index(
     # Initialize embedding service
     print(f"\nInitializing embedding service: {embedding_model}")
     embedding_service = EmbeddingService(
-        embedding_model, device="cpu", embeddings_url=embeddings_url,
+        embedding_model,
+        device="cpu",
+        embeddings_url=embeddings_url,
     )
 
     for current_alias in aliases_to_process:
@@ -114,7 +116,9 @@ def build_chat_index(
         print(f"\n--- Processing alias: {qdrant_alias} ---")
 
         helper = QdrantVectorStore(
-            host=qdrant_host, port=qdrant_port, collection_name=qdrant_alias,
+            host=qdrant_host,
+            port=qdrant_port,
+            collection_name=qdrant_alias,
         )
 
         # If alias doesn't resolve, this is a first build for this alias
@@ -123,7 +127,9 @@ def build_chat_index(
             collection_name = f"{kb_name}_{_timestamp()}"
             print(f"  Creating new collection: {collection_name}")
             vs = QdrantVectorStore(
-                host=qdrant_host, port=qdrant_port, collection_name=collection_name,
+                host=qdrant_host,
+                port=qdrant_port,
+                collection_name=collection_name,
             )
             vs.create_collection(dimension=embedding_service.dimension)
             vs.write_meta(
@@ -164,7 +170,8 @@ def build_chat_index(
 
         # Ensure collection exists (idempotent)
         target_store.create_collection(
-            dimension=embedding_service.dimension, force_recreate=False,
+            dimension=embedding_service.dimension,
+            force_recreate=False,
         )
 
         # Chunk and embed documents using this alias's build config
@@ -175,11 +182,15 @@ def build_chat_index(
         # Map chunking strategies to get_chunker task parameter:
         #   fixed_token → "chat", code → "code", section_aware → "section_aware"
         _STRATEGY_TO_TASK = {
-            "fixed_token": "chat", "code": "code", "section_aware": "section_aware",
+            "fixed_token": "chat",
+            "code": "code",
+            "section_aware": "section_aware",
         }
         task = _STRATEGY_TO_TASK.get(effective_strategy, "chat")
         chunker = get_chunker(
-            task=task, chunk_size=effective_chunk_size, chunk_overlap=effective_chunk_overlap,
+            task=task,
+            chunk_size=effective_chunk_size,
+            chunk_overlap=effective_chunk_overlap,
         )
 
         all_chunks = []
@@ -227,10 +238,7 @@ def build_chat_index(
                 ids=batch_ids,
             )
 
-            print(
-                f"  Added batch "
-                f"{i // batch_size + 1}/{(len(all_chunks) - 1) // batch_size + 1}"
-            )
+            print(f"  Added batch {i // batch_size + 1}/{(len(all_chunks) - 1) // batch_size + 1}")
 
         info = target_store.get_collection_info()
         print(f"  Alias '{qdrant_alias}' — {info['points_count']} points total")
@@ -252,11 +260,11 @@ def build_code_index(
     embedding_model: str,
     embeddings_url: str | None = None,
     *,
-    kb_name: str = "pytorch_docs",
-    alias: str = "champion",
-    chunking_strategy: str = "code",
-    chunk_size: int = 800,
-    chunk_overlap: int = 100,
+    kb_name: str,
+    alias: str,
+    chunking_strategy: str,
+    chunk_size: int,
+    chunk_overlap: int,
 ):
     """Build vector index for PyTorch docs (replace mode).
 
@@ -288,12 +296,16 @@ def build_code_index(
     # Initialize services
     print(f"\nInitializing embedding service: {embedding_model}")
     embedding_service = EmbeddingService(
-        embedding_model, device="cpu", embeddings_url=embeddings_url,
+        embedding_model,
+        device="cpu",
+        embeddings_url=embeddings_url,
     )
 
     # Read existing build config from current champion (if any)
     helper = QdrantVectorStore(
-        host=qdrant_host, port=qdrant_port, collection_name=qdrant_alias,
+        host=qdrant_host,
+        port=qdrant_port,
+        collection_name=qdrant_alias,
     )
     if helper.collection_exists():
         meta = helper.read_meta()
@@ -309,7 +321,9 @@ def build_code_index(
     # Create new collection
     print(f"\nConnecting to Qdrant at {qdrant_host}:{qdrant_port}")
     vector_store = QdrantVectorStore(
-        host=qdrant_host, port=qdrant_port, collection_name=collection_name,
+        host=qdrant_host,
+        port=qdrant_port,
+        collection_name=collection_name,
     )
     vector_store.create_collection(dimension=embedding_service.dimension)
 
@@ -403,6 +417,10 @@ def build_code_index(
 
 
 def main():
+    from shared.config import get_settings
+
+    _settings = get_settings()
+
     parser = argparse.ArgumentParser(description="Build vector indices for RAG")
     parser.add_argument(
         "--task",
@@ -419,7 +437,7 @@ def main():
         "--alias",
         default=None,
         help="Alias to target (e.g. 'champion', 'challenger'). "
-             "For incremental KBs, omit to update all aliases.",
+        "For incremental KBs, omit to update all aliases.",
     )
     parser.add_argument(
         "--chunking-strategy",
@@ -452,18 +470,18 @@ def main():
     )
     parser.add_argument(
         "--qdrant-host",
-        default="localhost",
+        default=_settings.qdrant_host,
         help="Qdrant server host",
     )
     parser.add_argument(
         "--qdrant-port",
         type=int,
-        default=6333,
+        default=_settings.qdrant_port,
         help="Qdrant server port",
     )
     parser.add_argument(
         "--embedding-model",
-        default="sentence-transformers/all-MiniLM-L6-v2",
+        default=_settings.embedding_model,
         help="(deprecated, ignored) Model is now configured on the embeddings service",
     )
     parser.add_argument(
@@ -489,25 +507,19 @@ def main():
             )
             sys.exit(1)
 
-        extra_kwargs: dict = {}
-        if args.kb:
-            extra_kwargs["kb_name"] = args.kb
-        if args.alias:
-            extra_kwargs["alias"] = args.alias
-        if args.chunking_strategy:
-            extra_kwargs["chunking_strategy"] = args.chunking_strategy
-        if args.chunk_size is not None:
-            extra_kwargs["chunk_size"] = args.chunk_size
-        if args.chunk_overlap is not None:
-            extra_kwargs["chunk_overlap"] = args.chunk_overlap
-
         build_chat_index(
             arxiv_file=args.arxiv_file,
             qdrant_host=args.qdrant_host,
             qdrant_port=args.qdrant_port,
             embedding_model=args.embedding_model,
             embeddings_url=args.embeddings_url,
-            **extra_kwargs,
+            kb_name=args.kb or "arxiv",
+            alias=args.alias,
+            chunking_strategy=args.chunking_strategy or "fixed_token",
+            chunk_size=args.chunk_size if args.chunk_size is not None else _settings.chunk_size,
+            chunk_overlap=args.chunk_overlap
+            if args.chunk_overlap is not None
+            else _settings.chunk_overlap,
         )
 
     if args.task in ["code", "both"]:
@@ -519,25 +531,21 @@ def main():
             )
             sys.exit(1)
 
-        extra_kwargs = {}
-        if args.kb:
-            extra_kwargs["kb_name"] = args.kb
-        if args.alias:
-            extra_kwargs["alias"] = args.alias
-        if args.chunking_strategy:
-            extra_kwargs["chunking_strategy"] = args.chunking_strategy
-        if args.chunk_size is not None:
-            extra_kwargs["chunk_size"] = args.chunk_size
-        if args.chunk_overlap is not None:
-            extra_kwargs["chunk_overlap"] = args.chunk_overlap
-
         build_code_index(
             pytorch_docs_file=args.pytorch_docs_file,
             qdrant_host=args.qdrant_host,
             qdrant_port=args.qdrant_port,
             embedding_model=args.embedding_model,
             embeddings_url=args.embeddings_url,
-            **extra_kwargs,
+            kb_name=args.kb or "pytorch_docs",
+            alias=args.alias or "champion",
+            chunking_strategy=args.chunking_strategy or "code",
+            chunk_size=args.chunk_size
+            if args.chunk_size is not None
+            else _settings.code_chunk_size,
+            chunk_overlap=args.chunk_overlap
+            if args.chunk_overlap is not None
+            else _settings.code_chunk_overlap,
         )
 
     print("\n✅ All requested indices built successfully!")

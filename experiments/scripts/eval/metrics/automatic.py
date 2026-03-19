@@ -48,7 +48,7 @@ def compute_rouge_l(prediction: str, reference: str) -> float:
 def compute_bertscore(
     predictions: list[str],
     references: list[str],
-    model_name: str = "microsoft/deberta-xlarge-mnli",
+    model_name: str,
 ) -> dict[str, float]:
     """Compute BERTScore (precision, recall, F1) averaged over pairs.
 
@@ -58,13 +58,8 @@ def compute_bertscore(
         Dict with keys ``bertscore_precision``, ``bertscore_recall``,
         ``bertscore_f1``.
     """
-    try:
-        from bert_score import BERTScorer
-    except ImportError:
-        logger.warning("bert-score not installed; returning 0.0")
-        return {"bertscore_precision": 0.0, "bertscore_recall": 0.0, "bertscore_f1": 0.0}
-
     import torch
+    from bert_score import BERTScorer
 
     scorer = BERTScorer(model_type=model_name)
 
@@ -100,7 +95,7 @@ def _dcg(relevances: list[float], k: int) -> float:
 def compute_ndcg_at_k(
     retrieved_ids: list[str],
     relevance_labels: dict[str, float],
-    k: int = 10,
+    k: int,
 ) -> float:
     """Normalised Discounted Cumulative Gain at *k*.
 
@@ -119,7 +114,7 @@ def compute_ndcg_at_k(
 def compute_recall_at_k(
     retrieved_ids: list[str],
     relevant_ids: set[str],
-    k: int = 10,
+    k: int,
 ) -> float:
     """Recall at *k*: fraction of relevant docs found in top-k results.
 
@@ -137,7 +132,7 @@ def compute_recall_at_k(
 def compute_automatic_metrics(
     predictions: list[str],
     references: list[str],
-    bert_score_model: str = "microsoft/deberta-xlarge-mnli",
+    bert_score_model: str,
     metric: str | None = None,
 ) -> dict[str, float]:
     """Compute automatic generation metrics (ROUGE-L and/or BERTScore).

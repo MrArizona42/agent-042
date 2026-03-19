@@ -29,7 +29,7 @@ from airflow.operators.python import PythonOperator
 # Configuration
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", "/opt/airflow/project"))
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 ASSETS_DIR = PROJECT_ROOT / "assets"
 PYTORCH_OUTPUT_DIR = ASSETS_DIR / "rag_data" / "pytorch_docs"
 
@@ -59,9 +59,7 @@ _project_root = str(PROJECT_ROOT)
 _pytorch_dir = str(PYTORCH_OUTPUT_DIR)
 _pytorch_rel = str(PYTORCH_OUTPUT_DIR.relative_to(PROJECT_ROOT))
 _pytorch_json = str(PYTORCH_OUTPUT_DIR / "pytorch_docs.json")
-_build_script = str(
-    PROJECT_ROOT / "experiments" / "scripts" / "rag_data" / "build_vector_index.py"
-)
+_build_script = str(PROJECT_ROOT / "experiments" / "scripts" / "rag_data" / "build_vector_index.py")
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
@@ -148,7 +146,6 @@ with DAG(
     catchup=False,
     tags=["rag", "pytorch", "data"],
 ) as dag:
-
     scrape = PythonOperator(
         task_id="scrape_pytorch_docs",
         python_callable=_collect_pytorch_docs,

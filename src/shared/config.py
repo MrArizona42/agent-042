@@ -375,7 +375,8 @@ class Settings(BaseSettings):
     # =========================================================================
     internal_api_key: str = Field(
         default="",
-        description="Pre-shared API key for internal service-to-service calls (e.g. Airflow eval runner)",
+        description="Pre-shared API key for internal service-to-service calls "
+        "(e.g. Airflow eval runner)",
     )
 
     # =========================================================================
@@ -461,7 +462,7 @@ class EvalSettings(BaseSettings):
         description="Google AI Studio API key for Gemini judge",
     )
     bert_score_model: str = Field(
-        default="microsoft/deberta-xlarge-mnli",
+        default="microsoft/deberta-base-mnli",
         description="Model for BERTScore computation",
     )
     temperature: float = Field(
@@ -475,7 +476,7 @@ class EvalSettings(BaseSettings):
         ge=1,
     )
     sample_limit: int = Field(
-        default=0,
+        default=100,
         description="Max samples per dataset (0 = unlimited)",
         ge=0,
     )
@@ -487,6 +488,15 @@ class EvalSettings(BaseSettings):
     code_exec_image: str = Field(
         default="python:3.11-slim",
         description="Docker image for sandboxed code execution",
+    )
+    code_exec_mem_limit: str = Field(
+        default="512m",
+        description="Memory limit for sandboxed code execution containers",
+    )
+    code_exec_cpus: float = Field(
+        default=1.0,
+        description="CPU limit for sandboxed code execution containers",
+        ge=0.1,
     )
     internal_api_key: str = Field(
         default="",
