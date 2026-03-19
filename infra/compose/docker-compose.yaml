@@ -641,6 +641,13 @@ services:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
       # Makes train_adapter a proper importable package inside notebooks
       PYTHONPATH: /home/jovyan/work/experiments/scripts
+      # MLflow — direct container-to-container access (no auth needed)
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      # S3 / Yandex Object Storage — needed for artifact upload/download
+      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
     ports:
       - "127.0.0.1:${JUPYTER_PORT}:8888"
     volumes:
@@ -654,6 +661,7 @@ services:
       retries: 3
     networks:
       - backend_net
+      - mlflow_db_net   # allows direct http://mlflow:5000 access without credentials
     restart: unless-stopped
 
 # =====================
