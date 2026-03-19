@@ -82,16 +82,20 @@ class _ProcessChat:
 
         if self._rag_service and self._rag_service.enabled and req.rag_sources:
             try:
+                settings = get_settings()
                 context_parts: list[str] = []
                 for src in req.rag_sources:
-                    logger.info(f"RAG — retrieving from kb={src.knowledge_base} alias={src.alias}")
+                    effective_alias = src.alias or settings.default_alias
+                    logger.info(
+                        f"RAG — retrieving from kb={src.knowledge_base} alias={effective_alias}"
+                    )
                     docs = self._rag_service.retrieve_documents(
                         query=last_user,
                         knowledge_base=src.knowledge_base,
-                        alias=src.alias,
+                        alias=effective_alias,
                     )
                     if docs:
-                        source_label = f"{src.knowledge_base}_{src.alias}"
+                        source_label = f"{src.knowledge_base}_{effective_alias}"
                         for doc in docs:
                             rag_context_chunks.append(
                                 {

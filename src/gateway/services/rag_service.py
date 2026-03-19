@@ -131,6 +131,9 @@ class RAGService:
                 "description": cfg.description,
                 "aliases": cfg.aliases,
                 "update_strategy": cfg.update_strategy,
+                "chunking_strategy": cfg.chunking_strategy,
+                "chunk_size": cfg.chunk_size,
+                "chunk_overlap": cfg.chunk_overlap,
             }
         return result
 
@@ -138,7 +141,7 @@ class RAGService:
         self,
         query: str,
         knowledge_base: Optional[str] = None,
-        alias: str = "champion",
+        alias: Optional[str] = None,
         top_k: Optional[int] = None,
     ) -> Optional[str]:
         """Retrieve relevant context for a query.
@@ -147,12 +150,14 @@ class RAGService:
             query: User query
             knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
                 If None the retrieval is skipped.
-            alias: Alias role.
+            alias: Alias role (uses settings.default_alias if None).
             top_k: Number of documents to retrieve (uses config default if None)
 
         Returns:
             Formatted context string or None if RAG is disabled/unavailable
         """
+        if alias is None:
+            alias = self.settings.default_alias
         if top_k is None:
             top_k = self.settings.top_k
         docs = self.retrieve_documents(
@@ -169,7 +174,7 @@ class RAGService:
         self,
         query: str,
         knowledge_base: Optional[str] = None,
-        alias: str = "champion",
+        alias: Optional[str] = None,
         top_k: Optional[int] = None,
     ) -> list:
         """Retrieve relevant documents as a list of Document objects.
@@ -177,7 +182,7 @@ class RAGService:
         Args:
             query: User query
             knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
-            alias: Alias role.
+            alias: Alias role (uses settings.default_alias if None).
             top_k: Number of documents to retrieve (uses config default if None)
 
         Returns:
@@ -186,6 +191,8 @@ class RAGService:
         if not self.enabled:
             return []
 
+        if alias is None:
+            alias = self.settings.default_alias
         if top_k is None:
             top_k = self.settings.top_k
 

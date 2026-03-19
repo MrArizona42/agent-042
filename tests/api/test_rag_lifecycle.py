@@ -28,6 +28,7 @@ os.environ.setdefault("GATEWAY_RAG_ENABLED", "false")
 def _reset_kb_registry():
     """Reset the KB registry singleton between tests."""
     import shared.config as cfg
+
     cfg._KB_REGISTRY = None
     # Also reset the lazy proxy
     cfg.KNOWLEDGE_BASES._loaded = False
@@ -48,6 +49,9 @@ def kb_json_file(tmp_path: Path):
             "update_strategy": "incremental",
             "label": "ArXiv papers",
             "description": "ML papers",
+            "chunking_strategy": "fixed_token",
+            "chunk_size": 512,
+            "chunk_overlap": 50,
         },
         {
             "knowledge_base": "pytorch_docs",
@@ -55,6 +59,9 @@ def kb_json_file(tmp_path: Path):
             "update_strategy": "replace",
             "label": "PyTorch docs",
             "description": "Coding docs",
+            "chunking_strategy": "code",
+            "chunk_size": 1000,
+            "chunk_overlap": 100,
         },
     ]
     path = tmp_path / "knowledge_bases.json"
@@ -90,10 +97,11 @@ class TestKnowledgeBaseConfig:
 
     def test_backward_compat_proxy(self, kb_json_file: Path):
         """KNOWLEDGE_BASES proxy dict returns the same keys."""
-        from shared.config import KNOWLEDGE_BASES, get_knowledge_bases
+        import shared.config as cfg
+        from shared.config import KNOWLEDGE_BASES, _load_knowledge_bases
 
         # Load using explicit path first
-        get_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
         assert "arxiv" in KNOWLEDGE_BASES
         assert "pytorch_docs" in KNOWLEDGE_BASES
         info = KNOWLEDGE_BASES["arxiv"]
@@ -101,11 +109,14 @@ class TestKnowledgeBaseConfig:
         assert "aliases" in info
 
     def test_get_knowledge_bases_caching(self, kb_json_file: Path):
-        from shared.config import get_knowledge_bases
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases, get_knowledge_bases
 
-        reg1 = get_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        reg1 = get_knowledge_bases()
         reg2 = get_knowledge_bases()  # should use cached
         assert reg1 is reg2
+        assert reg1 is cfg._KB_REGISTRY
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +131,7 @@ class TestRAGSourceSchema:
         from gateway.schemas.openai_chat import RAGSource
 
         src = RAGSource(knowledge_base="arxiv")
-        assert src.alias == "champion"
+        assert src.alias is None
 
     def test_rag_source_explicit_alias(self):
         from gateway.schemas.openai_chat import RAGSource
@@ -147,7 +158,7 @@ class TestRAGSourceSchema:
             ],
         )
         assert len(req.rag_sources) == 2
-        assert req.rag_sources[0].alias == "champion"
+        assert req.rag_sources[0].alias is None
         assert req.rag_sources[1].alias == "challenger"
 
     def test_chat_request_no_knowledge_base_field(self):
@@ -176,9 +187,10 @@ class TestChatCompletionsValidation:
     """Tests for 404 error handling on invalid KB/alias."""
 
     def test_unknown_kb_returns_404(self, kb_json_file: Path):
-        from shared.config import get_knowledge_bases
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases
 
-        get_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
 
         app = _make_test_app()
         client = TestClient(app, raise_server_exceptions=False)
@@ -194,9 +206,10 @@ class TestChatCompletionsValidation:
         assert "unavailable" in resp.json()["detail"].lower()
 
     def test_invalid_alias_returns_404(self, kb_json_file: Path):
-        from shared.config import get_knowledge_bases
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases
 
-        get_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
 
         app = _make_test_app()
         client = TestClient(app, raise_server_exceptions=False)
@@ -206,9 +219,7 @@ class TestChatCompletionsValidation:
             "/v1/chat/completions",
             json={
                 "messages": [{"role": "user", "content": "hi"}],
-                "rag_sources": [
-                    {"knowledge_base": "pytorch_docs", "alias": "challenger"}
-                ],
+                "rag_sources": [{"knowledge_base": "pytorch_docs", "alias": "challenger"}],
             },
         )
         assert resp.status_code == 404
@@ -219,9 +230,10 @@ class TestKnowledgeBasesEndpoint:
     """Tests for GET /v1/knowledge-bases."""
 
     def test_list_knowledge_bases(self, kb_json_file: Path):
-        from shared.config import get_knowledge_bases
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases
 
-        get_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
 
         app = _make_test_app()
         client = TestClient(app)
@@ -240,9 +252,10 @@ class TestKnowledgeBasesEndpoint:
         assert "champion" in arxiv_entry["aliases"]
 
     def test_list_knowledge_bases_empty(self, tmp_path: Path):
-        from shared.config import get_knowledge_bases
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases
 
-        get_knowledge_bases(tmp_path / "nonexistent.json")
+        cfg._KB_REGISTRY = _load_knowledge_bases(tmp_path / "nonexistent.json")
 
         app = _make_test_app()
         client = TestClient(app)
@@ -287,7 +300,9 @@ class TestMetadataExclusion:
             mock_client.query_points.return_value = MagicMock(points=[])
 
             vs = QdrantVectorStore(
-                host="localhost", port=6333, collection_name="test",
+                host="localhost",
+                port=6333,
+                collection_name="test",
             )
             vs.search(query_embedding=[0.1] * 10, top_k=5)
 
@@ -312,7 +327,9 @@ class TestMetadataExclusion:
             mock_client.query_points.return_value = MagicMock(points=[])
 
             vs = QdrantVectorStore(
-                host="localhost", port=6333, collection_name="test",
+                host="localhost",
+                port=6333,
+                collection_name="test",
             )
             vs.search(
                 query_embedding=[0.1] * 10,
@@ -343,9 +360,10 @@ class TestRAGServiceResolution:
         assert RAGService._qdrant_alias("pytorch_docs", "challenger") == "pytorch_docs_challenger"
 
     def test_available_knowledge_bases(self, kb_json_file: Path):
-        from shared.config import get_knowledge_bases
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases
 
-        get_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
 
         from gateway.services.rag_service import RAGService
 

@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 from rag.chunking import get_chunker
 from rag.embeddings import EmbeddingService
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_knowledge_bases
+from shared.config import KnowledgeBaseConfig, get_knowledge_bases
 
 # Arbitrary but fixed namespace for UUID5-based point IDs.  Must remain
 # constant across runs so the same (source, chunk_index) pair always
@@ -71,6 +71,7 @@ def build_chat_index(
     *,
     kb_name: str,
     alias: str | None = None,
+    default_alias: str,
     chunking_strategy: str,
     chunk_size: int,
     chunk_overlap: int,
@@ -101,7 +102,7 @@ def build_chat_index(
     elif kb_name in kb_registry:
         aliases_to_process = kb_registry[kb_name].aliases
     else:
-        aliases_to_process = ["champion"]
+        aliases_to_process = [default_alias]
 
     # Initialize embedding service
     print(f"\nInitializing embedding service: {embedding_model}")
@@ -420,6 +421,7 @@ def main():
     from shared.config import get_settings
 
     _settings = get_settings()
+    _kb_registry = get_knowledge_bases()
 
     parser = argparse.ArgumentParser(description="Build vector indices for RAG")
     parser.add_argument(
@@ -497,8 +499,19 @@ def main():
 
     args = parser.parse_args()
 
+    def _kb_cfg(name: str) -> KnowledgeBaseConfig:
+        """Return the KB config; error if not in registry."""
+        if name in _kb_registry:
+            return _kb_registry[name]
+        available = ", ".join(_kb_registry) or "(none)"
+        print(f"Error: knowledge base '{name}' not found in registry. Available: {available}")
+        sys.exit(1)
+
     # Build requested indices
     if args.task in ["chat", "both"]:
+        kb_name = args.kb or "arxiv"
+        kb = _kb_cfg(kb_name)
+
         if not args.arxiv_file.exists():
             print(f"Error: ArXiv file not found: {args.arxiv_file}")
             print(
@@ -513,16 +526,20 @@ def main():
             qdrant_port=args.qdrant_port,
             embedding_model=args.embedding_model,
             embeddings_url=args.embeddings_url,
-            kb_name=args.kb or "arxiv",
+            kb_name=kb_name,
             alias=args.alias,
-            chunking_strategy=args.chunking_strategy or "fixed_token",
-            chunk_size=args.chunk_size if args.chunk_size is not None else _settings.chunk_size,
+            default_alias=_settings.default_alias,
+            chunking_strategy=args.chunking_strategy or kb.chunking_strategy,
+            chunk_size=args.chunk_size if args.chunk_size is not None else kb.chunk_size,
             chunk_overlap=args.chunk_overlap
             if args.chunk_overlap is not None
-            else _settings.chunk_overlap,
+            else kb.chunk_overlap,
         )
 
     if args.task in ["code", "both"]:
+        kb_name = args.kb or "pytorch_docs"
+        kb = _kb_cfg(kb_name)
+
         if not args.pytorch_docs_file.exists():
             print(f"Error: PyTorch docs file not found: {args.pytorch_docs_file}")
             print(
@@ -537,15 +554,13 @@ def main():
             qdrant_port=args.qdrant_port,
             embedding_model=args.embedding_model,
             embeddings_url=args.embeddings_url,
-            kb_name=args.kb or "pytorch_docs",
-            alias=args.alias or "champion",
-            chunking_strategy=args.chunking_strategy or "code",
-            chunk_size=args.chunk_size
-            if args.chunk_size is not None
-            else _settings.code_chunk_size,
+            kb_name=kb_name,
+            alias=args.alias or _settings.default_alias,
+            chunking_strategy=args.chunking_strategy or kb.chunking_strategy,
+            chunk_size=args.chunk_size if args.chunk_size is not None else kb.chunk_size,
             chunk_overlap=args.chunk_overlap
             if args.chunk_overlap is not None
-            else _settings.code_chunk_overlap,
+            else kb.chunk_overlap,
         )
 
     print("\n✅ All requested indices built successfully!")
