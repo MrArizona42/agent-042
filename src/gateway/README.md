@@ -135,7 +135,7 @@ Key environment variables (all prefixed `GATEWAY_`):
 | `GATEWAY_TOP_K` | `5` | Number of RAG documents to retrieve |
 | `GATEWAY_SCORE_THRESHOLD` | `0.0` | Minimum similarity score for RAG |
 
-See `src/.env.example` for the full list.
+See `src/shared/config.py` for the full list.
 
 ## Run (local)
 
