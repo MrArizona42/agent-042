@@ -11,20 +11,25 @@ or ``eval_retrieval_{kb}_{dataset}_{metric}`` for retrieval-only evals.
 
 from __future__ import annotations
 
+import logging
 import os
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from airflow import DAG
-from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
 PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", "/opt/airflow/project"))
-_project_root = str(PROJECT_ROOT)
-_runner = str(PROJECT_ROOT / "experiments" / "scripts" / "eval" / "runner.py")
+
+# Ensure project sources are importable inside the Airflow process.
+for _p in (str(PROJECT_ROOT / "src"), str(PROJECT_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 default_args = {
     "owner": "airflow",
@@ -36,21 +41,45 @@ default_args = {
 }
 
 
-def _eval_bash(
-    task: str, dataset: str, metric: str,
-    rag_aliases: str, lora_aliases: str, kb: str = "",
-) -> str:
-    """Build bash command string for the eval runner."""
-    kb_flag = f"--kb {kb} " if kb else ""
-    return (
-        f"cd {_project_root} && "
-        f"PYTHONPATH={_project_root}/src:{_project_root}:$PYTHONPATH "
-        f"python {_runner} "
-        f"--task {task} --dataset {dataset} --metric {metric} "
-        f"{kb_flag}"
-        f"--rag-aliases {rag_aliases} "
-        f"--lora-aliases {lora_aliases} "
+def _run_eval(
+    task: str,
+    dataset: str,
+    metric: str,
+    kb: str | None = None,
+    **context: object,
+) -> None:
+    """PythonOperator callable — delegates to ``runner.run_eval``."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
+    from experiments.scripts.eval.runner import run_eval
+
+    params = context.get("params", {})
+    rag_aliases = [a.strip() for a in str(params.get("rag_aliases", "none")).split(",")]
+    lora_aliases = [a.strip() for a in str(params.get("lora_aliases", "none")).split(",")]
+
+    rows = run_eval(
+        task=task,
+        dataset_name=dataset,
+        metric=metric,
+        kb_name=kb,
+        rag_aliases=rag_aliases,
+        lora_aliases=lora_aliases,
+    )
+
+    log = logging.getLogger(__name__)
+    log.info("Eval complete: %d metric rows", len(rows))
+    for row in rows:
+        log.info(
+            "  %s/%s metric=%s rag=%s lora=%s → %.4f",
+            row["task"],
+            row["dataset_name"],
+            row["metric_name"],
+            row.get("rag_alias") or "none",
+            row.get("lora_alias") or "none",
+            row["metric_value"],
+        )
 
 
 # =========================================================================
@@ -73,13 +102,10 @@ for _metric in ("relevance", "correctness", "bertscore_f1", "rouge_l"):
             "lora_aliases": "none",
         },
     ):
-        BashOperator(
+        PythonOperator(
             task_id="run_eval",
-            bash_command=_eval_bash(
-                "chat", "hotpotqa", _metric,
-                "{{ params.rag_aliases }}",
-                "{{ params.lora_aliases }}",
-            ),
+            python_callable=_run_eval,
+            op_kwargs={"task": "chat", "dataset": "hotpotqa", "metric": _metric},
         )
 
 # --- Chat / Natural Questions ---
@@ -98,13 +124,10 @@ for _metric in ("relevance", "correctness", "bertscore_f1", "rouge_l"):
             "lora_aliases": "none",
         },
     ):
-        BashOperator(
+        PythonOperator(
             task_id="run_eval",
-            bash_command=_eval_bash(
-                "chat", "nq", _metric,
-                "{{ params.rag_aliases }}",
-                "{{ params.lora_aliases }}",
-            ),
+            python_callable=_run_eval,
+            op_kwargs={"task": "chat", "dataset": "nq", "metric": _metric},
         )
 
 # =========================================================================
@@ -125,13 +148,10 @@ for _metric in ("faithfulness", "coverage", "bertscore_f1", "rouge_l"):
             "lora_aliases": "none",
         },
     ):
-        BashOperator(
+        PythonOperator(
             task_id="run_eval",
-            bash_command=_eval_bash(
-                "summarize", "arxiv_summarization", _metric,
-                "none",
-                "{{ params.lora_aliases }}",
-            ),
+            python_callable=_run_eval,
+            op_kwargs={"task": "summarize", "dataset": "arxiv_summarization", "metric": _metric},
         )
 
 # =========================================================================
@@ -153,13 +173,10 @@ for _metric in ("pass_at_1", "executable_rate"):
             "lora_aliases": "none",
         },
     ):
-        BashOperator(
+        PythonOperator(
             task_id="run_eval",
-            bash_command=_eval_bash(
-                "code", "humaneval", _metric,
-                "{{ params.rag_aliases }}",
-                "{{ params.lora_aliases }}",
-            ),
+            python_callable=_run_eval,
+            op_kwargs={"task": "code", "dataset": "humaneval", "metric": _metric},
         )
 
 # =========================================================================
@@ -180,14 +197,15 @@ for _metric in ("recall_at_10", "ndcg_at_10"):
             "rag_aliases": "champion",
         },
     ):
-        BashOperator(
+        PythonOperator(
             task_id="run_eval",
-            bash_command=_eval_bash(
-                "retrieval", "beir_scifact", _metric,
-                "{{ params.rag_aliases }}",
-                "none",
-                kb="arxiv",
-            ),
+            python_callable=_run_eval,
+            op_kwargs={
+                "task": "retrieval",
+                "dataset": "beir_scifact",
+                "metric": _metric,
+                "kb": "arxiv",
+            },
         )
 
     # --- arxiv / BEIR-NFCorpus ---
@@ -203,14 +221,15 @@ for _metric in ("recall_at_10", "ndcg_at_10"):
             "rag_aliases": "champion",
         },
     ):
-        BashOperator(
+        PythonOperator(
             task_id="run_eval",
-            bash_command=_eval_bash(
-                "retrieval", "beir_nfcorpus", _metric,
-                "{{ params.rag_aliases }}",
-                "none",
-                kb="arxiv",
-            ),
+            python_callable=_run_eval,
+            op_kwargs={
+                "task": "retrieval",
+                "dataset": "beir_nfcorpus",
+                "metric": _metric,
+                "kb": "arxiv",
+            },
         )
 
     # --- pytorch_docs / MS MARCO ---
@@ -226,14 +245,15 @@ for _metric in ("recall_at_10", "ndcg_at_10"):
             "rag_aliases": "champion",
         },
     ):
-        BashOperator(
+        PythonOperator(
             task_id="run_eval",
-            bash_command=_eval_bash(
-                "retrieval", "msmarco", _metric,
-                "{{ params.rag_aliases }}",
-                "none",
-                kb="pytorch_docs",
-            ),
+            python_callable=_run_eval,
+            op_kwargs={
+                "task": "retrieval",
+                "dataset": "msmarco",
+                "metric": _metric,
+                "kb": "pytorch_docs",
+            },
         )
 
 # =========================================================================
