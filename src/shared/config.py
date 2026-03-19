@@ -180,7 +180,6 @@ class Settings(BaseSettings):
         GATEWAY_API_KEY: Optional API key for vLLM
         GATEWAY_CORS_ALLOW_ORIGINS: Comma-separated list of allowed origins
         GATEWAY_SERVICE_NAME: Service name for API docs
-        GATEWAY_PUBLIC_BASE_URL: Public URL for the gateway
         GATEWAY_QDRANT_HOST: Qdrant server host
         GATEWAY_QDRANT_PORT: Qdrant server port
         GATEWAY_RAG_ENABLED: Enable/disable RAG functionality
@@ -260,10 +259,6 @@ class Settings(BaseSettings):
     service_name: str = Field(
         default="agent-042-gateway",
         description="Service name displayed in API docs",
-    )
-    public_base_url: str | None = Field(
-        default=None,
-        description="Public URL for the gateway API",
     )
 
     # =========================================================================
