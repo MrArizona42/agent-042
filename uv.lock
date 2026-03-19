@@ -41,9 +41,11 @@ airflow = [
     { name = "aiohttp", version = "3.10.11", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "arxiv", marker = "python_full_version < '3.13'" },
     { name = "beautifulsoup4", marker = "python_full_version < '3.13'" },
+    { name = "bert-score", marker = "python_full_version < '3.13'" },
     { name = "boto3", version = "1.35.93", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "botocore", version = "1.35.93", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "cffi", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "datasets", marker = "python_full_version < '3.13'" },
     { name = "dvc", extra = ["s3"], marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-airflow') or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training')" },
     { name = "httpx", marker = "python_full_version < '3.13'" },
     { name = "langchain-text-splitters", marker = "python_full_version < '3.13'" },
@@ -139,6 +141,7 @@ requires-dist = [
     { name = "authlib", marker = "extra == 'gateway'", specifier = ">=1.6.7" },
     { name = "beautifulsoup4", marker = "extra == 'airflow'", specifier = ">=4.12.3" },
     { name = "beautifulsoup4", marker = "extra == 'rag'", specifier = ">=4.12.3" },
+    { name = "bert-score", marker = "extra == 'airflow'", specifier = ">=0.3.13" },
     { name = "bitsandbytes", marker = "extra == 'training'", specifier = ">=0.49.1" },
     { name = "boto3", marker = "extra == 'airflow'", specifier = ">=1.35.36,<1.36.0" },
     { name = "boto3", marker = "extra == 'mlflow'", specifier = ">=1.35,<2" },
@@ -146,6 +149,7 @@ requires-dist = [
     { name = "celery", marker = "extra == 'gateway'", specifier = ">=5.3.0" },
     { name = "celery", marker = "extra == 'worker'", specifier = ">=5.3.0" },
     { name = "cffi", marker = "extra == 'airflow'", specifier = ">=1.9,<2.0.0" },
+    { name = "datasets", marker = "extra == 'airflow'", specifier = ">=4.4.2" },
     { name = "datasets", marker = "extra == 'training'", specifier = ">=4.4.2" },
     { name = "dvc", extras = ["gdrive", "s3", "ssh"], marker = "extra == 'training'", specifier = ">=3.66.1" },
     { name = "dvc", extras = ["s3"], marker = "extra == 'airflow'", specifier = ">=3.66.1" },
@@ -665,6 +669,25 @@ wheels = [
 ]
 
 [[package]]
+name = "bert-score"
+version = "0.3.13"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib", marker = "python_full_version < '3.13'" },
+    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "packaging", marker = "python_full_version < '3.13'" },
+    { name = "pandas", marker = "python_full_version < '3.13'" },
+    { name = "requests", marker = "python_full_version < '3.13'" },
+    { name = "torch", marker = "python_full_version < '3.13'" },
+    { name = "tqdm", marker = "python_full_version < '3.13'" },
+    { name = "transformers", marker = "python_full_version < '3.13'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1c/93/2c97a85cbb66a8a256a13176e11c9c4508074e2341299fe75ee955c81eff/bert_score-0.3.13.tar.gz", hash = "sha256:8ffe5838eac8cdd988b8b1a896af7f49071188c8c011a1ed160d71a9899a2ba4", size = 48621, upload-time = "2023-02-20T21:07:29.477Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c6/8c/bc5457de4c004b1a623b31f7bc8d0375fb699b7d67df11879098b4b7b7c8/bert_score-0.3.13-py3-none-any.whl", hash = "sha256:bbbb4c7fcdaa46d7681aff49f37f96faa09ed74e1b150e659bdc6b58a66989b9", size = 61135, upload-time = "2023-02-20T21:07:27.226Z" },
+]
+
+[[package]]
 name = "billiard"
 version = "4.2.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1118,11 +1141,13 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dill", marker = "python_full_version < '3.13'" },
     { name = "filelock", marker = "python_full_version < '3.13'" },
+    { name = "fsspec", version = "2024.12.0", source = { registry = "https://pypi.org/simple" }, extra = ["http"], marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-airflow') or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training')" },
     { name = "fsspec", version = "2025.10.0", source = { registry = "https://pypi.org/simple" }, extra = ["http"], marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training')" },
     { name = "httpx", marker = "python_full_version < '3.13'" },
     { name = "huggingface-hub", marker = "python_full_version < '3.13'" },
     { name = "multiprocess", marker = "python_full_version < '3.13'" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-airflow') or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training')" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training')" },
     { name = "packaging", marker = "python_full_version < '3.13'" },
     { name = "pandas", marker = "python_full_version < '3.13'" },
     { name = "pyarrow", marker = "python_full_version < '3.13'" },
