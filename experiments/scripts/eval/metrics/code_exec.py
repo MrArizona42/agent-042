@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 def _run_in_container(
     code: str,
     *,
-    image: str = "python:3.11-slim",
-    timeout: int = 30,
-    mem_limit: str = "512m",
-    cpus: float = 1.0,
+    image: str,
+    timeout: int,
+    mem_limit: str,
+    cpus: float,
 ) -> dict[str, Any]:
     """Execute *code* in an ephemeral Docker container.
 
@@ -87,8 +87,10 @@ def evaluate_humaneval_sample(
     generated_code: str,
     test_code: str,
     *,
-    image: str = "python:3.11-slim",
-    timeout: int = 30,
+    image: str,
+    timeout: int,
+    mem_limit: str,
+    cpus: float,
 ) -> dict[str, Any]:
     """Evaluate a single HumanEval sample.
 
@@ -106,7 +108,9 @@ def evaluate_humaneval_sample(
         ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
     full_code = f"{prompt}\n{generated_code}\n\n{test_code}\n"
-    return _run_in_container(full_code, image=image, timeout=timeout)
+    return _run_in_container(
+        full_code, image=image, timeout=timeout, mem_limit=mem_limit, cpus=cpus
+    )
 
 
 def compute_pass_at_1(results: list[dict[str, Any]]) -> dict[str, float]:

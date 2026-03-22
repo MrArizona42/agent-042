@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from rag.vector_store import QdrantVectorStore
+from shared.config import get_settings
 
 # ------------------------------------------------------------------
 # Sub-commands
@@ -51,7 +52,9 @@ def _cmd_inspect(args: argparse.Namespace) -> None:
     """Inspect the _meta point of a resolved alias."""
     qdrant_alias = f"{args.kb}_{args.alias}"
     vs = QdrantVectorStore(
-        host=args.qdrant_host, port=args.qdrant_port, collection_name=qdrant_alias,
+        host=args.qdrant_host,
+        port=args.qdrant_port,
+        collection_name=qdrant_alias,
     )
 
     if not vs.collection_exists():
@@ -71,7 +74,9 @@ def _cmd_promote(args: argparse.Namespace) -> None:
     dst_alias = f"{args.kb}_{args.to_alias}"
 
     vs = QdrantVectorStore(
-        host=args.qdrant_host, port=args.qdrant_port, collection_name=src_alias,
+        host=args.qdrant_host,
+        port=args.qdrant_port,
+        collection_name=src_alias,
     )
 
     src_collection = vs.resolve_alias(src_alias)
@@ -92,11 +97,15 @@ def _cmd_promote(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    _settings = get_settings()
+
     parser = argparse.ArgumentParser(
         description="Manage RAG Qdrant aliases and collections",
     )
-    parser.add_argument("--qdrant-host", default="localhost", help="Qdrant host")
-    parser.add_argument("--qdrant-port", type=int, default=6333, help="Qdrant port")
+    parser.add_argument("--qdrant-host", default=_settings.qdrant_host, help="Qdrant host")
+    parser.add_argument(
+        "--qdrant-port", type=int, default=_settings.qdrant_port, help="Qdrant port"
+    )
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -106,7 +115,7 @@ def main() -> None:
     # inspect
     p_inspect = sub.add_parser("inspect", help="Inspect _meta of a collection")
     p_inspect.add_argument("--kb", required=True, help="Knowledge base name")
-    p_inspect.add_argument("--alias", default="champion", help="Alias role")
+    p_inspect.add_argument("--alias", required=True, help="Alias role")
 
     # promote
     p_promote = sub.add_parser("promote", help="Promote one alias to another")

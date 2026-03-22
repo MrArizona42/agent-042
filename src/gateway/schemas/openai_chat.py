@@ -15,9 +15,10 @@ class RAGSource(BaseModel):
     """A single knowledge-base source for RAG retrieval."""
 
     knowledge_base: str
-    alias: str = Field(
-        default="champion",
-        description="Alias role to use (e.g. 'champion', 'challenger')",
+    alias: str | None = Field(
+        default=None,
+        description="Alias role to use (e.g. 'champion', 'challenger'). "
+        "None uses the system default from GATEWAY_DEFAULT_ALIAS.",
     )
 
 

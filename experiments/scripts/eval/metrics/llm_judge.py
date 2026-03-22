@@ -89,7 +89,7 @@ def _call_gemini(
     prompt: str,
     *,
     api_key: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> dict[str, Any]:
     """Call Gemini API and parse JSON response.
 
@@ -129,7 +129,7 @@ def judge_single(
     reference: str = "",
     context: str = "",
     api_key: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> dict[str, Any]:
     """Score a single (question, answer) pair on the given metric.
 
@@ -170,7 +170,7 @@ def judge_batch(
     *,
     samples: list[dict[str, str]],
     api_key: str,
-    model: str = "gemini-2.0-flash",
+    model: str,
 ) -> dict[str, float]:
     """Score a batch of samples and return the average.
 

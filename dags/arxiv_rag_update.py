@@ -26,7 +26,7 @@ from airflow.operators.python import PythonOperator
 # Configuration
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", "/opt/airflow/project"))
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 ASSETS_DIR = PROJECT_ROOT / "assets"
 ARXIV_OUTPUT_DIR = ASSETS_DIR / "rag_data" / "arxiv"
 
@@ -38,9 +38,7 @@ _project_root = str(PROJECT_ROOT)
 _arxiv_dir = str(ARXIV_OUTPUT_DIR)
 _arxiv_rel = str(ARXIV_OUTPUT_DIR.relative_to(PROJECT_ROOT))
 _arxiv_json = str(ARXIV_OUTPUT_DIR / "arxiv_papers.json")
-_build_script = str(
-    PROJECT_ROOT / "experiments" / "scripts" / "rag_data" / "build_vector_index.py"
-)
+_build_script = str(PROJECT_ROOT / "experiments" / "scripts" / "rag_data" / "build_vector_index.py")
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
@@ -116,7 +114,6 @@ with DAG(
     catchup=False,
     tags=["rag", "arxiv", "data"],
 ) as dag:
-
     download = PythonOperator(
         task_id="download_arxiv_papers",
         python_callable=_download_arxiv_papers,

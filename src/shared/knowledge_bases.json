@@ -4,13 +4,19 @@
         "aliases": ["champion", "challenger"],
         "update_strategy": "incremental",
         "label": "ArXiv papers (ML / AI theory)",
-        "description": "Deep discussions about ML/AI theory and latest trends"
+        "description": "Deep discussions about ML/AI theory and latest trends",
+        "chunking_strategy": "fixed_token",
+        "chunk_size": 512,
+        "chunk_overlap": 50
     },
     {
         "knowledge_base": "pytorch_docs",
         "aliases": ["champion", "challenger"],
         "update_strategy": "replace",
         "label": "PyTorch docs (coding)",
-        "description": "PyTorch documentation for coding assistance"
+        "description": "PyTorch documentation for coding assistance",
+        "chunking_strategy": "code",
+        "chunk_size": 1000,
+        "chunk_overlap": 100
     }
 ]

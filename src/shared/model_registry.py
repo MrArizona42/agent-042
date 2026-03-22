@@ -108,8 +108,8 @@ class AdapterRegistry:
     def register_adapter(
         self,
         run_id: str,
-        artifact_path: str = "model",
-        model_name: str = "lora-default",
+        artifact_path: str,
+        model_name: str,
         tags: dict[str, str] | None = None,
         description: str | None = None,
     ) -> Any:
@@ -142,7 +142,7 @@ class AdapterRegistry:
         self,
         model_name: str,
         version: int,
-        alias: str = ALIAS_PRODUCTION,
+        alias: str,
     ) -> None:
         """Assign an alias to a specific model version."""
         self.client.set_registered_model_alias(
@@ -157,7 +157,7 @@ class AdapterRegistry:
             version,
         )
 
-    def demote(self, model_name: str, alias: str = ALIAS_PRODUCTION) -> None:
+    def demote(self, model_name: str, alias: str) -> None:
         """Remove an alias from a registered model."""
         try:
             self.client.delete_registered_model_alias(
@@ -242,7 +242,7 @@ class AdapterRegistry:
         self,
         model_name: str,
         dst_dir: str | Path,
-        alias: str = ALIAS_PRODUCTION,
+        alias: str,
     ) -> Path:
         """Download adapter artifacts for *model_name* at *alias*."""
         dst_dir = Path(dst_dir)
@@ -279,7 +279,8 @@ class AdapterSyncer:
     def __init__(
         self,
         tracking_uri: str | None = None,
-        adapters_dir: str | Path = "./adapters",
+        *,
+        adapters_dir: str | Path,
     ):
         uri = tracking_uri or os.getenv("MLFLOW_BACKEND_URI")
         if uri:
@@ -394,6 +395,10 @@ def _cli() -> None:
         format="%(asctime)s  %(levelname)-8s  %(message)s",
     )
 
+    from shared.config import get_registry_settings
+
+    registry_cfg = get_registry_settings()
+
     parser = argparse.ArgumentParser(
         description="Sync production LoRA adapters from MLflow Model Registry."
     )
@@ -402,7 +407,7 @@ def _cli() -> None:
     p_sync = sub.add_parser("sync", help="Download all champion adapters.")
     p_sync.add_argument(
         "--adapters-dir",
-        default=os.getenv("REGISTRY_ADAPTERS_DIR", "./adapters"),
+        default=registry_cfg.adapters_dir,
         help="Destination directory for adapter files.",
     )
     p_sync.add_argument(
@@ -443,7 +448,7 @@ def _cli() -> None:
             print("No production adapters to sync.")
 
     elif args.command == "list":
-        syncer = AdapterSyncer()
+        syncer = AdapterSyncer(adapters_dir=registry_cfg.adapters_dir)
         adapters = syncer.discover_production_adapters()
         if adapters:
             print("\nProduction adapters (champion):")

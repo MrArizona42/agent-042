@@ -93,9 +93,9 @@ def _call_gateway(
     gateway_url: str,
     model: str | None = None,
     rag_sources: list[dict[str, str]] | None = None,
-    temperature: float = 0.0,
-    max_tokens: int = 512,
-    internal_api_key: str = "",
+    temperature: float,
+    max_tokens: int,
+    internal_api_key: str,
 ) -> dict[str, Any]:
     """Call the gateway chat completions API."""
     payload: dict[str, Any] = {
@@ -469,6 +469,8 @@ def _evaluate_code(
             test_code=test_code,
             image=eval_settings.code_exec_image,
             timeout=eval_settings.code_exec_timeout,
+            mem_limit=eval_settings.code_exec_mem_limit,
+            cpus=eval_settings.code_exec_cpus,
         )
         exec_results.append(result)
 
@@ -593,7 +595,7 @@ _DATASET_LOCAL: dict[str, tuple[str, str]] = {
 }
 
 
-def _load_dataset_samples(task: str, dataset_name: str, limit: int = 0) -> list[dict[str, str]]:
+def _load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[str, str]]:
     """Load evaluation dataset samples from local Arrow files.
 
     Datasets must be pre-downloaded to ``assets/datasets/{folder_name}``
@@ -842,9 +844,7 @@ def _evaluate_retrieval(
         from rag.embeddings import EmbeddingService
         from rag.vector_store import QdrantVectorStore
 
-        embedding_model = build_config.get(
-            "embedding_model", "sentence-transformers/all-MiniLM-L6-v2"
-        )
+        embedding_model = build_config["embedding_model"]
         emb_service = EmbeddingService(model_name=embedding_model)
         vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
 
@@ -855,7 +855,7 @@ def _evaluate_retrieval(
 
         for q in queries:
             query_emb = emb_service.embed_query(q["query"])
-            results = vs.search(query_embedding=query_emb, top_k=10)
+            results = vs.search(query_embedding=query_emb, top_k=10, score_threshold=0.0)
             retrieved_ids = [doc.metadata.get("source", "") for doc in results]
 
             relevance = q.get("relevance", {})

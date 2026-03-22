@@ -39,16 +39,28 @@ class KnowledgeBaseConfig(BaseModel):
     update_strategy: Literal["incremental", "replace"] = "replace"
     label: str = ""
     description: str = ""
+    chunking_strategy: str = Field(
+        description="Chunking strategy: fixed_token, code, or section_aware",
+    )
+    chunk_size: int = Field(
+        description="Chunk size for document splitting",
+        ge=100,
+    )
+    chunk_overlap: int = Field(
+        description="Overlap between chunks",
+        ge=0,
+    )
 
 
-def _load_knowledge_bases(path: Path | str | None = None) -> dict[str, KnowledgeBaseConfig]:
+def _load_knowledge_bases(path: Path | str) -> dict[str, KnowledgeBaseConfig]:
     """Load the knowledge-bases registry from a JSON file.
+
+    Args:
+        path: Path to the ``knowledge_bases.json`` file.
 
     Returns:
         Mapping of ``kb_name`` → ``KnowledgeBaseConfig``.
     """
-    if path is None:
-        path = _DEFAULT_KB_PATH
     path = Path(path)
 
     if not path.exists():
@@ -69,10 +81,18 @@ def _load_knowledge_bases(path: Path | str | None = None) -> dict[str, Knowledge
 _KB_REGISTRY: dict[str, KnowledgeBaseConfig] | None = None
 
 
-def get_knowledge_bases(path: Path | str | None = None) -> dict[str, KnowledgeBaseConfig]:
-    """Return the knowledge-base registry (cached after first call)."""
+def get_knowledge_bases() -> dict[str, KnowledgeBaseConfig]:
+    """Return the knowledge-base registry (cached after first call).
+
+    Path is resolved from ``GATEWAY_KNOWLEDGE_BASES_PATH`` env var or
+    the bundled default ``knowledge_bases.json``.
+    """
     global _KB_REGISTRY  # noqa: PLW0603
     if _KB_REGISTRY is None:
+        import os
+
+        env_path = os.environ.get("GATEWAY_KNOWLEDGE_BASES_PATH", "").strip()
+        path = Path(env_path) if env_path else _DEFAULT_KB_PATH
         _KB_REGISTRY = _load_knowledge_bases(path)
     return _KB_REGISTRY
 
@@ -101,6 +121,9 @@ class _KBProxy(dict):
                         "description": cfg.description,
                         "aliases": cfg.aliases,
                         "update_strategy": cfg.update_strategy,
+                        "chunking_strategy": cfg.chunking_strategy,
+                        "chunk_size": cfg.chunk_size,
+                        "chunk_overlap": cfg.chunk_overlap,
                     },
                 )
             self._loaded = True
@@ -157,7 +180,6 @@ class Settings(BaseSettings):
         GATEWAY_API_KEY: Optional API key for vLLM
         GATEWAY_CORS_ALLOW_ORIGINS: Comma-separated list of allowed origins
         GATEWAY_SERVICE_NAME: Service name for API docs
-        GATEWAY_PUBLIC_BASE_URL: Public URL for the gateway
         GATEWAY_QDRANT_HOST: Qdrant server host
         GATEWAY_QDRANT_PORT: Qdrant server port
         GATEWAY_RAG_ENABLED: Enable/disable RAG functionality
@@ -168,8 +190,7 @@ class Settings(BaseSettings):
         GATEWAY_VLLM_TIMEOUT: Timeout for vLLM requests in seconds
         GATEWAY_EMBEDDING_BATCH_SIZE: Batch size for embedding generation
         GATEWAY_CONTEXT_MAX_LENGTH: Maximum context length for RAG
-        GATEWAY_CHUNK_SIZE: Default chunk size for document splitting
-        GATEWAY_CHUNK_OVERLAP: Default overlap between chunks
+        GATEWAY_DEFAULT_ALIAS: Default alias role for RAG retrieval
         GATEWAY_URL: Full URL to the gateway (used by UI)
         UI_HEALTH_TIMEOUT: Timeout for health check requests
         UI_MODELS_TIMEOUT: Timeout for models list requests
@@ -239,10 +260,6 @@ class Settings(BaseSettings):
         default="agent-042-gateway",
         description="Service name displayed in API docs",
     )
-    public_base_url: str | None = Field(
-        default=None,
-        description="Public URL for the gateway API",
-    )
 
     # =========================================================================
     # Qdrant / Vector Store Settings
@@ -302,39 +319,9 @@ class Settings(BaseSettings):
         description="Maximum character length of RAG context",
         ge=100,
     )
-
-    # =========================================================================
-    # Chunking Settings
-    # =========================================================================
-    chunk_size: int = Field(
-        default=512,
-        description="Default chunk size for document splitting",
-        ge=100,
-    )
-    chunk_overlap: int = Field(
-        default=50,
-        description="Default overlap between chunks",
-        ge=0,
-    )
-    code_chunk_size: int = Field(
-        default=1000,
-        description="Chunk size for code documents",
-        ge=100,
-    )
-    code_chunk_overlap: int = Field(
-        default=100,
-        description="Overlap for code chunks",
-        ge=0,
-    )
-    section_chunk_size: int = Field(
-        default=1024,
-        description="Chunk size for section-aware splitting",
-        ge=100,
-    )
-    section_chunk_overlap: int = Field(
-        default=100,
-        description="Overlap for section chunks",
-        ge=0,
+    default_alias: str = Field(
+        default="champion",
+        description="Default alias role for RAG retrieval when none is specified",
     )
 
     # =========================================================================
@@ -375,7 +362,8 @@ class Settings(BaseSettings):
     # =========================================================================
     internal_api_key: str = Field(
         default="",
-        description="Pre-shared API key for internal service-to-service calls (e.g. Airflow eval runner)",
+        description="Pre-shared API key for internal service-to-service calls "
+        "(e.g. Airflow eval runner)",
     )
 
     # =========================================================================
@@ -461,7 +449,7 @@ class EvalSettings(BaseSettings):
         description="Google AI Studio API key for Gemini judge",
     )
     bert_score_model: str = Field(
-        default="microsoft/deberta-xlarge-mnli",
+        default="microsoft/deberta-base-mnli",
         description="Model for BERTScore computation",
     )
     temperature: float = Field(
@@ -475,7 +463,7 @@ class EvalSettings(BaseSettings):
         ge=1,
     )
     sample_limit: int = Field(
-        default=0,
+        default=100,
         description="Max samples per dataset (0 = unlimited)",
         ge=0,
     )
@@ -487,6 +475,15 @@ class EvalSettings(BaseSettings):
     code_exec_image: str = Field(
         default="python:3.11-slim",
         description="Docker image for sandboxed code execution",
+    )
+    code_exec_mem_limit: str = Field(
+        default="512m",
+        description="Memory limit for sandboxed code execution containers",
+    )
+    code_exec_cpus: float = Field(
+        default=1.0,
+        description="CPU limit for sandboxed code execution containers",
+        ge=0.1,
     )
     internal_api_key: str = Field(
         default="",
@@ -579,6 +576,9 @@ def validate_settings_on_startup() -> None:
     settings = get_settings()
     ui_settings = get_ui_settings()
 
+    # Load and validate the knowledge-base registry
+    kb_registry = get_knowledge_bases()
+
     # Log configuration summary (without sensitive values)
     import logging
 
@@ -592,6 +592,7 @@ def validate_settings_on_startup() -> None:
     logger.info(f"  Embeddings URL: {settings.embeddings_url}")
     logger.info(f"  Embedding model: {settings.embedding_model}")
     logger.info(f"  Embedding device: {settings.embedding_device}")
+    logger.info(f"  Knowledge bases: {list(kb_registry.keys()) or '(none)'}")
     logger.info(f"  Gateway URL (for UI): {settings.url}")
     logger.info(
         f"  UI timeouts: health={ui_settings.health_timeout}s, chat={ui_settings.chat_timeout}s"
