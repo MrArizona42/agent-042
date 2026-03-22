@@ -58,8 +58,8 @@ class QdrantVectorStore:
             dimension: Dimension of embedding vectors
             force_recreate: If True, delete existing collection and create new one
         """
-        collections = self.client.get_collections().collections
-        exists = any(c.name == self.collection_name for c in collections)
+        # Use collection_exists() which correctly handles aliases
+        exists = self.collection_exists()
 
         if exists and force_recreate:
             logger.info(f"Deleting existing collection: {self.collection_name}")
