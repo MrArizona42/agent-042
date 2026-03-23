@@ -58,10 +58,26 @@ def compute_bertscore(
         Dict with keys ``bertscore_precision``, ``bertscore_recall``,
         ``bertscore_f1``.
     """
+    import threading
     import torch
     from bert_score import BERTScorer
 
-    scorer = BERTScorer(model_type=model_name)
+    # Suppress HuggingFace's auto-conversion thread exceptions.
+    # The transformers library spawns a daemon thread that tries to create
+    # a safetensors conversion PR on the Hub, which fails for unauthenticated
+    # users or models without proper safetensors support. This thread is
+    # non-fatal and we silence its OSError to avoid noisy logs.
+    _original_excepthook = threading.excepthook
+
+    def _suppress_safetensors_conversion_error(args):
+        if args.thread and "auto_conversion" in args.thread.name:
+            # Silently ignore safetensors conversion thread errors
+            return
+        _original_excepthook(args)
+
+    threading.excepthook = _suppress_safetensors_conversion_error
+
+    scorer = BERTScorer(model_type=model_name, use_fast_tokenizer=False)
 
     # Workaround: some models (e.g. DeBERTa) report a huge model_max_length
     # (~10^30) that overflows the Rust tokenizer's usize in
@@ -79,6 +95,7 @@ def compute_bertscore(
             "bertscore_f1": F1.mean().item(),
         }
     finally:
+        threading.excepthook = _original_excepthook
         del scorer
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
