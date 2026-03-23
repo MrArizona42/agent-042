@@ -10,6 +10,7 @@ x-airflow-common-env: &airflow-common-env
   # JWT settings for execution API authentication (Airflow 3.x)
   # JWT secret must be shared across all Airflow components; provide a default
   # so that empty AIRFLOW_JWT_SECRET doesn't break the Execution API.
+  # WARNING: override this in production via .env — the default is for local dev only.
   AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-airflow_jwt_secret}
   AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER:-airflow}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
