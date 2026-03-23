@@ -25,9 +25,7 @@ aiosignal==1.4.0
 amqp==5.3.1
     # via kombu
 annotated-doc==0.0.4
-    # via
-    #   fastapi
-    #   typer
+    # via typer
 annotated-types==0.7.0
     # via pydantic
 antlr4-python3-runtime==4.9.3
@@ -149,8 +147,10 @@ dvc-task==0.40.2
     # via dvc
 entrypoints==0.4
     # via gto
-fastapi==0.135.1
-    # via mlflow-skinny
+fastapi==0.117.1
+    # via
+    #   agent-042 (pyproject.toml)
+    #   mlflow-skinny
 feedparser==6.0.12
     # via arxiv
 filelock==3.24.3
@@ -451,7 +451,7 @@ sqlparse==0.5.5
     # via mlflow-skinny
 sqltrie==0.11.2
     # via dvc-data
-starlette==1.0.0
+starlette==0.48.0
     # via fastapi
 tabulate==0.9.0
     # via
@@ -493,7 +493,6 @@ typing-extensions==4.15.0
     #   typing-inspection
 typing-inspection==0.4.2
     # via
-    #   fastapi
     #   pydantic
     #   pydantic-settings
 tzdata==2025.3

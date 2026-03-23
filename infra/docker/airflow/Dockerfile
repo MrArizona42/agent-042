@@ -9,5 +9,5 @@ FROM apache/airflow:3.1.8
 # Install from lock file for reproducible builds.
 # To update: uv --no-config pip compile pyproject.toml --extra airflow --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
 COPY --chown=airflow:root infra/docker/airflow/requirements.lock /tmp/requirements.lock
-RUN pip install -r /tmp/requirements.lock \
+RUN pip install --no-cache-dir -r /tmp/requirements.lock \
     && rm /tmp/requirements.lock

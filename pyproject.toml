@@ -37,6 +37,9 @@ worker = [
 ]
 
 airflow = [
+    # Airflow 3.1.x bundles cadwyn expecting FastAPI internals present in 0.117.x.
+    # Newer FastAPI releases break Airflow startup (`is_async_gen_callable` import).
+    "fastapi>=0.117.0,<0.118.0",
     # S3 / DVC
     "aiobotocore>=2.15.0,<3.0.0",
     "s3fs>=2024.9.0",
