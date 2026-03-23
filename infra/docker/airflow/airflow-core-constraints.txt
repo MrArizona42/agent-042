@@ -1,0 +1,19 @@
+# Minimal constraints for packages critical to Airflow 3.1.8 core functionality.
+# These packages must match what the base apache/airflow:3.1.8 image ships
+# to avoid breaking the Execution API, JWT authentication, and gRPC communication.
+#
+# Source: https://raw.githubusercontent.com/apache/airflow/constraints-3.1.8/constraints-3.12.txt
+# Only the packages that overlap with our DAG dependencies and are critical to
+# Airflow internals are listed here.  Using the FULL constraints file is not
+# feasible because it pins pyarrow/dill/numpy at versions incompatible with
+# the datasets library we need for evaluation.
+#
+# When upgrading the Airflow base image, update these pins to match the new
+# constraints file for the target version.
+protobuf==4.25.8
+grpcio==1.65.5
+opentelemetry-api==1.27.0
+opentelemetry-sdk==1.27.0
+opentelemetry-proto==1.27.0
+opentelemetry-semantic-conventions==0.48b0
+cryptography==42.0.8

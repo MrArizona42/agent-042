@@ -8,8 +8,9 @@ x-airflow-common-env: &airflow-common-env
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
   AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
   # JWT settings for execution API authentication (Airflow 3.x)
-  # JWT secret must be shared across all Airflow components
-  AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+  # JWT secret must be shared across all Airflow components; provide a default
+  # so that empty AIRFLOW_JWT_SECRET doesn't break the Execution API.
+  AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-airflow_jwt_secret}
   AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER:-airflow}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   # Airflow 3 simple auth users format is username:role (comma-separated for multiple users).
@@ -18,6 +19,8 @@ x-airflow-common-env: &airflow-common-env
   AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/logs/simple_auth_manager_passwords.json
   # Limit parallel DAG runs to reduce DB + disk pressure
   AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: "3"
+  # Enable scheduler health check server (required for port 8974 health endpoint)
+  AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
   # How often (seconds) the scheduler cleans up stale parsing metadata
   AIRFLOW__SCHEDULER__PARSING_CLEANUP_INTERVAL: "60"
   # Project paths & service endpoints used by DAGs
@@ -620,7 +623,7 @@ services:
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-airflow_jwt_secret}
       AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER:-airflow}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER:-airflow}:admin
@@ -665,6 +668,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 30s
     networks:
       - mlflow_db_net
       - backend_net
@@ -687,10 +691,11 @@ services:
       airflow-webserver:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "airflow", "jobs", "check", "--job-type", "DagProcessorJob", "--local"]
+      test: ["CMD-SHELL", "airflow jobs check --job-type DagProcessorJob --hostname \"$${HOSTNAME}\""]
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 30s
     networks:
       - mlflow_db_net
       - backend_net
@@ -714,6 +719,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 30s
     networks:
       - mlflow_db_net
       - backend_net

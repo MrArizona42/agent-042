@@ -1,7 +1,6 @@
 # Airflow: Structural Review & Roadmap
 
-Current baseline: `apache/airflow:2.10.4`, `LocalExecutor`, docker-compose deployment.
-Target: `apache/airflow:3.1.x` (latest: **3.1.8**, released 2026-03-10).
+Current baseline: `apache/airflow:3.1.8`, `LocalExecutor`, docker-compose deployment.
 
 ---
 
@@ -144,11 +143,13 @@ provides the tracking client without pulling in `gunicorn`, `graphene`, `scikit-
 
 ```toml
 airflow = [
-    # S3 / DVC
-    "aiobotocore>=2.15.0,<3.0.0",
+    # Airflow 3.1.x bundles cadwyn expecting FastAPI internals present in 0.117.x.
+    "fastapi>=0.117.0,<0.118.0",
+    # S3 / DVC — upper bounds removed; Airflow 3.1.8 ships aiobotocore 3.x and cffi 2.x
+    "aiobotocore>=2.15.0",
     "s3fs>=2024.9.0",
     "aiohttp>=3.9.2,<4",
-    "cffi>=1.9,<2.0.0",
+    "cffi>=1.9",
     "dvc[s3]>=3.66.1",
     # Data ingestion
     "arxiv>=2.1.3",
@@ -163,14 +164,37 @@ airflow = [
     # DB / infra
     "psycopg2-binary>=2.9,<3",
     "httpx>=0.28.1",
-    "protobuf>=5.26.0",
+    "protobuf>=4.25.0",
     # Experiment tracking (client only)
     "mlflow-skinny>=3.8.1,<4",
+    # Celery client — used by eval DAGs to dispatch tasks to the eval-worker
+    "celery>=5.3.0",
 ]
 # Removed: bert-score, torch/CUDA, flask, werkzeug, sqlalchemy, flask-cors, boto3, botocore
 ```
 
-Regenerate the lock file after this change — it will shrink dramatically.
+### Constraint-based lock file generation
+
+The Airflow image ships its own pinned dependency versions (protobuf, grpcio, opentelemetry,
+etc.).  Installing our DAG dependencies via a naive `pip install` can silently override these,
+breaking the Execution API and JWT authentication.
+
+To prevent this, the lock file is compiled with a minimal constraint file that pins the
+Airflow-critical packages:
+
+```bash
+uv --no-config pip compile pyproject.toml --extra airflow \
+    --python-version 3.12 --python-platform linux \
+    --constraint infra/docker/airflow/airflow-core-constraints.txt \
+    -o infra/docker/airflow/requirements.lock
+```
+
+The constraint file (`infra/docker/airflow/airflow-core-constraints.txt`) pins only the
+packages whose versions must match the base `apache/airflow:3.1.8` image.  When upgrading
+the base image, update those pins from the new constraints file:
+```
+https://raw.githubusercontent.com/apache/airflow/constraints-{VERSION}/constraints-3.12.txt
+```
 
 ---
 
