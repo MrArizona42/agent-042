@@ -7,6 +7,8 @@ x-airflow-common-env: &airflow-common-env
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
   AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  # Airflow 3 default auth manager (simple) stores users in config, not via `airflow users` CLI.
+  AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER:-airflow}:admin
   # Limit parallel DAG runs to reduce DB + disk pressure
   AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: "3"
   # How often (seconds) the scheduler cleans up stale parsing metadata
@@ -579,19 +581,26 @@ services:
         conn.close()
         PYEOF
         airflow db migrate
-        # Keep idempotent startup: user may already exist on subsequent runs.
-        airflow users create \
-          --username $${AIRFLOW_ADMIN_USER} \
-          --password $${AIRFLOW_ADMIN_PASSWORD} \
-          --firstname Admin \
-          --lastname User \
-          --role Admin \
-          --email admin@example.com || echo "Admin user already exists; continuing."
+        # Airflow 3 uses simple auth manager by default (users from config).
+        # If FAB users CLI is available, keep compatibility with old flow.
+        if airflow users --help >/dev/null 2>&1; then
+          airflow users create \
+            --username $${AIRFLOW_ADMIN_USER} \
+            --password $${AIRFLOW_ADMIN_PASSWORD} \
+            --firstname Admin \
+            --lastname User \
+            --role Admin \
+            --email admin@example.com || echo "Admin user already exists; continuing."
+        else
+          echo "Skipping legacy 'airflow users create' (not available in this Airflow build)."
+          echo "Configured simple auth manager user via AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS."
+        fi
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER:-airflow}:admin
       AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER}
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
       # Postgres connection for automatic DB creation
