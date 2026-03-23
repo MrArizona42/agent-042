@@ -7,9 +7,15 @@ x-airflow-common-env: &airflow-common-env
   AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
   AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+  # JWT settings for execution API authentication (Airflow 3.x)
+  # JWT secret must be shared across all Airflow components
+  AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+  AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER:-airflow}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-  # Airflow 3 default auth manager (simple) stores users in config, not via `airflow users` CLI.
+  # Airflow 3 simple auth users format is username:role (comma-separated for multiple users).
   AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER:-airflow}:admin
+  # Persist generated simple-auth passwords on a mounted volume.
+  AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/logs/simple_auth_manager_passwords.json
   # Limit parallel DAG runs to reduce DB + disk pressure
   AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: "3"
   # How often (seconds) the scheduler cleans up stale parsing metadata
@@ -580,6 +586,20 @@ services:
             print("Database agent042 already exists")
         conn.close()
         PYEOF
+        # SimpleAuthManager stores credentials in a JSON file.
+        # Seed it from .env so credentials stay deterministic across restarts.
+        python <<'PYEOF'
+        import json
+        import os
+        from pathlib import Path
+
+        username = os.environ["AIRFLOW_ADMIN_USER"]
+        password = os.environ["AIRFLOW_ADMIN_PASSWORD"]
+        path = Path(os.environ["AIRFLOW_SIMPLE_AUTH_PASSWORDS_FILE"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({username: password}) + "\n", encoding="utf-8")
+        print(f"Seeded SimpleAuthManager password file at {path}")
+        PYEOF
         airflow db migrate
         # Airflow 3 uses simple auth manager by default (users from config).
         # If FAB users CLI is available, keep compatibility with old flow.
@@ -600,15 +620,21 @@ services:
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+      AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER:-airflow}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER:-airflow}:admin
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/logs/simple_auth_manager_passwords.json
       AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER}
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+      AIRFLOW_SIMPLE_AUTH_PASSWORDS_FILE: /opt/airflow/logs/simple_auth_manager_passwords.json
       # Postgres connection for automatic DB creation
       PG_USER: ${POSTGRES_USER}
       PG_PASSWORD: ${POSTGRES_PASSWORD}
       PG_DB: ${POSTGRES_DB}
       AIRFLOW_DB_NAME: ${AIRFLOW_DB}
+    volumes:
+      - airflow_logs:/opt/airflow/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -621,7 +647,6 @@ services:
   # =====================
   airflow-webserver:
     build: *airflow-common-build
-    hostname: airflow-local
     command: api-server
     environment:
       <<: *airflow-common-env
@@ -650,7 +675,6 @@ services:
   # =====================
   airflow-dag-processor:
     build: *airflow-common-build
-    hostname: airflow-local
     command: dag-processor
     environment:
       <<: *airflow-common-env
@@ -660,6 +684,8 @@ services:
         condition: service_completed_successfully
       airflow-prepare-dirs:
         condition: service_completed_successfully
+      airflow-webserver:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "airflow", "jobs", "check", "--job-type", "DagProcessorJob", "--local"]
       interval: 30s
@@ -672,7 +698,6 @@ services:
 
   airflow-scheduler:
     build: *airflow-common-build
-    hostname: airflow-local
     command: scheduler
     environment:
       <<: *airflow-common-env
@@ -682,6 +707,8 @@ services:
         condition: service_completed_successfully
       airflow-prepare-dirs:
         condition: service_completed_successfully
+      airflow-webserver:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8974/health"]
       interval: 30s

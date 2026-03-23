@@ -257,6 +257,7 @@ docker compose up -d airflow-webserver airflow-scheduler
 - `AIRFLOW_DB` — имя базы в PostgreSQL (по умолчанию `airflow`)
 - `AIRFLOW_PORT` — порт веб-интерфейса (по умолчанию `8080`)
 - `AIRFLOW_FERNET_KEY` — ключ шифрования; сгенерировать: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+- `AIRFLOW_INTERNAL_API_SECRET_KEY` — ключ для JWT-подписи между scheduler/webserver/dag-processor (Airflow 3.x); **минимум 64 байта (128 hex-символов)**; сгенерировать: `python -c "import secrets; print(secrets.token_hex(64))"`
 - `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` — логин/пароль admin-пользователя
 
 DAG'и также используют следующие переменные (передаются через `x-airflow-common-env`):
