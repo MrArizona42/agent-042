@@ -10,10 +10,15 @@
 #
 # When upgrading the Airflow base image, update these pins to match the new
 # constraints file for the target version.
-protobuf==4.25.8
+#
+# Security overrides (patched above the Airflow-shipped version):
+#   cryptography: 42.0.8 → 46.0.5  (GHSA subgroup attack on SECT curves)
+#   protobuf:      4.25.8 → 5.29.6  (GHSA JSON recursion depth bypass, affects <5.29.6)
+#   opentelemetry: 1.27.0 → 1.28.0  (required: otel-proto 1.27 pins protobuf<5)
+protobuf==5.29.6
 grpcio==1.65.5
-opentelemetry-api==1.27.0
-opentelemetry-sdk==1.27.0
-opentelemetry-proto==1.27.0
-opentelemetry-semantic-conventions==0.48b0
-cryptography==42.0.8
+opentelemetry-api==1.28.0
+opentelemetry-sdk==1.28.0
+opentelemetry-proto==1.28.0
+opentelemetry-semantic-conventions==0.49b0
+cryptography==46.0.5

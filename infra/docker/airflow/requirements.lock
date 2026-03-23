@@ -70,7 +70,7 @@ certifi==2026.2.25
     #   httpcore
     #   httpx
     #   requests
-cffi==1.17.1
+cffi==2.0.0
     # via
     #   agent-042 (pyproject.toml)
     #   cryptography
@@ -98,7 +98,7 @@ colorama==0.4.6
     # via dvc
 configobj==5.0.9
     # via dvc
-cryptography==42.0.8
+cryptography==46.0.5
     # via
     #   -c infra/docker/airflow/airflow-core-constraints.txt
     #   asyncssh
@@ -289,21 +289,21 @@ omegaconf==2.3.0
     # via
     #   dvc
     #   hydra-core
-opentelemetry-api==1.27.0
+opentelemetry-api==1.28.0
     # via
     #   -c infra/docker/airflow/airflow-core-constraints.txt
     #   mlflow-skinny
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
-opentelemetry-proto==1.27.0
+opentelemetry-proto==1.28.0
     # via
     #   -c infra/docker/airflow/airflow-core-constraints.txt
     #   mlflow-skinny
-opentelemetry-sdk==1.27.0
+opentelemetry-sdk==1.28.0
     # via
     #   -c infra/docker/airflow/airflow-core-constraints.txt
     #   mlflow-skinny
-opentelemetry-semantic-conventions==0.48b0
+opentelemetry-semantic-conventions==0.49b0
     # via
     #   -c infra/docker/airflow/airflow-core-constraints.txt
     #   opentelemetry-sdk
@@ -336,7 +336,7 @@ prompt-toolkit==3.0.52
     # via click-repl
 propcache==0.4.1
     # via yarl
-protobuf==4.25.8
+protobuf==5.29.6
     # via
     #   -c infra/docker/airflow/airflow-core-constraints.txt
     #   agent-042 (pyproject.toml)
