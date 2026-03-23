@@ -1,6 +1,6 @@
 # Custom Airflow image with pre-installed DAG dependencies.
 # Base version must stay in sync with the one used in docker-compose.yaml.
-FROM apache/airflow:2.10.4
+FROM apache/airflow:3.1.8
 
 # Install DAG Python dependencies at build time so containers start fast.
 # --chown is required because the base image runs as the non-root "airflow"

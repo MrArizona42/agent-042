@@ -20,6 +20,8 @@ x-airflow-common-env: &airflow-common-env
   EVAL_GATEWAY_URL: http://gateway:9000
   EVAL_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY}
   EVAL_DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
+  # Celery broker — used by eval DAGs to dispatch tasks to the eval-worker
+  CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
@@ -356,6 +358,32 @@ services:
     restart: unless-stopped
 
   # =====================
+  # Eval Worker (metric computation: bert-score, rouge, etc.)
+  # Shares the RabbitMQ broker but listens on the "eval" queue.
+  # Keeps torch/CUDA out of the Airflow image.
+  # =====================
+  eval-worker:
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: infra/docker/eval-worker/Dockerfile
+
+    environment:
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
+      EVAL_GATEWAY_URL: http://gateway:9000
+      EVAL_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY}
+      EVAL_DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
+
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+    networks:
+      - backend_net
+      - mlflow_db_net
+
+    restart: unless-stopped
+
+  # =====================
   # Agent Gateway (FastAPI)
   # =====================
   gateway:
@@ -585,7 +613,6 @@ services:
     command: webserver
     environment:
       <<: *airflow-common-env
-      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
       AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX: "true"
       AIRFLOW__WEBSERVER__BASE_URL: https://agent.antonlab.ru:8443/airflow
     ports:
@@ -622,7 +649,7 @@ services:
       airflow-prepare-dirs:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\""]
+      test: ["CMD", "curl", "-f", "http://localhost:8974/health"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -222,7 +222,12 @@ def _fetch_predictions_task(
 def _calculate_metrics_task(
     **context: object,
 ) -> None:
-    """Airflow task: compute metrics on previously-fetched predictions."""
+    """Airflow task: dispatch metric computation to the eval-worker via Celery.
+
+    The actual ``bert-score`` / ``rouge`` calculation runs inside the
+    eval-worker container (which carries ``torch`` CPU), keeping the
+    Airflow image lightweight.
+    """
     log = logging.getLogger(__name__)
     logging.basicConfig(
         level=logging.INFO,
@@ -239,14 +244,24 @@ def _calculate_metrics_task(
     resolved = _resolve_params(context)
     metric = resolved["metric"]
 
-    log.info("calculate_metrics: metric=%s from %s", metric, predictions_path)
+    log.info("calculate_metrics: dispatching metric=%s to eval-worker queue", metric)
 
-    from experiments.scripts.eval.runner import calculate_metrics
+    from celery import Celery
 
-    rows = calculate_metrics(
-        metric=metric,
-        prediction_data=prediction_data,
+    broker_url = os.environ.get(
+        "CELERY_BROKER_URL",
+        "amqp://guest:guest@rabbitmq:5672//",
     )
+    _celery = Celery(broker=broker_url, backend="rpc://")
+
+    async_result = _celery.send_task(
+        "eval_worker.tasks.calculate_metrics_task",
+        kwargs={"metric": metric, "prediction_data": prediction_data},
+        queue="eval",
+    )
+
+    # Block until the eval-worker finishes (up to 30 min)
+    rows = async_result.get(timeout=1800)
 
     log.info("Metrics complete: %d rows", len(rows))
     for row in rows:
