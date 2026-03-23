@@ -612,11 +612,11 @@ services:
   airflow-webserver:
     build: *airflow-common-build
     hostname: airflow-local
-    command: webserver
+    command: api-server
     environment:
       <<: *airflow-common-env
       AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX: "true"
-      AIRFLOW__WEBSERVER__BASE_URL: https://agent.antonlab.ru:8443/airflow
+      AIRFLOW__API__BASE_URL: https://agent.antonlab.ru:8443/airflow
     ports:
       - "127.0.0.1:${AIRFLOW_PORT}:8080"
     volumes: *airflow-common-volumes
@@ -626,7 +626,7 @@ services:
       airflow-prepare-dirs:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/airflow/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
       timeout: 10s
       retries: 5
