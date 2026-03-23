@@ -72,7 +72,7 @@ uv --no-config pip compile pyproject.toml --extra ui --python-version 3.12 --pyt
 uv --no-config pip compile pyproject.toml --extra worker --python-version 3.12 --python-platform linux -o infra/docker/celery/requirements-celery.lock
 uv --no-config pip compile pyproject.toml --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/mlflow/requirements-mlflow.lock
 uv --no-config pip compile pyproject.toml --extra airflow --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
-uv --no-config pip compile pyproject.toml --extra training --extra rag --extra dev --python-version 3.13 --python-platform linux -o infra/docker/jupyter/requirements-jupyter.lock
+uv --no-config pip compile pyproject.toml --extra training --extra rag --extra dev --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/jupyter/requirements-jupyter.lock
 ```
 
 ## Docker / Docker Compose

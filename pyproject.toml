@@ -76,6 +76,7 @@ embeddings = [
 ]
 
 training = [
+    "bert-score>=0.3.13",
     "bitsandbytes>=0.49.1",
     "datasets>=4.4.2",
     "dvc[gdrive,s3,ssh]>=3.66.1",
