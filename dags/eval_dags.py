@@ -219,6 +219,21 @@ def _fetch_predictions_task(
     return output_path  # auto-pushed to XCom
 
 
+def _get_celery_client():
+    """Lazy-initialise a Celery client for dispatching tasks to the eval-worker."""
+    from celery import Celery
+
+    broker_url = os.environ.get(
+        "CELERY_BROKER_URL",
+        "amqp://guest:guest@rabbitmq:5672//",
+    )
+    return Celery(broker=broker_url, backend="rpc://")
+
+
+# Module-level singleton — created once per Airflow worker process.
+_celery_client = None
+
+
 def _calculate_metrics_task(
     **context: object,
 ) -> None:
@@ -228,6 +243,8 @@ def _calculate_metrics_task(
     eval-worker container (which carries ``torch`` CPU), keeping the
     Airflow image lightweight.
     """
+    global _celery_client
+
     log = logging.getLogger(__name__)
     logging.basicConfig(
         level=logging.INFO,
@@ -246,22 +263,18 @@ def _calculate_metrics_task(
 
     log.info("calculate_metrics: dispatching metric=%s to eval-worker queue", metric)
 
-    from celery import Celery
+    if _celery_client is None:
+        _celery_client = _get_celery_client()
 
-    broker_url = os.environ.get(
-        "CELERY_BROKER_URL",
-        "amqp://guest:guest@rabbitmq:5672//",
-    )
-    _celery = Celery(broker=broker_url, backend="rpc://")
-
-    async_result = _celery.send_task(
+    async_result = _celery_client.send_task(
         "eval_worker.tasks.calculate_metrics_task",
         kwargs={"metric": metric, "prediction_data": prediction_data},
         queue="eval",
     )
 
-    # Block until the eval-worker finishes (up to 30 min)
-    rows = async_result.get(timeout=1800)
+    # Block until the eval-worker finishes.  The eval-worker has a
+    # task_time_limit of 1800 s; allow a small margin for broker overhead.
+    rows = async_result.get(timeout=1860)
 
     log.info("Metrics complete: %d rows", len(rows))
     for row in rows:
