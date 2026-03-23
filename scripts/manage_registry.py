@@ -18,11 +18,11 @@ Show versions of a specific adapter::
 
     python scripts/manage_registry.py versions lora-summarization
 
-Promote a version to production (alias "champion")::
+Promote a version to production (uses alias from ``REGISTRY_PRODUCTION_ALIAS``)::
 
     python scripts/manage_registry.py promote lora-summarization 3
 
-Promote a version to staging (alias "challenger")::
+Promote a version with a custom alias::
 
     python scripts/manage_registry.py promote lora-summarization 5 --alias challenger
 
@@ -55,10 +55,8 @@ _PROJECT_ROOT = _SCRIPT_DIR.parent  # …/agent-042
 
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))  # for shared package
 
-from shared.model_registry import (  # noqa: E402
-    ALIAS_PRODUCTION,
-    AdapterRegistry,
-)
+from shared.config import get_registry_settings  # noqa: E402
+from shared.model_registry import AdapterRegistry  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -172,15 +170,16 @@ def cmd_register(args: argparse.Namespace) -> None:
     print(f"✓ Registered '{args.model}' version {mv.version} from run {args.run_id[:8]}…")
 
 
-def cmd_production(_args: argparse.Namespace) -> None:
-    """Show all adapters currently tagged as production (champion)."""
+def cmd_production(args: argparse.Namespace) -> None:
+    """Show all adapters currently carrying the production alias."""
     registry = _build_registry()
-    adapters = registry.get_production_adapters()
+    alias = args.alias
+    adapters = registry.get_production_adapters(alias=alias)
     if not adapters:
-        print("No adapters with 'champion' alias found.")
+        print(f"No adapters with '{alias}' alias found.")
         return
 
-    print("\nProduction adapters (alias=champion):")
+    print(f"\nProduction adapters (alias={alias}):")
     print("-" * 60)
     for name, a in adapters.items():
         print(f"  {name:<30}  v{a.version}  run={(a.run_id or '?')[:8]}…")
@@ -218,14 +217,16 @@ def main() -> None:
     p_ver = sub.add_parser("versions", help="List all versions of a model.")
     p_ver.add_argument("model", help="Registered model name.")
 
+    _production_alias = get_registry_settings().production_alias
+
     # promote
     p_pro = sub.add_parser("promote", help="Assign an alias to a model version.")
     p_pro.add_argument("model", help="Registered model name.")
     p_pro.add_argument("version", type=int, help="Version number.")
     p_pro.add_argument(
         "--alias",
-        default=ALIAS_PRODUCTION,
-        help=f"Alias to set (default: '{ALIAS_PRODUCTION}').",
+        default=_production_alias,
+        help=f"Alias to set (default from config: '{_production_alias}').",
     )
 
     # demote
@@ -233,8 +234,8 @@ def main() -> None:
     p_dem.add_argument("model", help="Registered model name.")
     p_dem.add_argument(
         "--alias",
-        default=ALIAS_PRODUCTION,
-        help=f"Alias to remove (default: '{ALIAS_PRODUCTION}').",
+        default=_production_alias,
+        help=f"Alias to remove (default from config: '{_production_alias}').",
     )
 
     # download
@@ -248,14 +249,19 @@ def main() -> None:
     )
     p_dl.add_argument(
         "--alias",
-        default=ALIAS_PRODUCTION,
-        help=f"Alias to download (default: '{ALIAS_PRODUCTION}').",
+        default=_production_alias,
+        help=f"Alias to download (default from config: '{_production_alias}').",
     )
 
     # production
-    sub.add_parser(
+    p_prod = sub.add_parser(
         "production",
-        help="Show all adapters currently carrying the 'champion' alias.",
+        help="Show all adapters carrying the production alias.",
+    )
+    p_prod.add_argument(
+        "--alias",
+        default=_production_alias,
+        help=f"Alias to look up (default from config: '{_production_alias}').",
     )
 
     args = parser.parse_args()

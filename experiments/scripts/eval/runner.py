@@ -925,6 +925,639 @@ def _evaluate_retrieval(
 
 
 # ---------------------------------------------------------------------------
+# Two-phase evaluation: fetch predictions, then compute metrics
+# ---------------------------------------------------------------------------
+
+
+def fetch_predictions(
+    *,
+    task: str,
+    dataset_name: str,
+    kb_name: str | None = None,
+    rag_aliases: list[str],
+    lora_aliases: list[str],
+) -> dict[str, Any]:
+    """Phase 1: Generate predictions for all (rag, lora) combinations.
+
+    Calls the gateway / retrieval system to produce predictions *without*
+    computing any metrics.  The returned dict is JSON-serializable and
+    contains everything :func:`calculate_metrics` needs.
+    """
+    eval_settings = get_eval_settings()
+    settings = get_settings()
+    base_model = settings.default_model
+
+    if task not in _TASK_METRICS:
+        raise ValueError(f"Unknown task: {task!r}")
+
+    if kb_name is None:
+        kb_name = _SUITE_KB.get((task, dataset_name))
+
+    if task == "summarize":
+        rag_aliases = ["none"]
+    if task == "retrieval":
+        lora_aliases = ["none"]
+
+    bundles: list[dict[str, Any]] = []
+    failures: list[tuple[str, str, BaseException]] = []
+
+    for rag_alias, lora_alias in itertools.product(rag_aliases, lora_aliases):
+        logger.info(
+            "Fetching predictions: task=%s dataset=%s rag=%s lora=%s",
+            task,
+            dataset_name,
+            rag_alias,
+            lora_alias,
+        )
+        try:
+            if task == "retrieval":
+                bundle = _fetch_retrieval_predictions(
+                    dataset_name=dataset_name,
+                    rag_alias=rag_alias,
+                    kb_name=kb_name,
+                    eval_settings=eval_settings,
+                )
+            elif task == "code":
+                bundle = _fetch_code_predictions(
+                    dataset_name=dataset_name,
+                    rag_alias=rag_alias,
+                    lora_alias=lora_alias,
+                    kb_name=kb_name,
+                    eval_settings=eval_settings,
+                )
+            else:
+                bundle = _fetch_generation_predictions(
+                    task=task,
+                    dataset_name=dataset_name,
+                    rag_alias=rag_alias,
+                    lora_alias=lora_alias,
+                    kb_name=kb_name,
+                    eval_settings=eval_settings,
+                )
+            bundles.append(bundle)
+        except Exception as e:
+            logger.error(
+                "Prediction fetch failed for rag=%s lora=%s: %s",
+                rag_alias,
+                lora_alias,
+                e,
+                exc_info=True,
+            )
+            failures.append((rag_alias, lora_alias, e))
+
+    if failures:
+        failed_pairs = ", ".join(f"rag={r} lora={lo}" for r, lo, _ in failures)
+        raise RuntimeError(
+            f"{len(failures)} prediction fetch(es) failed ({failed_pairs}): {failures[0][2]}"
+        )
+
+    return {
+        "task": task,
+        "dataset_name": dataset_name,
+        "kb_name": kb_name,
+        "base_model": base_model,
+        "temperature": eval_settings.temperature,
+        "max_tokens": eval_settings.max_tokens,
+        "judge_model": eval_settings.judge_model,
+        "bert_score_model": eval_settings.bert_score_model,
+        "bundles": bundles,
+    }
+
+
+def _fetch_generation_predictions(
+    *,
+    task: str,
+    dataset_name: str,
+    rag_alias: str,
+    lora_alias: str,
+    kb_name: str | None,
+    eval_settings: Any,
+) -> dict[str, Any]:
+    """Fetch predictions for a single (rag, lora) pair (chat/summarize tasks)."""
+    lora_info = _resolve_lora_alias(lora_alias, task)
+    model_name = lora_info["adapter_name"] if lora_info["adapter_name"] else None
+
+    rag_sources = None
+    rag_enabled = False
+    if rag_alias != "none" and kb_name:
+        rag_sources = [{"knowledge_base": kb_name, "alias": rag_alias}]
+        rag_enabled = True
+
+    samples = _load_dataset_samples(task, dataset_name, limit=eval_settings.sample_limit)
+    if not samples:
+        raise RuntimeError(f"No samples loaded for {task}/{dataset_name}")
+
+    predictions: list[str] = []
+    references: list[str] = []
+    judge_samples: list[dict[str, str]] = []
+    gateway_failures = 0
+
+    for sample in samples:
+        question = sample["question"]
+        reference = sample.get("answer", "")
+
+        messages = [{"role": "user", "content": question}]
+        try:
+            response = _call_gateway(
+                messages=messages,
+                gateway_url=eval_settings.gateway_url,
+                model=model_name,
+                rag_sources=rag_sources,
+                temperature=eval_settings.temperature,
+                max_tokens=eval_settings.max_tokens,
+                internal_api_key=eval_settings.internal_api_key,
+            )
+            answer = response["choices"][0]["message"]["content"]
+
+            rag_context = ""
+            if rag_enabled and "rag_context" in response:
+                chunks = response.get("rag_context") or []
+                rag_context = "\n".join(c.get("content", "") for c in chunks)
+        except Exception as e:
+            logger.error("Gateway call failed: %s", e)
+            answer = ""
+            rag_context = ""
+            gateway_failures += 1
+
+        predictions.append(answer)
+        references.append(reference)
+        judge_samples.append(
+            {
+                "question": question,
+                "answer": answer,
+                "reference": reference,
+                "context": rag_context,
+            }
+        )
+
+    if gateway_failures == len(samples):
+        raise RuntimeError(
+            f"All {gateway_failures} gateway calls failed for {task}/{dataset_name}; "
+            "check that the gateway service is reachable"
+        )
+
+    return {
+        "rag_alias": rag_alias,
+        "lora_alias": lora_alias,
+        "lora_info": lora_info,
+        "rag_enabled": rag_enabled,
+        "predictions": predictions,
+        "references": references,
+        "judge_samples": judge_samples,
+    }
+
+
+def _fetch_code_predictions(
+    *,
+    dataset_name: str,
+    rag_alias: str,
+    lora_alias: str,
+    kb_name: str | None,
+    eval_settings: Any,
+) -> dict[str, Any]:
+    """Fetch code generation predictions for a single (rag, lora) pair."""
+    from experiments.scripts.eval.metrics.code_exec import evaluate_humaneval_sample
+
+    lora_info = _resolve_lora_alias(lora_alias, "code")
+    model_name = lora_info["adapter_name"] if lora_info["adapter_name"] else None
+
+    rag_sources = None
+    rag_enabled = False
+    if rag_alias != "none" and kb_name:
+        rag_sources = [{"knowledge_base": kb_name, "alias": rag_alias}]
+        rag_enabled = True
+
+    samples = _load_dataset_samples("code", dataset_name, limit=eval_settings.sample_limit)
+    if not samples:
+        raise RuntimeError(f"No samples loaded for code/{dataset_name}")
+
+    exec_results: list[dict[str, Any]] = []
+    for sample in samples:
+        prompt = sample["prompt"]
+        test_code = sample.get("test", "")
+
+        messages = [{"role": "user", "content": f"Complete this Python function:\n\n{prompt}"}]
+        try:
+            response = _call_gateway(
+                messages=messages,
+                gateway_url=eval_settings.gateway_url,
+                model=model_name,
+                rag_sources=rag_sources,
+                temperature=eval_settings.temperature,
+                max_tokens=eval_settings.max_tokens,
+                internal_api_key=eval_settings.internal_api_key,
+            )
+            generated = response["choices"][0]["message"]["content"]
+        except Exception as e:
+            logger.error("Gateway call failed: %s", e)
+            generated = ""
+
+        result = evaluate_humaneval_sample(
+            prompt=prompt,
+            generated_code=generated,
+            test_code=test_code,
+            image=eval_settings.code_exec_image,
+            timeout=eval_settings.code_exec_timeout,
+            mem_limit=eval_settings.code_exec_mem_limit,
+            cpus=eval_settings.code_exec_cpus,
+        )
+        exec_results.append(result)
+
+    return {
+        "rag_alias": rag_alias,
+        "lora_alias": lora_alias,
+        "lora_info": lora_info,
+        "rag_enabled": rag_enabled,
+        "exec_results": exec_results,
+    }
+
+
+def _fetch_retrieval_predictions(
+    *,
+    dataset_name: str,
+    rag_alias: str,
+    kb_name: str | None,
+    eval_settings: Any,
+) -> dict[str, Any]:
+    """Fetch retrieval query results for a single rag_alias."""
+    from experiments.scripts.eval.retrieval_bench import (
+        build_temp_collection,
+        delete_temp_collection,
+        read_build_config,
+    )
+
+    if not kb_name:
+        raise ValueError("Retrieval eval requires kb_name")
+
+    settings = get_settings()
+    qdrant_host = settings.qdrant_host
+    qdrant_port = settings.qdrant_port
+
+    build_config = read_build_config(
+        kb_name=kb_name,
+        rag_alias=rag_alias,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+    )
+    if build_config is None:
+        raise RuntimeError(f"Cannot read build config for {kb_name}_{rag_alias}")
+
+    samples = _load_dataset_samples("retrieval", dataset_name, limit=eval_settings.sample_limit)
+    if not samples:
+        raise RuntimeError(f"No samples loaded for retrieval/{dataset_name}")
+
+    corpus = [
+        {"doc_id": s.get("doc_id", str(i)), "text": s.get("text", "")}
+        for i, s in enumerate(samples)
+    ]
+
+    temp_collection = build_temp_collection(
+        kb_name=kb_name,
+        dataset_name=dataset_name,
+        rag_alias=rag_alias,
+        corpus=corpus,
+        build_config=build_config,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+    )
+
+    try:
+        from rag.embeddings import EmbeddingService
+        from rag.vector_store import QdrantVectorStore
+
+        embedding_model = build_config["embedding_model"]
+        emb_service = EmbeddingService(model_name=embedding_model)
+        vs = QdrantVectorStore(
+            host=qdrant_host, port=qdrant_port, collection_name=temp_collection
+        )
+
+        queries = [s for s in samples if s.get("query")]
+        query_results: list[dict[str, Any]] = []
+
+        for q in queries:
+            query_emb = emb_service.embed_query(q["query"])
+            results = vs.search(query_embedding=query_emb, top_k=10, score_threshold=0.0)
+            retrieved_ids = [doc.metadata.get("source", "") for doc in results]
+            relevance = q.get("relevance", {})
+            query_results.append(
+                {
+                    "retrieved_ids": retrieved_ids,
+                    "relevance": relevance,
+                }
+            )
+    finally:
+        try:
+            delete_temp_collection(
+                temp_collection,
+                qdrant_host=qdrant_host,
+                qdrant_port=qdrant_port,
+            )
+        except Exception as e:
+            logger.warning("Failed to delete temp collection: %s", e)
+
+    return {
+        "rag_alias": rag_alias,
+        "lora_alias": "none",
+        "lora_info": {
+            "adapter_name": None,
+            "adapter_version": None,
+            "adapter_mlflow_run_id": None,
+        },
+        "rag_enabled": True,
+        "query_results": query_results,
+        "build_config": {
+            "embedding_model": build_config.get("embedding_model"),
+            "chunking_strategy": build_config.get("chunking_strategy"),
+            "chunk_size": build_config.get("chunk_size"),
+            "chunk_overlap": build_config.get("chunk_overlap"),
+        },
+        "temp_collection": temp_collection,
+    }
+
+
+def calculate_metrics(
+    *,
+    metric: str,
+    prediction_data: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Phase 2: Compute a metric on pre-fetched predictions and log to DB.
+
+    Args:
+        metric: Metric to compute.
+        prediction_data: Output from :func:`fetch_predictions`.
+
+    Returns:
+        Metric result rows suitable for database insertion.
+    """
+    task = prediction_data["task"]
+    dataset_name = prediction_data["dataset_name"]
+    kb_name = prediction_data["kb_name"]
+    base_model = prediction_data["base_model"]
+
+    valid_metrics = _TASK_METRICS.get(task, [])
+    if metric not in valid_metrics:
+        raise ValueError(
+            f"Metric {metric!r} is not valid for task {task!r}. Valid: {valid_metrics}"
+        )
+
+    eval_settings = get_eval_settings()
+
+    all_rows: list[dict[str, Any]] = []
+    failures: list[tuple[str, str, BaseException]] = []
+
+    for bundle in prediction_data["bundles"]:
+        rag_alias = bundle["rag_alias"]
+        lora_alias = bundle["lora_alias"]
+
+        logger.info(
+            "Computing metric=%s for rag=%s lora=%s",
+            metric,
+            rag_alias,
+            lora_alias,
+        )
+
+        try:
+            if task == "retrieval":
+                rows = _compute_retrieval_metric(
+                    metric=metric,
+                    bundle=bundle,
+                    dataset_name=dataset_name,
+                    base_model=base_model,
+                    kb_name=kb_name,
+                    eval_settings=eval_settings,
+                )
+            elif task == "code":
+                rows = _compute_code_metric(
+                    metric=metric,
+                    bundle=bundle,
+                    dataset_name=dataset_name,
+                    base_model=base_model,
+                    kb_name=kb_name,
+                    eval_settings=eval_settings,
+                )
+            else:
+                rows = _compute_generation_metric(
+                    metric=metric,
+                    bundle=bundle,
+                    task=task,
+                    dataset_name=dataset_name,
+                    base_model=base_model,
+                    kb_name=kb_name,
+                    eval_settings=eval_settings,
+                )
+            all_rows.extend(rows)
+        except Exception as e:
+            logger.error(
+                "Metric computation failed for rag=%s lora=%s: %s",
+                rag_alias,
+                lora_alias,
+                e,
+                exc_info=True,
+            )
+            failures.append((rag_alias, lora_alias, e))
+
+    _log_to_db(all_rows, eval_settings.db_url)
+
+    if failures:
+        failed_pairs = ", ".join(f"rag={r} lora={lo}" for r, lo, _ in failures)
+        raise RuntimeError(
+            f"{len(failures)} metric computation(s) failed ({failed_pairs}): {failures[0][2]}"
+        )
+
+    logger.info("Metrics complete: %d rows", len(all_rows))
+    return all_rows
+
+
+def _compute_generation_metric(
+    *,
+    metric: str,
+    bundle: dict[str, Any],
+    task: str,
+    dataset_name: str,
+    base_model: str,
+    kb_name: str | None,
+    eval_settings: Any,
+) -> list[dict[str, Any]]:
+    """Compute a single metric on pre-fetched generation predictions."""
+    from experiments.scripts.eval.metrics.automatic import compute_automatic_metrics
+    from experiments.scripts.eval.metrics.llm_judge import judge_batch
+
+    now = datetime.now(timezone.utc)
+    common = _build_common_fields(
+        task=task,
+        dataset_name=dataset_name,
+        base_model=base_model,
+        lora_alias=bundle["lora_alias"],
+        lora_info=bundle["lora_info"],
+        rag_alias=bundle["rag_alias"],
+        rag_enabled=bundle["rag_enabled"],
+        kb_name=kb_name,
+        eval_settings=eval_settings,
+        now=now,
+    )
+
+    predictions = bundle["predictions"]
+    references = bundle["references"]
+    judge_samples = bundle["judge_samples"]
+
+    rows: list[dict[str, Any]] = []
+
+    if metric in _AUTOMATIC_METRICS:
+        auto = compute_automatic_metrics(
+            predictions,
+            references,
+            bert_score_model=eval_settings.bert_score_model,
+            metric=metric,
+        )
+        if metric in auto:
+            rows.append({**common, "metric_name": metric, "metric_value": auto[metric]})
+    elif metric in _JUDGE_METRICS:
+        if not eval_settings.google_ai_api_key:
+            raise RuntimeError(
+                f"LLM-as-Judge metric {metric!r} requires EVAL_GOOGLE_AI_API_KEY"
+            )
+        result = judge_batch(
+            metric,
+            samples=judge_samples,
+            api_key=eval_settings.google_ai_api_key,
+            model=eval_settings.judge_model,
+        )
+        rows.append({**common, "metric_name": metric, "metric_value": result[metric]})
+
+    finished = datetime.now(timezone.utc)
+    for row in rows:
+        row["finished_at"] = finished
+        row["status"] = "completed"
+
+    return rows
+
+
+def _compute_code_metric(
+    *,
+    metric: str,
+    bundle: dict[str, Any],
+    dataset_name: str,
+    base_model: str,
+    kb_name: str | None,
+    eval_settings: Any,
+) -> list[dict[str, Any]]:
+    """Compute a single metric on pre-fetched code execution results."""
+    from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1
+
+    now = datetime.now(timezone.utc)
+    common = _build_common_fields(
+        task="code",
+        dataset_name=dataset_name,
+        base_model=base_model,
+        lora_alias=bundle["lora_alias"],
+        lora_info=bundle["lora_info"],
+        rag_alias=bundle["rag_alias"],
+        rag_enabled=bundle["rag_enabled"],
+        kb_name=kb_name,
+        eval_settings=eval_settings,
+        now=now,
+    )
+
+    metrics = compute_pass_at_1(bundle["exec_results"])
+
+    rows = []
+    if metric in metrics:
+        rows.append(
+            {
+                **common,
+                "metric_name": metric,
+                "metric_value": metrics[metric],
+                "finished_at": now,
+                "status": "completed",
+            }
+        )
+    return rows
+
+
+def _compute_retrieval_metric(
+    *,
+    metric: str,
+    bundle: dict[str, Any],
+    dataset_name: str,
+    base_model: str,
+    kb_name: str | None,
+    eval_settings: Any,
+) -> list[dict[str, Any]]:
+    """Compute a single retrieval metric on pre-fetched query results."""
+    from experiments.scripts.eval.metrics.automatic import compute_ndcg_at_k, compute_recall_at_k
+
+    query_results = bundle["query_results"]
+    recall_scores: list[float] = []
+    ndcg_scores: list[float] = []
+
+    for qr in query_results:
+        retrieved_ids = qr["retrieved_ids"]
+        relevance = qr["relevance"]
+        relevant_ids = {doc_id for doc_id, rel in relevance.items() if rel > 0}
+
+        recall_scores.append(compute_recall_at_k(retrieved_ids, relevant_ids, k=10))
+        ndcg_scores.append(compute_ndcg_at_k(retrieved_ids, relevance, k=10))
+
+    if not recall_scores:
+        raise RuntimeError(f"No query results for retrieval/{dataset_name}")
+
+    avg_recall = sum(recall_scores) / len(recall_scores)
+    avg_ndcg = sum(ndcg_scores) / len(ndcg_scores)
+
+    now = datetime.now(timezone.utc)
+    common = _build_common_fields(
+        task="retrieval",
+        dataset_name=dataset_name,
+        base_model=base_model,
+        lora_alias="none",
+        lora_info={
+            "adapter_name": None,
+            "adapter_version": None,
+            "adapter_mlflow_run_id": None,
+        },
+        rag_alias=bundle["rag_alias"],
+        rag_enabled=True,
+        kb_name=kb_name,
+        eval_settings=eval_settings,
+        now=now,
+    )
+
+    build_config = bundle.get("build_config", {})
+    common.update(
+        {
+            "qdrant_collection": bundle.get("temp_collection"),
+            "embedding_model": build_config.get("embedding_model"),
+            "chunking_strategy": build_config.get("chunking_strategy"),
+            "chunk_size": build_config.get("chunk_size"),
+            "chunk_overlap": build_config.get("chunk_overlap"),
+        }
+    )
+
+    rows = []
+    if metric == "recall_at_10":
+        rows.append(
+            {
+                **common,
+                "metric_name": "recall_at_10",
+                "metric_value": avg_recall,
+                "finished_at": now,
+                "status": "completed",
+            }
+        )
+    elif metric == "ndcg_at_10":
+        rows.append(
+            {
+                **common,
+                "metric_name": "ndcg_at_10",
+                "metric_value": avg_ndcg,
+                "finished_at": now,
+                "status": "completed",
+            }
+        )
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 

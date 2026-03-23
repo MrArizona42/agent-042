@@ -1,12 +1,16 @@
 """Inference-side adapter management: sync production LoRA adapters from MLflow.
 
 This module connects to the MLflow Model Registry, discovers every adapter
-that carries the ``"champion"`` alias, and downloads it to a local directory
-so that vLLM can load the adapters at startup (``--enable-lora``).
+that carries the configured production alias (default ``"champion"``), and
+downloads it to a local directory so that vLLM can load the adapters at
+startup (``--enable-lora``).
 
 It also generates a ``lora-modules.json`` manifest that can be fed to vLLM's
 ``--lora-modules`` flag or consumed by the gateway to know which adapters are
 available.
+
+The production alias is configurable via the ``REGISTRY_PRODUCTION_ALIAS``
+environment variable (see :class:`shared.config.ModelRegistrySettings`).
 
 Typical flow
 ------------
@@ -50,9 +54,6 @@ from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
 logger = logging.getLogger(__name__)
-
-ALIAS_PRODUCTION = "champion"
-ALIAS_STAGING = "challenger"
 
 
 # ── Data objects ─────────────────────────────────────────────────────────────
@@ -209,8 +210,24 @@ class AdapterRegistry:
         adapters.sort(key=lambda a: a.version, reverse=True)
         return adapters
 
-    def get_production_adapters(self) -> dict[str, RegisteredAdapter]:
-        """Return every adapter that carries the *champion* alias."""
+    def get_production_adapters(
+        self,
+        alias: str | None = None,
+    ) -> dict[str, RegisteredAdapter]:
+        """Return every adapter that carries the given *alias*.
+
+        Args:
+            alias: MLflow alias to look up.  When *None*, reads the default
+                from ``ModelRegistrySettings.production_alias``.  If the
+                config value is also *None*, returns an empty dict (no
+                production adapters).
+        """
+        if alias is None:
+            from shared.config import get_registry_settings
+
+            alias = get_registry_settings().production_alias
+        if not alias:
+            return {}
         try:
             registered_models = list(self.client.search_registered_models())
         except Exception as exc:
@@ -219,13 +236,13 @@ class AdapterRegistry:
         result: dict[str, RegisteredAdapter] = {}
         for rm in registered_models:
             try:
-                mv = self.client.get_model_version_by_alias(rm.name, ALIAS_PRODUCTION)
+                mv = self.client.get_model_version_by_alias(rm.name, alias)
                 result[rm.name] = RegisteredAdapter(
                     name=mv.name,
                     version=int(mv.version),
                     run_id=mv.run_id,
                     source=mv.source,
-                    aliases=[ALIAS_PRODUCTION],
+                    aliases=[alias],
                     tags=mv.tags or {},
                     description=mv.description,
                 )
@@ -281,19 +298,30 @@ class AdapterSyncer:
         tracking_uri: str | None = None,
         *,
         adapters_dir: str | Path,
+        production_alias: str | None = None,
     ):
+        # Resolve from config when caller doesn't specify explicitly.
+        if production_alias is None:
+            from shared.config import get_registry_settings
+
+            production_alias = get_registry_settings().production_alias
         uri = tracking_uri or os.getenv("MLFLOW_BACKEND_URI")
         if uri:
             mlflow.set_tracking_uri(uri)
         self.client = MlflowClient()
         self.adapters_dir = Path(adapters_dir)
+        self.production_alias = production_alias
 
     def discover_production_adapters(self) -> dict[str, Any]:
-        """Return ``{model_name: ModelVersion}`` for every champion adapter.
+        """Return ``{model_name: ModelVersion}`` for every adapter with the production alias.
+
+        Returns an empty dict when ``production_alias`` is *None* (no alias configured).
 
         Raises:
             RuntimeError: If MLflow is unreachable or returns an unexpected error.
         """
+        if not self.production_alias:
+            return {}
         try:
             registered_models = list(self.client.search_registered_models())
         except Exception as exc:
@@ -302,7 +330,9 @@ class AdapterSyncer:
         result = {}
         for rm in registered_models:
             try:
-                mv = self.client.get_model_version_by_alias(rm.name, ALIAS_PRODUCTION)
+                mv = self.client.get_model_version_by_alias(
+                    rm.name, self.production_alias,
+                )
                 result[rm.name] = mv
             except MlflowException as exc:
                 if exc.error_code == "RESOURCE_DOES_NOT_EXIST":
@@ -324,7 +354,10 @@ class AdapterSyncer:
         """
         adapters_map = self.discover_production_adapters()
         if not adapters_map:
-            logger.warning("No adapters with '%s' alias found.", ALIAS_PRODUCTION)
+            logger.warning(
+                "No production adapters to sync (alias=%r).",
+                self.production_alias,
+            )
             # Write an empty manifest so vLLM can start without LoRA modules.
             manifest_path = self.adapters_dir / "lora-modules.json"
             manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -404,7 +437,7 @@ def _cli() -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_sync = sub.add_parser("sync", help="Download all champion adapters.")
+    p_sync = sub.add_parser("sync", help="Download production adapters.")
     p_sync.add_argument(
         "--adapters-dir",
         default=registry_cfg.adapters_dir,
@@ -416,12 +449,24 @@ def _cli() -> None:
         help="Base model name for vLLM manifest (optional).",
     )
     p_sync.add_argument(
+        "--production-alias",
+        default=registry_cfg.production_alias,
+        help="MLflow alias that marks a production adapter "
+        f"(from config: {registry_cfg.production_alias!r}).",
+    )
+    p_sync.add_argument(
         "--env-file",
         default=None,
         help="Path to .env file with MLflow/S3 credentials.",
     )
 
     p_list = sub.add_parser("list", help="List production adapters (no download).")
+    p_list.add_argument(
+        "--production-alias",
+        default=registry_cfg.production_alias,
+        help="MLflow alias to look up "
+        f"(from config: {registry_cfg.production_alias!r}).",
+    )
     p_list.add_argument(
         "--env-file",
         default=None,
@@ -438,24 +483,30 @@ def _cli() -> None:
         dotenv.load_dotenv(".env")
 
     if args.command == "sync":
-        syncer = AdapterSyncer(adapters_dir=args.adapters_dir)
+        syncer = AdapterSyncer(
+            adapters_dir=args.adapters_dir,
+            production_alias=args.production_alias,
+        )
         infos = syncer.sync(base_model_name=args.base_model)
         if infos:
-            print(f"\n✓ Synced {len(infos)} adapter(s):")
+            print(f"\n✓ Synced {len(infos)} adapter(s) (alias='{args.production_alias}'):")
             for info in infos:
                 print(f"  {info.name} v{info.version} → {info.local_path}")
         else:
-            print("No production adapters to sync.")
+            print(f"No adapters with alias '{args.production_alias}' to sync.")
 
     elif args.command == "list":
-        syncer = AdapterSyncer(adapters_dir=registry_cfg.adapters_dir)
+        syncer = AdapterSyncer(
+            adapters_dir=registry_cfg.adapters_dir,
+            production_alias=args.production_alias,
+        )
         adapters = syncer.discover_production_adapters()
         if adapters:
-            print("\nProduction adapters (champion):")
+            print(f"\nProduction adapters (alias='{args.production_alias}'):")
             for name, mv in adapters.items():
                 print(f"  {name:<30} v{mv.version}  run={mv.run_id[:8]}…")
         else:
-            print("No production adapters found.")
+            print(f"No adapters with alias '{args.production_alias}' found.")
 
 
 if __name__ == "__main__":

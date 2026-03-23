@@ -50,13 +50,19 @@ airflow = [
     "requests>=2.31.0",
     "datasets>=4.4.2",
     "dvc[s3]>=3.66.1",
-    "numpy>=1.26,<2.0",
+    "numpy>=1.26",
     "protobuf>=5.26.0",
     "qdrant-client>=1.13.2",
     "httpx>=0.28.1",
     "langchain-text-splitters>=0.4.2",
     "mlflow>=3.8.1,<4",
     "psycopg2-binary>=2.9,<3",
+    # Airflow 2.10.x compat: the base Docker image ships these at specific
+    # versions; our lock file must not upgrade them beyond Airflow's bounds.
+    "flask>=2.2,<2.3",
+    "werkzeug>=2.2,<3.0",
+    "sqlalchemy>=1.4,<2.0",
+    "flask-cors>=3.0,<5.0",
 ]
 
 rag = [

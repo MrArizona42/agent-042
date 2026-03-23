@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -35,7 +35,7 @@ PYTORCH_OUTPUT_DIR = ASSETS_DIR / "rag_data" / "pytorch_docs"
 
 PYTORCH_BASE_URL = "https://pytorch.org/docs/stable/"
 PYTORCH_SCRAPE_DELAY_SECONDS = 1
-PYTORCH_MAX_CODE_EXAMPLES = 10
+PYTORCH_MAX_CODE_EXAMPLES = 1000
 PYTORCH_PAGES: list[str] = [
     "generated/torch.nn.Module.html",
     "generated/torch.Tensor.html",
@@ -70,8 +70,7 @@ default_args = {
     "depends_on_past": False,
     "email_on_failure": False,
     "email_on_retry": False,
-    "retries": 2,
-    "retry_delay": timedelta(minutes=10),
+    "retries": 0,
 }
 
 # ---------------------------------------------------------------------------

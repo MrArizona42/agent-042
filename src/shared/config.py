@@ -410,6 +410,12 @@ class ModelRegistrySettings(BaseSettings):
         default="./adapters",
         description="Local directory for downloaded LoRA adapters",
     )
+    production_alias: str | None = Field(
+        default=None,
+        description="MLflow alias that marks an adapter as production-ready. "
+        "The adapter-sync init container downloads adapters with this alias. "
+        "None means no production adapters are synced (base model only).",
+    )
     auto_sync: bool = Field(
         default=False,
         description="Automatically sync production adapters on startup",
