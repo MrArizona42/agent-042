@@ -13,9 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #   uv --no-config pip compile pyproject.toml --extra eval-worker \
 #       --python-version 3.12 --python-platform linux \
 #       --extra-index-url https://download.pytorch.org/whl/cpu \
+#       --index-strategy unsafe-best-match \
 #       -o infra/docker/eval-worker/requirements-eval-worker.lock
 COPY infra/docker/eval-worker/requirements-eval-worker.lock /app/
-RUN pip install -r requirements-eval-worker.lock \
+RUN pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements-eval-worker.lock \
     && rm requirements-eval-worker.lock
 
 # Copy source and experiment scripts
