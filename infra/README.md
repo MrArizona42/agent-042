@@ -67,12 +67,17 @@ uv sync --extra mlflow
 
 Сборка lock-файлов для Docker-сервисов (выполнять из корня репозитория):
 ```bash
-uv --no-config pip compile pyproject.toml --extra gateway --python-version 3.12 --python-platform linux -o infra/docker/gateway/requirements-gateway.lock
-uv --no-config pip compile pyproject.toml --extra ui --python-version 3.12 --python-platform linux -o infra/docker/ui/requirements-ui.lock
-uv --no-config pip compile pyproject.toml --extra worker --python-version 3.12 --python-platform linux -o infra/docker/celery/requirements-celery.lock
-uv --no-config pip compile pyproject.toml --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/mlflow/requirements-mlflow.lock
-uv --no-config pip compile pyproject.toml --extra airflow --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
-uv --no-config pip compile pyproject.toml --extra training --extra rag --extra dev --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/jupyter/requirements-jupyter.lock
+# Обновить все lock-файлы разом:
+scripts/update_locks.sh
+
+# Или только конкретные сервисы:
+scripts/update_locks.sh gateway airflow-worker
+
+# Посмотреть список сервисов:
+scripts/update_locks.sh --list
+
+# Проверить команды без выполнения:
+scripts/update_locks.sh --dry-run
 ```
 
 ## Docker / Docker Compose
@@ -239,18 +244,18 @@ download / scrape  >>  dvc_version  >>  build_index
 
 ### Зависимости DAG'ов
 
-Зависимости, необходимые для выполнения DAG'ов, задаются в `pyproject.toml` в группе `airflow` (`[project.optional-dependencies]`) и устанавливаются при сборке кастомного Airflow-образа (`infra/docker/airflow/Dockerfile`) из lock-файла `infra/docker/airflow/requirements.lock`. Все три Airflow-сервиса (`airflow-init`, `airflow-webserver`, `airflow-scheduler`) собираются из этого Dockerfile через `x-airflow-common-build` якорь в `docker-compose.yaml`.
+Зависимости для выполнения DAG-задач задаются в `pyproject.toml` в группе `airflow-worker` и устанавливаются при сборке образа Celery-воркера (`infra/docker/airflow-worker/Dockerfile`). Scheduler, webserver и dag-processor используют лёгкий базовый образ без лишних пакетов.
 
 Чтобы обновить зависимости:
 ```bash
-# 1. Отредактируйте группу airflow в pyproject.toml
+# 1. Отредактируйте группу airflow-worker в pyproject.toml
 # 2. Пересоберите lock:
-uv --no-config pip compile pyproject.toml --extra airflow --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
+scripts/update_locks.sh airflow-worker
 
 # 3. Пересоберите образ:
 cd infra/compose
-docker compose build airflow-webserver airflow-scheduler airflow-init
-docker compose up -d airflow-webserver airflow-scheduler
+docker compose build airflow-worker
+docker compose up -d airflow-worker
 ```
 
 Переменные окружения (`.env`):

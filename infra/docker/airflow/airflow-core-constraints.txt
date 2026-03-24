@@ -22,3 +22,7 @@ opentelemetry-sdk==1.28.0
 opentelemetry-proto==1.28.0
 opentelemetry-semantic-conventions==0.49b0
 cryptography==46.0.5
+# FastAPI / Starlette must match the base image; cadwyn (Airflow's versioned-API
+# layer) imports private helpers that move between FastAPI releases.
+fastapi==0.117.1
+starlette==0.48.0

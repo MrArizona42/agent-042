@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #       --index-strategy unsafe-best-match \
 #       -o infra/docker/eval-worker/requirements-eval-worker.lock
 COPY infra/docker/eval-worker/requirements-eval-worker.lock /app/
-RUN pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu \
     -r requirements-eval-worker.lock \
     && rm requirements-eval-worker.lock
 

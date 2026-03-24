@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install python deps from lock file for reproducible builds.
 # To update: uv --no-config pip compile pyproject.toml --extra worker --python-version 3.12 --python-platform linux -o infra/docker/celery/requirements-celery.lock
 COPY infra/docker/celery/requirements-celery.lock /app/
-RUN pip install -r requirements-celery.lock
+RUN pip install --no-cache-dir -r requirements-celery.lock
 
 # Copy source
 COPY src /app/src

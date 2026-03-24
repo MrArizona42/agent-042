@@ -12,6 +12,9 @@ Two-step execution:
 Predictions are handed between tasks via a temporary JSON file to avoid
 XCom size limits.
 
+All tasks run on the dedicated Airflow Celery worker which has
+bert-score, torch (CPU), and other heavy dependencies installed.
+
 For custom parameter values that are not in the dropdown lists, put
 a JSON string into the ``custom_params`` field when triggering the DAG.
 Example::
@@ -219,32 +222,14 @@ def _fetch_predictions_task(
     return output_path  # auto-pushed to XCom
 
 
-def _get_celery_client():
-    """Lazy-initialise a Celery client for dispatching tasks to the eval-worker."""
-    from celery import Celery
-
-    broker_url = os.environ.get(
-        "CELERY_BROKER_URL",
-        "amqp://guest:guest@rabbitmq:5672//",
-    )
-    return Celery(broker=broker_url, backend="rpc://")
-
-
-# Module-level singleton — created once per Airflow worker process.
-_celery_client = None
-
-
 def _calculate_metrics_task(
     **context: object,
 ) -> None:
-    """Airflow task: dispatch metric computation to the eval-worker via Celery.
+    """Airflow task: compute the selected metric on pre-fetched predictions.
 
-    The actual ``bert-score`` / ``rouge`` calculation runs inside the
-    eval-worker container (which carries ``torch`` CPU), keeping the
-    Airflow image lightweight.
+    Runs directly on the Airflow Celery worker which has ``bert-score``,
+    ``torch`` (CPU), and other heavy dependencies installed.
     """
-    global _celery_client
-
     log = logging.getLogger(__name__)
     logging.basicConfig(
         level=logging.INFO,
@@ -261,20 +246,11 @@ def _calculate_metrics_task(
     resolved = _resolve_params(context)
     metric = resolved["metric"]
 
-    log.info("calculate_metrics: dispatching metric=%s to eval-worker queue", metric)
+    log.info("calculate_metrics: metric=%s", metric)
 
-    if _celery_client is None:
-        _celery_client = _get_celery_client()
+    from experiments.scripts.eval.runner import calculate_metrics
 
-    async_result = _celery_client.send_task(
-        "eval_worker.tasks.calculate_metrics_task",
-        kwargs={"metric": metric, "prediction_data": prediction_data},
-        queue="eval",
-    )
-
-    # Block until the eval-worker finishes.  The eval-worker has a
-    # task_time_limit of 1800 s; allow a small margin for broker overhead.
-    rows = async_result.get(timeout=1860)
+    rows = calculate_metrics(metric=metric, prediction_data=prediction_data)
 
     log.info("Metrics complete: %d rows", len(rows))
     for row in rows:
