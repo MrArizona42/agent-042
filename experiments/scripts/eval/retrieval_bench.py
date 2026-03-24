@@ -40,7 +40,12 @@ def read_build_config(
     meta = vs.read_meta()
     if meta is None:
         logger.warning("No _meta point in alias '%s'", alias_name)
-    return meta
+        return None
+    build_cfg = meta.get("build_config")
+    if build_cfg is None:
+        logger.warning("No 'build_config' key in _meta for alias '%s'", alias_name)
+        return None
+    return build_cfg
 
 
 def build_temp_collection(
