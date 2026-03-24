@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY infra/docker/adapter-sync/requirements-adapter-sync.lock /app/
-RUN pip install -r requirements-adapter-sync.lock
+RUN pip install --no-cache-dir -r requirements-adapter-sync.lock
 
 # Only the shared module is needed
 COPY src/shared /app/src/shared

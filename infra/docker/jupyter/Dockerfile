@@ -7,7 +7,7 @@ USER root
 # To update: uv --no-config pip compile pyproject.toml --extra training --extra rag --extra dev --extra mlflow --python-version 3.13 --python-platform linux -o infra/docker/jupyter/requirements-jupyter.lock
 COPY infra/docker/jupyter/requirements-jupyter.lock /tmp/requirements-jupyter.lock
 
-RUN pip install -r /tmp/requirements-jupyter.lock
+RUN pip install --no-cache-dir -r /tmp/requirements-jupyter.lock
 
 # Restore unprivileged notebook user
 USER ${NB_USER}

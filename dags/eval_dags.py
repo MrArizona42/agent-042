@@ -12,6 +12,9 @@ Two-step execution:
 Predictions are handed between tasks via a temporary JSON file to avoid
 XCom size limits.
 
+All tasks run on the dedicated Airflow Celery worker which has
+bert-score, torch (CPU), and other heavy dependencies installed.
+
 For custom parameter values that are not in the dropdown lists, put
 a JSON string into the ``custom_params`` field when triggering the DAG.
 Example::
@@ -222,7 +225,11 @@ def _fetch_predictions_task(
 def _calculate_metrics_task(
     **context: object,
 ) -> None:
-    """Airflow task: compute metrics on previously-fetched predictions."""
+    """Airflow task: compute the selected metric on pre-fetched predictions.
+
+    Runs directly on the Airflow Celery worker which has ``bert-score``,
+    ``torch`` (CPU), and other heavy dependencies installed.
+    """
     log = logging.getLogger(__name__)
     logging.basicConfig(
         level=logging.INFO,
@@ -239,14 +246,11 @@ def _calculate_metrics_task(
     resolved = _resolve_params(context)
     metric = resolved["metric"]
 
-    log.info("calculate_metrics: metric=%s from %s", metric, predictions_path)
+    log.info("calculate_metrics: metric=%s", metric)
 
     from experiments.scripts.eval.runner import calculate_metrics
 
-    rows = calculate_metrics(
-        metric=metric,
-        prediction_data=prediction_data,
-    )
+    rows = calculate_metrics(metric=metric, prediction_data=prediction_data)
 
     log.info("Metrics complete: %d rows", len(rows))
     for row in rows:

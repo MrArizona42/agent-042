@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python dependencies from lock file for reproducible builds.
 # To update: uv --no-config pip compile pyproject.toml --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/mlflow/requirements-mlflow.lock
 COPY infra/docker/mlflow/requirements-mlflow.lock /app/
-RUN pip install -r requirements-mlflow.lock
+RUN pip install --no-cache-dir -r requirements-mlflow.lock
 
 # Expose MLflow default port (documentation only)
 EXPOSE 5000
