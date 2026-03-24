@@ -101,7 +101,7 @@ def build_temp_collection(
     all_ids: list[str] = []
     all_meta: list[dict] = []
     for doc in corpus:
-        chunks = chunker.split_text(doc["text"])
+        chunks = chunker.chunk(doc["text"])
         for i, chunk in enumerate(chunks):
             all_texts.append(chunk)
             all_ids.append(f"{doc['doc_id']}_{i}")
