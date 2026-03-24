@@ -653,6 +653,34 @@ def _load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict
                     "answer": item.get("abstract", ""),
                 }
             )
+        elif task == "retrieval":
+            # Support both BEIR-style (top-level "text"/"_id") and
+            # msmarco-style (nested "passages.passage_text") datasets.
+            text = item.get("text", "")
+            if not text:
+                passages_data = item.get("passages", {})
+                passage_texts = passages_data.get("passage_text", [])
+                is_selected = passages_data.get("is_selected", [0] * len(passage_texts))
+                selected_texts = [t for t, s in zip(passage_texts, is_selected) if s]
+                text = (
+                    selected_texts[0]
+                    if selected_texts
+                    else (passage_texts[0] if passage_texts else "")
+                )
+            if not text:
+                continue
+            doc_id = str(
+                item.get("doc_id") or item.get("_id") or item.get("query_id") or len(samples)
+            )
+            query = item.get("query", "") or item.get("question", "")
+            samples.append(
+                {
+                    "doc_id": doc_id,
+                    "text": text,
+                    "query": query,
+                    "relevance": {doc_id: 1} if query else {},
+                }
+            )
         else:
             # chat / QA
             samples.append(
