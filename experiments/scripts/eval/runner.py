@@ -838,6 +838,7 @@ def _evaluate_retrieval(
         build_config=build_config,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
+        embeddings_url=settings.embeddings_url,
     )
 
     try:
@@ -1219,6 +1220,7 @@ def _fetch_retrieval_predictions(
         build_config=build_config,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
+        embeddings_url=settings.embeddings_url,
     )
 
     try:
@@ -1227,9 +1229,7 @@ def _fetch_retrieval_predictions(
 
         embedding_model = build_config["embedding_model"]
         emb_service = EmbeddingService(model_name=embedding_model)
-        vs = QdrantVectorStore(
-            host=qdrant_host, port=qdrant_port, collection_name=temp_collection
-        )
+        vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
 
         queries = [s for s in samples if s.get("query")]
         query_results: list[dict[str, Any]] = []
@@ -1413,9 +1413,7 @@ def _compute_generation_metric(
             rows.append({**common, "metric_name": metric, "metric_value": auto[metric]})
     elif metric in _JUDGE_METRICS:
         if not eval_settings.google_ai_api_key:
-            raise RuntimeError(
-                f"LLM-as-Judge metric {metric!r} requires EVAL_GOOGLE_AI_API_KEY"
-            )
+            raise RuntimeError(f"LLM-as-Judge metric {metric!r} requires EVAL_GOOGLE_AI_API_KEY")
         result = judge_batch(
             metric,
             samples=judge_samples,
