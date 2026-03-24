@@ -743,10 +743,32 @@ def _load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict
             )
         else:
             # chat / QA
+            # NQ stores question as {"text": "...", "tokens": [...]}; unwrap if needed
+            question = item.get("question", "")
+            if isinstance(question, dict):
+                question = question.get("text", "")
+
+            # NQ has no top-level "answer" — extract from annotations.short_answers
+            answer = item.get("answer", "")
+            if not answer:
+                annotations = item.get("annotations", {})
+
+                short_answers_col = (
+                    annotations.get("short_answers", []) if isinstance(annotations, dict) else []
+                )
+                for sa_list in short_answers_col:
+                    for sa in sa_list if isinstance(sa_list, list) else []:
+                        texts = sa.get("text", []) if isinstance(sa, dict) else []
+                        if texts:
+                            answer = texts[0]
+                            break
+                    if answer:
+                        break
+
             samples.append(
                 {
-                    "question": item.get("question", ""),
-                    "answer": item.get("answer", ""),
+                    "question": question,
+                    "answer": answer,
                 }
             )
 
