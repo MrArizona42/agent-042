@@ -121,10 +121,13 @@ class QdrantVectorStore:
                 )
             )
 
-        self.client.upsert(
-            collection_name=self.collection_name,
-            points=points,
-        )
+        batch_size = 500
+        for start in range(0, len(points), batch_size):
+            batch = points[start : start + batch_size]
+            self.client.upsert(
+                collection_name=self.collection_name,
+                points=batch,
+            )
         logger.info(f"Added {len(points)} documents to {self.collection_name}")
 
     def search(
