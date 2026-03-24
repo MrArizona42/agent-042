@@ -8,6 +8,7 @@ the same embedding model and chunking configuration.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -104,7 +105,8 @@ def build_temp_collection(
         chunks = chunker.chunk(doc["text"])
         for i, chunk in enumerate(chunks):
             all_texts.append(chunk)
-            all_ids.append(f"{doc['doc_id']}_{i}")
+            chunk_key = f"{collection_name}:{doc['doc_id']}:{i}"
+            all_ids.append(str(uuid.uuid5(uuid.NAMESPACE_OID, chunk_key)))
             all_meta.append({"source": doc.get("doc_id", ""), "task": task})
 
     if not all_texts:
