@@ -625,6 +625,66 @@ def _load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict
         return []
 
     ds_dict = load_from_disk(str(dataset_path))
+
+    # -----------------------------------------------------------------------
+    # BEIR-style datasets: queries + qrels splits present
+    # -----------------------------------------------------------------------
+    if task == "retrieval" and "queries" in ds_dict and "qrels" in ds_dict:
+        queries_ds = ds_dict["queries"]
+        qrels_ds = ds_dict["qrels"]
+
+        # Build relevance map: query_id -> {corpus_id: score}
+        relevance_map: dict[str, dict[str, int]] = {}
+        for row in qrels_ds:
+            qid = str(row["query_id"])
+            cid = str(row["corpus_id"])
+            relevance_map.setdefault(qid, {})[cid] = int(row["score"])
+
+        corpus_split = next((s for s in ("corpus", "train") if s in ds_dict), None)
+        corpus_ds = ds_dict[corpus_split] if corpus_split else None
+
+        samples: list[dict[str, str]] = []
+        for item in queries_ds:
+            qid = str(item["_id"])
+            if qid not in relevance_map:
+                continue  # no judgements for this query
+            query_text = item.get("text", "")
+            if not query_text:
+                continue
+
+            rel = relevance_map[qid]
+
+            # Corpus docs for this query (needed to build temp collection)
+            relevant_docs: list[dict] = []
+            if corpus_ds is not None:
+                relevant_cids = set(rel.keys())
+                for doc in corpus_ds:
+                    if str(doc["_id"]) in relevant_cids:
+                        relevant_docs.append(
+                            {"doc_id": str(doc["_id"]), "text": doc.get("text", "")}
+                        )
+
+            samples.append(
+                {
+                    "query_id": qid,
+                    "query": query_text,
+                    "relevance": rel,
+                    "relevant_docs": relevant_docs,
+                }
+            )
+            if limit > 0 and len(samples) >= limit:
+                break
+
+        logger.info(
+            "Loaded %d BEIR queries from %s",
+            len(samples),
+            dataset_path,
+        )
+        return samples
+
+    # -----------------------------------------------------------------------
+    # Standard single-split path
+    # -----------------------------------------------------------------------
     if split_name not in ds_dict:
         logger.error(
             "Split '%s' not found in %s (available: %s)",
@@ -1235,10 +1295,22 @@ def _fetch_retrieval_predictions(
     if not samples:
         raise RuntimeError(f"No samples loaded for retrieval/{dataset_name}")
 
-    corpus = [
-        {"doc_id": s.get("doc_id", str(i)), "text": s.get("text", "")}
-        for i, s in enumerate(samples)
-    ]
+    # BEIR datasets supply per-query relevant_docs; msmarco-style supply a flat
+    # list of corpus items with a "text" field.  Build the corpus accordingly.
+    if samples[0].get("relevant_docs") is not None:
+        # BEIR: deduplicate across queries
+        seen: set[str] = set()
+        corpus = []
+        for s in samples:
+            for doc in s["relevant_docs"]:
+                if doc["doc_id"] not in seen:
+                    corpus.append(doc)
+                    seen.add(doc["doc_id"])
+    else:
+        corpus = [
+            {"doc_id": s.get("doc_id", str(i)), "text": s.get("text", "")}
+            for i, s in enumerate(samples)
+        ]
 
     temp_collection = build_temp_collection(
         kb_name=kb_name,
