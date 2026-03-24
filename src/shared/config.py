@@ -266,10 +266,12 @@ class Settings(BaseSettings):
     # =========================================================================
     qdrant_host: str = Field(
         default="localhost",
+        validation_alias=AliasChoices("QDRANT_HOST", "GATEWAY_QDRANT_HOST"),
         description="Qdrant server hostname",
     )
     qdrant_port: int = Field(
         default=6333,
+        validation_alias=AliasChoices("QDRANT_PORT", "GATEWAY_QDRANT_PORT"),
         description="Qdrant server port",
         ge=1,
         le=65535,
