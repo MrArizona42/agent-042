@@ -403,7 +403,16 @@ services:
       # Required to handle warm shutdown of the celery workers properly
       # See https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation
       DUMB_INIT_SETSID: "0"
-    volumes: *airflow-common-volumes
+    volumes:
+      - ${PROJECT_ROOT}/dags:/opt/airflow/dags
+      - ${PROJECT_ROOT}:/opt/airflow/project
+      - airflow_logs:/opt/airflow/logs
+    # Firejail (HumanEval sandbox) is a SUID binary that sets up Linux
+    # namespaces internally.  AppArmor's default Docker profile blocks some
+    # of the calls Firejail makes as SUID root, so we disable it here.
+    # No Docker socket is needed; the worker image is built with Firejail.
+    security_opt:
+      - apparmor:unconfined
     depends_on:
       rabbitmq:
         condition: service_healthy

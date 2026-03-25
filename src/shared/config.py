@@ -480,17 +480,13 @@ class EvalSettings(BaseSettings):
         description="Timeout in seconds for sandboxed code execution",
         ge=1,
     )
-    code_exec_image: str = Field(
-        default="python:3.11-slim",
-        description="Docker image for sandboxed code execution",
-    )
     code_exec_mem_limit: str = Field(
         default="512m",
-        description="Memory limit for sandboxed code execution containers",
+        description="Memory limit for sandboxed code execution (Firejail rlimit-as)",
     )
     code_exec_cpus: float = Field(
         default=1.0,
-        description="CPU limit for sandboxed code execution containers",
+        description="CPU share for sandboxed code execution (used to derive rlimit-cpu)",
         ge=0.1,
     )
     internal_api_key: str = Field(

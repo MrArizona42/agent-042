@@ -1,84 +1,93 @@
 """Sandboxed code execution for HumanEval evaluation.
 
-Runs generated Python code in ephemeral Docker containers with strict
-resource limits and no network access.
+Runs generated Python code under Firejail with strict resource limits and no
+network access.  Firejail must be installed in the worker image (see
+infra/docker/airflow-worker/Dockerfile).  No Docker socket is required.
 """
 
 from __future__ import annotations
 
 import logging
+import re
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_MEM_UNITS = {"k": 1024, "m": 1024**2, "g": 1024**3}
+
+
+def _parse_mem_limit(mem_limit: str) -> int:
+    """Convert a Docker-style memory string (e.g. ``'512m'``) to bytes."""
+    m = re.fullmatch(r"(\d+)([kmg])?", mem_limit.strip().lower())
+    if not m:
+        raise ValueError(f"Unparseable mem_limit: {mem_limit!r}")
+    value, unit = int(m.group(1)), m.group(2) or "b"
+    return value * _MEM_UNITS.get(unit, 1)
+
 
 def _run_in_container(
     code: str,
     *,
-    image: str,
     timeout: int,
     mem_limit: str,
     cpus: float,
 ) -> dict[str, Any]:
-    """Execute *code* in an ephemeral Docker container.
+    """Execute *code* under Firejail with resource and network isolation.
 
     Args:
         code: Python source to execute.
-        image: Docker image name.
-        timeout: Maximum execution time in seconds.
-        mem_limit: Memory limit string for Docker.
-        cpus: Number of CPUs.
+        timeout: Wall-clock timeout in seconds (also used as CPU-time cap).
+        mem_limit: Memory limit string (e.g. ``'512m'``).
+        cpus: CPU share; multiplied by *timeout* to derive the rlimit-cpu cap.
 
     Returns:
         ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
-    try:
-        import docker
-    except ImportError:
-        logger.warning("docker package not installed; marking sample as failed")
-        return {"passed": False, "exit_code": -1, "stdout": "", "stderr": "docker not installed"}
-
-    client = docker.from_env()
+    mem_bytes = _parse_mem_limit(mem_limit)
+    cpu_seconds = max(1, int(timeout * cpus))
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(code)
         host_path = f.name
 
-    container = None
+    cmd = [
+        "firejail",
+        "--quiet",
+        "--net=none",  # no network access inside the jail
+        "--noroot",  # prevent privilege escalation inside the jail
+        f"--rlimit-as={mem_bytes}",  # virtual-memory cap
+        f"--rlimit-cpu={cpu_seconds}",  # CPU-time cap
+        "--",
+        "python3",
+        host_path,
+    ]
+
     try:
-        container = client.containers.run(
-            image,
-            command=["python", "/code/solution.py"],
-            volumes={host_path: {"bind": "/code/solution.py", "mode": "ro"}},
-            network_mode="none",
-            mem_limit=mem_limit,
-            nano_cpus=int(cpus * 1e9),
-            detach=True,
-            remove=False,
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=timeout,
         )
-
-        result = container.wait(timeout=timeout)
-        exit_code = result.get("StatusCode", -1)
-        stdout = container.logs(stdout=True, stderr=False).decode(errors="replace")
-        stderr = container.logs(stdout=False, stderr=True).decode(errors="replace")
-
+        exit_code = proc.returncode
         return {
             "passed": exit_code == 0,
             "exit_code": exit_code,
-            "stdout": stdout.strip(),
-            "stderr": stderr.strip(),
+            "stdout": proc.stdout.decode(errors="replace").strip(),
+            "stderr": proc.stderr.decode(errors="replace").strip(),
         }
+    except subprocess.TimeoutExpired:
+        logger.warning("Firejail execution timed out after %ds", timeout)
+        return {"passed": False, "exit_code": -1, "stdout": "", "stderr": "timeout"}
+    except FileNotFoundError:
+        logger.error("firejail binary not found; is it installed in the worker image?")
+        return {"passed": False, "exit_code": -1, "stdout": "", "stderr": "firejail not found"}
     except Exception as e:
-        logger.error("Container execution error: %s", e)
+        logger.error("Firejail execution error: %s", e)
         return {"passed": False, "exit_code": -1, "stdout": "", "stderr": str(e)}
     finally:
-        if container:
-            try:
-                container.remove(force=True)
-            except Exception:
-                pass
         Path(host_path).unlink(missing_ok=True)
 
 
@@ -87,7 +96,6 @@ def evaluate_humaneval_sample(
     generated_code: str,
     test_code: str,
     *,
-    image: str,
     timeout: int,
     mem_limit: str,
     cpus: float,
@@ -95,22 +103,21 @@ def evaluate_humaneval_sample(
     """Evaluate a single HumanEval sample.
 
     Combines the function prompt, generated completion, and test assertions
-    into one script, then executes it in a sandboxed container.
+    into one script, then executes it in a Firejail sandbox.
 
     Args:
         prompt: The function signature / docstring from HumanEval.
         generated_code: Model-generated function body.
         test_code: Assertion-based test code from the dataset.
-        image: Docker image for execution.
         timeout: Execution timeout in seconds.
+        mem_limit: Memory limit string (e.g. ``'512m'``).
+        cpus: CPU share for rlimit-cpu calculation.
 
     Returns:
         ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
     full_code = f"{prompt}\n{generated_code}\n\n{test_code}\n"
-    return _run_in_container(
-        full_code, image=image, timeout=timeout, mem_limit=mem_limit, cpus=cpus
-    )
+    return _run_in_container(full_code, timeout=timeout, mem_limit=mem_limit, cpus=cpus)
 
 
 def compute_pass_at_1(results: list[dict[str, Any]]) -> dict[str, float]:
