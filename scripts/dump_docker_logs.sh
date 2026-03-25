@@ -8,6 +8,9 @@
 #
 # Requires: docker compose, must be run from the project root or with
 # COMPOSE_FILE pointing to infra/compose/docker-compose.yaml.
+#
+# Example
+# bash scripts/fetch_logs_ssh.sh my_server /home/anton-m/Git/agent-042
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
