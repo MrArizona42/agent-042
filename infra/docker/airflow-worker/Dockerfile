@@ -10,16 +10,6 @@
 # Base version must stay in sync with infra/docker/airflow/Dockerfile.
 FROM apache/airflow:3.1.8
 
-# Install Firejail for sandboxed HumanEval code execution.
-# Firejail is a SUID-root binary that uses Linux namespaces + seccomp-bpf to
-# isolate each generated-code subprocess (--net=none, rlimits).  No Docker
-# socket is required, so the worker container stays unprivileged.
-USER root
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends firejail \
-    && rm -rf /var/lib/apt/lists/*
-USER airflow
-
 # Install DAG task dependencies for the Celery worker.
 # torch is installed from the CPU-only index to avoid pulling CUDA wheels.
 # The --constraint file prevents overriding Airflow-critical packages

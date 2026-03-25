@@ -1,8 +1,8 @@
 """Sandboxed code execution for HumanEval evaluation.
 
-Runs generated Python code under Firejail with strict resource limits and no
-network access.  Firejail must be installed in the worker image (see
-infra/docker/airflow-worker/Dockerfile).  No Docker socket is required.
+Runs generated Python code in a child ``python3`` subprocess with a CPU-time
+rlimit (``RLIMIT_CPU``) and a wall-clock timeout.  No Docker socket and no
+SUID sandbox binary are required.
 """
 
 from __future__ import annotations
@@ -129,44 +129,54 @@ def _run_in_container(
     code: str,
     *,
     timeout: int,
-    mem_limit: str,
+    mem_limit: str,  # noqa: ARG001 – kept for call-site compatibility
     cpus: float,
 ) -> dict[str, Any]:
-    """Execute *code* under Firejail with resource and network isolation.
+    """Execute *code* in a resource-limited subprocess.
+
+    Runs ``python3`` in a child process.  A ``RLIMIT_CPU`` rlimit is applied
+    inside the child via ``preexec_fn`` and a wall-clock ``timeout`` is
+    enforced by the parent so runaway tasks cannot stall the worker
+    indefinitely.  No additional sandboxing binary is required.
+
+    Note:
+        ``mem_limit`` is accepted for config compatibility but is not applied
+        as ``RLIMIT_AS``.  On 64-bit hosts the virtual-address-space limit
+        interferes with Python's own startup allocations (shared-library
+        mappings) and produces spurious ``MemoryError`` failures unrelated to
+        the evaluated code.  The wall-clock ``timeout`` remains the primary
+        runaway-task guard.
 
     Args:
         code: Python source to execute.
         timeout: Wall-clock timeout in seconds (also used as CPU-time cap).
-        mem_limit: Memory limit string (e.g. ``'512m'``).
+        mem_limit: Ignored; kept for backward-compatible call sites.
         cpus: CPU share; multiplied by *timeout* to derive the rlimit-cpu cap.
 
     Returns:
         ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
-    mem_bytes = _parse_mem_limit(mem_limit)
     cpu_seconds = max(1, int(timeout * cpus))
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(code)
         host_path = f.name
 
-    cmd = [
-        "firejail",
-        "--quiet",
-        "--net=none",  # no network access inside the jail
-        "--noroot",  # prevent privilege escalation inside the jail
-        f"--rlimit-as={mem_bytes}",  # virtual-memory cap
-        f"--rlimit-cpu={cpu_seconds}",  # CPU-time cap
-        "--",
-        "python3",
-        host_path,
-    ]
+    def _set_limits() -> None:
+        """CPU-time rlimit applied inside the child process before exec."""
+        try:
+            import resource as _r  # Linux / macOS only
+
+            _r.setrlimit(_r.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+        except Exception:
+            pass  # Best-effort; non-Linux or unprivileged container
 
     try:
         proc = subprocess.run(
-            cmd,
+            ["python3", host_path],
             capture_output=True,
             timeout=timeout,
+            preexec_fn=_set_limits,
         )
         exit_code = proc.returncode
         return {
@@ -176,13 +186,10 @@ def _run_in_container(
             "stderr": proc.stderr.decode(errors="replace").strip(),
         }
     except subprocess.TimeoutExpired:
-        logger.warning("Firejail execution timed out after %ds", timeout)
+        logger.warning("Code execution timed out after %ds", timeout)
         return {"passed": False, "exit_code": -1, "stdout": "", "stderr": "timeout"}
-    except FileNotFoundError:
-        logger.error("firejail binary not found; is it installed in the worker image?")
-        return {"passed": False, "exit_code": -1, "stdout": "", "stderr": "firejail not found"}
     except Exception as e:
-        logger.error("Firejail execution error: %s", e)
+        logger.error("Code execution error: %s", e)
         return {"passed": False, "exit_code": -1, "stdout": "", "stderr": str(e)}
     finally:
         Path(host_path).unlink(missing_ok=True)

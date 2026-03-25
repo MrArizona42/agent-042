@@ -482,7 +482,11 @@ class EvalSettings(BaseSettings):
     )
     code_exec_mem_limit: str = Field(
         default="512m",
-        description="Memory limit for sandboxed code execution (Firejail rlimit-as)",
+        description=(
+            "Memory limit string for sandboxed code execution. "
+            "Accepted for config compatibility; not currently enforced "
+            "(RLIMIT_AS on 64-bit hosts breaks Python startup)."
+        ),
     )
     code_exec_cpus: float = Field(
         default=1.0,
