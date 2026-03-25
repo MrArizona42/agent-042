@@ -161,6 +161,8 @@ def _resolve_lora_alias(
     if lora_alias == "none":
         return {"adapter_name": None, "adapter_version": None, "adapter_mlflow_run_id": None}
 
+    model_name = f"lora-{task}"
+
     try:
         from experiments.scripts.train_adapter.registry import AdapterRegistry
         from shared.config import get_registry_settings
@@ -168,8 +170,6 @@ def _resolve_lora_alias(
         reg_settings = get_registry_settings()
         registry = AdapterRegistry(tracking_uri=reg_settings.mlflow_tracking_uri)
 
-        # Adapter names follow the lora-<task> convention
-        model_name = f"lora-{task}"
         mv = registry.client.get_model_version_by_alias(model_name, lora_alias)
 
         return {

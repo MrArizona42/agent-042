@@ -16,7 +16,7 @@ Typical flow
 ------------
 1. Researcher promotes an adapter::
 
-       python scripts/manage_registry.py promote lora-summarization 3
+       python scripts/manage_registry.py promote lora-summarize 3
 
 2. Ops (or CI/CD) syncs adapters to the inference host::
 
@@ -331,7 +331,8 @@ class AdapterSyncer:
         for rm in registered_models:
             try:
                 mv = self.client.get_model_version_by_alias(
-                    rm.name, self.production_alias,
+                    rm.name,
+                    self.production_alias,
                 )
                 result[rm.name] = mv
             except MlflowException as exc:
@@ -464,8 +465,7 @@ def _cli() -> None:
     p_list.add_argument(
         "--production-alias",
         default=registry_cfg.production_alias,
-        help="MLflow alias to look up "
-        f"(from config: {registry_cfg.production_alias!r}).",
+        help=f"MLflow alias to look up (from config: {registry_cfg.production_alias!r}).",
     )
     p_list.add_argument(
         "--env-file",

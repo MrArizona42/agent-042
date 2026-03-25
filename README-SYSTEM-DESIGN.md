@@ -272,7 +272,7 @@ train_hydra.py                 manage_registry.py            sync (model_registr
 
 #### Ключевые концепции
 
-* **Registered Model** — именованная группа адаптеров (например, `lora-summarization`,
+* **Registered Model** — именованная группа адаптеров (например, `lora-summarize`,
   `lora-code`, `lora-chat`). Имя соответствует задачам в `TaskRouter`.
 * **Model Version** — каждая регистрация создаёт новую версию. Версии иммутабельны.
 * **Aliases** — метки жизненного цикла:

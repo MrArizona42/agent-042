@@ -8,7 +8,7 @@ Usage
 -----
 Register an adapter from a completed MLflow run::
 
-    python scripts/manage_registry.py register lora-summarization --run-id <RUN_ID>
+    python scripts/manage_registry.py register lora-summarize --run-id <RUN_ID>
 
 List all registered adapters::
 
@@ -16,19 +16,19 @@ List all registered adapters::
 
 Show versions of a specific adapter::
 
-    python scripts/manage_registry.py versions lora-summarization
+    python scripts/manage_registry.py versions lora-summarize
 
 Promote a version to production (uses alias from ``REGISTRY_PRODUCTION_ALIAS``)::
 
-    python scripts/manage_registry.py promote lora-summarization 3
+    python scripts/manage_registry.py promote lora-summarize 3
 
 Promote a version with a custom alias::
 
-    python scripts/manage_registry.py promote lora-summarization 5 --alias challenger
+    python scripts/manage_registry.py promote lora-summarize 5 --alias challenger
 
 Download the production adapter locally::
 
-    python scripts/manage_registry.py download lora-summarization ./adapters
+    python scripts/manage_registry.py download lora-summarize ./adapters
 
 Environment
 -----------
@@ -199,7 +199,7 @@ def main() -> None:
 
     # register
     p_reg = sub.add_parser("register", help="Register a trained adapter from an MLflow run.")
-    p_reg.add_argument("model", help="Registered model name (e.g. lora-summarization).")
+    p_reg.add_argument("model", help="Registered model name (e.g. lora-summarize).")
     p_reg.add_argument(
         "--run-id", required=True, help="MLflow run ID containing the adapter artifacts."
     )

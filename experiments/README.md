@@ -225,7 +225,7 @@ python ./experiments/scripts/train_hydra.py -m \
 
 | Registered Model      | Задача                | LoRA для…           |
 |-----------------------|-----------------------|---------------------|
-| `lora-summarization`  | Суммаризация статей   | `summarize` task    |
+| `lora-summarize`      | Суммаризация статей   | `summarize` task    |
 | `lora-code`           | Генерация кода        | `code` task         |
 | `lora-chat`           | Чат / QA              | `chat` task         |
 
@@ -247,7 +247,7 @@ python ./experiments/scripts/train_hydra.py \
 # 2. Просмотреть результаты в MLflow UI, выбрать лучший run
 
 # 3. Зарегистрировать выбранный run в Model Registry
-python scripts/manage_registry.py register lora-summarization --run-id <RUN_ID>
+python scripts/manage_registry.py register lora-summarize --run-id <RUN_ID>
 ```
 
 Такое разделение не засоряет реестр промежуточными экспериментами и обеспечивает
@@ -267,25 +267,25 @@ python scripts/manage_registry.py list
 **Все версии конкретного адаптера:**
 
 ```bash
-python scripts/manage_registry.py versions lora-summarization
+python scripts/manage_registry.py versions lora-summarize
 ```
 
 **Промотирование версии в production (alias champion):**
 
 ```bash
-python scripts/manage_registry.py promote lora-summarization 3
+python scripts/manage_registry.py promote lora-summarize 3
 ```
 
 **Промотировать в staging (alias challenger):**
 
 ```bash
-python scripts/manage_registry.py promote lora-summarization 5 --alias challenger
+python scripts/manage_registry.py promote lora-summarize 5 --alias challenger
 ```
 
 **Снять alias:**
 
 ```bash
-python scripts/manage_registry.py demote lora-summarization
+python scripts/manage_registry.py demote lora-summarize
 ```
 
 **Посмотреть, какие адаптеры сейчас в production:**
@@ -297,7 +297,7 @@ python scripts/manage_registry.py production
 **Скачать production-адаптер локально:**
 
 ```bash
-python scripts/manage_registry.py download lora-summarization ./my_adapters
+python scripts/manage_registry.py download lora-summarize ./my_adapters
 ```
 
 ### Синхронизация адаптеров на inference-хосте
@@ -314,7 +314,7 @@ python -m shared.model_registry sync --adapters-dir ./assets/adapters
 
 ```
 assets/adapters/
-├── lora-summarization/
+├── lora-summarize/
 │   └── v3/
 │       ├── adapter_config.json
 │       ├── adapter_model.safetensors
@@ -336,10 +336,10 @@ python ./experiments/scripts/train_hydra.py \
 # 2. Посмотреть версии, метрики в MLflow UI, выбрать лучший run
 
 # 3. Зарегистрировать лучший run в Model Registry
-python scripts/manage_registry.py register lora-summarization --run-id <RUN_ID>
+python scripts/manage_registry.py register lora-summarize --run-id <RUN_ID>
 
 # 4. Промотировать зарегистрированную версию в production
-python scripts/manage_registry.py promote lora-summarization 3
+python scripts/manage_registry.py promote lora-summarize 3
 
 # 4. Синхронизировать адаптеры на inference-хосте
 python -m shared.model_registry sync --adapters-dir ./assets/adapters
