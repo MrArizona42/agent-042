@@ -500,12 +500,14 @@ def _load_env(env_file: str | None) -> None:
         dotenv.load_dotenv(".env")
 
 
-def _resolve_aliases(aliases: str | None):
+def _resolve_aliases(aliases: str | list | tuple | None):
     """Parse comma-separated aliases or fall back to config default."""
     from shared.config import get_registry_settings
 
     cfg = get_registry_settings()
     if aliases:
+        if isinstance(aliases, (list, tuple)):
+            return [a.strip() for a in aliases if a.strip()]
         return [a.strip() for a in aliases.split(",") if a.strip()]
     return cfg.sync_aliases
 
