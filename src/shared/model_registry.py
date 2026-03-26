@@ -353,7 +353,10 @@ class AdapterSyncer:
                     mv = self.client.get_model_version_by_alias(rm.name, alias)
                     result[(rm.name, alias)] = mv
                 except MlflowException as exc:
-                    if exc.error_code == "RESOURCE_DOES_NOT_EXIST":
+                    if (
+                        "not found" in str(exc).lower()
+                        or exc.error_code == "RESOURCE_DOES_NOT_EXIST"
+                    ):
                         continue
                     raise RuntimeError(
                         f"MLflow error while querying alias '{alias}' for '{rm.name}': {exc}"
