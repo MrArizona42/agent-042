@@ -152,7 +152,12 @@ def _resolve_lora_alias(
     lora_alias: str,
     task: str,
 ) -> dict[str, Any]:
-    """Resolve a LoRA alias to an adapter name and version via MLflow.
+    """Resolve a LoRA alias to an adapter name and version.
+
+    The adapter name is deterministic: ``{model_name}-{alias}`` which matches
+    how ``AdapterSyncer`` registers adapters with vLLM.  MLflow is still
+    queried for the version and run_id metadata (for logging), but failure
+    to reach MLflow only emits a warning.
 
     Returns:
         Dict with ``adapter_name``, ``adapter_version``, ``adapter_mlflow_run_id``.
@@ -162,24 +167,28 @@ def _resolve_lora_alias(
         return {"adapter_name": None, "adapter_version": None, "adapter_mlflow_run_id": None}
 
     model_name = f"lora-{task}"
+    adapter_name = f"{model_name}-{lora_alias}"
 
+    # Optionally fetch version/run_id from MLflow for logging
+    adapter_version = None
+    adapter_run_id = None
     try:
-        from experiments.scripts.train_adapter.registry import AdapterRegistry
         from shared.config import get_registry_settings
+        from shared.model_registry import AdapterRegistry
 
         reg_settings = get_registry_settings()
         registry = AdapterRegistry(tracking_uri=reg_settings.mlflow_tracking_uri)
-
         mv = registry.client.get_model_version_by_alias(model_name, lora_alias)
-
-        return {
-            "adapter_name": model_name,
-            "adapter_version": int(mv.version),
-            "adapter_mlflow_run_id": mv.run_id,
-        }
+        adapter_version = int(mv.version)
+        adapter_run_id = mv.run_id
     except Exception as e:
-        logger.warning("Could not resolve LoRA alias '%s': %s", lora_alias, e)
-        return {"adapter_name": None, "adapter_version": None, "adapter_mlflow_run_id": None}
+        logger.warning("Could not fetch MLflow metadata for '%s': %s", adapter_name, e)
+
+    return {
+        "adapter_name": adapter_name,
+        "adapter_version": adapter_version,
+        "adapter_mlflow_run_id": adapter_run_id,
+    }
 
 
 # ---------------------------------------------------------------------------

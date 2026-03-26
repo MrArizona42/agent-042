@@ -415,13 +415,30 @@ class ModelRegistrySettings(BaseSettings):
     production_alias: str | None = Field(
         default=None,
         description="MLflow alias that marks an adapter as production-ready. "
-        "The adapter-sync init container downloads adapters with this alias. "
+        "Used as the default alias for promote/demote commands. "
         "None means no production adapters are synced (base model only).",
+    )
+    sync_aliases: list[str] = Field(
+        default=["champion", "challenger"],
+        description="MLflow aliases to sync to vLLM. "
+        "Each (model, alias) pair becomes a vLLM adapter named '{model}-{alias}'.",
+    )
+    vllm_base_url: str = Field(
+        default="http://localhost:8000",
+        description="vLLM OpenAI-compatible server URL for hot-loading adapters.",
     )
     auto_sync: bool = Field(
         default=False,
         description="Automatically sync production adapters on startup",
     )
+
+    @field_validator("sync_aliases", mode="before")
+    @classmethod
+    def parse_sync_aliases(cls, v):
+        """Parse comma-separated REGISTRY_SYNC_ALIASES string to list."""
+        if isinstance(v, str):
+            return [a.strip() for a in v.split(",") if a.strip()]
+        return v
 
 
 class EvalSettings(BaseSettings):

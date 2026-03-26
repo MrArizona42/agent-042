@@ -1,6 +1,6 @@
-# Lightweight init-container that syncs champion LoRA adapters from MLflow
-# Model Registry into the shared /adapters volume.
-# vLLM picks up the generated lora-modules.json on startup.
+# Lightweight container that syncs aliased LoRA adapters from MLflow
+# Model Registry into the shared /adapters volume and hot-loads them
+# into the running vLLM instance via its REST API.
 #
 # To update lock file:
 #   uv --no-config pip compile pyproject.toml --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/adapter-sync/requirements-adapter-sync.lock

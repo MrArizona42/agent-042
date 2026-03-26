@@ -30,6 +30,10 @@ Download the production adapter locally::
 
     python scripts/manage_registry.py download lora-summarize ./adapters
 
+Sync adapters to a running vLLM instance::
+
+    python scripts/manage_registry.py sync --vllm-url http://localhost:8000
+
 Environment
 -----------
 Reads ``MLFLOW_BACKEND_URI`` (tracking URI) and S3 credentials from
@@ -56,7 +60,7 @@ _PROJECT_ROOT = _SCRIPT_DIR.parent  # …/agent-042
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))  # for shared package
 
 from shared.config import get_registry_settings  # noqa: E402
-from shared.model_registry import AdapterRegistry  # noqa: E402
+from shared.model_registry import AdapterRegistry, AdapterSyncer  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -186,6 +190,28 @@ def cmd_production(args: argparse.Namespace) -> None:
     print()
 
 
+def cmd_sync(args: argparse.Namespace) -> None:
+    """Download aliased adapters from MLflow and hot-load them into vLLM."""
+    _load_env()
+    aliases = (
+        [a.strip() for a in args.aliases.split(",") if a.strip()]
+        if args.aliases
+        else get_registry_settings().sync_aliases
+    )
+    syncer = AdapterSyncer(
+        adapters_dir=args.adapters_dir,
+        sync_aliases=aliases,
+        vllm_base_url=args.vllm_url,
+    )
+    infos = syncer.sync()
+    if infos:
+        print(f"\n✓ Synced {len(infos)} adapter(s):")
+        for info in infos:
+            print(f"  {info.name} v{info.version} → {info.local_path}")
+    else:
+        print("No adapters to sync.")
+
+
 # ── CLI entry point ──────────────────────────────────────────────────────────
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -264,6 +290,30 @@ def main() -> None:
         help=f"Alias to look up (default from config: '{_production_alias}').",
     )
 
+    _registry_cfg = get_registry_settings()
+
+    # sync
+    p_sync = sub.add_parser(
+        "sync",
+        help="Download aliased adapters and hot-load into vLLM.",
+    )
+    p_sync.add_argument(
+        "--adapters-dir",
+        default=_registry_cfg.adapters_dir,
+        help="Destination directory for adapter files.",
+    )
+    p_sync.add_argument(
+        "--vllm-url",
+        default=_registry_cfg.vllm_base_url,
+        help=f"vLLM server URL (default: {_registry_cfg.vllm_base_url}).",
+    )
+    p_sync.add_argument(
+        "--aliases",
+        default=None,
+        help="Comma-separated aliases to sync (default from config: "
+        f"{','.join(_registry_cfg.sync_aliases)}).",
+    )
+
     args = parser.parse_args()
 
     dispatch = {
@@ -274,6 +324,7 @@ def main() -> None:
         "demote": cmd_demote,
         "download": cmd_download,
         "production": cmd_production,
+        "sync": cmd_sync,
     }
     dispatch[args.command](args)
 

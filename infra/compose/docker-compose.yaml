@@ -157,9 +157,9 @@ services:
     restart: unless-stopped
 
   # =====================
-  # LoRA adapter sync (init container)
-  # Downloads champion adapters from MLflow Model Registry into
-  # the shared /adapters volume and writes lora-modules.json.
+  # LoRA adapter sync
+  # Downloads aliased adapters from MLflow Model Registry and
+  # hot-loads them into the running vLLM via its REST API.
   # =====================
   vllm-adapter-sync:
     build:
@@ -173,17 +173,21 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
       REGISTRY_ADAPTERS_DIR: /adapters
-      VLLM_BASE_MODEL: ${VLLM_MODEL}
+      REGISTRY_VLLM_BASE_URL: http://vllm:8000
+      REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES:-champion,challenger}
 
     volumes:
       - ${PROJECT_ROOT}/assets/adapters:/adapters:rw
 
     depends_on:
+      vllm:
+        condition: service_healthy
       mlflow:
         condition: service_healthy
 
     networks:
       - mlflow_db_net
+      - backend_net
 
     logging: *default-logging
     restart: "no"
@@ -192,9 +196,7 @@ services:
   # vLLM OpenAI-compatible server
   # =====================
   vllm:
-    build:
-      context: ${PROJECT_ROOT}
-      dockerfile: infra/docker/vllm/Dockerfile
+    image: vllm/vllm-openai:v0.16.0
 
     environment:
       VLLM_MODEL: ${VLLM_MODEL}
@@ -209,8 +211,6 @@ services:
       # Allow loading/unloading LoRA adapters at runtime via the API
       VLLM_ALLOW_RUNTIME_LORA_UPDATING: "true"
 
-    # Args forwarded to the entrypoint; --lora-modules is injected
-    # automatically by vllm-entrypoint.sh when lora-modules.json exists.
     command: [
       "--model", "${VLLM_MODEL}",
       "--dtype", "${VLLM_DTYPE}",
@@ -228,14 +228,13 @@ services:
     ports:
       - "127.0.0.1:${VLLM_PORT}:8000"
 
-    # Mount repo models and downloaded adapters (rw: entrypoint reads manifest)
     volumes:
       - ${PROJECT_ROOT}/assets/models:/models:rw
       - ${PROJECT_ROOT}/assets/adapters:/adapters:rw
 
     depends_on:
-      vllm-adapter-sync:
-        condition: service_completed_successfully
+      mlflow:
+        condition: service_healthy
 
     deploy:
       resources:
@@ -470,6 +469,8 @@ services:
     depends_on:
       vllm:
         condition: service_healthy
+      vllm-adapter-sync:
+        condition: service_completed_successfully
       qdrant:
         condition: service_healthy
       rabbitmq:
