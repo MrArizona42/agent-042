@@ -211,6 +211,16 @@ def _resolve_lora_alias(
         adapter_version = int(mv.version)
         adapter_run_id = mv.run_id
     except Exception as e:
+        err_str = str(e)
+        # If the registered model or alias doesn't exist, the adapter is
+        # definitely not loaded in vLLM — fail early instead of sending
+        # requests that will all 404.
+        if "RESOURCE_DOES_NOT_EXIST" in err_str or "not found" in err_str.lower():
+            raise RuntimeError(
+                f"LoRA adapter '{adapter_name}' not available: {e}. "
+                f"Register model '{model_name}' in MLflow and assign alias "
+                f"'{lora_alias}', then run adapter-sync."
+            ) from e
         logger.warning("Could not fetch MLflow metadata for '%s': %s", adapter_name, e)
 
     return {
