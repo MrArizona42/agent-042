@@ -121,6 +121,7 @@ packaging==26.0
     #   transformers
 pydantic==2.12.5
     # via
+    #   agent-042 (pyproject.toml)
     #   fastapi
     #   pydantic-settings
 pydantic-core==2.41.5

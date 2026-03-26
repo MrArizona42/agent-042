@@ -647,6 +647,7 @@ pycparser==3.0
     # via cffi
 pydantic==2.12.5
     # via
+    #   agent-042 (pyproject.toml)
     #   fastapi
     #   gto
     #   langchain-core
