@@ -193,6 +193,7 @@ python-dateutil==2.9.0.post0
     #   pandas
 python-dotenv==1.2.1
     # via
+    #   agent-042 (pyproject.toml)
     #   mlflow-skinny
     #   pydantic-settings
 pytz==2025.2

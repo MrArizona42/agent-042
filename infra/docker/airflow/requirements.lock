@@ -2,5 +2,7 @@
 #    uv --no-config pip compile pyproject.toml --extra airflow --python-version 3.12 --python-platform linux --constraint infra/docker/airflow/airflow-core-constraints.txt -o infra/docker/airflow/requirements.lock
 fire==0.7.1
     # via agent-042 (pyproject.toml)
+python-dotenv==1.2.2
+    # via agent-042 (pyproject.toml)
 termcolor==3.3.0
     # via fire

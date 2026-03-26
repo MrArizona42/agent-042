@@ -55,7 +55,9 @@ pydantic-settings==2.13.1
 python-dateutil==2.9.0.post0
     # via celery
 python-dotenv==1.2.1
-    # via pydantic-settings
+    # via
+    #   agent-042 (pyproject.toml)
+    #   pydantic-settings
 redis==7.2.1
     # via agent-042 (pyproject.toml)
 six==1.17.0

@@ -121,6 +121,7 @@ python-dateutil==2.9.0.post0
     # via celery
 python-dotenv==1.2.1
     # via
+    #   agent-042 (pyproject.toml)
     #   pydantic-settings
     #   uvicorn
 pyyaml==6.0.3

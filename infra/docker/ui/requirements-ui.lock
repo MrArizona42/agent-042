@@ -68,7 +68,9 @@ pydeck==0.9.1
 python-dateutil==2.9.0.post0
     # via pandas
 python-dotenv==1.2.1
-    # via pydantic-settings
+    # via
+    #   agent-042 (pyproject.toml)
+    #   pydantic-settings
 pytz==2025.2
     # via pandas
 referencing==0.37.0
