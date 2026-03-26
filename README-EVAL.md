@@ -118,7 +118,7 @@ When RAG is disabled, `rag_context` is omitted or null.
 
 vLLM with `--enable-lora` accepts LoRA adapter names through the standard `model` field in the
 OpenAI-compatible API. The eval runner selects a LoRA adapter by setting `model` to the adapter
-name registered in vLLM (e.g., `lora-summarization`, `lora-code`).
+name registered in vLLM (e.g., `lora-summarize`, `lora-code`).
 
 The adapter name is resolved via MLflow Model Registry:
 

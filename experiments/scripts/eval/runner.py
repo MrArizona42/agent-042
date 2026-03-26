@@ -81,6 +81,27 @@ _CODE_EXEC_METRICS = {"pass_at_1", "executable_rate"}
 # Groundedness added when RAG is enabled for generation tasks
 _RAG_GENERATION_TASKS = {"chat", "code"}
 
+# System prompt for HumanEval code generation requests.
+# Explicit instruction to output only code prevents models from wrapping the
+# answer in prose or markdown, which would otherwise cause false negatives
+# during sandboxed execution.  extract_code_from_response() is still applied
+# as a fallback for models that ignore instruction-following.
+_CODE_EVAL_SYSTEM_PROMPT = (
+    "You are a precise Python coding assistant. "
+    "When given a function signature and docstring, output ONLY the Python "
+    "function body that completes it — no explanation, no markdown fences, "
+    "no import statements unless strictly required by the function, and no "
+    "repetition of the signature. Indentation must use 4 spaces."
+)
+
+
+def _build_code_eval_messages(prompt: str) -> list[dict[str, str]]:
+    """Build the chat messages list for a single HumanEval sample."""
+    return [
+        {"role": "system", "content": _CODE_EVAL_SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
 
 # ---------------------------------------------------------------------------
 # Gateway API helpers
@@ -140,6 +161,8 @@ def _resolve_lora_alias(
     if lora_alias == "none":
         return {"adapter_name": None, "adapter_version": None, "adapter_mlflow_run_id": None}
 
+    model_name = f"lora-{task}"
+
     try:
         from experiments.scripts.train_adapter.registry import AdapterRegistry
         from shared.config import get_registry_settings
@@ -147,8 +170,6 @@ def _resolve_lora_alias(
         reg_settings = get_registry_settings()
         registry = AdapterRegistry(tracking_uri=reg_settings.mlflow_tracking_uri)
 
-        # Adapter names follow the lora-<task> convention
-        model_name = f"lora-{task}"
         mv = registry.client.get_model_version_by_alias(model_name, lora_alias)
 
         return {
@@ -447,7 +468,7 @@ def _evaluate_code(
         prompt = sample["prompt"]
         test_code = sample.get("test", "")
 
-        messages = [{"role": "user", "content": f"Complete this Python function:\n\n{prompt}"}]
+        messages = _build_code_eval_messages(prompt)
         try:
             response = _call_gateway(
                 messages=messages,
@@ -467,7 +488,6 @@ def _evaluate_code(
             prompt=prompt,
             generated_code=generated,
             test_code=test_code,
-            image=eval_settings.code_exec_image,
             timeout=eval_settings.code_exec_timeout,
             mem_limit=eval_settings.code_exec_mem_limit,
             cpus=eval_settings.code_exec_cpus,
@@ -1247,7 +1267,7 @@ def _fetch_code_predictions(
         prompt = sample["prompt"]
         test_code = sample.get("test", "")
 
-        messages = [{"role": "user", "content": f"Complete this Python function:\n\n{prompt}"}]
+        messages = _build_code_eval_messages(prompt)
         try:
             response = _call_gateway(
                 messages=messages,
@@ -1267,7 +1287,6 @@ def _fetch_code_predictions(
             prompt=prompt,
             generated_code=generated,
             test_code=test_code,
-            image=eval_settings.code_exec_image,
             timeout=eval_settings.code_exec_timeout,
             mem_limit=eval_settings.code_exec_mem_limit,
             cpus=eval_settings.code_exec_cpus,
