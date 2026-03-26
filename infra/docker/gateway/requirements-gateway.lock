@@ -45,6 +45,8 @@ cryptography==46.0.5
     # via authlib
 fastapi==0.134.0
     # via agent-042 (pyproject.toml)
+fire==0.7.1
+    # via agent-042 (pyproject.toml)
 greenlet==3.3.2
     # via sqlalchemy
 grpcio==1.78.0
@@ -143,6 +145,8 @@ starlette==0.52.1
     # via fastapi
 tenacity==9.1.4
     # via langchain-core
+termcolor==3.3.0
+    # via fire
 typing-extensions==4.15.0
     # via
     #   anyio

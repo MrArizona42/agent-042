@@ -78,6 +78,8 @@ filelock==3.25.2
     #   datasets
     #   huggingface-hub
     #   torch
+fire==0.7.1
+    # via agent-042 (pyproject.toml)
 fonttools==4.62.1
     # via matplotlib
 frozenlist==1.8.0
@@ -271,6 +273,8 @@ starlette==1.0.0
     # via fastapi
 sympy==1.14.0
     # via torch
+termcolor==3.3.0
+    # via fire
 tokenizers==0.22.2
     # via transformers
 torch==2.11.0+cpu

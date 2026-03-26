@@ -29,6 +29,8 @@ filelock==3.24.3
     # via
     #   huggingface-hub
     #   torch
+fire==0.7.1
+    # via agent-042 (pyproject.toml)
 fsspec==2026.2.0
     # via
     #   huggingface-hub
@@ -158,6 +160,8 @@ starlette==0.52.1
     # via fastapi
 sympy==1.14.0
     # via torch
+termcolor==3.3.0
+    # via fire
 threadpoolctl==3.6.0
     # via scikit-learn
 tokenizers==0.22.2

@@ -169,6 +169,8 @@ filelock==3.25.2
     #   huggingface-hub
     #   iterative-telemetry
     #   torch
+fire==0.7.1
+    # via agent-042 (pyproject.toml)
 flatten-dict==0.4.2
     # via
     #   dvc
@@ -535,6 +537,8 @@ tabulate==0.10.0
     #   gto
 tenacity==9.1.4
     # via langchain-core
+termcolor==3.3.0
+    # via fire
 tokenizers==0.22.2
     # via transformers
 tomlkit==0.14.0
