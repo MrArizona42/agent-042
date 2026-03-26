@@ -240,7 +240,7 @@ download / scrape  >>  dvc_version  >>  build_index
 
 - **download / scrape** — PythonOperator: загрузка данных (ArXiv API или web scraping)
 - **dvc_version** — BashOperator: `dvc add` + `dvc push` для версионирования данных
-- **build_index** — BashOperator: запуск `build_vector_index.py` для пересборки вектор-индекса
+- **build_index** — BashOperator: запуск `build_arxiv_index.py` / `build_pytorch_docs_index.py` для пересборки вектор-индекса
 
 ### Зависимости DAG'ов
 

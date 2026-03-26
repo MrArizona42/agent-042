@@ -488,106 +488,95 @@ class AdapterSyncer:
 
 
 # ── CLI entry point ──────────────────────────────────────────────────────────
+
+
+def _load_env(env_file: str | None) -> None:
+    """Load dotenv from *env_file* or fall back to .env."""
+    import dotenv
+
+    if env_file and Path(env_file).exists():
+        dotenv.load_dotenv(env_file)
+    elif Path(".env").exists():
+        dotenv.load_dotenv(".env")
+
+
+def _resolve_aliases(aliases: str | None):
+    """Parse comma-separated aliases or fall back to config default."""
+    from shared.config import get_registry_settings
+
+    cfg = get_registry_settings()
+    if aliases:
+        return [a.strip() for a in aliases.split(",") if a.strip()]
+    return cfg.sync_aliases
+
+
+def _cmd_sync(
+    adapters_dir: str | None = None,
+    vllm_url: str | None = None,
+    aliases: str | None = None,
+    env_file: str | None = None,
+) -> None:
+    """Download and hot-load aliased adapters."""
+    from shared.config import get_registry_settings
+
+    cfg = get_registry_settings()
+    _load_env(env_file)
+
+    syncer = AdapterSyncer(
+        adapters_dir=adapters_dir or cfg.adapters_dir,
+        sync_aliases=_resolve_aliases(aliases),
+        vllm_base_url=vllm_url or cfg.vllm_base_url,
+    )
+    infos = syncer.sync()
+    if infos:
+        print(f"\nSynced {len(infos)} adapter(s):")
+        for info in infos:
+            print(f"  {info.name} v{info.version} -> {info.local_path}")
+    else:
+        print("No adapters to sync.")
+
+
+def _cmd_list(
+    aliases: str | None = None,
+    env_file: str | None = None,
+) -> None:
+    """List aliased adapters in MLflow (no download)."""
+    from shared.config import get_registry_settings
+
+    cfg = get_registry_settings()
+    _load_env(env_file)
+
+    syncer = AdapterSyncer(
+        adapters_dir=cfg.adapters_dir,
+        sync_aliases=_resolve_aliases(aliases),
+        vllm_base_url=cfg.vllm_base_url,
+    )
+    adapters = syncer.discover_aliased_adapters()
+    if adapters:
+        print("\nAliased adapters:")
+        for (name, alias), mv in adapters.items():
+            vllm_name = AdapterSyncer.adapter_vllm_name(name, alias)
+            print(f"  {vllm_name:<35} v{mv.version}  run={mv.run_id[:8]}")
+    else:
+        resolved = _resolve_aliases(aliases)
+        print(f"No adapters with aliases {resolved} found.")
+
+
 def _cli() -> None:
     """Minimal CLI: ``python -m shared.model_registry sync``."""
-    import argparse
-
-    import dotenv
+    import fire
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  %(message)s",
     )
 
-    from shared.config import get_registry_settings
-
-    registry_cfg = get_registry_settings()
-
-    parser = argparse.ArgumentParser(
-        description="Sync LoRA adapters from MLflow Model Registry to vLLM."
+    fire.Fire(
+        {
+            "sync": _cmd_sync,
+            "list": _cmd_list,
+        }
     )
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    p_sync = sub.add_parser("sync", help="Download and hot-load aliased adapters.")
-    p_sync.add_argument(
-        "--adapters-dir",
-        default=registry_cfg.adapters_dir,
-        help="Destination directory for adapter files.",
-    )
-    p_sync.add_argument(
-        "--vllm-url",
-        default=registry_cfg.vllm_base_url,
-        help=f"vLLM server URL (default: {registry_cfg.vllm_base_url}).",
-    )
-    p_sync.add_argument(
-        "--aliases",
-        default=None,
-        help="Comma-separated aliases to sync (default from config: "
-        f"{','.join(registry_cfg.sync_aliases)}).",
-    )
-    p_sync.add_argument(
-        "--env-file",
-        default=None,
-        help="Path to .env file with MLflow/S3 credentials.",
-    )
-
-    p_list = sub.add_parser("list", help="List aliased adapters in MLflow (no download).")
-    p_list.add_argument(
-        "--aliases",
-        default=None,
-        help="Comma-separated aliases to look up (default from config: "
-        f"{','.join(registry_cfg.sync_aliases)}).",
-    )
-    p_list.add_argument(
-        "--env-file",
-        default=None,
-        help="Path to .env file with MLflow/S3 credentials.",
-    )
-
-    args = parser.parse_args()
-
-    # Load env file
-    env_file = args.env_file
-    if env_file and Path(env_file).exists():
-        dotenv.load_dotenv(env_file)
-    elif Path(".env").exists():
-        dotenv.load_dotenv(".env")
-
-    # Parse --aliases override
-    aliases = (
-        [a.strip() for a in args.aliases.split(",") if a.strip()]
-        if args.aliases
-        else registry_cfg.sync_aliases
-    )
-
-    if args.command == "sync":
-        syncer = AdapterSyncer(
-            adapters_dir=args.adapters_dir,
-            sync_aliases=aliases,
-            vllm_base_url=args.vllm_url,
-        )
-        infos = syncer.sync()
-        if infos:
-            print(f"\n✓ Synced {len(infos)} adapter(s):")
-            for info in infos:
-                print(f"  {info.name} v{info.version} → {info.local_path}")
-        else:
-            print("No adapters to sync.")
-
-    elif args.command == "list":
-        syncer = AdapterSyncer(
-            adapters_dir=registry_cfg.adapters_dir,
-            sync_aliases=aliases,
-            vllm_base_url=registry_cfg.vllm_base_url,
-        )
-        adapters = syncer.discover_aliased_adapters()
-        if adapters:
-            print("\nAliased adapters:")
-            for (name, alias), mv in adapters.items():
-                vllm_name = AdapterSyncer.adapter_vllm_name(name, alias)
-                print(f"  {vllm_name:<35} v{mv.version}  run={mv.run_id[:8]}…")
-        else:
-            print(f"No adapters with aliases {aliases} found.")
 
 
 if __name__ == "__main__":

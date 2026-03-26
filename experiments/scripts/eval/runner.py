@@ -11,25 +11,24 @@ accepts a ``--metric`` flag to select exactly **one** metric per invocation.
 
 Usage::
 
-    # Stage 1 — base model chat eval, single metric
+    # Stage 1 -- base model chat eval, single metric
     python -m experiments.scripts.eval.runner \\
         --task chat --dataset hotpotqa --metric rouge_l
 
-    # Stage 2 — RAG eval, LLM-as-judge metric
+    # Stage 2 -- RAG eval, LLM-as-judge metric
     python -m experiments.scripts.eval.runner \\
         --task chat --dataset hotpotqa --metric relevance \\
-        --rag-aliases champion,challenger
+        --rag_aliases champion,challenger
 
-    # Stage 3 — full matrix
+    # Stage 3 -- full matrix
     python -m experiments.scripts.eval.runner \\
         --task chat --dataset hotpotqa --metric correctness \\
-        --rag-aliases champion,challenger \\
-        --lora-aliases champion,challenger
+        --rag_aliases champion,challenger \\
+        --lora_aliases champion,challenger
 """
 
 from __future__ import annotations
 
-import argparse
 import itertools
 import logging
 import sys
@@ -38,12 +37,45 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import fire
 import httpx
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    create_engine,
+    insert,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 # Add src to path so shared/rag modules are importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
 
-from shared.config import get_eval_settings, get_settings
+# Canonical directory for pre-downloaded datasets (HF Arrow format).
+from experiments.scripts.eval.datasets import DATASET_LOCAL, load_dataset_samples
+from experiments.scripts.eval.metrics.automatic import (
+    compute_bertscore,
+    compute_ndcg_at_k,
+    compute_recall_at_k,
+    compute_rouge_l,
+)
+from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1, evaluate_humaneval_sample
+from experiments.scripts.eval.metrics.llm_judge import judge_batch
+from experiments.scripts.eval.retrieval_bench import (
+    build_temp_collection,
+    delete_temp_collection,
+    read_build_config,
+)
+from rag.embeddings import EmbeddingService
+from rag.vector_store import QdrantVectorStore
+from shared.config import get_eval_settings, get_registry_settings, get_settings
+from shared.model_registry import AdapterRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -173,9 +205,6 @@ def _resolve_lora_alias(
     adapter_version = None
     adapter_run_id = None
     try:
-        from shared.config import get_registry_settings
-        from shared.model_registry import AdapterRegistry
-
         reg_settings = get_registry_settings()
         registry = AdapterRegistry(tracking_uri=reg_settings.mlflow_tracking_uri)
         mv = registry.client.get_model_version_by_alias(model_name, lora_alias)
@@ -203,21 +232,6 @@ def _log_to_db(rows: list[dict[str, Any]], db_url: str) -> None:
         return
 
     try:
-        from sqlalchemy import (
-            Boolean,
-            Column,
-            DateTime,
-            Float,
-            Integer,
-            MetaData,
-            Table,
-            Text,
-            create_engine,
-            insert,
-        )
-        from sqlalchemy.dialects.postgresql import JSONB
-        from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-
         engine = create_engine(db_url)
         meta = MetaData()
 
@@ -272,294 +286,6 @@ def _log_to_db(rows: list[dict[str, Any]], db_url: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Core eval logic
-# ---------------------------------------------------------------------------
-
-
-def _evaluate_generation(
-    *,
-    task: str,
-    dataset_name: str,
-    metric: str,
-    rag_alias: str,
-    lora_alias: str,
-    kb_name: str | None,
-    eval_settings: Any,
-    base_model: str,
-) -> list[dict[str, Any]]:
-    """Run generation eval for a single (rag_alias, lora_alias) pair and a single metric.
-
-    Returns a list of metric result dicts ready for DB insertion.
-    """
-    from experiments.scripts.eval.metrics.automatic import compute_automatic_metrics
-    from experiments.scripts.eval.metrics.llm_judge import judge_batch
-
-    gateway_url = eval_settings.gateway_url
-    temperature = eval_settings.temperature
-    max_tokens = eval_settings.max_tokens
-    sample_limit = eval_settings.sample_limit
-    internal_api_key = eval_settings.internal_api_key
-
-    # Resolve LoRA adapter
-    lora_info = _resolve_lora_alias(lora_alias, task)
-    model_name = lora_info["adapter_name"] if lora_info["adapter_name"] else None
-
-    # Build RAG sources
-    rag_sources = None
-    rag_enabled = False
-    if rag_alias != "none" and kb_name:
-        rag_sources = [{"knowledge_base": kb_name, "alias": rag_alias}]
-        rag_enabled = True
-
-    # Load dataset samples (placeholder — datasets loaded from HuggingFace or local)
-    samples = _load_dataset_samples(task, dataset_name, limit=sample_limit)
-    if not samples:
-        logger.warning("No samples loaded for %s/%s", task, dataset_name)
-        return []
-
-    # Generate predictions
-    predictions: list[str] = []
-    references: list[str] = []
-    judge_samples: list[dict[str, str]] = []
-    gateway_failures = 0
-
-    for sample in samples:
-        question = sample["question"]
-        reference = sample.get("answer", "")
-
-        messages = [{"role": "user", "content": question}]
-        try:
-            response = _call_gateway(
-                messages=messages,
-                gateway_url=gateway_url,
-                model=model_name,
-                rag_sources=rag_sources,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                internal_api_key=internal_api_key,
-            )
-            answer = response["choices"][0]["message"]["content"]
-
-            # Extract RAG context for groundedness
-            rag_context = ""
-            if rag_enabled and "rag_context" in response:
-                chunks = response.get("rag_context") or []
-                rag_context = "\n".join(c.get("content", "") for c in chunks)
-
-        except Exception as e:
-            logger.error("Gateway call failed: %s", e)
-            answer = ""
-            rag_context = ""
-            gateway_failures += 1
-
-        predictions.append(answer)
-        references.append(reference)
-        judge_samples.append(
-            {
-                "question": question,
-                "answer": answer,
-                "reference": reference,
-                "context": rag_context,
-            }
-        )
-
-    if gateway_failures == len(samples):
-        raise RuntimeError(
-            f"All {gateway_failures} gateway calls failed for {task}/{dataset_name}; "
-            "check that the gateway service is reachable"
-        )
-
-    # Compute the single requested metric
-    now = datetime.now(timezone.utc)
-    common = _build_common_fields(
-        task=task,
-        dataset_name=dataset_name,
-        base_model=base_model,
-        lora_alias=lora_alias,
-        lora_info=lora_info,
-        rag_alias=rag_alias,
-        rag_enabled=rag_enabled,
-        kb_name=kb_name,
-        eval_settings=eval_settings,
-        now=now,
-    )
-
-    rows: list[dict[str, Any]] = []
-
-    try:
-        if metric in _AUTOMATIC_METRICS:
-            auto_metrics = compute_automatic_metrics(
-                predictions,
-                references,
-                bert_score_model=eval_settings.bert_score_model,
-                metric=metric,
-            )
-            if metric in auto_metrics:
-                rows.append(
-                    {
-                        **common,
-                        "metric_name": metric,
-                        "metric_value": auto_metrics[metric],
-                    }
-                )
-
-        elif metric in _JUDGE_METRICS:
-            if not eval_settings.google_ai_api_key:
-                logger.error(
-                    "LLM-as-Judge metric '%s' requires EVAL_GOOGLE_AI_API_KEY",
-                    metric,
-                )
-                return []
-            result = judge_batch(
-                metric,
-                samples=judge_samples,
-                api_key=eval_settings.google_ai_api_key,
-                model=eval_settings.judge_model,
-            )
-            rows.append(
-                {
-                    **common,
-                    "metric_name": metric,
-                    "metric_value": result[metric],
-                }
-            )
-    except Exception as e:
-        logger.error("Metric computation failed: %s", e, exc_info=True)
-        finished = datetime.now(timezone.utc)
-        for row in rows:
-            row["finished_at"] = finished
-            row["status"] = "failed"
-            row["error_message"] = str(e)
-        return rows
-
-    # Mark completed
-    finished = datetime.now(timezone.utc)
-    for row in rows:
-        row["finished_at"] = finished
-        row["status"] = "completed"
-
-    return rows
-
-
-def _evaluate_code(
-    *,
-    dataset_name: str,
-    metric: str,
-    rag_alias: str,
-    lora_alias: str,
-    kb_name: str | None,
-    eval_settings: Any,
-    base_model: str,
-) -> list[dict[str, Any]]:
-    """Run HumanEval code generation eval for a single metric."""
-    from experiments.scripts.eval.metrics.code_exec import (
-        compute_pass_at_1,
-        evaluate_humaneval_sample,
-    )
-
-    gateway_url = eval_settings.gateway_url
-    internal_api_key = eval_settings.internal_api_key
-    lora_info = _resolve_lora_alias(lora_alias, "code")
-    model_name = lora_info["adapter_name"] if lora_info["adapter_name"] else None
-
-    rag_sources = None
-    rag_enabled = False
-    if rag_alias != "none" and kb_name:
-        rag_sources = [{"knowledge_base": kb_name, "alias": rag_alias}]
-        rag_enabled = True
-
-    samples = _load_dataset_samples("code", dataset_name, limit=eval_settings.sample_limit)
-    if not samples:
-        return []
-
-    exec_results: list[dict[str, Any]] = []
-    for sample in samples:
-        prompt = sample["prompt"]
-        test_code = sample.get("test", "")
-
-        messages = _build_code_eval_messages(prompt)
-        try:
-            response = _call_gateway(
-                messages=messages,
-                gateway_url=gateway_url,
-                model=model_name,
-                rag_sources=rag_sources,
-                temperature=eval_settings.temperature,
-                max_tokens=eval_settings.max_tokens,
-                internal_api_key=internal_api_key,
-            )
-            generated = response["choices"][0]["message"]["content"]
-        except Exception as e:
-            logger.error("Gateway call failed: %s", e)
-            generated = ""
-
-        result = evaluate_humaneval_sample(
-            prompt=prompt,
-            generated_code=generated,
-            test_code=test_code,
-            timeout=eval_settings.code_exec_timeout,
-            mem_limit=eval_settings.code_exec_mem_limit,
-            cpus=eval_settings.code_exec_cpus,
-        )
-        exec_results.append(result)
-
-    try:
-        metrics = compute_pass_at_1(exec_results)
-    except Exception as e:
-        logger.error("Code metric computation failed: %s", e, exc_info=True)
-        now = datetime.now(timezone.utc)
-        common = _build_common_fields(
-            task="code",
-            dataset_name=dataset_name,
-            base_model=base_model,
-            lora_alias=lora_alias,
-            lora_info=lora_info,
-            rag_alias=rag_alias,
-            rag_enabled=rag_enabled,
-            kb_name=kb_name,
-            eval_settings=eval_settings,
-            now=now,
-        )
-        return [
-            {
-                **common,
-                "metric_name": metric,
-                "metric_value": 0.0,
-                "finished_at": now,
-                "status": "failed",
-                "error_message": str(e),
-            }
-        ]
-
-    now = datetime.now(timezone.utc)
-    common = _build_common_fields(
-        task="code",
-        dataset_name=dataset_name,
-        base_model=base_model,
-        lora_alias=lora_alias,
-        lora_info=lora_info,
-        rag_alias=rag_alias,
-        rag_enabled=rag_enabled,
-        kb_name=kb_name,
-        eval_settings=eval_settings,
-        now=now,
-    )
-
-    rows = []
-    if metric in metrics:
-        rows.append(
-            {
-                **common,
-                "metric_name": metric,
-                "metric_value": metrics[metric],
-                "finished_at": now,
-                "status": "completed",
-            }
-        )
-    return rows
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -607,211 +333,8 @@ def _build_common_fields(
 # Project root (repo top-level directory)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
-# Canonical directory for pre-downloaded datasets (HF Arrow format).
-DATASETS_DIR = _PROJECT_ROOT / "assets" / "datasets"
-
-# Mapping from eval runner dataset_name → local folder under assets/datasets/
-# and the split to read.  Datasets are saved via ``save_to_disk`` in the
-# prefetch notebook and pulled via DVC.
-_DATASET_LOCAL: dict[str, tuple[str, str]] = {
-    "hotpotqa": ("hotpotqa", "validation"),
-    "nq": ("natural-questions", "validation"),
-    "arxiv_summarization": ("arxiv-summarization", "validation"),
-    "humaneval": ("humaneval", "train"),  # HumanEval test split saved as "train"
-    "beir_scifact": ("beir-scifact", "train"),
-    "beir_nfcorpus": ("beir-nfcorpus", "train"),
-    "msmarco": ("msmarco", "validation"),
-}
-
-
-def _load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[str, str]]:
-    """Load evaluation dataset samples from local Arrow files.
-
-    Datasets must be pre-downloaded to ``assets/datasets/{folder_name}``
-    (HuggingFace Arrow format, saved via ``DatasetDict.save_to_disk``).
-    Use ``experiments/notebooks/prefetch_assets.ipynb`` or ``dvc pull`` to
-    populate the directory.
-
-    Returns:
-        List of sample dicts with at least ``question`` and ``answer`` keys
-        (or ``prompt`` and ``test`` for code tasks).
-    """
-    from datasets import load_from_disk
-
-    if dataset_name not in _DATASET_LOCAL:
-        logger.warning("Unknown dataset: %s", dataset_name)
-        return []
-
-    folder_name, split_name = _DATASET_LOCAL[dataset_name]
-    dataset_path = DATASETS_DIR / folder_name
-
-    if not dataset_path.exists():
-        logger.error(
-            "Dataset directory not found: %s — run prefetch_assets notebook or "
-            "'dvc pull' to download datasets",
-            dataset_path,
-        )
-        return []
-
-    ds_dict = load_from_disk(str(dataset_path))
-
-    # -----------------------------------------------------------------------
-    # BEIR-style datasets: queries + qrels splits present
-    # -----------------------------------------------------------------------
-    if task == "retrieval" and "queries" in ds_dict and "qrels" in ds_dict:
-        queries_ds = ds_dict["queries"]
-        qrels_ds = ds_dict["qrels"]
-
-        # Build relevance map: query_id -> {corpus_id: score}
-        relevance_map: dict[str, dict[str, int]] = {}
-        for row in qrels_ds:
-            qid = str(row["query_id"])
-            cid = str(row["corpus_id"])
-            relevance_map.setdefault(qid, {})[cid] = int(row["score"])
-
-        corpus_split = next((s for s in ("corpus", "train") if s in ds_dict), None)
-        corpus_ds = ds_dict[corpus_split] if corpus_split else None
-
-        samples: list[dict[str, str]] = []
-        for item in queries_ds:
-            qid = str(item["_id"])
-            if qid not in relevance_map:
-                continue  # no judgements for this query
-            query_text = item.get("text", "")
-            if not query_text:
-                continue
-
-            rel = relevance_map[qid]
-
-            # Corpus docs for this query (needed to build temp collection)
-            relevant_docs: list[dict] = []
-            if corpus_ds is not None:
-                relevant_cids = set(rel.keys())
-                for doc in corpus_ds:
-                    if str(doc["_id"]) in relevant_cids:
-                        relevant_docs.append(
-                            {"doc_id": str(doc["_id"]), "text": doc.get("text", "")}
-                        )
-
-            samples.append(
-                {
-                    "query_id": qid,
-                    "query": query_text,
-                    "relevance": rel,
-                    "relevant_docs": relevant_docs,
-                }
-            )
-            if limit > 0 and len(samples) >= limit:
-                break
-
-        logger.info(
-            "Loaded %d BEIR queries from %s",
-            len(samples),
-            dataset_path,
-        )
-        return samples
-
-    # -----------------------------------------------------------------------
-    # Standard single-split path
-    # -----------------------------------------------------------------------
-    if split_name not in ds_dict:
-        logger.error(
-            "Split '%s' not found in %s (available: %s)",
-            split_name,
-            dataset_path,
-            list(ds_dict.keys()),
-        )
-        return []
-
-    ds = ds_dict[split_name]
-
-    samples: list[dict[str, str]] = []
-    for item in ds:
-        if task == "code":
-            samples.append(
-                {
-                    "prompt": item.get("prompt", ""),
-                    "test": item.get("test", ""),
-                    "answer": item.get("canonical_solution", ""),
-                }
-            )
-        elif task == "summarize":
-            samples.append(
-                {
-                    "question": item.get("article", "")[:2000],
-                    "answer": item.get("abstract", ""),
-                }
-            )
-        elif task == "retrieval":
-            # Support both BEIR-style (top-level "text"/"_id") and
-            # msmarco-style (nested "passages.passage_text") datasets.
-            text = item.get("text", "")
-            if not text:
-                passages_data = item.get("passages", {})
-                passage_texts = passages_data.get("passage_text", [])
-                is_selected = passages_data.get("is_selected", [0] * len(passage_texts))
-                selected_texts = [t for t, s in zip(passage_texts, is_selected) if s]
-                text = (
-                    selected_texts[0]
-                    if selected_texts
-                    else (passage_texts[0] if passage_texts else "")
-                )
-            if not text:
-                continue
-            doc_id = str(
-                item.get("doc_id") or item.get("_id") or item.get("query_id") or len(samples)
-            )
-            query = item.get("query", "") or item.get("question", "")
-            samples.append(
-                {
-                    "doc_id": doc_id,
-                    "text": text,
-                    "query": query,
-                    "relevance": {doc_id: 1} if query else {},
-                }
-            )
-        else:
-            # chat / QA
-            # NQ stores question as {"text": "...", "tokens": [...]}; unwrap if needed
-            question = item.get("question", "")
-            if isinstance(question, dict):
-                question = question.get("text", "")
-
-            # NQ has no top-level "answer" — extract from annotations.short_answers
-            answer = item.get("answer", "")
-            if not answer:
-                annotations = item.get("annotations", {})
-
-                short_answers_col = (
-                    annotations.get("short_answers", []) if isinstance(annotations, dict) else []
-                )
-                for sa_list in short_answers_col:
-                    for sa in sa_list if isinstance(sa_list, list) else []:
-                        texts = sa.get("text", []) if isinstance(sa, dict) else []
-                        if texts:
-                            answer = texts[0]
-                            break
-                    if answer:
-                        break
-
-            samples.append(
-                {
-                    "question": question,
-                    "answer": answer,
-                }
-            )
-
-        if limit > 0 and len(samples) >= limit:
-            break
-
-    logger.info(
-        "Loaded %d samples from %s [%s]",
-        len(samples),
-        dataset_path,
-        split_name,
-    )
-    return samples
-
+_load_dataset_samples = load_dataset_samples  # alias for internal use
+_DATASET_LOCAL = DATASET_LOCAL  # backward-compat alias for tests
 
 # ---------------------------------------------------------------------------
 # Main runner
@@ -830,15 +353,12 @@ def run_eval(
     """Run evaluation for a single metric across all (rag_alias, lora_alias) combinations.
 
     Each call represents one eval-suite = ``(task, dataset, metric)``.
-    Computes the Cartesian product of alias lists and runs each pair.
+    Internally delegates to :func:`fetch_predictions` (phase 1) and
+    :func:`calculate_metrics` (phase 2).
 
     Returns:
         All metric result rows.
     """
-    eval_settings = get_eval_settings()
-    settings = get_settings()
-    base_model = settings.default_model
-
     # Validate metric is valid for this task
     valid_metrics = _TASK_METRICS.get(task, [])
     if metric not in valid_metrics:
@@ -846,225 +366,20 @@ def run_eval(
             f"Metric '{metric}' is not valid for task '{task}'. Valid metrics: {valid_metrics}"
         )
 
-    # Resolve fixed KB for this suite
-    if kb_name is None:
-        kb_name = _SUITE_KB.get((task, dataset_name))
-
-    # For summarization, RAG is irrelevant
-    if task == "summarize":
-        rag_aliases = ["none"]
-
-    # For retrieval tasks, LoRA is irrelevant
-    if task == "retrieval":
-        lora_aliases = ["none"]
-
-    all_rows: list[dict[str, Any]] = []
-    failures: list[tuple[str, str, BaseException]] = []
-
-    for rag_alias, lora_alias in itertools.product(rag_aliases, lora_aliases):
-        logger.info(
-            "Evaluating: task=%s dataset=%s metric=%s rag=%s lora=%s",
-            task,
-            dataset_name,
-            metric,
-            rag_alias,
-            lora_alias,
-        )
-
-        try:
-            if task == "code":
-                rows = _evaluate_code(
-                    dataset_name=dataset_name,
-                    metric=metric,
-                    rag_alias=rag_alias,
-                    lora_alias=lora_alias,
-                    kb_name=kb_name,
-                    eval_settings=eval_settings,
-                    base_model=base_model,
-                )
-            elif task == "retrieval":
-                rows = _evaluate_retrieval(
-                    dataset_name=dataset_name,
-                    metric=metric,
-                    rag_alias=rag_alias,
-                    kb_name=kb_name,
-                    eval_settings=eval_settings,
-                    base_model=base_model,
-                )
-            else:
-                rows = _evaluate_generation(
-                    task=task,
-                    dataset_name=dataset_name,
-                    metric=metric,
-                    rag_alias=rag_alias,
-                    lora_alias=lora_alias,
-                    kb_name=kb_name,
-                    eval_settings=eval_settings,
-                    base_model=base_model,
-                )
-            all_rows.extend(rows)
-        except Exception as e:
-            logger.error(
-                "Eval failed for rag=%s lora=%s: %s", rag_alias, lora_alias, e, exc_info=True
-            )
-            failures.append((rag_alias, lora_alias, e))
-
-    # Log to DB
-    _log_to_db(all_rows, eval_settings.db_url)
-
-    if failures:
-        failed_pairs = ", ".join(f"rag={r} lora={lo}" for r, lo, _ in failures)
-        raise RuntimeError(
-            f"{len(failures)} eval combination(s) failed ({failed_pairs}): {failures[0][2]}"
-        )
-
-    logger.info("Evaluation complete: %d metric rows", len(all_rows))
-    return all_rows
-
-
-def _evaluate_retrieval(
-    *,
-    dataset_name: str,
-    metric: str,
-    rag_alias: str,
-    kb_name: str | None,
-    eval_settings: Any,
-    base_model: str,
-) -> list[dict[str, Any]]:
-    """Run retrieval-only eval for one rag_alias and a single metric."""
-    from experiments.scripts.eval.metrics.automatic import compute_ndcg_at_k, compute_recall_at_k
-    from experiments.scripts.eval.retrieval_bench import (
-        build_temp_collection,
-        delete_temp_collection,
-        read_build_config,
-    )
-
-    if not kb_name:
-        logger.error("Retrieval eval requires --kb argument")
-        return []
-
-    settings = get_settings()
-    qdrant_host = settings.qdrant_host
-    qdrant_port = settings.qdrant_port
-
-    # Read build config from production collection
-    build_config = read_build_config(
-        kb_name=kb_name,
-        rag_alias=rag_alias,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-    )
-    if build_config is None:
-        logger.error("Cannot read build config for %s_%s", kb_name, rag_alias)
-        return []
-
-    # Load benchmark corpus and queries
-    samples = _load_dataset_samples("retrieval", dataset_name, limit=eval_settings.sample_limit)
-    if not samples:
-        return []
-
-    corpus = [
-        {"doc_id": s.get("doc_id", str(i)), "text": s.get("text", "")}
-        for i, s in enumerate(samples)
-    ]
-
-    # Build temp collection
-    temp_collection = build_temp_collection(
-        kb_name=kb_name,
+    prediction_data = fetch_predictions(
+        task=task,
         dataset_name=dataset_name,
-        rag_alias=rag_alias,
-        corpus=corpus,
-        build_config=build_config,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-        embeddings_url=settings.embeddings_url,
-    )
-
-    try:
-        from rag.embeddings import EmbeddingService
-        from rag.vector_store import QdrantVectorStore
-
-        embedding_model = build_config["embedding_model"]
-        emb_service = EmbeddingService(model_name=embedding_model)
-        vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
-
-        # Run queries
-        queries = [s for s in samples if s.get("query")]
-        recall_scores: list[float] = []
-        ndcg_scores: list[float] = []
-
-        for q in queries:
-            query_emb = emb_service.embed_query(q["query"])
-            results = vs.search(query_embedding=query_emb, top_k=10, score_threshold=0.0)
-            retrieved_ids = [doc.metadata.get("source", "") for doc in results]
-
-            relevance = q.get("relevance", {})
-            relevant_ids = {doc_id for doc_id, rel in relevance.items() if rel > 0}
-
-            recall_scores.append(compute_recall_at_k(retrieved_ids, relevant_ids, k=10))
-            ndcg_scores.append(compute_ndcg_at_k(retrieved_ids, relevance, k=10))
-
-        avg_recall = sum(recall_scores) / len(recall_scores) if recall_scores else 0.0
-        avg_ndcg = sum(ndcg_scores) / len(ndcg_scores) if ndcg_scores else 0.0
-
-    finally:
-        try:
-            delete_temp_collection(
-                temp_collection,
-                qdrant_host=qdrant_host,
-                qdrant_port=qdrant_port,
-            )
-        except Exception as e:
-            logger.warning("Failed to delete temp collection: %s", e)
-
-    now = datetime.now(timezone.utc)
-    common = _build_common_fields(
-        task="retrieval",
-        dataset_name=dataset_name,
-        base_model=base_model,
-        lora_alias="none",
-        lora_info={"adapter_name": None, "adapter_version": None, "adapter_mlflow_run_id": None},
-        rag_alias=rag_alias,
-        rag_enabled=True,
         kb_name=kb_name,
-        eval_settings=eval_settings,
-        now=now,
-    )
-    common.update(
-        {
-            "qdrant_collection": temp_collection,
-            "embedding_model": build_config.get("embedding_model"),
-            "chunking_strategy": build_config.get("chunking_strategy"),
-            "chunk_size": build_config.get("chunk_size"),
-            "chunk_overlap": build_config.get("chunk_overlap"),
-        }
+        rag_aliases=rag_aliases,
+        lora_aliases=lora_aliases,
     )
 
-    rows = []
-    if metric == "recall_at_10":
-        rows.append(
-            {
-                **common,
-                "metric_name": "recall_at_10",
-                "metric_value": avg_recall,
-                "finished_at": now,
-                "status": "completed",
-            }
-        )
-    elif metric == "ndcg_at_10":
-        rows.append(
-            {
-                **common,
-                "metric_name": "ndcg_at_10",
-                "metric_value": avg_ndcg,
-                "finished_at": now,
-                "status": "completed",
-            }
-        )
-    return rows
+    return calculate_metrics(
+        metric=metric,
+        prediction_data=prediction_data,
+    )
 
 
-# ---------------------------------------------------------------------------
 # Two-phase evaluation: fetch predictions, then compute metrics
 # ---------------------------------------------------------------------------
 
@@ -1256,8 +571,6 @@ def _fetch_code_predictions(
     eval_settings: Any,
 ) -> dict[str, Any]:
     """Fetch code generation predictions for a single (rag, lora) pair."""
-    from experiments.scripts.eval.metrics.code_exec import evaluate_humaneval_sample
-
     lora_info = _resolve_lora_alias(lora_alias, "code")
     model_name = lora_info["adapter_name"] if lora_info["adapter_name"] else None
 
@@ -1319,12 +632,6 @@ def _fetch_retrieval_predictions(
     eval_settings: Any,
 ) -> dict[str, Any]:
     """Fetch retrieval query results for a single rag_alias."""
-    from experiments.scripts.eval.retrieval_bench import (
-        build_temp_collection,
-        delete_temp_collection,
-        read_build_config,
-    )
-
     if not kb_name:
         raise ValueError("Retrieval eval requires kb_name")
 
@@ -1374,9 +681,6 @@ def _fetch_retrieval_predictions(
     )
 
     try:
-        from rag.embeddings import EmbeddingService
-        from rag.vector_store import QdrantVectorStore
-
         embedding_model = build_config["embedding_model"]
         emb_service = EmbeddingService(model_name=embedding_model)
         vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
@@ -1529,9 +833,6 @@ def _compute_generation_metric(
     eval_settings: Any,
 ) -> list[dict[str, Any]]:
     """Compute a single metric on pre-fetched generation predictions."""
-    from experiments.scripts.eval.metrics.automatic import compute_automatic_metrics
-    from experiments.scripts.eval.metrics.llm_judge import judge_batch
-
     now = datetime.now(timezone.utc)
     common = _build_common_fields(
         task=task,
@@ -1553,14 +854,19 @@ def _compute_generation_metric(
     rows: list[dict[str, Any]] = []
 
     if metric in _AUTOMATIC_METRICS:
-        auto = compute_automatic_metrics(
-            predictions,
-            references,
-            bert_score_model=eval_settings.bert_score_model,
-            metric=metric,
-        )
-        if metric in auto:
-            rows.append({**common, "metric_name": metric, "metric_value": auto[metric]})
+        metric_value: float | None = None
+        if metric == "rouge_l":
+            scores = [compute_rouge_l(p, r) for p, r in zip(predictions, references)]
+            metric_value = sum(scores) / len(scores) if scores else 0.0
+        elif metric.startswith("bertscore"):
+            bert = compute_bertscore(
+                predictions,
+                references,
+                model_name=eval_settings.bert_score_model,
+            )
+            metric_value = bert.get(metric)
+        if metric_value is not None:
+            rows.append({**common, "metric_name": metric, "metric_value": metric_value})
     elif metric in _JUDGE_METRICS:
         if not eval_settings.google_ai_api_key:
             raise RuntimeError(f"LLM-as-Judge metric {metric!r} requires EVAL_GOOGLE_AI_API_KEY")
@@ -1590,8 +896,6 @@ def _compute_code_metric(
     eval_settings: Any,
 ) -> list[dict[str, Any]]:
     """Compute a single metric on pre-fetched code execution results."""
-    from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1
-
     now = datetime.now(timezone.utc)
     common = _build_common_fields(
         task="code",
@@ -1632,8 +936,6 @@ def _compute_retrieval_metric(
     eval_settings: Any,
 ) -> list[dict[str, Any]]:
     """Compute a single retrieval metric on pre-fetched query results."""
-    from experiments.scripts.eval.metrics.automatic import compute_ndcg_at_k, compute_recall_at_k
-
     query_results = bundle["query_results"]
     recall_scores: list[float] = []
     ndcg_scores: list[float] = []
@@ -1710,46 +1012,43 @@ def _compute_retrieval_metric(
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Evaluation runner for agent-042",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument("--task", required=True, choices=["chat", "summarize", "code", "retrieval"])
-    parser.add_argument("--dataset", required=True, help="Dataset name (e.g. hotpotqa, humaneval)")
-    parser.add_argument(
-        "--metric",
-        required=True,
-        help="Metric to compute (e.g. rouge_l, relevance, pass_at_1, recall_at_10)",
-    )
-    parser.add_argument("--kb", default=None, help="Knowledge base (required for retrieval evals)")
-    parser.add_argument(
-        "--rag-aliases",
-        default="none",
-        help="Comma-separated RAG alias roles (default: none)",
-    )
-    parser.add_argument(
-        "--lora-aliases",
-        default="none",
-        help="Comma-separated LoRA alias roles (default: none)",
-    )
-    args = parser.parse_args()
+def main(
+    task: str,
+    dataset: str,
+    metric: str,
+    kb: str | None = None,
+    rag_aliases: str = "none",
+    lora_aliases: str = "none",
+) -> None:
+    """Run evaluation for a single metric.
 
+    Args:
+        task: One of chat, summarize, code, retrieval.
+        dataset: Dataset name (e.g. hotpotqa, humaneval).
+        metric: Metric to compute (e.g. rouge_l, relevance, pass_at_1, recall_at_10).
+        kb: Knowledge base name (required for retrieval evals).
+        rag_aliases: Comma-separated RAG alias roles.
+        lora_aliases: Comma-separated LoRA alias roles.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
-    rag_aliases = [a.strip() for a in args.rag_aliases.split(",")]
-    lora_aliases = [a.strip() for a in args.lora_aliases.split(",")]
+    _valid_tasks = ("chat", "summarize", "code", "retrieval")
+    if task not in _valid_tasks:
+        raise SystemExit(f"Invalid task '{task}'. Choose from {_valid_tasks}")
+
+    rag_list = [a.strip() for a in rag_aliases.split(",")]
+    lora_list = [a.strip() for a in lora_aliases.split(",")]
 
     rows = run_eval(
-        task=args.task,
-        dataset_name=args.dataset,
-        metric=args.metric,
-        kb_name=args.kb,
-        rag_aliases=rag_aliases,
-        lora_aliases=lora_aliases,
+        task=task,
+        dataset_name=dataset,
+        metric=metric,
+        kb_name=kb,
+        rag_aliases=rag_list,
+        lora_aliases=lora_list,
     )
 
     # Print summary
@@ -1762,9 +1061,9 @@ def main() -> None:
             f"metric={row['metric_name']} "
             f"rag={row.get('rag_alias') or 'none'} "
             f"lora={row.get('lora_alias') or 'none'} "
-            f"→ {row['metric_value']:.4f}"
+            f"-> {row['metric_value']:.4f}"
         )
 
 
 if __name__ == "__main__":
-    main()
+    fire.Fire(main)

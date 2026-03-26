@@ -1,26 +1,23 @@
-"""RAG collection management CLI.
+"""RAG collection management CLI (Fire).
 
 Provides commands for promoting aliases, listing aliases and their
 target collections, and inspecting collection metadata.
 
 Usage::
 
-    # Promote challenger → champion
-    python -m scripts.manage_rag promote --kb pytorch_docs --from challenger --to champion
-
-    # List all aliases and their target collections
+    python -m scripts.manage_rag promote \
+        --kb pytorch_docs --from_alias challenger --to_alias champion
     python -m scripts.manage_rag list
-
-    # Inspect collection metadata
     python -m scripts.manage_rag inspect --kb pytorch_docs --alias champion
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 from pathlib import Path
+
+import fire
 
 # Add src to path so shared/rag modules are importable when run standalone
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -33,9 +30,16 @@ from shared.config import get_settings
 # ------------------------------------------------------------------
 
 
-def _cmd_list(args: argparse.Namespace) -> None:
+def _resolve_qdrant(qdrant_host, qdrant_port):
+    """Fill *None* values from shared settings."""
+    s = get_settings()
+    return qdrant_host or s.qdrant_host, qdrant_port or s.qdrant_port
+
+
+def cmd_list(qdrant_host: str | None = None, qdrant_port: int | None = None) -> None:
     """List all Qdrant aliases and the collections they point to."""
-    vs = QdrantVectorStore(host=args.qdrant_host, port=args.qdrant_port, collection_name="_dummy")
+    host, port = _resolve_qdrant(qdrant_host, qdrant_port)
+    vs = QdrantVectorStore(host=host, port=port, collection_name="_dummy")
     aliases = vs.client.get_aliases().aliases
 
     if not aliases:
@@ -48,12 +52,18 @@ def _cmd_list(args: argparse.Namespace) -> None:
         print(f"{a.alias_name:<40} {a.collection_name:<50}")
 
 
-def _cmd_inspect(args: argparse.Namespace) -> None:
+def cmd_inspect(
+    kb: str,
+    alias: str,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+) -> None:
     """Inspect the _meta point of a resolved alias."""
-    qdrant_alias = f"{args.kb}_{args.alias}"
+    host, port = _resolve_qdrant(qdrant_host, qdrant_port)
+    qdrant_alias = f"{kb}_{alias}"
     vs = QdrantVectorStore(
-        host=args.qdrant_host,
-        port=args.qdrant_port,
+        host=host,
+        port=port,
         collection_name=qdrant_alias,
     )
 
@@ -68,14 +78,21 @@ def _cmd_inspect(args: argparse.Namespace) -> None:
         print(json.dumps(meta, indent=2, default=str))
 
 
-def _cmd_promote(args: argparse.Namespace) -> None:
-    """Re-point *--to* alias to the collection currently behind *--from* alias."""
-    src_alias = f"{args.kb}_{args.from_alias}"
-    dst_alias = f"{args.kb}_{args.to_alias}"
+def cmd_promote(
+    kb: str,
+    from_alias: str,
+    to_alias: str,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+) -> None:
+    """Re-point *to_alias* to the collection currently behind *from_alias*."""
+    host, port = _resolve_qdrant(qdrant_host, qdrant_port)
+    src_alias = f"{kb}_{from_alias}"
+    dst_alias = f"{kb}_{to_alias}"
 
     vs = QdrantVectorStore(
-        host=args.qdrant_host,
-        port=args.qdrant_port,
+        host=host,
+        port=port,
         collection_name=src_alias,
     )
 
@@ -84,11 +101,11 @@ def _cmd_promote(args: argparse.Namespace) -> None:
         print(f"Error: source alias '{src_alias}' does not resolve.")
         sys.exit(1)
 
-    print(f"Source: {src_alias} → {src_collection}")
-    print(f"Target: {dst_alias} → {src_collection}")
+    print(f"Source: {src_alias} -> {src_collection}")
+    print(f"Target: {dst_alias} -> {src_collection}")
 
     vs.update_alias(dst_alias, src_collection)
-    print(f"✅ Promoted: '{dst_alias}' now points to '{src_collection}'")
+    print(f"Promoted: '{dst_alias}' now points to '{src_collection}'")
 
 
 # ------------------------------------------------------------------
@@ -97,40 +114,13 @@ def _cmd_promote(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    _settings = get_settings()
-
-    parser = argparse.ArgumentParser(
-        description="Manage RAG Qdrant aliases and collections",
+    fire.Fire(
+        {
+            "list": cmd_list,
+            "inspect": cmd_inspect,
+            "promote": cmd_promote,
+        }
     )
-    parser.add_argument("--qdrant-host", default=_settings.qdrant_host, help="Qdrant host")
-    parser.add_argument(
-        "--qdrant-port", type=int, default=_settings.qdrant_port, help="Qdrant port"
-    )
-
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    # list
-    sub.add_parser("list", help="List all aliases")
-
-    # inspect
-    p_inspect = sub.add_parser("inspect", help="Inspect _meta of a collection")
-    p_inspect.add_argument("--kb", required=True, help="Knowledge base name")
-    p_inspect.add_argument("--alias", required=True, help="Alias role")
-
-    # promote
-    p_promote = sub.add_parser("promote", help="Promote one alias to another")
-    p_promote.add_argument("--kb", required=True, help="Knowledge base name")
-    p_promote.add_argument("--from", dest="from_alias", required=True, help="Source alias role")
-    p_promote.add_argument("--to", dest="to_alias", required=True, help="Target alias role")
-
-    args = parser.parse_args()
-
-    if args.command == "list":
-        _cmd_list(args)
-    elif args.command == "inspect":
-        _cmd_inspect(args)
-    elif args.command == "promote":
-        _cmd_promote(args)
 
 
 if __name__ == "__main__":

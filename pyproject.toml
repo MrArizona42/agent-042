@@ -3,7 +3,9 @@ name = "agent-042"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12,<3.14"
-dependencies = []
+dependencies = [
+    "fire>=0.7.0",
+]
 
 [project.optional-dependencies]
 gateway = [
@@ -37,7 +39,7 @@ worker = [
 ]
 
 airflow = [
-    
+
 ]
 
 airflow-worker = [

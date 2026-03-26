@@ -38,7 +38,7 @@ _project_root = str(PROJECT_ROOT)
 _arxiv_dir = str(ARXIV_OUTPUT_DIR)
 _arxiv_rel = str(ARXIV_OUTPUT_DIR.relative_to(PROJECT_ROOT))
 _arxiv_json = str(ARXIV_OUTPUT_DIR / "arxiv_papers.json")
-_build_script = str(PROJECT_ROOT / "experiments" / "scripts" / "rag_data" / "build_vector_index.py")
+_build_script = str(PROJECT_ROOT / "experiments" / "scripts" / "rag_data" / "build_arxiv_index.py")
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
@@ -130,11 +130,10 @@ with DAG(
             f"cd {_project_root} && "
             f"PYTHONPATH={_project_root}/src:$PYTHONPATH "
             f"python {_build_script} "
-            f"--arxiv-file {_arxiv_json} "
-            "--qdrant-host $QDRANT_HOST "
-            "--qdrant-port $QDRANT_PORT "
-            "--embedding-model $EMBEDDING_MODEL "
-            "--task chat "
+            f"--arxiv_file {_arxiv_json} "
+            "--qdrant_host $QDRANT_HOST "
+            "--qdrant_port $QDRANT_PORT "
+            "--embedding_model $EMBEDDING_MODEL "
             "--kb arxiv "
         ),
     )
