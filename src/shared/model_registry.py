@@ -23,13 +23,13 @@ Each (model, alias) pair is loaded into vLLM as ``{model}-{alias}``::
 
 Typical flow
 ------------
-1. Researcher promotes an adapter::
+1. Researcher promotes an adapter (operations notebook)::
 
-       python scripts/manage_registry.py promote lora-summarize 3
+       registry.promote("lora-summarize", version=3, alias="challenger")
 
-2. Ops syncs adapters into the running vLLM::
+2. Adapter-sync container syncs into the running vLLM::
 
-       python scripts/manage_registry.py sync --vllm-url http://localhost:8000
+       python -m shared.model_registry sync
 
    This downloads missing versions and hot-loads/unloads adapters via the
    vLLM API.  No restart required.
