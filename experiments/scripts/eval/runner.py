@@ -44,10 +44,12 @@ from sqlalchemy import (
     Column,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     MetaData,
     Table,
     Text,
+    UniqueConstraint,
     create_engine,
     insert,
 )
@@ -235,8 +237,12 @@ def _resolve_lora_alias(
 # ---------------------------------------------------------------------------
 
 
-def _log_to_db(rows: list[dict[str, Any]], db_url: str) -> None:
-    """Write eval result rows to the ``eval_runs`` table."""
+def _log_to_db(
+    rows: list[dict[str, Any]],
+    db_url: str,
+    sample_rows: list[dict[str, Any]] | None = None,
+) -> None:
+    """Write eval result rows to ``eval_runs`` and per-sample detail to ``eval_samples``."""
     if not db_url:
         logger.warning("No DB URL configured; skipping database logging")
         return
@@ -282,7 +288,26 @@ def _log_to_db(rows: list[dict[str, Any]], db_url: str) -> None:
             Column("error_message", Text),
         )
 
-        meta.create_all(engine, tables=[eval_runs], checkfirst=True)
+        eval_samples = Table(
+            "eval_samples",
+            meta,
+            Column("id", PG_UUID(as_uuid=True), primary_key=True),
+            Column(
+                "eval_run_id",
+                PG_UUID(as_uuid=True),
+                ForeignKey("eval_runs.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
+            Column("sample_idx", Integer, nullable=False),
+            Column("sample_id", Text),
+            Column("input", Text),
+            Column("output", Text),
+            Column("reference", Text),
+            Column("detail", JSONB, nullable=False, server_default="{}"),
+            UniqueConstraint("eval_run_id", "sample_idx"),
+        )
+
+        meta.create_all(engine, tables=[eval_runs, eval_samples], checkfirst=True)
 
         with engine.begin() as conn:
             for row in rows:
@@ -290,7 +315,14 @@ def _log_to_db(rows: list[dict[str, Any]], db_url: str) -> None:
                     row["id"] = uuid.uuid4()
                 conn.execute(insert(eval_runs).values(**row))
 
-        logger.info("Logged %d eval rows to database", len(rows))
+            if sample_rows:
+                for sr in sample_rows:
+                    if "id" not in sr:
+                        sr["id"] = uuid.uuid4()
+                    conn.execute(insert(eval_samples).values(**sr))
+
+        n_samples = len(sample_rows) if sample_rows else 0
+        logger.info("Logged %d eval rows + %d sample rows to database", len(rows), n_samples)
     except Exception as e:
         logger.error("Failed to log to database: %s", e)
 
@@ -515,9 +547,10 @@ def _fetch_generation_predictions(
     predictions: list[str] = []
     references: list[str] = []
     judge_samples: list[dict[str, str]] = []
+    sample_details: list[dict[str, Any]] = []
     gateway_failures = 0
 
-    for sample in samples:
+    for idx, sample in enumerate(samples):
         question = sample["question"]
         reference = sample.get("answer", "")
 
@@ -554,6 +587,16 @@ def _fetch_generation_predictions(
                 "context": rag_context,
             }
         )
+        sample_details.append(
+            {
+                "sample_idx": idx,
+                "sample_id": sample.get("id"),
+                "input": question,
+                "output": answer,
+                "reference": reference,
+                "detail": {"rag_context": rag_context} if rag_context else {},
+            }
+        )
 
     if gateway_failures == len(samples):
         raise RuntimeError(
@@ -569,6 +612,7 @@ def _fetch_generation_predictions(
         "predictions": predictions,
         "references": references,
         "judge_samples": judge_samples,
+        "sample_details": sample_details,
     }
 
 
@@ -595,7 +639,8 @@ def _fetch_code_predictions(
         raise RuntimeError(f"No samples loaded for code/{dataset_name}")
 
     exec_results: list[dict[str, Any]] = []
-    for sample in samples:
+    sample_details: list[dict[str, Any]] = []
+    for idx, sample in enumerate(samples):
         prompt = sample["prompt"]
         test_code = sample.get("test", "")
 
@@ -624,6 +669,20 @@ def _fetch_code_predictions(
             cpus=eval_settings.code_exec_cpus,
         )
         exec_results.append(result)
+        sample_details.append(
+            {
+                "sample_idx": idx,
+                "sample_id": sample.get("task_id"),
+                "input": prompt,
+                "output": generated,
+                "reference": test_code,
+                "detail": {
+                    "passed": result["passed"],
+                    "exit_code": result["exit_code"],
+                    "stderr": result.get("stderr", ""),
+                },
+            }
+        )
 
     return {
         "rag_alias": rag_alias,
@@ -631,6 +690,7 @@ def _fetch_code_predictions(
         "lora_info": lora_info,
         "rag_enabled": rag_enabled,
         "exec_results": exec_results,
+        "sample_details": sample_details,
     }
 
 
@@ -697,8 +757,9 @@ def _fetch_retrieval_predictions(
 
         queries = [s for s in samples if s.get("query")]
         query_results: list[dict[str, Any]] = []
+        sample_details: list[dict[str, Any]] = []
 
-        for q in queries:
+        for idx, q in enumerate(queries):
             query_emb = emb_service.embed_query(q["query"])
             results = vs.search(query_embedding=query_emb, top_k=10, score_threshold=0.0)
             retrieved_ids = [doc.metadata.get("source", "") for doc in results]
@@ -707,6 +768,19 @@ def _fetch_retrieval_predictions(
                 {
                     "retrieved_ids": retrieved_ids,
                     "relevance": relevance,
+                }
+            )
+            sample_details.append(
+                {
+                    "sample_idx": idx,
+                    "sample_id": q.get("query_id"),
+                    "input": q["query"],
+                    "output": None,
+                    "reference": None,
+                    "detail": {
+                        "retrieved_ids": retrieved_ids,
+                        "relevance": relevance,
+                    },
                 }
             )
     finally:
@@ -729,6 +803,7 @@ def _fetch_retrieval_predictions(
         },
         "rag_enabled": True,
         "query_results": query_results,
+        "sample_details": sample_details,
         "build_config": {
             "embedding_model": build_config.get("embedding_model"),
             "chunking_strategy": build_config.get("chunking_strategy"),
@@ -767,6 +842,7 @@ def calculate_metrics(
     eval_settings = get_eval_settings()
 
     all_rows: list[dict[str, Any]] = []
+    all_sample_rows: list[dict[str, Any]] = []
     failures: list[tuple[str, str, BaseException]] = []
 
     for bundle in prediction_data["bundles"]:
@@ -809,6 +885,24 @@ def calculate_metrics(
                     kb_name=kb_name,
                     eval_settings=eval_settings,
                 )
+
+            # Link per-sample details to the eval_run row(s)
+            sample_details = bundle.get("sample_details", [])
+            for row in rows:
+                run_id = row.setdefault("id", uuid.uuid4())
+                for sd in sample_details:
+                    all_sample_rows.append(
+                        {
+                            "eval_run_id": run_id,
+                            "sample_idx": sd["sample_idx"],
+                            "sample_id": sd.get("sample_id"),
+                            "input": sd.get("input"),
+                            "output": sd.get("output"),
+                            "reference": sd.get("reference"),
+                            "detail": sd.get("detail", {}),
+                        }
+                    )
+
             all_rows.extend(rows)
         except Exception as e:
             logger.error(
@@ -820,7 +914,7 @@ def calculate_metrics(
             )
             failures.append((rag_alias, lora_alias, e))
 
-    _log_to_db(all_rows, eval_settings.db_url)
+    _log_to_db(all_rows, eval_settings.db_url, sample_rows=all_sample_rows)
 
     if failures:
         failed_pairs = ", ".join(f"rag={r} lora={lo}" for r, lo, _ in failures)

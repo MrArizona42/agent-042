@@ -1,22 +1,28 @@
 """Sandboxed code execution for HumanEval evaluation.
 
-Runs generated Python code in a child ``python3`` subprocess with a CPU-time
-rlimit (``RLIMIT_CPU``) and a wall-clock timeout.  No Docker socket and no
-SUID sandbox binary are required.
+Executes generated Python code in the ``code-sandbox`` sidecar container,
+which is always running alongside the airflow-worker and provides Docker-level
+isolation (read-only filesystem, tmpfs /tmp, no internet access, CPU/memory
+limits) without requiring kernel user-namespace support on the host.
+
+The URL of the sandbox is read from the ``CODE_SANDBOX_URL`` environment
+variable (default: ``http://code-sandbox:8200``).
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
-import subprocess
-import tempfile
-from pathlib import Path
+import urllib.error
+import urllib.request
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_MEM_UNITS = {"k": 1024, "m": 1024**2, "g": 1024**3}
+# Resolved at import time so tests can override via environment.
+_SANDBOX_URL: str = os.environ.get("CODE_SANDBOX_URL", "http://code-sandbox:8200").rstrip("/")
 
 # Matches the first ```python / ```py / ``` fenced block in an LLM response.
 _FENCE_RE = re.compile(r"```(?:python3?|py)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
@@ -116,83 +122,48 @@ def extract_code_from_response(response: str, prompt: str) -> str:
     return candidate.strip("\n")
 
 
-def _parse_mem_limit(mem_limit: str) -> int:
-    """Convert a Docker-style memory string (e.g. ``'512m'``) to bytes."""
-    m = re.fullmatch(r"(\d+)([kmg])?", mem_limit.strip().lower())
-    if not m:
-        raise ValueError(f"Unparseable mem_limit: {mem_limit!r}")
-    value, unit = int(m.group(1)), m.group(2) or "b"
-    return value * _MEM_UNITS.get(unit, 1)
-
-
-def _run_in_container(
+def _run_in_sandbox(
     code: str,
     *,
     timeout: int,
-    mem_limit: str,  # noqa: ARG001 – kept for call-site compatibility
-    cpus: float,
 ) -> dict[str, Any]:
-    """Execute *code* in a resource-limited subprocess.
+    """Send *code* to the code-sandbox sidecar and return the execution result.
 
-    Runs ``python3`` in a child process.  A ``RLIMIT_CPU`` rlimit is applied
-    inside the child via ``preexec_fn`` and a wall-clock ``timeout`` is
-    enforced by the parent so runaway tasks cannot stall the worker
-    indefinitely.  No additional sandboxing binary is required.
-
-    Note:
-        ``mem_limit`` is accepted for config compatibility but is not applied
-        as ``RLIMIT_AS``.  On 64-bit hosts the virtual-address-space limit
-        interferes with Python's own startup allocations (shared-library
-        mappings) and produces spurious ``MemoryError`` failures unrelated to
-        the evaluated code.  The wall-clock ``timeout`` remains the primary
-        runaway-task guard.
+    Raises ``RuntimeError`` if the sidecar is unreachable or returns an
+    unexpected HTTP status, so the Airflow task (and therefore the DAG) is
+    marked as failed rather than silently recording a zero pass@1.
 
     Args:
         code: Python source to execute.
-        timeout: Wall-clock timeout in seconds (also used as CPU-time cap).
-        mem_limit: Ignored; kept for backward-compatible call sites.
-        cpus: CPU share; multiplied by *timeout* to derive the rlimit-cpu cap.
+        timeout: Wall-clock timeout in seconds passed to the sandbox.
 
     Returns:
         ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
-    cpu_seconds = max(1, int(timeout * cpus))
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(code)
-        host_path = f.name
-
-    def _set_limits() -> None:
-        """CPU-time rlimit applied inside the child process before exec."""
-        try:
-            import resource as _r  # Linux / macOS only
-
-            _r.setrlimit(_r.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
-        except Exception:
-            pass  # Best-effort; non-Linux or unprivileged container
-
+    url = f"{_SANDBOX_URL}/execute"
+    payload = json.dumps({"code": code, "timeout": timeout}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    # Add a small margin so the HTTP connection itself doesn't outlive the
+    # sandbox's own timeout.
+    http_timeout = timeout + 10
     try:
-        proc = subprocess.run(
-            ["python3", host_path],
-            capture_output=True,
-            timeout=timeout,
-            preexec_fn=_set_limits,
-        )
-        exit_code = proc.returncode
-        return {
-            "passed": exit_code == 0,
-            "exit_code": exit_code,
-            "stdout": proc.stdout.decode(errors="replace").strip(),
-            "stderr": proc.stderr.decode(errors="replace").strip(),
-        }
-    except subprocess.TimeoutExpired:
-        logger.warning("Code execution timed out after %ds", timeout)
-        return {"passed": False, "exit_code": -1, "stdout": "", "stderr": "timeout"}
-    except Exception as e:
-        logger.error("Code execution error: %s", e)
-        return {"passed": False, "exit_code": -1, "stdout": "", "stderr": str(e)}
-    finally:
-        Path(host_path).unlink(missing_ok=True)
+        with urllib.request.urlopen(req, timeout=http_timeout) as resp:
+            result = json.loads(resp.read())
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"code-sandbox unreachable at {url}: {exc.reason}") from exc
+
+    exit_code: int = result["exit_code"]
+    return {
+        "passed": exit_code == 0,
+        "exit_code": exit_code,
+        "stdout": result.get("stdout", ""),
+        "stderr": result.get("stderr", ""),
+    }
 
 
 def evaluate_humaneval_sample(
@@ -201,28 +172,28 @@ def evaluate_humaneval_sample(
     test_code: str,
     *,
     timeout: int,
-    mem_limit: str,
-    cpus: float,
+    mem_limit: str,  # noqa: ARG001 – kept for call-site compatibility
+    cpus: float,  # noqa: ARG001 – kept for call-site compatibility
 ) -> dict[str, Any]:
     """Evaluate a single HumanEval sample.
 
     Combines the function prompt, generated completion, and test assertions
-    into one script, then executes it in a Firejail sandbox.
+    into one script, then executes it in the code-sandbox sidecar container.
 
     Args:
         prompt: The function signature / docstring from HumanEval.
         generated_code: Model-generated function body.
         test_code: Assertion-based test code from the dataset.
         timeout: Execution timeout in seconds.
-        mem_limit: Memory limit string (e.g. ``'512m'``).
-        cpus: CPU share for rlimit-cpu calculation.
+        mem_limit: Unused; kept for call-site compatibility.
+        cpus: Unused; kept for call-site compatibility.
 
     Returns:
         ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
     body = extract_code_from_response(generated_code, prompt)
     full_code = f"{prompt}\n{body}\n\n{test_code}\n"
-    return _run_in_container(full_code, timeout=timeout, mem_limit=mem_limit, cpus=cpus)
+    return _run_in_sandbox(full_code, timeout=timeout)
 
 
 def compute_pass_at_1(results: list[dict[str, Any]]) -> dict[str, float]:

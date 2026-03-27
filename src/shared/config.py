@@ -502,7 +502,7 @@ class EvalSettings(BaseSettings):
         description=(
             "Memory limit string for sandboxed code execution. "
             "Accepted for config compatibility; not currently enforced "
-            "(RLIMIT_AS on 64-bit hosts breaks Python startup)."
+            "by bwrap (reserved for future cgroup-based limits)."
         ),
     )
     code_exec_cpus: float = Field(
