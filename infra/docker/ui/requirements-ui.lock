@@ -18,6 +18,8 @@ charset-normalizer==3.4.4
     # via requests
 click==8.3.1
     # via streamlit
+fire==0.7.1
+    # via agent-042 (pyproject.toml)
 gitdb==4.0.12
     # via gitpython
 gitpython==3.1.46
@@ -66,7 +68,9 @@ pydeck==0.9.1
 python-dateutil==2.9.0.post0
     # via pandas
 python-dotenv==1.2.1
-    # via pydantic-settings
+    # via
+    #   agent-042 (pyproject.toml)
+    #   pydantic-settings
 pytz==2025.2
     # via pandas
 referencing==0.37.0
@@ -89,6 +93,8 @@ streamlit==1.54.0
     # via agent-042 (pyproject.toml)
 tenacity==9.1.4
     # via streamlit
+termcolor==3.3.0
+    # via fire
 toml==0.10.2
     # via streamlit
 tornado==6.5.4

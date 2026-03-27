@@ -15,6 +15,9 @@
 #   bash scripts/fetch_logs_ssh.sh deploy@10.0.0.1 /srv/agent-042 gateway ui
 #
 # Requires: ssh, scp (both available via OpenSSH / Git Bash)
+#
+# Example
+# bash scripts/fetch_logs_ssh.sh my_server /home/anton-m/Git/agent-042
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 

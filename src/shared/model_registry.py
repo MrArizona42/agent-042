@@ -1,33 +1,38 @@
-"""Inference-side adapter management: sync production LoRA adapters from MLflow.
+"""Inference-side adapter management: sync LoRA adapters from MLflow to vLLM.
 
 This module connects to the MLflow Model Registry, discovers every adapter
-that carries the configured production alias (default ``"champion"``), and
-downloads it to a local directory so that vLLM can load the adapters at
-startup (``--enable-lora``).
+that carries one of the configured sync aliases (default ``champion``,
+``challenger``), downloads adapter files to a local directory, and hot-loads
+them into a running vLLM instance via its ``/v1/load_lora_adapter`` API.
 
-It also generates a ``lora-modules.json`` manifest that can be fed to vLLM's
-``--lora-modules`` flag or consumed by the gateway to know which adapters are
-available.
+No manifest files are written; the vLLM runtime state is the live truth,
+and MLflow Model Registry is the source of truth for alias → version mapping.
 
-The production alias is configurable via the ``REGISTRY_PRODUCTION_ALIAS``
-environment variable (see :class:`shared.config.ModelRegistrySettings`).
+Disk layout
+-----------
+Adapters are stored by version (immutable, cacheable)::
+
+    /adapters/{model_name}/v{version}/model/adapter_config.json
+
+vLLM adapter naming
+-------------------
+Each (model, alias) pair is loaded into vLLM as ``{model}-{alias}``::
+
+    lora-summarize-champion   →  /adapters/lora-summarize/v3/model
+    lora-summarize-challenger →  /adapters/lora-summarize/v5/model
 
 Typical flow
 ------------
-1. Researcher promotes an adapter::
+1. Researcher promotes an adapter (operations notebook)::
 
-       python scripts/manage_registry.py promote lora-summarize 3
+       registry.promote("lora-summarize", version=3, alias="challenger")
 
-2. Ops (or CI/CD) syncs adapters to the inference host::
+2. Adapter-sync container syncs into the running vLLM::
 
        python -m shared.model_registry sync
 
-   This writes files to ``REGISTRY_ADAPTERS_DIR`` (default ``./adapters``)
-   and produces ``lora-modules.json``.
-
-3. vLLM is (re)started with the adapter config::
-
-       --enable-lora --lora-modules @/adapters/lora-modules.json
+   This downloads missing versions and hot-loads/unloads adapters via the
+   vLLM API.  No restart required.
 
 Environment variables
 ---------------------
@@ -37,18 +42,22 @@ Environment variables
     Credentials for downloading artifacts from S3.
 ``REGISTRY_ADAPTERS_DIR``
     Where to store downloaded adapters (default ``./adapters``).
+``REGISTRY_SYNC_ALIASES``
+    Comma-separated list of MLflow aliases to sync (default ``champion,challenger``).
+``REGISTRY_VLLM_BASE_URL``
+    vLLM server URL for hot-load API (default ``http://localhost:8000``).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import mlflow
+import requests
 from mlflow import artifacts as mlflow_artifacts
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
@@ -79,15 +88,6 @@ class AdapterInfo:
     version: int
     run_id: str
     tags: dict[str, str] = field(default_factory=dict)
-
-
-@dataclass
-class VllmLoraModule:
-    """Single entry for the vLLM ``--lora-modules`` JSON array."""
-
-    name: str
-    path: str
-    base_model_name: str | None = None
 
 
 # ── Registry facade ─────────────────────────────────────────────────────────
@@ -285,12 +285,20 @@ class AdapterRegistry:
 
 # ── Sync logic ───────────────────────────────────────────────────────────────
 class AdapterSyncer:
-    """Downloads production adapters from MLflow Model Registry.
+    """Syncs LoRA adapters from MLflow Model Registry into a running vLLM.
+
+    For each registered model × each configured alias, the syncer:
+    1. Queries MLflow for the version the alias points to.
+    2. Downloads adapter files to ``{adapters_dir}/{model}/v{version}/``.
+    3. Unloads stale adapters from vLLM.
+    4. Loads desired adapters via the vLLM hot-load API.
 
     Args:
         tracking_uri: MLflow tracking URI.  Falls back to ``MLFLOW_BACKEND_URI``
             env var, then to the MLflow default.
         adapters_dir: Local root for downloaded adapter files.
+        sync_aliases: List of MLflow aliases to iterate over.
+        vllm_base_url: vLLM OpenAI-compatible server base URL.
     """
 
     def __init__(
@@ -298,215 +306,282 @@ class AdapterSyncer:
         tracking_uri: str | None = None,
         *,
         adapters_dir: str | Path,
-        production_alias: str | None = None,
+        sync_aliases: list[str] | None = None,
+        vllm_base_url: str | None = None,
     ):
-        # Resolve from config when caller doesn't specify explicitly.
-        if production_alias is None:
-            from shared.config import get_registry_settings
+        from shared.config import get_registry_settings
 
-            production_alias = get_registry_settings().production_alias
+        cfg = get_registry_settings()
+
+        if sync_aliases is None:
+            sync_aliases = cfg.sync_aliases
+        if vllm_base_url is None:
+            vllm_base_url = cfg.vllm_base_url
+
         uri = tracking_uri or os.getenv("MLFLOW_BACKEND_URI")
         if uri:
             mlflow.set_tracking_uri(uri)
+
         self.client = MlflowClient()
         self.adapters_dir = Path(adapters_dir)
-        self.production_alias = production_alias
+        self.sync_aliases = sync_aliases
+        self.vllm_base_url = vllm_base_url.rstrip("/")
 
-    def discover_production_adapters(self) -> dict[str, Any]:
-        """Return ``{model_name: ModelVersion}`` for every adapter with the production alias.
+    # ── MLflow discovery ─────────────────────────────────────────────────
+    def discover_aliased_adapters(
+        self,
+    ) -> dict[tuple[str, str], Any]:
+        """Return ``{(model_name, alias): ModelVersion}`` for every adapter with a sync alias.
 
-        Returns an empty dict when ``production_alias`` is *None* (no alias configured).
+        Returns an empty dict when no aliases match.
 
         Raises:
             RuntimeError: If MLflow is unreachable or returns an unexpected error.
         """
-        if not self.production_alias:
+        if not self.sync_aliases:
             return {}
+
         try:
             registered_models = list(self.client.search_registered_models())
         except Exception as exc:
             raise RuntimeError(f"MLflow service unhealthy: {exc}") from exc
 
-        result = {}
+        result: dict[tuple[str, str], Any] = {}
         for rm in registered_models:
-            try:
-                mv = self.client.get_model_version_by_alias(
-                    rm.name,
-                    self.production_alias,
-                )
-                result[rm.name] = mv
-            except MlflowException as exc:
-                if exc.error_code == "RESOURCE_DOES_NOT_EXIST":
-                    continue
-                raise RuntimeError(
-                    f"MLflow error while querying alias for '{rm.name}': {exc}"
-                ) from exc
+            for alias in self.sync_aliases:
+                try:
+                    mv = self.client.get_model_version_by_alias(rm.name, alias)
+                    result[(rm.name, alias)] = mv
+                except MlflowException as exc:
+                    if (
+                        "not found" in str(exc).lower()
+                        or exc.error_code == "RESOURCE_DOES_NOT_EXIST"
+                    ):
+                        continue
+                    raise RuntimeError(
+                        f"MLflow error while querying alias '{alias}' for '{rm.name}': {exc}"
+                    ) from exc
         return result
 
-    def sync(self, base_model_name: str | None = None) -> list[AdapterInfo]:
-        """Download all production adapters and write the vLLM manifest.
+    # ── vLLM API helpers ─────────────────────────────────────────────────
+    def _vllm_get_loaded_adapters(self) -> set[str]:
+        """Query vLLM for currently loaded LoRA adapter names."""
+        resp = requests.get(f"{self.vllm_base_url}/v1/models", timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        # vLLM returns {"data": [{"id": "base-model"}, {"id": "lora-name"}, ...]}
+        # The base model is also listed; adapter names are those loaded via LoRA.
+        return {m["id"] for m in data.get("data", [])}
 
-        Args:
-            base_model_name: Optional base model name written into the vLLM
-                manifest (used by vLLM to validate LoRA compatibility).
+    def _vllm_load_adapter(self, lora_name: str, lora_path: str) -> None:
+        """Hot-load a LoRA adapter into running vLLM."""
+        resp = requests.post(
+            f"{self.vllm_base_url}/v1/load_lora_adapter",
+            json={"lora_name": lora_name, "lora_path": lora_path},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        logger.info("Loaded adapter '%s' from %s", lora_name, lora_path)
+
+    def _vllm_unload_adapter(self, lora_name: str) -> None:
+        """Unload a LoRA adapter from running vLLM."""
+        resp = requests.post(
+            f"{self.vllm_base_url}/v1/unload_lora_adapter",
+            json={"lora_name": lora_name},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        logger.info("Unloaded adapter '%s'", lora_name)
+
+    # ── Main sync ────────────────────────────────────────────────────────
+    @staticmethod
+    def adapter_vllm_name(model_name: str, alias: str) -> str:
+        """Build the vLLM adapter name from model name and alias."""
+        return f"{model_name}-{alias}"
+
+    def sync(self) -> list[AdapterInfo]:
+        """Sync all aliased adapters from MLflow into the running vLLM.
+
+        1. Query MLflow for desired (model, alias) → version mapping.
+        2. Download any missing adapter versions to disk.
+        3. Unload all currently loaded adapters that we manage.
+        4. Load the desired adapters.
 
         Returns:
-            List of :class:`AdapterInfo` for every downloaded adapter.
+            List of :class:`AdapterInfo` for every loaded adapter.
         """
-        adapters_map = self.discover_production_adapters()
-        if not adapters_map:
-            logger.warning(
-                "No production adapters to sync (alias=%r).",
-                self.production_alias,
-            )
-            # Write an empty manifest so vLLM can start without LoRA modules.
-            manifest_path = self.adapters_dir / "lora-modules.json"
-            manifest_path.parent.mkdir(parents=True, exist_ok=True)
-            manifest_path.write_text("[]")
-            logger.info("Wrote empty vLLM manifest: %s", manifest_path)
-            return []
+        # 1. Discover desired state from MLflow
+        desired = self.discover_aliased_adapters()
+        if not desired:
+            logger.info("No aliased adapters found in MLflow — nothing to load.")
 
-        infos: list[AdapterInfo] = []
-        vllm_modules: list[VllmLoraModule] = []
+        # Build the set of adapter names we manage (model-alias pattern)
+        managed_names = {self.adapter_vllm_name(model, alias) for model, alias in desired}
 
-        for model_name, mv in adapters_map.items():
+        # 2. Download missing versions
+        for (model_name, alias), mv in desired.items():
             version = int(mv.version)
             adapter_dir = self.adapters_dir / model_name / f"v{version}"
+            if adapter_dir.exists():
+                logger.info(
+                    "Adapter '%s' v%s already on disk — skipping download.",
+                    model_name,
+                    version,
+                )
+                continue
+
             adapter_dir.mkdir(parents=True, exist_ok=True)
-
-            logger.info(
-                "Downloading '%s' v%s → %s …",
-                model_name,
-                version,
-                adapter_dir,
-            )
-
-            local_path = mlflow_artifacts.download_artifacts(
+            logger.info("Downloading '%s' v%s → %s …", model_name, version, adapter_dir)
+            mlflow_artifacts.download_artifacts(
                 artifact_uri=mv.source,
                 dst_path=str(adapter_dir),
             )
 
-            info = AdapterInfo(
-                name=model_name,
-                local_path=str(Path(local_path).resolve()),
-                version=version,
-                run_id=mv.run_id,
-                tags=mv.tags or {},
-            )
-            infos.append(info)
+        # 3. Unload stale adapters from vLLM
+        loaded = self._vllm_get_loaded_adapters()
+        # Also include managed names we're about to reload (unconditional reload)
+        to_unload = loaded & (
+            managed_names
+            | {
+                name
+                for name in loaded
+                if any(name == self.adapter_vllm_name(m, a) for m, a in desired)
+            }
+        )
+        for name in to_unload:
+            try:
+                self._vllm_unload_adapter(name)
+            except requests.HTTPError as exc:
+                logger.warning("Failed to unload '%s': %s", name, exc)
 
-            vllm_modules.append(
-                VllmLoraModule(
-                    name=model_name,
-                    path=info.local_path,
-                    base_model_name=base_model_name,
+        # 4. Load desired adapters
+        infos: list[AdapterInfo] = []
+        for (model_name, alias), mv in desired.items():
+            version = int(mv.version)
+            adapter_dir = self.adapters_dir / model_name / f"v{version}"
+
+            # Find the actual model subdirectory
+            # MLflow artifacts download into a subdirectory (usually 'model/')
+            model_subdir = adapter_dir / "model"
+            lora_path = str(model_subdir) if model_subdir.is_dir() else str(adapter_dir)
+
+            vllm_name = self.adapter_vllm_name(model_name, alias)
+            try:
+                self._vllm_load_adapter(vllm_name, lora_path)
+            except requests.HTTPError as exc:
+                logger.error("Failed to load '%s' from %s: %s", vllm_name, lora_path, exc)
+                continue
+
+            infos.append(
+                AdapterInfo(
+                    name=vllm_name,
+                    local_path=lora_path,
+                    version=version,
+                    run_id=mv.run_id or "",
+                    tags=mv.tags or {},
                 )
             )
 
-        # Write the vLLM manifest
-        manifest_path = self.adapters_dir / "lora-modules.json"
-        manifest_data = [asdict(m) for m in vllm_modules]
-        manifest_path.write_text(json.dumps(manifest_data, indent=2))
-        logger.info("Wrote vLLM manifest: %s (%d adapters)", manifest_path, len(infos))
-
-        # Write a human-readable summary
-        summary_path = self.adapters_dir / "adapters-summary.json"
-        summary_data = [asdict(a) for a in infos]
-        summary_path.write_text(json.dumps(summary_data, indent=2))
-
+        logger.info(
+            "Sync complete: %d adapter(s) loaded, %d unloaded.",
+            len(infos),
+            len(to_unload),
+        )
         return infos
 
 
 # ── CLI entry point ──────────────────────────────────────────────────────────
+
+
+def _load_env(env_file: str | None) -> None:
+    """Load dotenv from *env_file* or fall back to .env."""
+    import dotenv
+
+    if env_file and Path(env_file).exists():
+        dotenv.load_dotenv(env_file)
+    elif Path(".env").exists():
+        dotenv.load_dotenv(".env")
+
+
+def _resolve_aliases(aliases: str | list | tuple | None):
+    """Parse comma-separated aliases or fall back to config default."""
+    from shared.config import get_registry_settings
+
+    cfg = get_registry_settings()
+    if aliases:
+        if isinstance(aliases, (list, tuple)):
+            return [a.strip() for a in aliases if a.strip()]
+        return [a.strip() for a in aliases.split(",") if a.strip()]
+    return cfg.sync_aliases
+
+
+def _cmd_sync(
+    adapters_dir: str | None = None,
+    vllm_url: str | None = None,
+    aliases: str | None = None,
+    env_file: str | None = None,
+) -> None:
+    """Download and hot-load aliased adapters."""
+    from shared.config import get_registry_settings
+
+    cfg = get_registry_settings()
+    _load_env(env_file)
+
+    syncer = AdapterSyncer(
+        adapters_dir=adapters_dir or cfg.adapters_dir,
+        sync_aliases=_resolve_aliases(aliases),
+        vllm_base_url=vllm_url or cfg.vllm_base_url,
+    )
+    infos = syncer.sync()
+    if infos:
+        print(f"\nSynced {len(infos)} adapter(s):")
+        for info in infos:
+            print(f"  {info.name} v{info.version} -> {info.local_path}")
+    else:
+        print("No adapters to sync.")
+
+
+def _cmd_list(
+    aliases: str | None = None,
+    env_file: str | None = None,
+) -> None:
+    """List aliased adapters in MLflow (no download)."""
+    from shared.config import get_registry_settings
+
+    cfg = get_registry_settings()
+    _load_env(env_file)
+
+    syncer = AdapterSyncer(
+        adapters_dir=cfg.adapters_dir,
+        sync_aliases=_resolve_aliases(aliases),
+        vllm_base_url=cfg.vllm_base_url,
+    )
+    adapters = syncer.discover_aliased_adapters()
+    if adapters:
+        print("\nAliased adapters:")
+        for (name, alias), mv in adapters.items():
+            vllm_name = AdapterSyncer.adapter_vllm_name(name, alias)
+            print(f"  {vllm_name:<35} v{mv.version}  run={mv.run_id[:8]}")
+    else:
+        resolved = _resolve_aliases(aliases)
+        print(f"No adapters with aliases {resolved} found.")
+
+
 def _cli() -> None:
     """Minimal CLI: ``python -m shared.model_registry sync``."""
-    import argparse
-
-    import dotenv
+    import fire
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  %(message)s",
     )
 
-    from shared.config import get_registry_settings
-
-    registry_cfg = get_registry_settings()
-
-    parser = argparse.ArgumentParser(
-        description="Sync production LoRA adapters from MLflow Model Registry."
+    fire.Fire(
+        {
+            "sync": _cmd_sync,
+            "list": _cmd_list,
+        }
     )
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    p_sync = sub.add_parser("sync", help="Download production adapters.")
-    p_sync.add_argument(
-        "--adapters-dir",
-        default=registry_cfg.adapters_dir,
-        help="Destination directory for adapter files.",
-    )
-    p_sync.add_argument(
-        "--base-model",
-        default=None,
-        help="Base model name for vLLM manifest (optional).",
-    )
-    p_sync.add_argument(
-        "--production-alias",
-        default=registry_cfg.production_alias,
-        help="MLflow alias that marks a production adapter "
-        f"(from config: {registry_cfg.production_alias!r}).",
-    )
-    p_sync.add_argument(
-        "--env-file",
-        default=None,
-        help="Path to .env file with MLflow/S3 credentials.",
-    )
-
-    p_list = sub.add_parser("list", help="List production adapters (no download).")
-    p_list.add_argument(
-        "--production-alias",
-        default=registry_cfg.production_alias,
-        help=f"MLflow alias to look up (from config: {registry_cfg.production_alias!r}).",
-    )
-    p_list.add_argument(
-        "--env-file",
-        default=None,
-        help="Path to .env file with MLflow/S3 credentials.",
-    )
-
-    args = parser.parse_args()
-
-    # Load env file
-    env_file = args.env_file
-    if env_file and Path(env_file).exists():
-        dotenv.load_dotenv(env_file)
-    elif Path(".env").exists():
-        dotenv.load_dotenv(".env")
-
-    if args.command == "sync":
-        syncer = AdapterSyncer(
-            adapters_dir=args.adapters_dir,
-            production_alias=args.production_alias,
-        )
-        infos = syncer.sync(base_model_name=args.base_model)
-        if infos:
-            print(f"\n✓ Synced {len(infos)} adapter(s) (alias='{args.production_alias}'):")
-            for info in infos:
-                print(f"  {info.name} v{info.version} → {info.local_path}")
-        else:
-            print(f"No adapters with alias '{args.production_alias}' to sync.")
-
-    elif args.command == "list":
-        syncer = AdapterSyncer(
-            adapters_dir=registry_cfg.adapters_dir,
-            production_alias=args.production_alias,
-        )
-        adapters = syncer.discover_production_adapters()
-        if adapters:
-            print(f"\nProduction adapters (alias='{args.production_alias}'):")
-            for name, mv in adapters.items():
-                print(f"  {name:<30} v{mv.version}  run={mv.run_id[:8]}…")
-        else:
-            print(f"No adapters with alias '{args.production_alias}' found.")
 
 
 if __name__ == "__main__":

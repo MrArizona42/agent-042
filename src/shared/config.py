@@ -19,7 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -252,10 +252,18 @@ class Settings(BaseSettings):
     # =========================================================================
     # Gateway Service Settings
     # =========================================================================
-    cors_allow_origins: list[str] = Field(
-        default_factory=lambda: ["*"],
+    cors_allow_origins_csv: str = Field(
+        default="*",
+        validation_alias=AliasChoices("GATEWAY_CORS_ALLOW_ORIGINS"),
         description="Allowed CORS origins (comma-separated in env)",
     )
+
+    @computed_field
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        """CORS allowed origins, parsed from comma-separated string."""
+        return [o.strip() for o in self.cors_allow_origins_csv.split(",") if o.strip()]
+
     service_name: str = Field(
         default="agent-042-gateway",
         description="Service name displayed in API docs",
@@ -379,14 +387,6 @@ class Settings(BaseSettings):
         description="Full URL to the gateway (used by UI)",
     )
 
-    @field_validator("cors_allow_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v):
-        """Parse comma-separated CORS origins string to list."""
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        return v
-
 
 class ModelRegistrySettings(BaseSettings):
     """Settings for MLflow Model Registry / adapter sync.
@@ -415,8 +415,25 @@ class ModelRegistrySettings(BaseSettings):
     production_alias: str | None = Field(
         default=None,
         description="MLflow alias that marks an adapter as production-ready. "
-        "The adapter-sync init container downloads adapters with this alias. "
+        "Used as the default alias for promote/demote commands. "
         "None means no production adapters are synced (base model only).",
+    )
+    sync_aliases_csv: str = Field(
+        default="champion,challenger",
+        validation_alias=AliasChoices("REGISTRY_SYNC_ALIASES"),
+        description="Comma-separated MLflow aliases to sync to vLLM. "
+        "Each (model, alias) pair becomes a vLLM adapter named '{model}-{alias}'.",
+    )
+
+    @computed_field
+    @property
+    def sync_aliases(self) -> list[str]:
+        """MLflow aliases to sync, parsed from comma-separated string."""
+        return [a.strip() for a in self.sync_aliases_csv.split(",") if a.strip()]
+
+    vllm_base_url: str = Field(
+        default="http://localhost:8000",
+        description="vLLM OpenAI-compatible server URL for hot-loading adapters.",
     )
     auto_sync: bool = Field(
         default=False,

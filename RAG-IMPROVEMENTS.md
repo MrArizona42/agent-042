@@ -284,13 +284,12 @@ Step-by-step:
 
 1. **Build** a new collection with experimental parameters:
    ```bash
-   python build_vector_index.py \
+   python build_pytorch_docs_index.py \
        --kb pytorch_docs \
        --alias challenger \
-       --chunking-strategy section_aware \
-       --chunk-size 1024 \
-       --chunk-overlap 128 \
-       --embedding-model intfloat/e5-large-v2
+       --chunking_strategy section_aware \
+       --chunk_size 1024 \
+       --chunk_overlap 128
    ```
    The script:
    - Creates collection `pytorch_docs_{timestamp}`.
@@ -416,7 +415,7 @@ Summary of what changes from the current codebase:
 
 Suggested sequence for implementation:
 
-1. **Collection metadata point**: add `_meta` write to `build_vector_index.py`, add `must_not`
+1. **Collection metadata point**: add `_meta` write to build scripts, add `must_not`
    filter to `QdrantVectorStore.search()`.
 2. **Runtime config**: create `src/shared/knowledge_bases.json`, add Pydantic model and loader to
    `shared/config.py`, replace `KNOWLEDGE_BASES` dict.

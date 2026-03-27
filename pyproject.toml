@@ -3,7 +3,12 @@ name = "agent-042"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12,<3.14"
-dependencies = []
+dependencies = [
+    "fire>=0.7.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "python-dotenv>=1.0.1",
+]
 
 [project.optional-dependencies]
 gateway = [
@@ -37,7 +42,7 @@ worker = [
 ]
 
 airflow = [
-    
+
 ]
 
 airflow-worker = [
@@ -61,19 +66,6 @@ airflow-worker = [
     "requests>=2.32.4",
     # DVC for data versioning (S3 backend)
     "dvc[s3]>=3.66.1",
-]
-
-eval-worker = [
-    "celery>=5.3.0",
-    "bert-score>=0.3.13",
-    "rouge-score>=0.1.2",
-    "datasets>=4.4.2",
-    "numpy>=1.26",
-    "httpx>=0.28.1",
-    "psycopg2-binary>=2.9,<3",
-    "pydantic>=2.10.0",
-    "pydantic-settings>=2.10.1",
-    "mlflow-skinny>=3.8.1,<4",
 ]
 
 rag = [

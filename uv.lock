@@ -46,6 +46,12 @@ wheels = [
 name = "agent-042"
 version = "0.1.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "fire", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pydantic", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pydantic-settings", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "python-dotenv", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+]
 
 [package.optional-dependencies]
 airflow-worker = [
@@ -53,7 +59,7 @@ airflow-worker = [
     { name = "beautifulsoup4", marker = "python_full_version < '3.13'" },
     { name = "bert-score", marker = "python_full_version < '3.13'" },
     { name = "datasets", marker = "python_full_version < '3.13'" },
-    { name = "dvc", extra = ["s3"], marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-airflow-worker') or (python_full_version >= '3.13' and extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow' and extra != 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training') or (extra != 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dvc", extra = ["s3"], marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-airflow') or (python_full_version < '3.13' and extra == 'extra-9-agent-042-airflow-worker') or (python_full_version < '3.13' and extra != 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "httpx", marker = "python_full_version < '3.13'" },
     { name = "langchain-text-splitters", marker = "python_full_version < '3.13'" },
     { name = "lxml", marker = "python_full_version < '3.13'" },
@@ -177,6 +183,7 @@ requires-dist = [
     { name = "dvc", extras = ["s3"], marker = "extra == 'airflow-worker'", specifier = ">=3.66.1" },
     { name = "fastapi", marker = "extra == 'embeddings'", specifier = ">=0.128.0" },
     { name = "fastapi", marker = "extra == 'gateway'", specifier = ">=0.128.0" },
+    { name = "fire", specifier = ">=0.7.0" },
     { name = "hf-xet", marker = "extra == 'training'", specifier = ">=1.2.0" },
     { name = "httpx", marker = "extra == 'airflow-worker'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'eval-worker'", specifier = ">=0.28.1" },
@@ -205,10 +212,12 @@ requires-dist = [
     { name = "psycopg2-binary", marker = "extra == 'airflow-worker'", specifier = ">=2.9,<3" },
     { name = "psycopg2-binary", marker = "extra == 'eval-worker'", specifier = ">=2.9,<3" },
     { name = "psycopg2-binary", marker = "extra == 'mlflow'", specifier = ">=2.9,<3" },
+    { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pydantic", marker = "extra == 'airflow-worker'", specifier = ">=2.10.0" },
     { name = "pydantic", marker = "extra == 'eval-worker'", specifier = ">=2.10.0" },
     { name = "pydantic", marker = "extra == 'ui'", specifier = ">=2.0.0" },
     { name = "pydantic", marker = "extra == 'worker'", specifier = ">=2.10.0" },
+    { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pydantic-settings", marker = "extra == 'airflow-worker'", specifier = ">=2.10.1" },
     { name = "pydantic-settings", marker = "extra == 'embeddings'", specifier = ">=2.10.1" },
     { name = "pydantic-settings", marker = "extra == 'eval-worker'", specifier = ">=2.10.1" },
@@ -220,6 +229,7 @@ requires-dist = [
     { name = "pypdf", marker = "extra == 'airflow-worker'", specifier = ">=5.2.0" },
     { name = "pypdf", marker = "extra == 'rag'", specifier = ">=5.2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2" },
+    { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "python-dotenv", marker = "extra == 'training'", specifier = ">=1.0.1" },
     { name = "pytorch-lightning", marker = "extra == 'training'", specifier = ">=2.6.0" },
     { name = "qdrant-client", marker = "extra == 'airflow-worker'", specifier = ">=1.12.0" },
@@ -1249,7 +1259,7 @@ version = "2.32.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp-retry", marker = "python_full_version < '3.13'" },
-    { name = "fsspec", extra = ["http"], marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-airflow-worker') or (python_full_version < '3.13' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "fsspec", extra = ["http"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/33/e6/4fb38ab911a9d90fbe2c7759c430814fe2253760304a9de0d3ebd6e27c20/dvc-http-2.32.0.tar.gz", hash = "sha256:f714f8435634aab943c625f659ddac1188c6ddaf3ff161b39715b83ff39637fc", size = 14603, upload-time = "2023-12-13T10:53:16.393Z" }
 wheels = [
@@ -1282,7 +1292,7 @@ name = "dvc-s3"
 version = "3.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiobotocore", extra = ["boto3"], marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-airflow-worker') or (python_full_version < '3.13' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "aiobotocore", extra = ["boto3"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "dvc", marker = "python_full_version < '3.13'" },
     { name = "flatten-dict", marker = "python_full_version < '3.13'" },
     { name = "s3fs", marker = "python_full_version < '3.13'" },
@@ -1387,6 +1397,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/1d/65/ce7f1b70157833bf3cb851b556a37d4547ceafc158aa9b34b36782f23696/filelock-3.20.3.tar.gz", hash = "sha256:18c57ee915c7ec61cff0ecf7f0f869936c7c30191bb0cf406f1341778d0834e1", size = 19485, upload-time = "2026-01-09T17:55:05.421Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b5/36/7fb70f04bf00bc646cd5bb45aa9eddb15e19437a28b8fb2b4a5249fac770/filelock-3.20.3-py3-none-any.whl", hash = "sha256:4b0dda527ee31078689fc205ec4f1c1bf7d56cf88b6dc9426c4f230e46c2dce1", size = 16701, upload-time = "2026-01-09T17:55:04.334Z" },
+]
+
+[[package]]
+name = "fire"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "termcolor", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c0/00/f8d10588d2019d6d6452653def1ee807353b21983db48550318424b5ff18/fire-0.7.1.tar.gz", hash = "sha256:3b208f05c736de98fb343310d090dcc4d8c78b2a89ea4f32b837c586270a9cbf", size = 88720, upload-time = "2025-08-16T20:20:24.175Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/4c/93d0f85318da65923e4b91c1c2ff03d8a458cbefebe3bc612a6693c7906d/fire-0.7.1-py3-none-any.whl", hash = "sha256:e43fd8a5033a9001e7e2973bab96070694b9f12f2e0ecf96d4683971b5ab1882", size = 115945, upload-time = "2025-08-16T20:20:22.87Z" },
 ]
 
 [[package]]
@@ -4198,7 +4220,7 @@ dependencies = [
     { name = "aiohttp-retry", marker = "python_full_version < '3.13'" },
     { name = "asyncssh", marker = "python_full_version < '3.13'" },
     { name = "dulwich", marker = "python_full_version < '3.13'" },
-    { name = "fsspec", extra = ["tqdm"], marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-airflow-worker') or (python_full_version < '3.13' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "fsspec", extra = ["tqdm"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "gitpython", marker = "python_full_version < '3.13'" },
     { name = "pathspec", marker = "python_full_version < '3.13'" },
     { name = "pygit2", marker = "python_full_version < '3.13'" },
@@ -4463,6 +4485,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/0a/d4/2b0cd0fe285e14b36db076e78c93766ff1d529d70408bd1d2a5a84f1d929/tenacity-9.1.2.tar.gz", hash = "sha256:1169d376c297e7de388d18b4481760d478b0e99a777cad3a9c86e556f4b697cb", size = 48036, upload-time = "2025-04-02T08:25:09.966Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/30/643397144bfbfec6f6ef821f36f33e57d35946c44a2352d3c9f0ae847619/tenacity-9.1.2-py3-none-any.whl", hash = "sha256:f77bf36710d8b73a50b2dd155c97b870017ad21afe6ab300326b0371b3b05138", size = 28248, upload-time = "2025-04-02T08:25:07.678Z" },
+]
+
+[[package]]
+name = "termcolor"
+version = "3.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/79/cf31d7a93a8fdc6aa0fbb665be84426a8c5a557d9240b6239e9e11e35fc5/termcolor-3.3.0.tar.gz", hash = "sha256:348871ca648ec6a9a983a13ab626c0acce02f515b9e1983332b17af7979521c5", size = 14434, upload-time = "2025-12-29T12:55:21.882Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/d1/8bb87d21e9aeb323cc03034f5eaf2c8f69841e40e4853c2627edf8111ed3/termcolor-3.3.0-py3-none-any.whl", hash = "sha256:cf642efadaf0a8ebbbf4bc7a31cec2f9b5f21a9f726f4ccbb08192c9c26f43a5", size = 7734, upload-time = "2025-12-29T12:55:20.718Z" },
 ]
 
 [[package]]

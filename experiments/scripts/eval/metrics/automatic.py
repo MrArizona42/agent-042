@@ -59,6 +59,7 @@ def compute_bertscore(
         ``bertscore_f1``.
     """
     import threading
+
     import torch
     from bert_score import BERTScorer
 
@@ -144,38 +145,3 @@ def compute_recall_at_k(
         return 0.0
     retrieved_set = set(retrieved_ids[:k])
     return len(retrieved_set & relevant_ids) / len(relevant_ids)
-
-
-def compute_automatic_metrics(
-    predictions: list[str],
-    references: list[str],
-    bert_score_model: str,
-    metric: str | None = None,
-) -> dict[str, float]:
-    """Compute automatic generation metrics (ROUGE-L and/or BERTScore).
-
-    Args:
-        metric: If provided, only compute this specific metric.
-            Avoids expensive BERTScore computation when only ROUGE-L
-            is needed (and vice-versa).
-
-    Returns:
-        Dict with computed metric values.
-    """
-    results: dict[str, float] = {}
-
-    # ROUGE-L
-    if metric is None or metric == "rouge_l":
-        rouge_scores = [compute_rouge_l(pred, ref) for pred, ref in zip(predictions, references)]
-        results["rouge_l"] = sum(rouge_scores) / len(rouge_scores) if rouge_scores else 0.0
-
-    # BERTScore
-    if metric is None or metric.startswith("bertscore"):
-        bert_results = compute_bertscore(
-            predictions,
-            references,
-            model_name=bert_score_model,
-        )
-        results.update(bert_results)
-
-    return results

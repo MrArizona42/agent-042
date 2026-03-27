@@ -260,14 +260,12 @@ Registry** — единый реестр версионированных LoRA-�
 ```
 train_hydra.py                 manage_registry.py            sync (model_registry.py)
 ─────────────                  ────────────────────          ──────────────────────────
-  Обучение LoRA                  Просмотр метрик              Скачивание champion
+  Обучение LoRA                  Просмотр метрик              Скачивание aliased
        ↓                        в MLflow UI                   адаптеров из S3
   Логирование метрик                   ↓                              ↓
-  и артефактов в MLflow          register run → v4             Подготовка vLLM
-  Tracking                             ↓                       lora-modules.json
-                                 promote v4 → champion               ↓
-                                                              (Ре)старт vLLM
-                                                              с --enable-lora
+  и артефактов в MLflow          register run → v4             Hot-load в vLLM
+  Tracking                             ↓                       через REST API
+                                 promote v4 → champion         (без рестарта)
 ```
 
 #### Ключевые концепции
@@ -283,9 +281,12 @@ train_hydra.py                 manage_registry.py            sync (model_registr
 
 * **Registry backend**: PostgreSQL (тот же, что для MLflow Tracking).
 * **Artifact storage**: Yandex Object Storage (S3) — адаптеры хранятся рядом с MLflow-артефактами.
-* **Inference sync**: `python -m shared.model_registry sync` скачивает champion-адаптеры в
-  `assets/adapters/` и генерирует `lora-modules.json` для vLLM.
-* **vLLM multi-LoRA**: запускается с `--enable-lora`; адаптеры монтируются из `assets/adapters/`.
+* **Hot-load sync**: `python -m shared.model_registry sync` (или `manage_registry.py sync`)
+  скачивает aliased-адаптеры в `assets/adapters/{model}/v{N}/` и загружает их в работающий
+  vLLM через `POST /v1/load_lora_adapter`. В vLLM адаптер регистрируется как `{model}-{alias}`
+  (например, `lora-summarize-champion`).
+* **vLLM multi-LoRA**: запускается с `--enable-lora` и `VLLM_ALLOW_RUNTIME_LORA_UPDATING=true`;
+  адаптеры загружаются/выгружаются без рестарта сервера.
 
 **Подробности использования**: `./experiments/README.md` → раздел «Model Registry».
 

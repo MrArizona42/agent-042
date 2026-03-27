@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
-# sync-adapters.sh — download production adapters from MLflow and write
-# /adapters/lora-modules.json for vLLM.
+# sync-adapters.sh — download aliased adapters from MLflow and
+# hot-load them into the running vLLM instance via its REST API.
 #
-# Exits 0 when no adapters are found (vLLM starts without LoRA modules).
-# Exits non-zero when MLflow is unreachable (hard failure).
+# Exits 0 when no adapters are found (vLLM runs without LoRA modules).
+# Exits non-zero when MLflow or vLLM is unreachable (hard failure).
 set -euo pipefail
 
 ADAPTERS_DIR="${REGISTRY_ADAPTERS_DIR:-/adapters}"
+VLLM_URL="${REGISTRY_VLLM_BASE_URL:-http://vllm:8000}"
+SYNC_ALIASES="${REGISTRY_SYNC_ALIASES:-champion,challenger}"
 
 echo "=== adapter-sync: starting ==="
 echo "  MLflow URI       : ${MLFLOW_BACKEND_URI:-<not set>}"
 echo "  Adapters dir     : ${ADAPTERS_DIR}"
-echo "  Production alias : from shared.config.ModelRegistrySettings"
+echo "  vLLM URL         : ${VLLM_URL}"
+echo "  Sync aliases     : ${SYNC_ALIASES}"
 
-SYNC_ARGS=("--adapters-dir" "${ADAPTERS_DIR}" "--base-model" "${VLLM_BASE_MODEL:-}")
-
-python -m shared.model_registry sync "${SYNC_ARGS[@]}"
+python -m shared.model_registry sync \
+    --adapters-dir "${ADAPTERS_DIR}" \
+    --vllm-url "${VLLM_URL}" \
+    --aliases "${SYNC_ALIASES}"
 
 echo "=== adapter-sync: done ==="

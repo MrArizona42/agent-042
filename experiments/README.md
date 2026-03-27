@@ -302,29 +302,36 @@ python scripts/manage_registry.py download lora-summarize ./my_adapters
 
 ### Синхронизация адаптеров на inference-хосте
 
-Для подготовки адаптеров к загрузке в vLLM используется модуль `src/shared/model_registry.py`.
-Он скачивает все champion-адаптеры из реестра и генерирует `lora-modules.json` для vLLM.
+Для подготовки адаптеров и загрузки в работающий vLLM используется модуль `src/shared/model_registry.py`.
+Он скачивает aliased-адаптеры (champion, challenger) из реестра и загружает их в vLLM
+через hot-load REST API (`POST /v1/load_lora_adapter`) — без рестарта сервера.
 
 ```bash
 # Из корня проекта (с настроенным .env)
-python -m shared.model_registry sync --adapters-dir ./assets/adapters
+python -m shared.model_registry sync --adapters-dir ./assets/adapters --vllm-url http://localhost:8000
+
+# Или через manage_registry.py
+python scripts/manage_registry.py sync --vllm-url http://localhost:8000
 ```
 
-Результат:
+Результат на диске:
 
 ```
 assets/adapters/
 ├── lora-summarize/
 │   └── v3/
-│       ├── adapter_config.json
-│       ├── adapter_model.safetensors
-│       └── ...
-├── lora-code/
-│   └── v2/
-│       └── ...
-├── lora-modules.json          ← для vLLM --lora-modules
-└── adapters-summary.json      ← человекочитаемый манифест
+│       └── model/
+│           ├── adapter_config.json
+│           ├── adapter_model.safetensors
+│           └── ...
+└── lora-code/
+    └── v2/
+        └── model/
+            └── ...
 ```
+
+В vLLM адаптеры регистрируются с именами `{model}-{alias}`, например:
+`lora-summarize-champion`, `lora-code-challenger`.
 
 ### Полный рабочий процесс: от обучения до inference
 
@@ -341,16 +348,13 @@ python scripts/manage_registry.py register lora-summarize --run-id <RUN_ID>
 # 4. Промотировать зарегистрированную версию в production
 python scripts/manage_registry.py promote lora-summarize 3
 
-# 4. Синхронизировать адаптеры на inference-хосте
-python -m shared.model_registry sync --adapters-dir ./assets/adapters
-
-# 5. Перезапустить vLLM (docker-compose) — он подхватит адаптеры из assets/adapters/
-docker compose -f infra/compose/docker-compose.yaml restart vllm
+# 5. Синхронизировать адаптеры на inference-хосте (hot-load в работающий vLLM)
+python scripts/manage_registry.py sync --vllm-url http://localhost:8000
 ```
 
 ### Конфигурация vLLM для multi-LoRA
 
-В `docker-compose.yaml` vLLM запускается с поддержкой multi-LoRA:
+В `docker-compose.yaml` vLLM запускается с поддержкой multi-LoRA и hot-load:
 
 ```yaml
 command: [
@@ -360,9 +364,11 @@ command: [
   "--max-lora-rank", "${VLLM_MAX_LORA_RANK}",
   ...
 ]
+environment:
+  VLLM_ALLOW_RUNTIME_LORA_UPDATING: "true"
 volumes:
   - ${PROJECT_ROOT}/assets/models:/models:rw
-  - ${PROJECT_ROOT}/assets/adapters:/adapters:ro
+  - ${PROJECT_ROOT}/assets/adapters:/adapters:rw
 ```
 
 Ключевые переменные окружения (`.env`):
