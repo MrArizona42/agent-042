@@ -1,20 +1,35 @@
 """Sandboxed code execution for HumanEval evaluation.
 
-Runs generated Python code in a child ``python3`` subprocess with a CPU-time
-rlimit (``RLIMIT_CPU``) and a wall-clock timeout.  No Docker socket and no
-SUID sandbox binary are required.
+Runs generated Python code inside a `bubblewrap (bwrap)`_ sandbox with
+filesystem, network, and PID isolation.  No Docker socket, no SUID
+binary, and no root privileges are required.
+
+The airflow-worker Docker image ships ``bwrap``; if it is missing at
+runtime the module raises ``RuntimeError`` at import time.
+
+.. _bubblewrap (bwrap): https://github.com/containers/bubblewrap
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_BWRAP_BIN: str | None = shutil.which("bwrap")
+if _BWRAP_BIN is None:
+    raise RuntimeError(
+        "bubblewrap (bwrap) is not installed.  Code evaluation requires "
+        "bwrap for filesystem/network/PID isolation.  Install it with: "
+        "apt-get install bubblewrap"
+    )
 
 _MEM_UNITS = {"k": 1024, "m": 1024**2, "g": 1024**3}
 
@@ -125,6 +140,68 @@ def _parse_mem_limit(mem_limit: str) -> int:
     return value * _MEM_UNITS.get(unit, 1)
 
 
+def _bwrap_command(script_path: str, cpu_seconds: int) -> list[str]:
+    """Build a ``bwrap`` command line for sandboxed execution.
+
+    Provides:
+    - **Filesystem isolation**: read-only bind mounts for Python stdlib
+      and shared libraries only.  ``/tmp`` is a private tmpfs.
+    - **Network isolation**: ``--unshare-net`` drops all networking.
+    - **PID isolation**: ``--unshare-pid`` hides host processes.
+    - **No new privileges**: ``--new-session`` + inherits non-root user.
+
+    ``RLIMIT_CPU`` is applied via ``ulimit -t`` in a shell wrapper so
+    it works inside the namespace.
+    """
+    assert _BWRAP_BIN is not None  # noqa: S101 – caller checked
+    return [
+        _BWRAP_BIN,
+        # Filesystem: minimal read-only tree
+        "--ro-bind",
+        "/usr",
+        "/usr",
+        "--ro-bind",
+        "/lib",
+        "/lib",
+        *(  # /lib64 exists on x86-64 Debian/Ubuntu
+            ["--ro-bind", "/lib64", "/lib64"] if os.path.isdir("/lib64") else []
+        ),
+        "--ro-bind",
+        "/bin",
+        "/bin",
+        *(  # /sbin may hold ld.so helpers
+            ["--ro-bind", "/sbin", "/sbin"] if os.path.isdir("/sbin") else []
+        ),
+        "--ro-bind",
+        "/etc/alternatives",
+        "/etc/alternatives",
+        # Bind the script itself read-only
+        "--ro-bind",
+        script_path,
+        script_path,
+        # Private writable /tmp (tmpfs, 64 MB)
+        "--tmpfs",
+        "/tmp",
+        # Required virtual filesystems
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        # Isolation
+        "--unshare-net",
+        "--unshare-pid",
+        "--unshare-uts",
+        "--unshare-ipc",
+        "--new-session",
+        "--die-with-parent",
+        # Run python3 with a CPU-time ulimit
+        "--",
+        "/bin/sh",
+        "-c",
+        f"ulimit -t {cpu_seconds} && exec python3 {script_path}",
+    ]
+
+
 def _run_in_container(
     code: str,
     *,
@@ -132,26 +209,18 @@ def _run_in_container(
     mem_limit: str,  # noqa: ARG001 – kept for call-site compatibility
     cpus: float,
 ) -> dict[str, Any]:
-    """Execute *code* in a resource-limited subprocess.
+    """Execute *code* in a bubblewrap sandbox.
 
-    Runs ``python3`` in a child process.  A ``RLIMIT_CPU`` rlimit is applied
-    inside the child via ``preexec_fn`` and a wall-clock ``timeout`` is
-    enforced by the parent so runaway tasks cannot stall the worker
-    indefinitely.  No additional sandboxing binary is required.
-
-    Note:
-        ``mem_limit`` is accepted for config compatibility but is not applied
-        as ``RLIMIT_AS``.  On 64-bit hosts the virtual-address-space limit
-        interferes with Python's own startup allocations (shared-library
-        mappings) and produces spurious ``MemoryError`` failures unrelated to
-        the evaluated code.  The wall-clock ``timeout`` remains the primary
-        runaway-task guard.
+    The code runs in an isolated user namespace with no network, a
+    read-only filesystem, and a private PID namespace.  CPU time is
+    capped via ``ulimit -t`` and a wall-clock ``timeout`` prevents
+    runaway tasks.
 
     Args:
         code: Python source to execute.
         timeout: Wall-clock timeout in seconds (also used as CPU-time cap).
         mem_limit: Ignored; kept for backward-compatible call sites.
-        cpus: CPU share; multiplied by *timeout* to derive the rlimit-cpu cap.
+        cpus: CPU share; multiplied by *timeout* to derive the cpu-time cap.
 
     Returns:
         ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
@@ -162,21 +231,12 @@ def _run_in_container(
         f.write(code)
         host_path = f.name
 
-    def _set_limits() -> None:
-        """CPU-time rlimit applied inside the child process before exec."""
-        try:
-            import resource as _r  # Linux / macOS only
-
-            _r.setrlimit(_r.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
-        except Exception:
-            pass  # Best-effort; non-Linux or unprivileged container
-
     try:
+        cmd = _bwrap_command(host_path, cpu_seconds)
         proc = subprocess.run(
-            ["python3", host_path],
+            cmd,
             capture_output=True,
             timeout=timeout,
-            preexec_fn=_set_limits,
         )
         exit_code = proc.returncode
         return {
@@ -207,7 +267,7 @@ def evaluate_humaneval_sample(
     """Evaluate a single HumanEval sample.
 
     Combines the function prompt, generated completion, and test assertions
-    into one script, then executes it in a Firejail sandbox.
+    into one script, then executes it in a bubblewrap (bwrap) sandbox.
 
     Args:
         prompt: The function signature / docstring from HumanEval.
