@@ -404,6 +404,7 @@ services:
     # apparmor=unconfined is the lightest override that allows it.
     security_opt:
       - apparmor=unconfined
+      - seccomp=unconfined
     environment:
       <<: *airflow-common-env
       # Required to handle warm shutdown of the celery workers properly

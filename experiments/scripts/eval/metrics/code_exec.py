@@ -156,6 +156,15 @@ def _bwrap_command(script_path: str, cpu_seconds: int) -> list[str]:
     assert _BWRAP_BIN is not None  # noqa: S101 – caller checked
     return [
         _BWRAP_BIN,
+        # Create a new user namespace first.  This is the prerequisite for all
+        # other namespace operations (net, pid, uts, ipc) when running as a
+        # non-root user.  Inside the sandbox the process appears as uid/gid 0
+        # (root within the namespace) but retains no host privileges.
+        "--unshare-user",
+        "--uid",
+        "0",
+        "--gid",
+        "0",
         # Filesystem: minimal read-only tree
         "--ro-bind",
         "/usr",
@@ -240,6 +249,16 @@ def _run_in_container(
             capture_output=True,
             timeout=timeout,
         )
+        # bwrap writes its own errors to stderr with a "bwrap: " prefix and
+        # exits before Python ever starts.  This is a sandbox setup failure
+        # (e.g. no user-namespace support), not a code failure — raise so the
+        # Airflow task and DAG are marked as failed rather than silently
+        # recording a zero pass@1.
+        if proc.stderr.startswith(b"bwrap:"):
+            raise RuntimeError(
+                f"bubblewrap sandbox failed to initialise (exit {proc.returncode}): "
+                f"{proc.stderr.decode(errors='replace').strip()}"
+            )
         exit_code = proc.returncode
         return {
             "passed": exit_code == 0,
