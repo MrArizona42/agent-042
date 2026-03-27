@@ -1,37 +1,28 @@
 """Sandboxed code execution for HumanEval evaluation.
 
-Runs generated Python code inside a `bubblewrap (bwrap)`_ sandbox with
-filesystem, network, and PID isolation.  No Docker socket, no SUID
-binary, and no root privileges are required.
+Executes generated Python code in the ``code-sandbox`` sidecar container,
+which is always running alongside the airflow-worker and provides Docker-level
+isolation (read-only filesystem, tmpfs /tmp, no internet access, CPU/memory
+limits) without requiring kernel user-namespace support on the host.
 
-The airflow-worker Docker image ships ``bwrap``; if it is missing at
-runtime the module raises ``RuntimeError`` at import time.
-
-.. _bubblewrap (bwrap): https://github.com/containers/bubblewrap
+The URL of the sandbox is read from the ``CODE_SANDBOX_URL`` environment
+variable (default: ``http://code-sandbox:8200``).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
-import shutil
-import subprocess
-import tempfile
-from pathlib import Path
+import urllib.error
+import urllib.request
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_BWRAP_BIN: str | None = shutil.which("bwrap")
-if _BWRAP_BIN is None:
-    raise RuntimeError(
-        "bubblewrap (bwrap) is not installed.  Code evaluation requires "
-        "bwrap for filesystem/network/PID isolation.  Install it with: "
-        "apt-get install bubblewrap"
-    )
-
-_MEM_UNITS = {"k": 1024, "m": 1024**2, "g": 1024**3}
+# Resolved at import time so tests can override via environment.
+_SANDBOX_URL: str = os.environ.get("CODE_SANDBOX_URL", "http://code-sandbox:8200").rstrip("/")
 
 # Matches the first ```python / ```py / ``` fenced block in an LLM response.
 _FENCE_RE = re.compile(r"```(?:python3?|py)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
@@ -131,149 +122,48 @@ def extract_code_from_response(response: str, prompt: str) -> str:
     return candidate.strip("\n")
 
 
-def _parse_mem_limit(mem_limit: str) -> int:
-    """Convert a Docker-style memory string (e.g. ``'512m'``) to bytes."""
-    m = re.fullmatch(r"(\d+)([kmg])?", mem_limit.strip().lower())
-    if not m:
-        raise ValueError(f"Unparseable mem_limit: {mem_limit!r}")
-    value, unit = int(m.group(1)), m.group(2) or "b"
-    return value * _MEM_UNITS.get(unit, 1)
-
-
-def _bwrap_command(script_path: str, cpu_seconds: int) -> list[str]:
-    """Build a ``bwrap`` command line for sandboxed execution.
-
-    Provides:
-    - **Filesystem isolation**: read-only bind mounts for Python stdlib
-      and shared libraries only.  ``/tmp`` is a private tmpfs.
-    - **Network isolation**: ``--unshare-net`` drops all networking.
-    - **PID isolation**: ``--unshare-pid`` hides host processes.
-    - **No new privileges**: ``--new-session`` + inherits non-root user.
-
-    ``RLIMIT_CPU`` is applied via ``ulimit -t`` in a shell wrapper so
-    it works inside the namespace.
-    """
-    assert _BWRAP_BIN is not None  # noqa: S101 – caller checked
-    return [
-        _BWRAP_BIN,
-        # Create a new user namespace first.  This is the prerequisite for all
-        # other namespace operations (net, pid, uts, ipc) when running as a
-        # non-root user.  Inside the sandbox the process appears as uid/gid 0
-        # (root within the namespace) but retains no host privileges.
-        "--unshare-user",
-        "--uid",
-        "0",
-        "--gid",
-        "0",
-        # Filesystem: minimal read-only tree
-        "--ro-bind",
-        "/usr",
-        "/usr",
-        "--ro-bind",
-        "/lib",
-        "/lib",
-        *(  # /lib64 exists on x86-64 Debian/Ubuntu
-            ["--ro-bind", "/lib64", "/lib64"] if os.path.isdir("/lib64") else []
-        ),
-        "--ro-bind",
-        "/bin",
-        "/bin",
-        *(  # /sbin may hold ld.so helpers
-            ["--ro-bind", "/sbin", "/sbin"] if os.path.isdir("/sbin") else []
-        ),
-        # Dynamic linker needs ld.so.cache; Python needs locale/ssl config
-        "--ro-bind",
-        "/etc",
-        "/etc",
-        # Private writable /tmp — must come BEFORE the script bind so the
-        # subsequent ro-bind of the script file overlays onto the tmpfs.
-        "--tmpfs",
-        "/tmp",
-        # Bind the script itself read-only (on top of the tmpfs)
-        "--ro-bind",
-        script_path,
-        script_path,
-        # Required virtual filesystems
-        "--proc",
-        "/proc",
-        "--dev",
-        "/dev",
-        # Isolation
-        "--unshare-net",
-        "--unshare-pid",
-        "--unshare-uts",
-        "--unshare-ipc",
-        "--new-session",
-        "--die-with-parent",
-        # Run python3 with a CPU-time ulimit
-        "--",
-        "/bin/sh",
-        "-c",
-        f"ulimit -t {cpu_seconds} && exec python3 {script_path}",
-    ]
-
-
-def _run_in_container(
+def _run_in_sandbox(
     code: str,
     *,
     timeout: int,
-    mem_limit: str,  # noqa: ARG001 – kept for call-site compatibility
-    cpus: float,
 ) -> dict[str, Any]:
-    """Execute *code* in a bubblewrap sandbox.
+    """Send *code* to the code-sandbox sidecar and return the execution result.
 
-    The code runs in an isolated user namespace with no network, a
-    read-only filesystem, and a private PID namespace.  CPU time is
-    capped via ``ulimit -t`` and a wall-clock ``timeout`` prevents
-    runaway tasks.
+    Raises ``RuntimeError`` if the sidecar is unreachable or returns an
+    unexpected HTTP status, so the Airflow task (and therefore the DAG) is
+    marked as failed rather than silently recording a zero pass@1.
 
     Args:
         code: Python source to execute.
-        timeout: Wall-clock timeout in seconds (also used as CPU-time cap).
-        mem_limit: Ignored; kept for backward-compatible call sites.
-        cpus: CPU share; multiplied by *timeout* to derive the cpu-time cap.
+        timeout: Wall-clock timeout in seconds passed to the sandbox.
 
     Returns:
         ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
-    cpu_seconds = max(1, int(timeout * cpus))
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(code)
-        host_path = f.name
-
+    url = f"{_SANDBOX_URL}/execute"
+    payload = json.dumps({"code": code, "timeout": timeout}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    # Add a small margin so the HTTP connection itself doesn't outlive the
+    # sandbox's own timeout.
+    http_timeout = timeout + 10
     try:
-        cmd = _bwrap_command(host_path, cpu_seconds)
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=timeout,
-        )
-        # bwrap writes its own errors to stderr with a "bwrap: " prefix and
-        # exits before Python ever starts.  This is a sandbox setup failure
-        # (e.g. no user-namespace support), not a code failure — raise so the
-        # Airflow task and DAG are marked as failed rather than silently
-        # recording a zero pass@1.
-        if proc.stderr.startswith(b"bwrap:"):
-            raise RuntimeError(
-                f"bubblewrap sandbox failed to initialise (exit {proc.returncode}): "
-                f"{proc.stderr.decode(errors='replace').strip()}"
-            )
-        exit_code = proc.returncode
-        return {
-            "passed": exit_code == 0,
-            "exit_code": exit_code,
-            "stdout": proc.stdout.decode(errors="replace").strip(),
-            "stderr": proc.stderr.decode(errors="replace").strip(),
-        }
-    except subprocess.TimeoutExpired:
-        logger.warning("Code execution timed out after %ds", timeout)
-        return {"passed": False, "exit_code": -1, "stdout": "", "stderr": "timeout"}
-    except Exception as e:
-        logger.error("Code execution error: %s", e)
-        return {"passed": False, "exit_code": -1, "stdout": "", "stderr": str(e)}
-    finally:
-        Path(host_path).unlink(missing_ok=True)
+        with urllib.request.urlopen(req, timeout=http_timeout) as resp:
+            result = json.loads(resp.read())
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"code-sandbox unreachable at {url}: {exc.reason}") from exc
+
+    exit_code: int = result["exit_code"]
+    return {
+        "passed": exit_code == 0,
+        "exit_code": exit_code,
+        "stdout": result.get("stdout", ""),
+        "stderr": result.get("stderr", ""),
+    }
 
 
 def evaluate_humaneval_sample(
@@ -282,28 +172,28 @@ def evaluate_humaneval_sample(
     test_code: str,
     *,
     timeout: int,
-    mem_limit: str,
-    cpus: float,
+    mem_limit: str,  # noqa: ARG001 – kept for call-site compatibility
+    cpus: float,  # noqa: ARG001 – kept for call-site compatibility
 ) -> dict[str, Any]:
     """Evaluate a single HumanEval sample.
 
     Combines the function prompt, generated completion, and test assertions
-    into one script, then executes it in a bubblewrap (bwrap) sandbox.
+    into one script, then executes it in the code-sandbox sidecar container.
 
     Args:
         prompt: The function signature / docstring from HumanEval.
         generated_code: Model-generated function body.
         test_code: Assertion-based test code from the dataset.
         timeout: Execution timeout in seconds.
-        mem_limit: Memory limit string (e.g. ``'512m'``).
-        cpus: CPU share for rlimit-cpu calculation.
+        mem_limit: Unused; kept for call-site compatibility.
+        cpus: Unused; kept for call-site compatibility.
 
     Returns:
         ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
     body = extract_code_from_response(generated_code, prompt)
     full_code = f"{prompt}\n{body}\n\n{test_code}\n"
-    return _run_in_container(full_code, timeout=timeout, mem_limit=mem_limit, cpus=cpus)
+    return _run_in_sandbox(full_code, timeout=timeout)
 
 
 def compute_pass_at_1(results: list[dict[str, Any]]) -> dict[str, float]:

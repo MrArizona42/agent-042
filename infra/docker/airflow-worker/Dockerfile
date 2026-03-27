@@ -10,14 +10,6 @@
 # Base version must stay in sync with infra/docker/airflow/Dockerfile.
 FROM apache/airflow:3.1.8
 
-# bubblewrap provides filesystem/network/PID sandboxing for HumanEval
-# code execution without requiring Docker socket access or SUID binaries.
-USER root
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends bubblewrap \
-    && rm -rf /var/lib/apt/lists/*
-USER airflow
-
 # Install DAG task dependencies for the Celery worker.
 # torch is installed from the CPU-only index to avoid pulling CUDA wheels.
 # The --constraint file prevents overriding Airflow-critical packages

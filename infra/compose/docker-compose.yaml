@@ -399,12 +399,6 @@ services:
     # Low concurrency: eval tasks (BERTScore, etc.) load large models into RAM.
     # The default (== CPU count) causes OOM kills.
     command: celery worker --concurrency 2
-    # bwrap (bubblewrap) needs to create user namespaces for sandboxed
-    # code execution.  The default Docker seccomp profile blocks unshare();
-    # apparmor=unconfined is the lightest override that allows it.
-    security_opt:
-      - apparmor=unconfined
-      - seccomp=unconfined
     environment:
       <<: *airflow-common-env
       # Required to handle warm shutdown of the celery workers properly
@@ -438,6 +432,32 @@ services:
     networks:
       - mlflow_db_net
       - backend_net
+      - sandbox_net
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # Code execution sandbox sidecar
+  # =====================
+  code-sandbox:
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: infra/docker/code-sandbox/Dockerfile
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      SANDBOX_PORT: "8200"
+    cpus: 1.0
+    mem_limit: 256m
+    # Isolated network — only reachable by airflow-worker, no internet.
+    networks:
+      - sandbox_net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8200/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     logging: *default-logging
     restart: unless-stopped
 
@@ -851,3 +871,6 @@ networks:
     driver: bridge
   mlflow_db_net:
     driver: bridge
+  sandbox_net:
+    driver: bridge
+    internal: true   # no outbound internet access from this network
