@@ -399,6 +399,11 @@ services:
     # Low concurrency: eval tasks (BERTScore, etc.) load large models into RAM.
     # The default (== CPU count) causes OOM kills.
     command: celery worker --concurrency 2
+    # bwrap (bubblewrap) needs to create user namespaces for sandboxed
+    # code execution.  The default Docker seccomp profile blocks unshare();
+    # apparmor=unconfined is the lightest override that allows it.
+    security_opt:
+      - apparmor=unconfined
     environment:
       <<: *airflow-common-env
       # Required to handle warm shutdown of the celery workers properly
