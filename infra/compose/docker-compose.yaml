@@ -803,6 +803,8 @@ services:
     command: start-notebook.py --ServerApp.base_url=/jupyter
     environment:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      # PostgreSQL — used by diagnostics/analytics notebooks
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # MLflow — direct container-to-container access (no auth needed)
       MLFLOW_TRACKING_URI: http://mlflow:5000
       # S3 / Yandex Object Storage — needed for artifact upload/download
