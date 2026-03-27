@@ -68,19 +68,6 @@ airflow-worker = [
     "dvc[s3]>=3.66.1",
 ]
 
-eval-worker = [
-    "celery>=5.3.0",
-    "bert-score>=0.3.13",
-    "rouge-score>=0.1.2",
-    "datasets>=4.4.2",
-    "numpy>=1.26",
-    "httpx>=0.28.1",
-    "psycopg2-binary>=2.9,<3",
-    "pydantic>=2.10.0",
-    "pydantic-settings>=2.10.1",
-    "mlflow-skinny>=3.8.1,<4",
-]
-
 rag = [
     "qdrant-client>=1.12.0",
     "sentence-transformers>=3.3.1",
