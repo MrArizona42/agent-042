@@ -172,16 +172,18 @@ def _bwrap_command(script_path: str, cpu_seconds: int) -> list[str]:
         *(  # /sbin may hold ld.so helpers
             ["--ro-bind", "/sbin", "/sbin"] if os.path.isdir("/sbin") else []
         ),
+        # Dynamic linker needs ld.so.cache; Python needs locale/ssl config
         "--ro-bind",
-        "/etc/alternatives",
-        "/etc/alternatives",
-        # Bind the script itself read-only
-        "--ro-bind",
-        script_path,
-        script_path,
-        # Private writable /tmp (tmpfs, 64 MB)
+        "/etc",
+        "/etc",
+        # Private writable /tmp — must come BEFORE the script bind so the
+        # subsequent ro-bind of the script file overlays onto the tmpfs.
         "--tmpfs",
         "/tmp",
+        # Bind the script itself read-only (on top of the tmpfs)
+        "--ro-bind",
+        script_path,
+        script_path,
         # Required virtual filesystems
         "--proc",
         "/proc",
