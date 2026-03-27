@@ -210,5 +210,6 @@ __marimo__/
 /experiments/outputs/
 /experiments/logs/
 /assets/models/
+/assets/adapters/
 /assets/newly_trained/
 /infra/compose/logs/
