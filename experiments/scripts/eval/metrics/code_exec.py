@@ -242,38 +242,28 @@ def _run_in_container(
         f.write(code)
         host_path = f.name
 
-    try:
-        cmd = _bwrap_command(host_path, cpu_seconds)
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=timeout,
-        )
-        # bwrap writes its own errors to stderr with a "bwrap: " prefix and
-        # exits before Python ever starts.  This is a sandbox setup failure
-        # (e.g. no user-namespace support), not a code failure — raise so the
-        # Airflow task and DAG are marked as failed rather than silently
-        # recording a zero pass@1.
-        if proc.stderr.startswith(b"bwrap:"):
-            raise RuntimeError(
-                f"bubblewrap sandbox failed to initialise (exit {proc.returncode}): "
-                f"{proc.stderr.decode(errors='replace').strip()}"
-            )
-        exit_code = proc.returncode
-        return {
-            "passed": exit_code == 0,
-            "exit_code": exit_code,
-            "stdout": proc.stdout.decode(errors="replace").strip(),
-            "stderr": proc.stderr.decode(errors="replace").strip(),
-        }
-    except subprocess.TimeoutExpired:
-        logger.warning("Code execution timed out after %ds", timeout)
-        return {"passed": False, "exit_code": -1, "stdout": "", "stderr": "timeout"}
-    except Exception as e:
-        logger.error("Code execution error: %s", e)
-        return {"passed": False, "exit_code": -1, "stdout": "", "stderr": str(e)}
-    finally:
-        Path(host_path).unlink(missing_ok=True)
+    cmd = _bwrap_command(host_path, cpu_seconds)
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        timeout=timeout,
+    )
+    # bwrap writes its own errors to stderr with a "bwrap: " prefix and
+    # exits before Python ever starts.  This is a sandbox setup failure
+    # (e.g. no user-namespace support), not a code failure — raise so the
+    # Airflow task and DAG are marked as failed rather than silently
+    # recording a zero pass@1.
+
+    exit_code = proc.returncode
+
+    Path(host_path).unlink(missing_ok=True)
+
+    return {
+        "passed": exit_code == 0,
+        "exit_code": exit_code,
+        "stdout": proc.stdout.decode(errors="replace").strip(),
+        "stderr": proc.stderr.decode(errors="replace").strip(),
+    }
 
 
 def evaluate_humaneval_sample(
