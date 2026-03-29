@@ -31,35 +31,32 @@ logger = logging.getLogger(__name__)
 _DEFAULT_KB_PATH = Path(__file__).resolve().parent / "knowledge_bases.json"
 
 
-class KnowledgeBaseConfig(BaseModel):
-    """Single knowledge-base entry from shared/knowledge_bases.json."""
+class KBConfig(BaseModel):
+    """Single knowledge-base entry within a task group."""
 
-    knowledge_base: str
+    name: str
     aliases: list[str] = Field(default_factory=lambda: ["champion"])
     update_strategy: Literal["incremental", "replace"] = "replace"
     label: str = ""
     description: str = ""
-    chunking_strategy: str = Field(
-        description="Chunking strategy: fixed_token, code, or section_aware",
-    )
-    chunk_size: int = Field(
-        description="Chunk size for document splitting",
-        ge=100,
-    )
-    chunk_overlap: int = Field(
-        description="Overlap between chunks",
-        ge=0,
-    )
 
 
-def _load_knowledge_bases(path: Path | str) -> dict[str, KnowledgeBaseConfig]:
+class TaskConfig(BaseModel):
+    """Top-level task entry from shared/knowledge_bases.json."""
+
+    task: str
+    label: str = ""
+    knowledge_bases: list[KBConfig] = Field(default_factory=list)
+
+
+def _load_knowledge_bases(path: Path | str) -> dict[str, TaskConfig]:
     """Load the knowledge-bases registry from a JSON file.
 
     Args:
         path: Path to the ``knowledge_bases.json`` file.
 
     Returns:
-        Mapping of ``kb_name`` → ``KnowledgeBaseConfig``.
+        Mapping of ``task_name`` → ``TaskConfig``.
     """
     path = Path(path)
 
@@ -70,22 +67,25 @@ def _load_knowledge_bases(path: Path | str) -> dict[str, KnowledgeBaseConfig]:
     with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
 
-    registry: dict[str, KnowledgeBaseConfig] = {}
+    registry: dict[str, TaskConfig] = {}
     for entry in raw:
-        cfg = KnowledgeBaseConfig(**entry)
-        registry[cfg.knowledge_base] = cfg
+        cfg = TaskConfig(**entry)
+        registry[cfg.task] = cfg
     return registry
 
 
 # Module-level registry (populated lazily via get_knowledge_bases())
-_KB_REGISTRY: dict[str, KnowledgeBaseConfig] | None = None
+_KB_REGISTRY: dict[str, TaskConfig] | None = None
 
 
-def get_knowledge_bases() -> dict[str, KnowledgeBaseConfig]:
+def get_knowledge_bases() -> dict[str, TaskConfig]:
     """Return the knowledge-base registry (cached after first call).
 
     Path is resolved from ``GATEWAY_KNOWLEDGE_BASES_PATH`` env var or
     the bundled default ``knowledge_bases.json``.
+
+    Returns:
+        Mapping of ``task_name`` → ``TaskConfig``.
     """
     global _KB_REGISTRY  # noqa: PLW0603
     if _KB_REGISTRY is None:
@@ -95,6 +95,18 @@ def get_knowledge_bases() -> dict[str, KnowledgeBaseConfig]:
         path = Path(env_path) if env_path else _DEFAULT_KB_PATH
         _KB_REGISTRY = _load_knowledge_bases(path)
     return _KB_REGISTRY
+
+
+def get_kb_config(kb_name: str) -> KBConfig | None:
+    """Look up a KB by name across all tasks.
+
+    Returns the ``KBConfig`` for *kb_name* or ``None`` if not found.
+    """
+    for task_cfg in get_knowledge_bases().values():
+        for kb_cfg in task_cfg.knowledge_bases:
+            if kb_cfg.name == kb_name:
+                return kb_cfg
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -107,25 +119,26 @@ def get_knowledge_bases() -> dict[str, KnowledgeBaseConfig]:
 
 
 class _KBProxy(dict):
-    """Lazy dict that loads KB config on first access."""
+    """Lazy dict that loads KB config on first access.
+
+    Provides backward-compatible flat ``{kb_name: info_dict}`` access.
+    """
 
     _loaded: bool = False
 
     def _ensure(self) -> None:
         if not self._loaded:
-            for name, cfg in get_knowledge_bases().items():
-                super().__setitem__(
-                    name,
-                    {
-                        "label": cfg.label,
-                        "description": cfg.description,
-                        "aliases": cfg.aliases,
-                        "update_strategy": cfg.update_strategy,
-                        "chunking_strategy": cfg.chunking_strategy,
-                        "chunk_size": cfg.chunk_size,
-                        "chunk_overlap": cfg.chunk_overlap,
-                    },
-                )
+            for task_cfg in get_knowledge_bases().values():
+                for kb_cfg in task_cfg.knowledge_bases:
+                    super().__setitem__(
+                        kb_cfg.name,
+                        {
+                            "label": kb_cfg.label,
+                            "description": kb_cfg.description,
+                            "aliases": kb_cfg.aliases,
+                            "update_strategy": kb_cfg.update_strategy,
+                        },
+                    )
             self._loaded = True
 
     def __getitem__(self, key):
@@ -617,7 +630,8 @@ def validate_settings_on_startup() -> None:
     logger.info(f"  Embeddings URL: {settings.embeddings_url}")
     logger.info(f"  Embedding model: {settings.embedding_model}")
     logger.info(f"  Embedding device: {settings.embedding_device}")
-    logger.info(f"  Knowledge bases: {list(kb_registry.keys()) or '(none)'}")
+    kb_names = [kb.name for tc in kb_registry.values() for kb in tc.knowledge_bases]
+    logger.info(f"  Knowledge bases: {kb_names or '(none)'}")
     logger.info(f"  Gateway URL (for UI): {settings.url}")
     logger.info(
         f"  UI timeouts: health={ui_settings.health_timeout}s, chat={ui_settings.chat_timeout}s"

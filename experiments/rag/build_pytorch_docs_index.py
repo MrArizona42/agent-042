@@ -21,7 +21,7 @@ from pathlib import Path
 from rag.chunking import get_chunker
 from rag.embeddings import EmbeddingService
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_knowledge_bases, get_settings
+from shared.config import get_kb_config, get_knowledge_bases, get_settings
 
 
 def _timestamp() -> str:
@@ -67,15 +67,14 @@ def build_pytorch_docs(
     embedding_model = embedding_model or _settings.embedding_model
     alias = alias or _settings.default_alias
 
-    if kb not in kb_registry:
-        available = ", ".join(kb_registry) or "(none)"
-        print(f"Error: knowledge base '{kb}' not found. Available: {available}")
+    kb_cfg = get_kb_config(kb)
+    if kb_cfg is None:
+        available_kbs = []
+        for task_cfg in kb_registry.values():
+            for kbc in task_cfg.knowledge_bases:
+                available_kbs.append(kbc.name)
+        print(f"Error: knowledge base '{kb}' not found. Available: {', '.join(available_kbs) or '(none)'}")
         sys.exit(1)
-
-    kb_cfg = kb_registry[kb]
-    chunking_strategy = chunking_strategy or kb_cfg.chunking_strategy
-    chunk_size = chunk_size if chunk_size is not None else kb_cfg.chunk_size
-    chunk_overlap = chunk_overlap if chunk_overlap is not None else kb_cfg.chunk_overlap
 
     docs_path = Path(pytorch_docs_file)
     if not docs_path.exists():
@@ -153,9 +152,11 @@ def build_pytorch_docs(
 
     # Chunk and embed documents
     print("\nChunking and embedding documents...")
-    _STRATEGY_TO_TASK = {"fixed_token": "chat", "code": "code", "section_aware": "section_aware"}
-    task = _STRATEGY_TO_TASK.get(chunking_strategy or "code", "code")
-    chunker = get_chunker(task=task, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunker = get_chunker(
+        strategy=chunking_strategy or "code",
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
 
     all_chunks = []
     all_metadatas = []

@@ -22,7 +22,7 @@ from pathlib import Path
 from rag.chunking import get_chunker
 from rag.embeddings import EmbeddingService
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_knowledge_bases, get_settings
+from shared.config import get_kb_config, get_knowledge_bases, get_settings
 
 # Arbitrary but fixed namespace for UUID5-based point IDs.  Must remain
 # constant across runs so the same (source, chunk_index) pair always
@@ -73,15 +73,14 @@ def build_arxiv(
     qdrant_port = qdrant_port or _settings.qdrant_port
     embedding_model = embedding_model or _settings.embedding_model
 
-    if kb not in kb_registry:
-        available = ", ".join(kb_registry) or "(none)"
-        print(f"Error: knowledge base '{kb}' not found. Available: {available}")
+    kb_cfg = get_kb_config(kb)
+    if kb_cfg is None:
+        available_kbs = []
+        for task_cfg in kb_registry.values():
+            for kbc in task_cfg.knowledge_bases:
+                available_kbs.append(kbc.name)
+        print(f"Error: knowledge base '{kb}' not found. Available: {', '.join(available_kbs) or '(none)'}")
         sys.exit(1)
-
-    kb_cfg = kb_registry[kb]
-    chunking_strategy = chunking_strategy or kb_cfg.chunking_strategy
-    chunk_size = chunk_size if chunk_size is not None else kb_cfg.chunk_size
-    chunk_overlap = chunk_overlap if chunk_overlap is not None else kb_cfg.chunk_overlap
 
     arxiv_path = Path(arxiv_file)
     if not arxiv_path.exists():
@@ -101,8 +100,8 @@ def build_arxiv(
     # Determine which aliases to process
     if alias:
         aliases_to_process = [alias]
-    elif kb in kb_registry:
-        aliases_to_process = kb_registry[kb].aliases
+    elif kb_cfg is not None:
+        aliases_to_process = kb_cfg.aliases
     else:
         aliases_to_process = [_settings.default_alias]
 
@@ -179,14 +178,8 @@ def build_arxiv(
         effective_chunk_overlap = build_cfg.get("chunk_overlap", chunk_overlap)
         effective_strategy = build_cfg.get("chunking_strategy", chunking_strategy)
 
-        _STRATEGY_TO_TASK = {
-            "fixed_token": "chat",
-            "code": "code",
-            "section_aware": "section_aware",
-        }
-        task = _STRATEGY_TO_TASK.get(effective_strategy, "chat")
         chunker = get_chunker(
-            task=task,
+            strategy=effective_strategy,
             chunk_size=effective_chunk_size,
             chunk_overlap=effective_chunk_overlap,
         )

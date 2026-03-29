@@ -1,22 +1,28 @@
 [
     {
-        "knowledge_base": "arxiv",
-        "aliases": ["champion", "challenger"],
-        "update_strategy": "incremental",
-        "label": "ArXiv papers (ML / AI theory)",
-        "description": "Deep discussions about ML/AI theory and latest trends",
-        "chunking_strategy": "fixed_token",
-        "chunk_size": 512,
-        "chunk_overlap": 50
+        "task": "chat",
+        "label": "General knowledge",
+        "knowledge_bases": [
+            {
+                "name": "arxiv",
+                "aliases": ["champion", "challenger"],
+                "update_strategy": "incremental",
+                "label": "ArXiv papers (ML / AI theory)",
+                "description": "Deep discussions about ML/AI theory and latest trends"
+            }
+        ]
     },
     {
-        "knowledge_base": "pytorch_docs",
-        "aliases": ["champion", "challenger"],
-        "update_strategy": "replace",
-        "label": "PyTorch docs (coding)",
-        "description": "PyTorch documentation for coding assistance",
-        "chunking_strategy": "code",
-        "chunk_size": 1000,
-        "chunk_overlap": 100
+        "task": "code",
+        "label": "Coding assistance",
+        "knowledge_bases": [
+            {
+                "name": "pytorch_docs",
+                "aliases": ["champion", "challenger"],
+                "update_strategy": "replace",
+                "label": "PyTorch docs",
+                "description": "PyTorch documentation for coding assistance"
+            }
+        ]
     }
 ]

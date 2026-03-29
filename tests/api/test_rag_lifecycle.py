@@ -44,24 +44,30 @@ def kb_json_file(tmp_path: Path):
     """Create a temporary knowledge_bases.json."""
     data = [
         {
-            "knowledge_base": "arxiv",
-            "aliases": ["champion", "challenger"],
-            "update_strategy": "incremental",
-            "label": "ArXiv papers",
-            "description": "ML papers",
-            "chunking_strategy": "fixed_token",
-            "chunk_size": 512,
-            "chunk_overlap": 50,
+            "task": "chat",
+            "label": "General knowledge",
+            "knowledge_bases": [
+                {
+                    "name": "arxiv",
+                    "aliases": ["champion", "challenger"],
+                    "update_strategy": "incremental",
+                    "label": "ArXiv papers",
+                    "description": "ML papers",
+                },
+            ],
         },
         {
-            "knowledge_base": "pytorch_docs",
-            "aliases": ["champion"],
-            "update_strategy": "replace",
-            "label": "PyTorch docs",
-            "description": "Coding docs",
-            "chunking_strategy": "code",
-            "chunk_size": 1000,
-            "chunk_overlap": 100,
+            "task": "code",
+            "label": "Coding assistance",
+            "knowledge_bases": [
+                {
+                    "name": "pytorch_docs",
+                    "aliases": ["champion"],
+                    "update_strategy": "replace",
+                    "label": "PyTorch docs",
+                    "description": "Coding docs",
+                },
+            ],
         },
     ]
     path = tmp_path / "knowledge_bases.json"
@@ -81,13 +87,18 @@ class TestKnowledgeBaseConfig:
         from shared.config import _load_knowledge_bases
 
         registry = _load_knowledge_bases(kb_json_file)
-        assert "arxiv" in registry
-        assert "pytorch_docs" in registry
-        assert registry["arxiv"].update_strategy == "incremental"
-        assert registry["pytorch_docs"].update_strategy == "replace"
-        assert "champion" in registry["arxiv"].aliases
-        assert "challenger" in registry["arxiv"].aliases
-        assert registry["pytorch_docs"].label == "PyTorch docs"
+        assert "chat" in registry
+        assert "code" in registry
+        # Find KB configs within task groups
+        arxiv_cfg = registry["chat"].knowledge_bases[0]
+        pytorch_cfg = registry["code"].knowledge_bases[0]
+        assert arxiv_cfg.name == "arxiv"
+        assert pytorch_cfg.name == "pytorch_docs"
+        assert arxiv_cfg.update_strategy == "incremental"
+        assert pytorch_cfg.update_strategy == "replace"
+        assert "champion" in arxiv_cfg.aliases
+        assert "challenger" in arxiv_cfg.aliases
+        assert pytorch_cfg.label == "PyTorch docs"
 
     def test_load_missing_file_returns_empty(self, tmp_path: Path):
         from shared.config import _load_knowledge_bases

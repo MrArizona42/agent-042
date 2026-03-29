@@ -44,6 +44,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if settings.rag_enabled:
         logger.info(f"Qdrant: {settings.qdrant_host}:{settings.qdrant_port}")
         logger.info(f"Embedding model: {settings.embedding_model}")
+        # Validate knowledge base aliases at startup
+        from gateway.services.rag_service import RAGService
+
+        try:
+            rag_service = RAGService(settings)
+            rag_service.validate_knowledge_bases()
+            logger.info("Knowledge base startup validation complete")
+        except Exception:
+            logger.warning("Knowledge base startup validation failed", exc_info=True)
 
     # --- Create managed connections ---
     redis_stream = RedisStreamService(settings.redis_url)
