@@ -29,13 +29,13 @@ name = "accelerate"
 version = "1.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "huggingface-hub", marker = "python_full_version < '3.13'" },
-    { name = "numpy", marker = "python_full_version < '3.13'" },
-    { name = "packaging", marker = "python_full_version < '3.13'" },
-    { name = "psutil", marker = "python_full_version < '3.13'" },
-    { name = "pyyaml", marker = "python_full_version < '3.13'" },
-    { name = "safetensors", marker = "python_full_version < '3.13'" },
-    { name = "torch", marker = "python_full_version < '3.13'" },
+    { name = "huggingface-hub", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "numpy", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "packaging", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "psutil", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pyyaml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "safetensors", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "torch", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/4a/8e/ac2a9566747a93f8be36ee08532eb0160558b07630a081a6056a9f89bf1d/accelerate-1.12.0.tar.gz", hash = "sha256:70988c352feb481887077d2ab845125024b2a137a5090d6d7a32b57d03a45df6", size = 398399, upload-time = "2025-11-21T11:27:46.973Z" }
 wheels = [
@@ -73,6 +73,32 @@ airflow-worker = [
     { name = "requests", marker = "python_full_version < '3.13'" },
     { name = "rouge-score", marker = "python_full_version < '3.13'" },
 ]
+airflow-worker-gpu = [
+    { name = "arxiv", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "beautifulsoup4", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "bert-score", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "bitsandbytes", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "datasets", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dvc", extra = ["s3"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "httpx", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "hydra-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "langchain-text-splitters", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "lxml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "mlflow-skinny", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "numpy", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "omegaconf", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "peft", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "psycopg2-binary", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pydantic", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pydantic-settings", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pypdf", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pytorch-lightning", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "qdrant-client", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "requests", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "rouge-score", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "torch", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "transformers", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+]
 dev = [
     { name = "ipykernel", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "ipywidgets", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -85,18 +111,6 @@ embeddings = [
     { name = "pydantic-settings", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "sentence-transformers", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "uvicorn", extra = ["standard"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-]
-eval-worker = [
-    { name = "bert-score", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "celery", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "datasets", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "httpx", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "mlflow-skinny", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "numpy", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "psycopg2-binary", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "pydantic", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "pydantic-settings", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "rouge-score", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 gateway = [
     { name = "asyncpg", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -163,109 +177,123 @@ worker = [
 [package.metadata]
 requires-dist = [
     { name = "arxiv", marker = "extra == 'airflow-worker'", specifier = ">=2.1.3" },
+    { name = "arxiv", marker = "extra == 'airflow-worker-gpu'", specifier = ">=2.1.3" },
     { name = "arxiv", marker = "extra == 'rag'", specifier = ">=2.1.3" },
     { name = "asyncpg", marker = "extra == 'gateway'", specifier = ">=0.29" },
     { name = "authlib", marker = "extra == 'gateway'", specifier = ">=1.6.7" },
     { name = "beautifulsoup4", marker = "extra == 'airflow-worker'", specifier = ">=4.12.3" },
+    { name = "beautifulsoup4", marker = "extra == 'airflow-worker-gpu'", specifier = ">=4.12.3" },
     { name = "beautifulsoup4", marker = "extra == 'rag'", specifier = ">=4.12.3" },
     { name = "bert-score", marker = "extra == 'airflow-worker'", specifier = ">=0.3.13" },
-    { name = "bert-score", marker = "extra == 'eval-worker'", specifier = ">=0.3.13" },
+    { name = "bert-score", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.3.13" },
     { name = "bert-score", marker = "extra == 'training'", specifier = ">=0.3.13" },
+    { name = "bitsandbytes", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.49.1" },
     { name = "bitsandbytes", marker = "extra == 'training'", specifier = ">=0.49.1" },
     { name = "boto3", marker = "extra == 'mlflow'", specifier = ">=1.35,<2" },
-    { name = "celery", marker = "extra == 'eval-worker'", specifier = ">=5.3.0" },
     { name = "celery", marker = "extra == 'gateway'", specifier = ">=5.3.0" },
     { name = "celery", marker = "extra == 'worker'", specifier = ">=5.3.0" },
     { name = "datasets", marker = "extra == 'airflow-worker'", specifier = ">=4.4.2" },
-    { name = "datasets", marker = "extra == 'eval-worker'", specifier = ">=4.4.2" },
+    { name = "datasets", marker = "extra == 'airflow-worker-gpu'", specifier = ">=4.4.2" },
     { name = "datasets", marker = "extra == 'training'", specifier = ">=4.4.2" },
     { name = "dvc", extras = ["gdrive", "s3", "ssh"], marker = "extra == 'training'", specifier = ">=3.66.1" },
     { name = "dvc", extras = ["s3"], marker = "extra == 'airflow-worker'", specifier = ">=3.66.1" },
+    { name = "dvc", extras = ["s3"], marker = "extra == 'airflow-worker-gpu'", specifier = ">=3.66.1" },
     { name = "fastapi", marker = "extra == 'embeddings'", specifier = ">=0.128.0" },
     { name = "fastapi", marker = "extra == 'gateway'", specifier = ">=0.128.0" },
     { name = "fire", specifier = ">=0.7.0" },
     { name = "hf-xet", marker = "extra == 'training'", specifier = ">=1.2.0" },
     { name = "httpx", marker = "extra == 'airflow-worker'", specifier = ">=0.28.1" },
-    { name = "httpx", marker = "extra == 'eval-worker'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'gateway'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'worker'", specifier = ">=0.28.1" },
+    { name = "hydra-core", marker = "extra == 'airflow-worker-gpu'", specifier = ">=1.3.2" },
     { name = "hydra-core", marker = "extra == 'training'", specifier = ">=1.3.2" },
     { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=7.1.0" },
     { name = "ipywidgets", marker = "extra == 'dev'", specifier = ">=8.1.0" },
     { name = "langchain-text-splitters", marker = "extra == 'airflow-worker'", specifier = ">=0.4.2" },
+    { name = "langchain-text-splitters", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.4.2" },
     { name = "langchain-text-splitters", marker = "extra == 'gateway'", specifier = ">=0.4.2" },
     { name = "langchain-text-splitters", marker = "extra == 'rag'", specifier = ">=0.4.2" },
     { name = "lxml", marker = "extra == 'airflow-worker'", specifier = ">=5.3.0" },
+    { name = "lxml", marker = "extra == 'airflow-worker-gpu'", specifier = ">=5.3.0" },
     { name = "lxml", marker = "extra == 'rag'", specifier = ">=5.3.0" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=3.8.1,<4" },
     { name = "mlflow", marker = "extra == 'training'", specifier = ">=3.8.1" },
     { name = "mlflow-skinny", marker = "extra == 'airflow-worker'", specifier = ">=3.8.1,<4" },
-    { name = "mlflow-skinny", marker = "extra == 'eval-worker'", specifier = ">=3.8.1,<4" },
+    { name = "mlflow-skinny", marker = "extra == 'airflow-worker-gpu'", specifier = ">=3.8.1,<4" },
     { name = "ninja", marker = "extra == 'training'", specifier = ">=1.13.0" },
     { name = "numpy", marker = "extra == 'airflow-worker'", specifier = ">=1.26" },
-    { name = "numpy", marker = "extra == 'eval-worker'", specifier = ">=1.26" },
+    { name = "numpy", marker = "extra == 'airflow-worker-gpu'", specifier = ">=1.26" },
     { name = "numpy", marker = "extra == 'training'", specifier = ">=2.2.6" },
+    { name = "omegaconf", marker = "extra == 'airflow-worker-gpu'", specifier = ">=2.3.0" },
     { name = "omegaconf", marker = "extra == 'training'", specifier = ">=2.3.0" },
     { name = "pandas", marker = "extra == 'training'", specifier = ">=2.3.3" },
+    { name = "peft", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.18.1" },
     { name = "peft", marker = "extra == 'training'", specifier = ">=0.18.1" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.1" },
     { name = "psycopg2-binary", marker = "extra == 'airflow-worker'", specifier = ">=2.9,<3" },
-    { name = "psycopg2-binary", marker = "extra == 'eval-worker'", specifier = ">=2.9,<3" },
+    { name = "psycopg2-binary", marker = "extra == 'airflow-worker-gpu'", specifier = ">=2.9,<3" },
     { name = "psycopg2-binary", marker = "extra == 'mlflow'", specifier = ">=2.9,<3" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pydantic", marker = "extra == 'airflow-worker'", specifier = ">=2.10.0" },
-    { name = "pydantic", marker = "extra == 'eval-worker'", specifier = ">=2.10.0" },
+    { name = "pydantic", marker = "extra == 'airflow-worker-gpu'", specifier = ">=2.10.0" },
     { name = "pydantic", marker = "extra == 'ui'", specifier = ">=2.0.0" },
     { name = "pydantic", marker = "extra == 'worker'", specifier = ">=2.10.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pydantic-settings", marker = "extra == 'airflow-worker'", specifier = ">=2.10.1" },
+    { name = "pydantic-settings", marker = "extra == 'airflow-worker-gpu'", specifier = ">=2.10.1" },
     { name = "pydantic-settings", marker = "extra == 'embeddings'", specifier = ">=2.10.1" },
-    { name = "pydantic-settings", marker = "extra == 'eval-worker'", specifier = ">=2.10.1" },
     { name = "pydantic-settings", marker = "extra == 'gateway'", specifier = ">=2.10.1" },
     { name = "pydantic-settings", marker = "extra == 'mlflow'", specifier = ">=2.10.1" },
     { name = "pydantic-settings", marker = "extra == 'ui'", specifier = ">=2.0.0" },
     { name = "pydantic-settings", marker = "extra == 'worker'", specifier = ">=2.10.1" },
     { name = "pyjwt", extras = ["cryptography"], marker = "extra == 'gateway'", specifier = ">=2.8" },
     { name = "pypdf", marker = "extra == 'airflow-worker'", specifier = ">=5.2.0" },
+    { name = "pypdf", marker = "extra == 'airflow-worker-gpu'", specifier = ">=5.2.0" },
     { name = "pypdf", marker = "extra == 'rag'", specifier = ">=5.2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "python-dotenv", marker = "extra == 'training'", specifier = ">=1.0.1" },
+    { name = "pytorch-lightning", marker = "extra == 'airflow-worker-gpu'", specifier = ">=2.6.0" },
     { name = "pytorch-lightning", marker = "extra == 'training'", specifier = ">=2.6.0" },
     { name = "qdrant-client", marker = "extra == 'airflow-worker'", specifier = ">=1.12.0" },
+    { name = "qdrant-client", marker = "extra == 'airflow-worker-gpu'", specifier = ">=1.12.0" },
     { name = "qdrant-client", marker = "extra == 'gateway'", specifier = ">=1.12.0" },
     { name = "qdrant-client", marker = "extra == 'rag'", specifier = ">=1.12.0" },
     { name = "redis", marker = "extra == 'gateway'", specifier = ">=5.0.0" },
     { name = "redis", marker = "extra == 'worker'", specifier = ">=5.0.0" },
     { name = "requests", marker = "extra == 'airflow-worker'", specifier = ">=2.32.4" },
+    { name = "requests", marker = "extra == 'airflow-worker-gpu'", specifier = ">=2.32.4" },
     { name = "requests", marker = "extra == 'rag'", specifier = ">=2.32.4" },
     { name = "requests", marker = "extra == 'ui'", specifier = ">=2.32.4" },
     { name = "rouge-score", marker = "extra == 'airflow-worker'", specifier = ">=0.1.2" },
-    { name = "rouge-score", marker = "extra == 'eval-worker'", specifier = ">=0.1.2" },
+    { name = "rouge-score", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.1.2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.14.11" },
     { name = "sentence-transformers", marker = "extra == 'embeddings'", specifier = ">=3.3.1" },
     { name = "sentence-transformers", marker = "extra == 'rag'", specifier = ">=3.3.1" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'gateway'", specifier = ">=2.0" },
     { name = "streamlit", marker = "extra == 'ui'", specifier = ">=1.41.1" },
+    { name = "torch", marker = "extra == 'airflow-worker-gpu'", specifier = ">=2.9.0" },
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.9.0" },
+    { name = "transformers", marker = "extra == 'airflow-worker-gpu'", specifier = ">=4.57.3" },
     { name = "transformers", marker = "extra == 'training'", specifier = ">=4.57.3" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'embeddings'", specifier = ">=0.35.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'gateway'", specifier = ">=0.35.0" },
 ]
-provides-extras = ["gateway", "ui", "worker", "airflow", "airflow-worker", "eval-worker", "rag", "embeddings", "training", "mlflow", "dev"]
+provides-extras = ["gateway", "ui", "worker", "airflow", "airflow-worker", "airflow-worker-gpu", "rag", "embeddings", "training", "mlflow", "dev"]
 
 [[package]]
 name = "aiobotocore"
 version = "2.26.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp", marker = "python_full_version < '3.13'" },
-    { name = "aioitertools", marker = "python_full_version < '3.13'" },
-    { name = "botocore", marker = "python_full_version < '3.13'" },
-    { name = "jmespath", marker = "python_full_version < '3.13'" },
-    { name = "multidict", marker = "python_full_version < '3.13'" },
-    { name = "python-dateutil", marker = "python_full_version < '3.13'" },
-    { name = "wrapt", marker = "python_full_version < '3.13'" },
+    { name = "aiohttp", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "aioitertools", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "botocore", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "jmespath", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "multidict", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "python-dateutil", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "wrapt", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/4d/f8/99fa90d9c25b78292899fd4946fce97b6353838b5ecc139ad8ba1436e70c/aiobotocore-2.26.0.tar.gz", hash = "sha256:50567feaf8dfe2b653570b4491f5bc8c6e7fb9622479d66442462c021db4fadc", size = 122026, upload-time = "2025-11-28T07:54:59.956Z" }
 wheels = [
@@ -274,7 +302,7 @@ wheels = [
 
 [package.optional-dependencies]
 boto3 = [
-    { name = "boto3", marker = "python_full_version < '3.13'" },
+    { name = "boto3", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 
 [[package]]
@@ -342,7 +370,7 @@ name = "aiohttp-retry"
 version = "2.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp", marker = "python_full_version < '3.13'" },
+    { name = "aiohttp", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9d/61/ebda4d8e3d8cfa1fd3db0fb428db2dd7461d5742cea35178277ad180b033/aiohttp_retry-2.9.1.tar.gz", hash = "sha256:8eb75e904ed4ee5c2ec242fefe85bf04240f685391c4879d8f541d6028ff01f1", size = 13608, upload-time = "2024-11-06T10:44:54.574Z" }
 wheels = [
@@ -519,8 +547,8 @@ name = "asyncssh"
 version = "2.22.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography", marker = "python_full_version < '3.13'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "cryptography", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fc/d5/957886c316466349d55c4de6a688a10a98295c0b4429deb8db1a17f3eb19/asyncssh-2.22.0.tar.gz", hash = "sha256:c3ce72b01be4f97b40e62844dd384227e5ff5a401a3793007c42f86a5c8eb537", size = 540523, upload-time = "2025-12-21T23:38:30.5Z" }
 wheels = [
@@ -661,9 +689,9 @@ name = "bitsandbytes"
 version = "0.49.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "numpy", marker = "python_full_version < '3.13'" },
-    { name = "packaging", marker = "python_full_version < '3.13'" },
-    { name = "torch", marker = "python_full_version < '3.13'" },
+    { name = "numpy", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "packaging", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "torch", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d8/7d/f1fe0992334b18cd8494f89aeec1dcc674635584fcd9f115784fea3a1d05/bitsandbytes-0.49.2-py3-none-macosx_14_0_arm64.whl", hash = "sha256:87be5975edeac5396d699ecbc39dfc47cf2c026daaf2d5852a94368611a6823f", size = 131940, upload-time = "2026-02-16T21:26:04.572Z" },
@@ -1137,7 +1165,7 @@ name = "dulwich"
 version = "0.25.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "urllib3", marker = "python_full_version < '3.13'" },
+    { name = "urllib3", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c1/75/5c1d2c82e4e4542fdc44614f42dafb1c1ec1627a8e8bd5800d37bcb7b33b/dulwich-0.25.1.tar.gz", hash = "sha256:ce50b588981d30cd700fbf7352eea6f9aed9a9fc2823dda5a7d183a4e13d0ab8", size = 1125985, upload-time = "2026-01-08T22:30:00.915Z" }
 wheels = [
@@ -1161,48 +1189,48 @@ name = "dvc"
 version = "3.66.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "attrs", marker = "python_full_version < '3.13'" },
-    { name = "celery", marker = "python_full_version < '3.13'" },
-    { name = "colorama", marker = "python_full_version < '3.13'" },
-    { name = "configobj", marker = "python_full_version < '3.13'" },
-    { name = "distro", marker = "python_full_version < '3.13'" },
-    { name = "dpath", marker = "python_full_version < '3.13'" },
-    { name = "dulwich", marker = "python_full_version < '3.13'" },
-    { name = "dvc-data", marker = "python_full_version < '3.13'" },
-    { name = "dvc-http", marker = "python_full_version < '3.13'" },
-    { name = "dvc-objects", marker = "python_full_version < '3.13'" },
-    { name = "dvc-render", marker = "python_full_version < '3.13'" },
-    { name = "dvc-studio-client", marker = "python_full_version < '3.13'" },
-    { name = "dvc-task", marker = "python_full_version < '3.13'" },
-    { name = "flatten-dict", marker = "python_full_version < '3.13'" },
-    { name = "flufl-lock", marker = "python_full_version < '3.13'" },
-    { name = "fsspec", marker = "python_full_version < '3.13'" },
-    { name = "funcy", marker = "python_full_version < '3.13'" },
-    { name = "grandalf", marker = "python_full_version < '3.13'" },
-    { name = "gto", marker = "python_full_version < '3.13'" },
-    { name = "hydra-core", marker = "python_full_version < '3.13'" },
-    { name = "iterative-telemetry", marker = "python_full_version < '3.13'" },
-    { name = "kombu", marker = "python_full_version < '3.13'" },
-    { name = "networkx", marker = "python_full_version < '3.13'" },
-    { name = "omegaconf", marker = "python_full_version < '3.13'" },
-    { name = "packaging", marker = "python_full_version < '3.13'" },
-    { name = "pathspec", marker = "python_full_version < '3.13'" },
-    { name = "platformdirs", marker = "python_full_version < '3.13'" },
-    { name = "psutil", marker = "python_full_version < '3.13'" },
-    { name = "pydot", marker = "python_full_version < '3.13'" },
-    { name = "pygtrie", marker = "python_full_version < '3.13'" },
-    { name = "pyparsing", marker = "python_full_version < '3.13'" },
-    { name = "requests", marker = "python_full_version < '3.13'" },
-    { name = "rich", marker = "python_full_version < '3.13'" },
-    { name = "ruamel-yaml", marker = "python_full_version < '3.13'" },
-    { name = "scmrepo", marker = "python_full_version < '3.13'" },
-    { name = "shortuuid", marker = "python_full_version < '3.13'" },
-    { name = "shtab", marker = "python_full_version < '3.13'" },
-    { name = "tabulate", marker = "python_full_version < '3.13'" },
-    { name = "tomlkit", marker = "python_full_version < '3.13'" },
-    { name = "tqdm", marker = "python_full_version < '3.13'" },
-    { name = "voluptuous", marker = "python_full_version < '3.13'" },
-    { name = "zc-lockfile", marker = "python_full_version < '3.13'" },
+    { name = "attrs", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "celery", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "colorama", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "configobj", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "distro", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dpath", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dulwich", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dvc-data", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dvc-http", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dvc-objects", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dvc-render", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dvc-studio-client", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dvc-task", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "flatten-dict", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "flufl-lock", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "fsspec", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "funcy", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "grandalf", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "gto", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "hydra-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "iterative-telemetry", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "kombu", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "networkx", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "omegaconf", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "packaging", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pathspec", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "platformdirs", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "psutil", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pydot", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pygtrie", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pyparsing", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "requests", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "rich", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "ruamel-yaml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "scmrepo", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "shortuuid", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "shtab", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "tabulate", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "tomlkit", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "tqdm", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "voluptuous", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "zc-lockfile", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b6/46/134ce696e6d4e857e4378ad5dd6f84eac3e1c3b66cdada89baade9cfd1e9/dvc-3.66.1.tar.gz", hash = "sha256:ed8e07050fdf1fc222ea95afbef8540820179e42022bc068c7b343f2a1304e69", size = 674159, upload-time = "2026-01-08T15:29:38.496Z" }
 wheels = [
@@ -1214,7 +1242,7 @@ gdrive = [
     { name = "dvc-gdrive", marker = "python_full_version < '3.13'" },
 ]
 s3 = [
-    { name = "dvc-s3", marker = "python_full_version < '3.13'" },
+    { name = "dvc-s3", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 ssh = [
     { name = "dvc-ssh", marker = "python_full_version < '3.13'" },
@@ -1225,15 +1253,15 @@ name = "dvc-data"
 version = "3.18.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "attrs", marker = "python_full_version < '3.13'" },
-    { name = "dictdiffer", marker = "python_full_version < '3.13'" },
-    { name = "diskcache", marker = "python_full_version < '3.13'" },
-    { name = "dvc-objects", marker = "python_full_version < '3.13'" },
-    { name = "fsspec", marker = "python_full_version < '3.13'" },
-    { name = "orjson", marker = "python_full_version < '3.13' and implementation_name == 'cpython'" },
-    { name = "pygtrie", marker = "python_full_version < '3.13'" },
-    { name = "sqltrie", marker = "python_full_version < '3.13'" },
-    { name = "tqdm", marker = "python_full_version < '3.13'" },
+    { name = "attrs", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dictdiffer", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "diskcache", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dvc-objects", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "fsspec", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "orjson", marker = "(python_full_version < '3.13' and implementation_name == 'cpython') or (python_full_version >= '3.13' and extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (python_full_version >= '3.13' and extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training') or (implementation_name != 'cpython' and extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (implementation_name != 'cpython' and extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pygtrie", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "sqltrie", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "tqdm", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ab/7f/fa1be22d32ccf49fb605cad410182f85c744bbfc51e5759141f0a7eaad64/dvc_data-3.18.2.tar.gz", hash = "sha256:71c0bf7e62514dbad06db796a3f3aac5ccae672222b6be67029157e4efa5d359", size = 84517, upload-time = "2026-01-08T13:58:30.436Z" }
 wheels = [
@@ -1258,7 +1286,7 @@ name = "dvc-http"
 version = "2.32.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp-retry", marker = "python_full_version < '3.13'" },
+    { name = "aiohttp-retry", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "fsspec", extra = ["http"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/33/e6/4fb38ab911a9d90fbe2c7759c430814fe2253760304a9de0d3ebd6e27c20/dvc-http-2.32.0.tar.gz", hash = "sha256:f714f8435634aab943c625f659ddac1188c6ddaf3ff161b39715b83ff39637fc", size = 14603, upload-time = "2023-12-13T10:53:16.393Z" }
@@ -1271,7 +1299,7 @@ name = "dvc-objects"
 version = "5.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "fsspec", marker = "python_full_version < '3.13'" },
+    { name = "fsspec", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f5/3a/90c765395fe282132aac3fb4fb8ba2839437c459125a38af0c4865b7b963/dvc_objects-5.2.0.tar.gz", hash = "sha256:969bc19847b76604327631ce0ad0f287efa549d87bac028b5c2eb17a0d610984", size = 43459, upload-time = "2025-12-22T06:57:07.388Z" }
 wheels = [
@@ -1293,9 +1321,9 @@ version = "3.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiobotocore", extra = ["boto3"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "dvc", marker = "python_full_version < '3.13'" },
-    { name = "flatten-dict", marker = "python_full_version < '3.13'" },
-    { name = "s3fs", marker = "python_full_version < '3.13'" },
+    { name = "dvc", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "flatten-dict", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "s3fs", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/24/72/44033cb2e85a7e68ac0bf8d96ece272f6818a28135678090fc8d03ef54b8/dvc_s3-3.2.2.tar.gz", hash = "sha256:0ea72c9b6b000dfea1a834d4106733b6cdc745d0a6ee1d5c0a5b8c8344671716", size = 16534, upload-time = "2025-06-19T07:49:18.168Z" }
 wheels = [
@@ -1320,9 +1348,9 @@ name = "dvc-studio-client"
 version = "0.22.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "dulwich", marker = "python_full_version < '3.13'" },
-    { name = "requests", marker = "python_full_version < '3.13'" },
-    { name = "voluptuous", marker = "python_full_version < '3.13'" },
+    { name = "dulwich", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "requests", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "voluptuous", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f4/52/f00bc978bfa313929221df1b6a1d82256b1c2727c55594dbbf9520f0adfd/dvc_studio_client-0.22.0.tar.gz", hash = "sha256:45d554a0386dd18bdfe17968e93f9b075563c888088b51bfa58713f64ed58ac8", size = 29432, upload-time = "2025-07-28T16:23:52.699Z" }
 wheels = [
@@ -1334,11 +1362,11 @@ name = "dvc-task"
 version = "0.40.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "celery", marker = "python_full_version < '3.13'" },
-    { name = "funcy", marker = "python_full_version < '3.13'" },
-    { name = "kombu", marker = "python_full_version < '3.13'" },
-    { name = "pywin32", marker = "python_full_version < '3.13' and sys_platform == 'win32'" },
-    { name = "shortuuid", marker = "python_full_version < '3.13'" },
+    { name = "celery", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "funcy", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "kombu", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pywin32", marker = "(python_full_version < '3.13' and sys_platform == 'win32') or (python_full_version >= '3.13' and extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (python_full_version >= '3.13' and extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training') or (sys_platform != 'win32' and extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (sys_platform != 'win32' and extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "shortuuid", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/19/ef/da712c4d9c7d6cacac27d7b2779e6a97c3381ef2c963c33719d39113b6a3/dvc_task-0.40.2.tar.gz", hash = "sha256:909af541bf5fde83439da56c4c0ebac592af178a59b702708fadaacfd6e7b704", size = 36147, upload-time = "2024-10-08T12:47:31.915Z" }
 wheels = [
@@ -1446,7 +1474,7 @@ name = "flatten-dict"
 version = "0.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "six", marker = "python_full_version < '3.13'" },
+    { name = "six", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/89/c6/5fe21639369f2ea609c964e20870b5c6c98a134ef12af848a7776ddbabe3/flatten-dict-0.4.2.tar.gz", hash = "sha256:506a96b6e6f805b81ae46a0f9f31290beb5fa79ded9d80dbe1b7fa236ab43076", size = 10362, upload-time = "2021-08-08T09:56:51.455Z" }
 wheels = [
@@ -1458,8 +1486,8 @@ name = "flufl-lock"
 version = "9.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "atpublic", marker = "python_full_version < '3.13'" },
-    { name = "psutil", marker = "python_full_version < '3.13'" },
+    { name = "atpublic", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "psutil", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/23/90/242e0362ae44826309dde73311312b7cb1a8017487221685ab8af4519ae5/flufl_lock-9.0.0.tar.gz", hash = "sha256:270a46e754af3937735cdd4f8a8f43a2dc4e5c40a24fdf972f5dc6db0862e8bb", size = 34151, upload-time = "2025-11-29T04:35:35.205Z" }
 wheels = [
@@ -1562,7 +1590,7 @@ http = [
     { name = "aiohttp", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 tqdm = [
-    { name = "tqdm", marker = "python_full_version < '3.13'" },
+    { name = "tqdm", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 
 [[package]]
@@ -1673,7 +1701,7 @@ name = "grandalf"
 version = "0.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyparsing", marker = "python_full_version < '3.13'" },
+    { name = "pyparsing", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/95/0e/4ac934b416857969f9135dec17ac80660634327e003a870835dd1f382659/grandalf-0.8.tar.gz", hash = "sha256:2813f7aab87f0d20f334a3162ccfbcbf085977134a17a5b516940a93a77ea974", size = 38128, upload-time = "2023-01-26T07:37:06.668Z" }
 wheels = [
@@ -1776,16 +1804,16 @@ name = "gto"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "entrypoints", marker = "python_full_version < '3.13'" },
-    { name = "funcy", marker = "python_full_version < '3.13'" },
-    { name = "pydantic", marker = "python_full_version < '3.13'" },
-    { name = "pydantic-settings", marker = "python_full_version < '3.13'" },
-    { name = "rich", marker = "python_full_version < '3.13'" },
-    { name = "ruamel-yaml", marker = "python_full_version < '3.13'" },
-    { name = "scmrepo", marker = "python_full_version < '3.13'" },
-    { name = "semver", marker = "python_full_version < '3.13'" },
-    { name = "tabulate", marker = "python_full_version < '3.13'" },
-    { name = "typer", marker = "python_full_version < '3.13'" },
+    { name = "entrypoints", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "funcy", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pydantic", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pydantic-settings", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "rich", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "ruamel-yaml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "scmrepo", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "semver", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "tabulate", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "typer", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/8a/06/d2ec91a6c1e6b1a55c419e8599df7ac3430323a1bb1e5c01a1f83f8ecb64/gto-1.9.0.tar.gz", hash = "sha256:3beb5c652a98585ad083dbb6879a580ffe926271661d9b7a50e428cd591005ea", size = 58999, upload-time = "2025-10-08T17:05:28.568Z" }
 wheels = [
@@ -1957,9 +1985,9 @@ name = "hydra-core"
 version = "1.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "antlr4-python3-runtime", marker = "python_full_version < '3.13'" },
-    { name = "omegaconf", marker = "python_full_version < '3.13'" },
-    { name = "packaging", marker = "python_full_version < '3.13'" },
+    { name = "antlr4-python3-runtime", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "omegaconf", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "packaging", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6d/8e/07e42bc434a847154083b315779b0a81d567154504624e181caf2c71cd98/hydra-core-1.3.2.tar.gz", hash = "sha256:8a878ed67216997c3e9d88a8e72e7b4767e81af37afb4ea3334b269a4390a824", size = 3263494, upload-time = "2023-02-23T18:33:43.03Z" }
 wheels = [
@@ -2092,10 +2120,10 @@ name = "iterative-telemetry"
 version = "0.0.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "appdirs", marker = "python_full_version < '3.13'" },
-    { name = "distro", marker = "python_full_version < '3.13'" },
-    { name = "filelock", marker = "python_full_version < '3.13'" },
-    { name = "requests", marker = "python_full_version < '3.13'" },
+    { name = "appdirs", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "distro", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "filelock", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "requests", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d2/b6/f17d6e80252b7be6ca4d9463db226ce7863d26287f16f1347e981cd2f3d8/iterative_telemetry-0.0.10.tar.gz", hash = "sha256:7fde6111de6fa4acf5a95a6190cc9cc5d17d835a815f0a18ece201f6031f4ed6", size = 20080, upload-time = "2025-02-11T02:47:53.391Z" }
 wheels = [
@@ -2355,8 +2383,8 @@ name = "lightning-utilities"
 version = "0.15.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "packaging", marker = "python_full_version < '3.13'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "packaging", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f1/45/7fa8f56b17dc0f0a41ec70dd307ecd6787254483549843bef4c30ab5adce/lightning_utilities-0.15.3.tar.gz", hash = "sha256:792ae0204c79f6859721ac7f386c237a33b0ed06ba775009cb894e010a842033", size = 33553, upload-time = "2026-02-22T14:48:53.348Z" }
 wheels = [
@@ -2424,7 +2452,7 @@ name = "markdown-it-py"
 version = "4.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "mdurl", marker = "python_full_version < '3.13'" },
+    { name = "mdurl", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/5b/f5/4ec618ed16cc4f8fb3b701563655a69816155e79e24a17b651541804721d/markdown_it_py-4.0.0.tar.gz", hash = "sha256:cb0a2b4aa34f932c007117b194e945bd74e0ec24133ceb5bac59009cda1cb9f3", size = 73070, upload-time = "2025-08-11T12:57:52.854Z" }
 wheels = [
@@ -2997,8 +3025,8 @@ name = "omegaconf"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "antlr4-python3-runtime", marker = "python_full_version < '3.13'" },
-    { name = "pyyaml", marker = "python_full_version < '3.13'" },
+    { name = "antlr4-python3-runtime", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pyyaml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/09/48/6388f1bb9da707110532cb70ec4d2822858ddfb44f1cdf1233c20a80ea4b/omegaconf-2.3.0.tar.gz", hash = "sha256:d5d4b6d29955cc50ad50c46dc269bcd92c6e00f5f90d23ab5fee7bfca4ba4cc7", size = 3298120, upload-time = "2022-12-08T20:59:22.753Z" }
 wheels = [
@@ -3161,16 +3189,16 @@ name = "peft"
 version = "0.18.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "accelerate", marker = "python_full_version < '3.13'" },
-    { name = "huggingface-hub", marker = "python_full_version < '3.13'" },
-    { name = "numpy", marker = "python_full_version < '3.13'" },
-    { name = "packaging", marker = "python_full_version < '3.13'" },
-    { name = "psutil", marker = "python_full_version < '3.13'" },
-    { name = "pyyaml", marker = "python_full_version < '3.13'" },
-    { name = "safetensors", marker = "python_full_version < '3.13'" },
-    { name = "torch", marker = "python_full_version < '3.13'" },
-    { name = "tqdm", marker = "python_full_version < '3.13'" },
-    { name = "transformers", marker = "python_full_version < '3.13'" },
+    { name = "accelerate", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "huggingface-hub", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "numpy", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "packaging", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "psutil", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pyyaml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "safetensors", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "torch", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "tqdm", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "transformers", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d8/48/147b3ea999560b40a34fd78724c7777aa9d18409c2250bdcaf9c4f2db7fc/peft-0.18.1.tar.gz", hash = "sha256:2dd0d6bfce936d1850e48aaddbd250941c5c02fc8ef3237cd8fd5aac35e0bae2", size = 635030, upload-time = "2026-01-09T13:08:01.136Z" }
 wheels = [
@@ -3591,7 +3619,7 @@ name = "pydot"
 version = "4.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyparsing", marker = "python_full_version < '3.13'" },
+    { name = "pyparsing", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/35/b17cb89ff865484c6a20ef46bf9d95a5f07328292578de0b295f4a6beec2/pydot-4.0.1.tar.gz", hash = "sha256:c2148f681c4a33e08bf0e26a9e5f8e4099a82e0e2a068098f32ce86577364ad5", size = 162594, upload-time = "2025-06-17T20:09:56.454Z" }
 wheels = [
@@ -3627,7 +3655,7 @@ name = "pygit2"
 version = "1.19.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "python_full_version < '3.13'" },
+    { name = "cffi", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/17/49/cf8350817de19f4cafe4ae47881e38f56d9bbebaa9e5ef31a5458af4bcf8/pygit2-1.19.1.tar.gz", hash = "sha256:3165f784aae56a309a27d8eeae7923d53da2e8f6094308c7f5b428deec925cf9", size = 800869, upload-time = "2025-12-29T11:47:48.618Z" }
 wheels = [
@@ -3752,14 +3780,14 @@ name = "pytorch-lightning"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "fsspec", extra = ["http"], marker = "(python_full_version < '3.13' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "lightning-utilities", marker = "python_full_version < '3.13'" },
-    { name = "packaging", marker = "python_full_version < '3.13'" },
-    { name = "pyyaml", marker = "python_full_version < '3.13'" },
-    { name = "torch", marker = "python_full_version < '3.13'" },
-    { name = "torchmetrics", marker = "python_full_version < '3.13'" },
-    { name = "tqdm", marker = "python_full_version < '3.13'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "fsspec", extra = ["http"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "lightning-utilities", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "packaging", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pyyaml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "torch", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "torchmetrics", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "tqdm", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/8b/ac/ebd5f6f58691cbd4f73836e43e1727f3814311b960c41f88e259606ca2b2/pytorch_lightning-2.6.1.tar.gz", hash = "sha256:ba08f8901cf226fcca473046ad9346f414e99117762dc869c76e650d5b3d7bdc", size = 665563, upload-time = "2026-01-30T14:59:11.636Z" }
 wheels = [
@@ -3972,8 +4000,8 @@ name = "rich"
 version = "14.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "markdown-it-py", marker = "python_full_version < '3.13'" },
-    { name = "pygments", marker = "python_full_version < '3.13'" },
+    { name = "markdown-it-py", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pygments", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fb/d2/8920e102050a0de7bfabeb4c4614a49248cf8d5d7a8d01885fbb24dc767a/rich-14.2.0.tar.gz", hash = "sha256:73ff50c7c0c1c77c8243079283f4edb376f0f6442433aecb8ce7e6d0b92d1fe4", size = 219990, upload-time = "2025-10-09T14:16:53.064Z" }
 wheels = [
@@ -4096,9 +4124,9 @@ name = "s3fs"
 version = "2025.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiobotocore", marker = "python_full_version < '3.13'" },
-    { name = "aiohttp", marker = "python_full_version < '3.13'" },
-    { name = "fsspec", marker = "python_full_version < '3.13'" },
+    { name = "aiobotocore", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "aiohttp", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "fsspec", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/bb/ee/7cf7de3b17ef6db10b027cc9f8a1108ceb6333e267943e666a35882b1474/s3fs-2025.10.0.tar.gz", hash = "sha256:e8be6cddc77aceea1681ece0f472c3a7f8ef71a0d2acddb1cc92bb6afa3e9e4f", size = 80383, upload-time = "2025-10-30T15:06:04.647Z" }
 wheels = [
@@ -4217,15 +4245,15 @@ name = "scmrepo"
 version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp-retry", marker = "python_full_version < '3.13'" },
-    { name = "asyncssh", marker = "python_full_version < '3.13'" },
-    { name = "dulwich", marker = "python_full_version < '3.13'" },
+    { name = "aiohttp-retry", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "asyncssh", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "dulwich", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "fsspec", extra = ["tqdm"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "gitpython", marker = "python_full_version < '3.13'" },
-    { name = "pathspec", marker = "python_full_version < '3.13'" },
-    { name = "pygit2", marker = "python_full_version < '3.13'" },
-    { name = "pygtrie", marker = "python_full_version < '3.13'" },
-    { name = "tqdm", marker = "python_full_version < '3.13'" },
+    { name = "gitpython", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pathspec", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pygit2", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pygtrie", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "tqdm", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/35/ae/0b8533280cfeda22a58b32e71ddb09a84bbfa7d94ca81b624c3833a9cae7/scmrepo-3.6.1.tar.gz", hash = "sha256:73af4f3e652d565fd09cf9917e59de4df6dca2f5ff7625b91f0942e759915e33", size = 97365, upload-time = "2026-01-06T06:55:57.62Z" }
 wheels = [
@@ -4374,9 +4402,9 @@ name = "sqltrie"
 version = "0.11.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "attrs", marker = "python_full_version < '3.13'" },
-    { name = "orjson", marker = "python_full_version < '3.13' and implementation_name == 'cpython'" },
-    { name = "pygtrie", marker = "python_full_version < '3.13'" },
+    { name = "attrs", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "orjson", marker = "(python_full_version < '3.13' and implementation_name == 'cpython') or (python_full_version >= '3.13' and extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (python_full_version >= '3.13' and extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training') or (implementation_name != 'cpython' and extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (implementation_name != 'cpython' and extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pygtrie", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/8a/e6/f3832264bcd98b9e71c93c579ab6b39eb1db659cab305e59f8f7c1adc777/sqltrie-0.11.2.tar.gz", hash = "sha256:4df47089b3abfe347bcf81044e633b8c7737ebda4ce1fec8b636a85954ac36da", size = 23551, upload-time = "2025-02-19T15:11:35.474Z" }
 wheels = [
@@ -4598,10 +4626,10 @@ name = "torchmetrics"
 version = "1.8.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "lightning-utilities", marker = "python_full_version < '3.13'" },
-    { name = "numpy", marker = "python_full_version < '3.13'" },
-    { name = "packaging", marker = "python_full_version < '3.13'" },
-    { name = "torch", marker = "python_full_version < '3.13'" },
+    { name = "lightning-utilities", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "numpy", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "packaging", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "torch", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/85/2e/48a887a59ecc4a10ce9e8b35b3e3c5cef29d902c4eac143378526e7485cb/torchmetrics-1.8.2.tar.gz", hash = "sha256:cf64a901036bf107f17a524009eea7781c9c5315d130713aeca5747a686fe7a5", size = 580679, upload-time = "2025-09-03T14:00:54.077Z" }
 wheels = [
@@ -4687,10 +4715,10 @@ name = "typer"
 version = "0.21.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click", marker = "python_full_version < '3.13'" },
-    { name = "rich", marker = "python_full_version < '3.13'" },
-    { name = "shellingham", marker = "python_full_version < '3.13'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "click", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "rich", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "shellingham", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/36/bf/8825b5929afd84d0dabd606c67cd57b8388cb3ec385f7ef19c5cc2202069/typer-0.21.1.tar.gz", hash = "sha256:ea835607cd752343b6b2b7ce676893e5a0324082268b48f27aa058bdb7d2145d", size = 110371, upload-time = "2026-01-06T11:21:10.989Z" }
 wheels = [
@@ -5141,7 +5169,7 @@ name = "zc-lockfile"
 version = "4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "setuptools", marker = "python_full_version < '3.13'" },
+    { name = "setuptools", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/10/9a/2fef89272d98b799e4daa50201c5582ec76bdd4e92a1a7e3deb74c52b7fa/zc_lockfile-4.0.tar.gz", hash = "sha256:d3ab0f53974296a806db3219b9191ba0e6d5cbbd1daa2e0d17208cb9b29d2102", size = 10956, upload-time = "2025-09-18T07:32:34.412Z" }
 wheels = [
