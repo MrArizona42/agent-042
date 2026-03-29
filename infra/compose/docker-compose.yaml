@@ -48,6 +48,10 @@ x-airflow-worker-build: &airflow-worker-build
   context: ${PROJECT_ROOT}
   dockerfile: infra/docker/airflow-worker/Dockerfile
 
+x-airflow-worker-gpu-build: &airflow-worker-gpu-build
+  context: ${PROJECT_ROOT}
+  dockerfile: infra/docker/airflow-worker-gpu/Dockerfile
+
 x-airflow-common-volumes: &airflow-common-volumes
   - ${PROJECT_ROOT}/dags:/opt/airflow/dags
   - ${PROJECT_ROOT}:/opt/airflow/project
@@ -438,11 +442,11 @@ services:
 
   # =====================
   # Airflow GPU Worker (Celery) – routes the "gpu" queue
-  # Uses the same image as airflow-worker with GPU training deps.
+  # Uses a separate Dockerfile with CUDA-enabled torch and training deps.
   # Concurrency 1: each training job needs exclusive GPU access.
   # =====================
   airflow-worker-gpu:
-    build: *airflow-worker-build
+    build: *airflow-worker-gpu-build
     command: celery worker --queues gpu --concurrency 1
     environment:
       <<: *airflow-common-env
