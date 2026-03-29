@@ -39,6 +39,7 @@ SERVICES=(
   "jupyter|--extra training --extra rag --extra dev --extra mlflow|3.12|infra/docker/jupyter/requirements-jupyter.lock|"
   "airflow|--extra airflow|3.12|infra/docker/airflow/requirements.lock|--constraint ${AIRFLOW_CONSTRAINTS}"
   "airflow-worker|--extra airflow-worker|3.12|infra/docker/airflow-worker/requirements-airflow-worker.lock|--constraint ${AIRFLOW_CONSTRAINTS} ${TORCH_CPU}"
+  "airflow-worker-gpu|--extra airflow-worker-gpu|3.12|infra/docker/airflow-worker/requirements-airflow-worker-gpu.lock|--constraint ${AIRFLOW_CONSTRAINTS}"
 )
 
 # ── Helpers ──────────────────────────────────────────────────────────

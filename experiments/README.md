@@ -13,7 +13,7 @@
 
 ## 🚀 Быстрый старт
 
-1. Скачать датасет и модель — откройте ноутбук `experiments/notebooks/prefetch_assets.ipynb`,
+1. Скачать датасет и модель — откройте ноутбук `experiments/misc_ops/prefetch_assets.ipynb`,
    задайте `PROJECT_ROOT` и выполните нужные ячейки.
 2. Запустить обучение адаптера:
 
@@ -28,8 +28,13 @@ python -m experiments.training.train_adapter.start_train \
 
 * `./training/conf` - Hydra конфиги
 * `./training` - Обучение адаптера
+* `./training/lora_ops.ipynb` - Операции с LoRA (регистрация, промоушен, синхронизация)
 * `./rag` - RAG индексы
+* `./rag/rag_ops.ipynb` - Операции с RAG (коллекции, алиасы, диагностика)
 * `./eval` - Оценка моделей
+* `./eval/eval_results.ipynb` - Результаты оценки (сравнение, отчёты)
+* `./eval/debug_eval.ipynb` - Отладка пайплайна оценки
+* `./misc_ops` - Прочие операции (prefetch, MLflow, PostgreSQL диагностика)
 
 ## 📦 DVC
 
@@ -59,7 +64,7 @@ Remote хранилище называется ycloud
 - Скрипт обучения читает конфиги через декоратор `@hydra.main(..., config_path="../conf", ...)` и
   принимает оверрайды из CLI.
 - Скачивание датасетов и моделей выполняется интерактивно через ноутбук
-  `experiments/notebooks/prefetch_assets.ipynb` (без Hydra).
+  `experiments/misc_ops/prefetch_assets.ipynb` (без Hydra).
 
 - Группы конфигов:
     - `training/conf/paths/paths_config.yaml` — ключ `paths.project_root` (по умолчанию проставлен
@@ -117,7 +122,7 @@ python -m experiments.training.train_adapter.start_train --info
 ### Запуск скриптов
 
 1) **Скачивание датасета и модели** — используйте ноутбук
-   `experiments/notebooks/prefetch_assets.ipynb`.
+   `experiments/misc_ops/prefetch_assets.ipynb`.
    Задайте `PROJECT_ROOT`, выберите конфигурацию датасета / модели и запустите ячейки.
    Ноутбук позволяет интерактивно изучить скачанные данные перед добавлением в DVC.
 
@@ -183,7 +188,7 @@ python -m experiments.training.train_adapter.start_train -m \
   переопределяйте через CLI `paths.project_root=...`.
 - Для Windows используйте прямые слэши (`C:/...`) или экранируйте обратные слэши в кавычках.
 - Чтобы скачать новый датасет или модель — отредактируйте параметры в ноутбуке
-  `experiments/notebooks/prefetch_assets.ipynb` и запустите нужные ячейки.
+  `experiments/misc_ops/prefetch_assets.ipynb` и запустите нужные ячейки.
 
 ## Куда что складывается (данные, логи, метрики, артефакты, параметры)
 
@@ -210,7 +215,7 @@ python -m experiments.training.train_adapter.start_train -m \
     MLFlow server!)
 
 - **Model Registry (MLflow)**: после обучения адаптер можно вручную зарегистрировать в MLflow Model
-  Registry через CLI `scripts/manage_registry.py register`. Подробнее — ниже.
+  Registry через ноутбук `experiments/training/lora_ops.ipynb`. Подробнее — ниже.
 
 - Базовый корень для относительных путей: `paths.project_root` (обязательно указывайте корректный
   путь для своей машины).
@@ -239,7 +244,8 @@ python -m experiments.training.train_adapter.start_train -m \
 ### Регистрация адаптера в реестре
 
 Обучение через `train_hydra.py` только логирует метрики и артефакты в MLflow Tracking.
-Регистрация в Model Registry — отдельный осознанный шаг через CLI:
+Регистрация в Model Registry — отдельный осознанный шаг через ноутбук
+`experiments/training/lora_ops.ipynb`:
 
 ```bash
 # 1. Обучить адаптер (без регистрации в Registry)
@@ -249,57 +255,41 @@ python -m experiments.training.train_adapter.start_train \
 # 2. Просмотреть результаты в MLflow UI, выбрать лучший run
 
 # 3. Зарегистрировать выбранный run в Model Registry
-python scripts/manage_registry.py register lora-summarize --run-id <RUN_ID>
+#    (через lora_ops.ipynb или Python API: registry.register(...))
 ```
 
 Такое разделение не засоряет реестр промежуточными экспериментами и обеспечивает
 осознанный контроль над тем, какие адаптеры попадают в каталог развёртывания.
 
-### CLI для управления реестром: `manage_registry.py`
+### CLI для управления реестром
 
-Скрипт `scripts/manage_registry.py` — операционный инструмент (не Hydra) для просмотра
-и управления адаптерами в реестре. Читает `MLFLOW_BACKEND_URI` из `experiments/.env`.
+> **Примечание:** CLI-скрипт `scripts/manage_registry.py` удалён. Операции с реестром
+> (register, promote, demote, download, sync) теперь выполняются через ноутбук
+> `experiments/training/lora_ops.ipynb` или напрямую через `shared.model_registry`
+> Python API.
+
+Скрипт `src/shared/model_registry.py` — программный интерфейс для управления
+адаптерами в реестре. Читает `MLFLOW_BACKEND_URI` из `experiments/.env`.
 
 **Просмотр всех зарегистрированных адаптеров:**
 
-```bash
-python scripts/manage_registry.py list
-```
-
-**Все версии конкретного адаптера:**
-
-```bash
-python scripts/manage_registry.py versions lora-summarize
+```python
+# Python API (из lora_ops.ipynb)
+from shared.model_registry import AdapterRegistry
+registry = AdapterRegistry()
+registry.list()
 ```
 
 **Промотирование версии в production (alias champion):**
 
-```bash
-python scripts/manage_registry.py promote lora-summarize 3
-```
-
-**Промотировать в staging (alias challenger):**
-
-```bash
-python scripts/manage_registry.py promote lora-summarize 5 --alias challenger
+```python
+registry.promote(model_name="lora-summarize", version=3, alias="champion")
 ```
 
 **Снять alias:**
 
-```bash
-python scripts/manage_registry.py demote lora-summarize
-```
-
-**Посмотреть, какие адаптеры сейчас в production:**
-
-```bash
-python scripts/manage_registry.py production
-```
-
-**Скачать production-адаптер локально:**
-
-```bash
-python scripts/manage_registry.py download lora-summarize ./my_adapters
+```python
+registry.demote(model_name="lora-summarize", alias="champion")
 ```
 
 ### Синхронизация адаптеров на inference-хосте
@@ -311,9 +301,6 @@ python scripts/manage_registry.py download lora-summarize ./my_adapters
 ```bash
 # Из корня проекта (с настроенным .env)
 python -m shared.model_registry sync --adapters-dir ./assets/adapters --vllm-url http://localhost:8000
-
-# Или через manage_registry.py
-python scripts/manage_registry.py sync --vllm-url http://localhost:8000
 ```
 
 Результат на диске:
@@ -344,14 +331,14 @@ python -m experiments.training.train_adapter.start_train \
 
 # 2. Посмотреть версии, метрики в MLflow UI, выбрать лучший run
 
-# 3. Зарегистрировать лучший run в Model Registry
-python scripts/manage_registry.py register lora-summarize --run-id <RUN_ID>
+# 3. Зарегистрировать лучший run в Model Registry (через lora_ops.ipynb)
+#    registry.register(model_name="lora-summarize", run_id="<RUN_ID>")
 
 # 4. Промотировать зарегистрированную версию в production
-python scripts/manage_registry.py promote lora-summarize 3
+#    registry.promote(model_name="lora-summarize", version=3, alias="champion")
 
 # 5. Синхронизировать адаптеры на inference-хосте (hot-load в работающий vLLM)
-python scripts/manage_registry.py sync --vllm-url http://localhost:8000
+python -m shared.model_registry sync --vllm-url http://localhost:8000
 ```
 
 ### Конфигурация vLLM для multi-LoRA

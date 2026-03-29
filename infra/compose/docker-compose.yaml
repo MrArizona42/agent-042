@@ -437,6 +437,56 @@ services:
     restart: unless-stopped
 
   # =====================
+  # Airflow GPU Worker (Celery) – routes the "gpu" queue
+  # Uses the same image as airflow-worker with GPU training deps.
+  # Concurrency 1: each training job needs exclusive GPU access.
+  # =====================
+  airflow-worker-gpu:
+    build: *airflow-worker-build
+    command: celery worker --queues gpu --concurrency 1
+    environment:
+      <<: *airflow-common-env
+      DUMB_INIT_SETSID: "0"
+    volumes:
+      - ${PROJECT_ROOT}/dags:/opt/airflow/dags
+      - ${PROJECT_ROOT}:/opt/airflow/project
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-prepare-dirs:
+        condition: service_completed_successfully
+      airflow-webserver:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      # yamllint disable rule:line-length
+      test:
+        - "CMD-SHELL"
+        - 'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}" || celery --app airflow.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"'
+      # yamllint enable rule:line-length
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - mlflow_db_net
+      - backend_net
+      - sandbox_net
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
   # Code execution sandbox sidecar
   # =====================
   code-sandbox:

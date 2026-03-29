@@ -9,6 +9,17 @@
 * `./src/gateway/README.md` - документация Gateway (FastAPI)
 * `./src/ui/README.md` - документация UI (Streamlit)
 
+### Experiment Workflow
+
+Операции с экспериментами выполняются через Jupyter-ноутбуки в `experiments/`:
+
+* **LoRA**: обучение через Airflow DAG `train_lora`, регистрация/промоушен через
+  `experiments/training/lora_ops.ipynb`
+* **RAG**: обновление индексов через DAG-и `arxiv_rag_update` / `pytorch_docs_rag_update`,
+  управление коллекциями через `experiments/rag/rag_ops.ipynb`
+* **Eval**: просмотр результатов через `experiments/eval/eval_results.ipynb`
+* **Misc**: `experiments/misc_ops/` — prefetch, MLflow quickref, PostgreSQL diagnostics
+
 ## Постановка задачи. Scope / Область исследования.
 
 Целью данной работы является создать агентскую систему production уровня, которая способна

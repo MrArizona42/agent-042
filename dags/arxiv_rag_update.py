@@ -123,7 +123,7 @@ with DAG(
         bash_command=f"cd {_project_root} && dvc add {_arxiv_rel} && dvc push ",
     )
 
-    # The build script handles all aliases for the arxiv KB automatically.
+    # Daily updates target only the champion alias.
     build_index = BashOperator(
         task_id="build_arxiv_index",
         bash_command=(
@@ -135,6 +135,7 @@ with DAG(
             "--qdrant_port $QDRANT_PORT "
             "--embedding_model $EMBEDDING_MODEL "
             "--kb arxiv "
+            "--alias champion "
         ),
     )
 
