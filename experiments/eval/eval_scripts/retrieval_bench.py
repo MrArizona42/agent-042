@@ -90,12 +90,9 @@ def build_temp_collection(
     chunk_overlap = build_config["chunk_overlap"]
     chunking_strategy = build_config["chunking_strategy"]
 
-    # Map chunking strategy to get_chunker task parameter
-    _STRATEGY_TO_TASK = {"fixed_token": "chat", "code": "code", "section_aware": "section_aware"}
-    task = _STRATEGY_TO_TASK.get(chunking_strategy, "chat")
-
+    # Use chunking strategy directly with get_chunker
     emb_service = EmbeddingService(model_name=embedding_model)
-    chunker = get_chunker(task=task, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunker = get_chunker(strategy=chunking_strategy, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     # Chunk corpus
     all_texts: list[str] = []
