@@ -98,7 +98,7 @@ def run_training(cfg: AppConfig) -> Tuple[str, str, str]:
 
         logger.info(
             "Training complete. Run ID: %s. Register via the "
-            "register_pretrained_loras notebook or AdapterRegistry API.",
+            "lora_ops notebook or AdapterRegistry API.",
             mlf_logger.run_id,
         )
 

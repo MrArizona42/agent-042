@@ -269,7 +269,7 @@ Registry** — единый реестр версионированных LoRA-�
 #### Жизненный цикл адаптера
 
 ```
-train_hydra.py                 manage_registry.py            sync (model_registry.py)
+train_adapter                  lora_ops.ipynb                sync (model_registry.py)
 ─────────────                  ────────────────────          ──────────────────────────
   Обучение LoRA                  Просмотр метрик              Скачивание aliased
        ↓                        в MLflow UI                   адаптеров из S3
@@ -292,7 +292,7 @@ train_hydra.py                 manage_registry.py            sync (model_registr
 
 * **Registry backend**: PostgreSQL (тот же, что для MLflow Tracking).
 * **Artifact storage**: Yandex Object Storage (S3) — адаптеры хранятся рядом с MLflow-артефактами.
-* **Hot-load sync**: `python -m shared.model_registry sync` (или `manage_registry.py sync`)
+* **Hot-load sync**: `python -m shared.model_registry sync`
   скачивает aliased-адаптеры в `assets/adapters/{model}/v{N}/` и загружает их в работающий
   vLLM через `POST /v1/load_lora_adapter`. В vLLM адаптер регистрируется как `{model}-{alias}`
   (например, `lora-summarize-champion`).

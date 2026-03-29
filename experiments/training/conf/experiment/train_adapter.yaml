@@ -64,5 +64,5 @@ mlflow:
   experiment_name: "train_adapter"
   run_name: "train_adapter"
   env_path: "experiments/.env" # relative to project root
-  # To register a trained adapter in the Model Registry, use the CLI:
-  #   python scripts/manage_registry.py register <model-name> --run-id <run-id>
+  # To register a trained adapter in the Model Registry, use the lora_ops notebook:
+  #   experiments/training/lora_ops.ipynb

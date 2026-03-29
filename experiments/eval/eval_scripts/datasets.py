@@ -1,7 +1,7 @@
 """Dataset loading for the evaluation pipeline.
 
 Loads pre-downloaded HuggingFace Arrow datasets from
-``assets/datasets/{folder_name}``.  Use ``experiments/notebooks/prefetch_assets.ipynb``
+``assets/datasets/{folder_name}``.  Use ``experiments/misc_ops/prefetch_assets.ipynb``
 or ``dvc pull`` to populate the directory.
 """
 
@@ -37,7 +37,7 @@ def load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[
 
     Datasets must be pre-downloaded to ``assets/datasets/{folder_name}``
     (HuggingFace Arrow format, saved via ``DatasetDict.save_to_disk``).
-    Use ``experiments/notebooks/prefetch_assets.ipynb`` or ``dvc pull`` to
+    Use ``experiments/misc_ops/prefetch_assets.ipynb`` or ``dvc pull`` to
     populate the directory.
 
     Returns:
