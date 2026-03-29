@@ -277,6 +277,7 @@ DAG'и также используют следующие переменные (
 JupyterLab предоставляет интерактивную среду для экспериментов и анализа данных.
 
 Монтируемые директории:
+- `${PROJECT_ROOT}` → `/home/jovyan/project` (rw) — полный корень проекта для импортов `src/*` и `experiments/*`
 - `experiments/` → `/home/jovyan/experiments` (rw) — скрипты и конфиги экспериментов
 - `assets/` → `/home/jovyan/assets` (rw) — данные, модели, адаптеры
 - `dags/` → `/home/jovyan/dags` (rw) — Airflow DAG-файлы
@@ -284,6 +285,14 @@ JupyterLab предоставляет интерактивную среду дл
 Переменные окружения (`.env`):
 - `JUPYTER_PORT` — порт JupyterLab (по умолчанию `8888`)
 - `JUPYTER_TOKEN` — токен для аутентификации (по умолчанию `agent042`)
+
+Дополнительно контейнер получает сервисные переменные:
+- `PROJECT_ROOT=/home/jovyan/project`
+- `PYTHONPATH=/home/jovyan/project:/home/jovyan/project/src`
+- `QDRANT_HOST=qdrant`, `QDRANT_PORT=${QDRANT_PORT}`
+- `EMBEDDINGS_URL=http://embeddings:8100`
+
+Это нужно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, а не пытались ходить в `localhost` внутри контейнера.
 
 ## DVC с бэкэндом Yandex Cloud S3
 

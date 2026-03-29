@@ -873,7 +873,13 @@ services:
       dockerfile: infra/docker/jupyter/Dockerfile
     command: start-notebook.py --ServerApp.base_url=/jupyter
     environment:
+      PROJECT_ROOT: /home/jovyan/project
+      PYTHONPATH: /home/jovyan/project:/home/jovyan/project/src
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      # Qdrant / embeddings are reached over the internal Docker network.
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: ${QDRANT_PORT}
+      EMBEDDINGS_URL: http://embeddings:8100
       # PostgreSQL — used by diagnostics/analytics notebooks
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # MLflow — direct container-to-container access (no auth needed)
@@ -886,6 +892,7 @@ services:
     ports:
       - "127.0.0.1:${JUPYTER_PORT}:8888"
     volumes:
+      - ${PROJECT_ROOT}:/home/jovyan/project:rw
       - ${PROJECT_ROOT}/experiments:/home/jovyan/experiments:rw
       - ${PROJECT_ROOT}/assets:/home/jovyan/assets:rw
       - ${PROJECT_ROOT}/dags:/home/jovyan/dags:rw
