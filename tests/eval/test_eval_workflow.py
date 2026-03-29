@@ -150,24 +150,24 @@ class TestAutomaticMetrics:
     """Tests for automatic evaluation metrics."""
 
     def test_rouge_l_identical(self):
-        from experiments.scripts.eval.metrics.automatic import compute_rouge_l
+        from experiments.eval.eval_scripts.metrics.automatic import compute_rouge_l
 
         assert compute_rouge_l("hello world", "hello world") == 1.0
 
     def test_rouge_l_empty(self):
-        from experiments.scripts.eval.metrics.automatic import compute_rouge_l
+        from experiments.eval.eval_scripts.metrics.automatic import compute_rouge_l
 
         assert compute_rouge_l("", "hello") == 0.0
         assert compute_rouge_l("hello", "") == 0.0
 
     def test_rouge_l_partial(self):
-        from experiments.scripts.eval.metrics.automatic import compute_rouge_l
+        from experiments.eval.eval_scripts.metrics.automatic import compute_rouge_l
 
         score = compute_rouge_l("the cat sat on the mat", "the cat on the mat")
         assert 0.0 < score < 1.0
 
     def test_recall_at_k(self):
-        from experiments.scripts.eval.metrics.automatic import compute_recall_at_k
+        from experiments.eval.eval_scripts.metrics.automatic import compute_recall_at_k
 
         retrieved = ["a", "b", "c", "d", "e"]
         relevant = {"a", "c", "f"}
@@ -175,12 +175,12 @@ class TestAutomaticMetrics:
         assert recall == pytest.approx(2 / 3)
 
     def test_recall_at_k_empty(self):
-        from experiments.scripts.eval.metrics.automatic import compute_recall_at_k
+        from experiments.eval.eval_scripts.metrics.automatic import compute_recall_at_k
 
         assert compute_recall_at_k(["a", "b"], set(), k=5) == 0.0
 
     def test_ndcg_at_k_perfect(self):
-        from experiments.scripts.eval.metrics.automatic import compute_ndcg_at_k
+        from experiments.eval.eval_scripts.metrics.automatic import compute_ndcg_at_k
 
         retrieved = ["a", "b", "c"]
         labels = {"a": 3.0, "b": 2.0, "c": 1.0}
@@ -188,7 +188,7 @@ class TestAutomaticMetrics:
         assert ndcg == pytest.approx(1.0)
 
     def test_ndcg_at_k_reversed(self):
-        from experiments.scripts.eval.metrics.automatic import compute_ndcg_at_k
+        from experiments.eval.eval_scripts.metrics.automatic import compute_ndcg_at_k
 
         retrieved = ["c", "b", "a"]
         labels = {"a": 3.0, "b": 2.0, "c": 1.0}
@@ -204,9 +204,9 @@ class TestAutomaticMetrics:
 class TestLLMJudge:
     """Tests for LLM-as-Judge with mocked Gemini calls."""
 
-    @patch("experiments.scripts.eval.metrics.llm_judge._call_gemini")
+    @patch("experiments.eval.eval_scripts.metrics.llm_judge._call_gemini")
     def test_judge_single_relevance(self, mock_gemini):
-        from experiments.scripts.eval.metrics.llm_judge import judge_single
+        from experiments.eval.eval_scripts.metrics.llm_judge import judge_single
 
         mock_gemini.return_value = {"score": 4, "reason": "mostly relevant"}
 
@@ -221,9 +221,9 @@ class TestLLMJudge:
         assert "relevant" in result["reason"]
         mock_gemini.assert_called_once()
 
-    @patch("experiments.scripts.eval.metrics.llm_judge._call_gemini")
+    @patch("experiments.eval.eval_scripts.metrics.llm_judge._call_gemini")
     def test_judge_batch(self, mock_gemini):
-        from experiments.scripts.eval.metrics.llm_judge import judge_batch
+        from experiments.eval.eval_scripts.metrics.llm_judge import judge_batch
 
         mock_gemini.return_value = {"score": 3, "reason": "ok"}
 
@@ -239,7 +239,7 @@ class TestLLMJudge:
         assert result["correctness"] == 3.0
 
     def test_judge_unknown_metric(self):
-        from experiments.scripts.eval.metrics.llm_judge import judge_single
+        from experiments.eval.eval_scripts.metrics.llm_judge import judge_single
 
         with pytest.raises(ValueError, match="Unknown judge metric"):
             judge_single("nonexistent_metric", answer="test", api_key="key")
@@ -254,7 +254,7 @@ class TestCodeExec:
     """Tests for sandboxed code execution metrics."""
 
     def test_pass_at_1_all_pass(self):
-        from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1
+        from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         results = [
             {"passed": True, "exit_code": 0},
@@ -265,7 +265,7 @@ class TestCodeExec:
         assert metrics["executable_rate"] == 1.0
 
     def test_pass_at_1_none_pass(self):
-        from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1
+        from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         results = [
             {"passed": False, "exit_code": 1},
@@ -275,14 +275,14 @@ class TestCodeExec:
         assert metrics["pass_at_1"] == 0.0
 
     def test_pass_at_1_empty(self):
-        from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1
+        from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         metrics = compute_pass_at_1([])
         assert metrics["pass_at_1"] == 0.0
         assert metrics["executable_rate"] == 0.0
 
     def test_pass_at_1_partial(self):
-        from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1
+        from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         results = [
             {"passed": True, "exit_code": 0},
@@ -306,7 +306,7 @@ class TestRunnerConfig:
     def test_metric_category_sets_are_disjoint(self):
         """The three metric routing sets must not overlap — a metric can only be
         dispatched to one handler."""
-        from experiments.scripts.eval.runner import (
+        from experiments.eval.eval_scripts.runner import (
             _AUTOMATIC_METRICS,
             _CODE_EXEC_METRICS,
             _JUDGE_METRICS,
@@ -318,7 +318,7 @@ class TestRunnerConfig:
 
     def test_run_eval_validates_metric(self):
         """run_eval raises ValueError for invalid task/metric combination."""
-        from experiments.scripts.eval.runner import run_eval
+        from experiments.eval.eval_scripts.runner import run_eval
 
         with pytest.raises(ValueError, match="not valid for task"):
             run_eval(
@@ -331,7 +331,7 @@ class TestRunnerConfig:
 
     def test_dataset_local_mapping_covers_all_suites(self):
         """All datasets used in _SUITE_KB have a local mapping."""
-        from experiments.scripts.eval.runner import _DATASET_LOCAL, _SUITE_KB
+        from experiments.eval.eval_scripts.runner import _DATASET_LOCAL, _SUITE_KB
 
         for (_task, dataset_name), _kb in _SUITE_KB.items():
             assert dataset_name in _DATASET_LOCAL, (
@@ -340,20 +340,20 @@ class TestRunnerConfig:
 
     def test_load_dataset_samples_unknown_returns_empty(self):
         """_load_dataset_samples returns [] for an unknown dataset."""
-        from experiments.scripts.eval.runner import _load_dataset_samples
+        from experiments.eval.eval_scripts.runner import _load_dataset_samples
 
         assert _load_dataset_samples("chat", "nonexistent_dataset") == []
 
     def test_load_dataset_samples_missing_dir_returns_empty(self):
         """_load_dataset_samples returns [] when dataset dir does not exist."""
-        from experiments.scripts.eval.runner import _load_dataset_samples
+        from experiments.eval.eval_scripts.runner import _load_dataset_samples
 
         # hotpotqa is valid but its directory won't exist in test env
         result = _load_dataset_samples("chat", "hotpotqa")
         assert result == []
 
     def test_build_common_fields(self):
-        from experiments.scripts.eval.runner import _build_common_fields
+        from experiments.eval.eval_scripts.runner import _build_common_fields
 
         settings = MagicMock()
         settings.judge_model = "gemini-2.0-flash"
@@ -389,7 +389,7 @@ class TestRunnerConfig:
         assert isinstance(fields["id"], uuid.UUID)
 
     def test_build_common_fields_with_rag(self):
-        from experiments.scripts.eval.runner import _build_common_fields
+        from experiments.eval.eval_scripts.runner import _build_common_fields
 
         settings = MagicMock()
         settings.judge_model = "gemini-2.0-flash"

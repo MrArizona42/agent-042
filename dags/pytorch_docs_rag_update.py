@@ -60,7 +60,7 @@ _pytorch_dir = str(PYTORCH_OUTPUT_DIR)
 _pytorch_rel = str(PYTORCH_OUTPUT_DIR.relative_to(PROJECT_ROOT))
 _pytorch_json = str(PYTORCH_OUTPUT_DIR / "pytorch_docs.json")
 _build_script = str(
-    PROJECT_ROOT / "experiments" / "scripts" / "rag_data" / "build_pytorch_docs_index.py"
+    PROJECT_ROOT / "experiments" / "rag" / "build_pytorch_docs_index.py"
 )
 
 # ---------------------------------------------------------------------------

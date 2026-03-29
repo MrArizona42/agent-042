@@ -6,7 +6,7 @@ the build, then the production alias is atomically swapped.
 
 Usage::
 
-    python -m experiments.scripts.rag_data.build_pytorch_docs_index \
+    python -m experiments.rag.build_pytorch_docs_index \
         --pytorch_docs_file assets/rag_data/pytorch_docs/pytorch_docs.json \
         --kb pytorch_docs --alias champion
 """
@@ -17,9 +17,6 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-
-# Add src to path to import rag module
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 
 from rag.chunking import get_chunker
 from rag.embeddings import EmbeddingService

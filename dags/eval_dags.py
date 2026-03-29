@@ -197,7 +197,7 @@ def _fetch_predictions_task(
         resolved["lora_aliases"],
     )
 
-    from experiments.scripts.eval.runner import fetch_predictions
+    from experiments.eval.eval_scripts.runner import fetch_predictions
 
     prediction_data = fetch_predictions(
         task=eval_task,
@@ -248,7 +248,7 @@ def _calculate_metrics_task(
 
     log.info("calculate_metrics: metric=%s", metric)
 
-    from experiments.scripts.eval.runner import calculate_metrics
+    from experiments.eval.eval_scripts.runner import calculate_metrics
 
     rows = calculate_metrics(metric=metric, prediction_data=prediction_data)
 

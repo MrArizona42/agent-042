@@ -9,15 +9,7 @@ This module re-exports the canonical implementation from
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# Ensure ``src/`` is importable when running from the experiments tree.
-_SRC_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "src")
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
-
-from shared.model_registry import (  # noqa: E402, F401
+from shared.model_registry import (  # noqa: F401
     AdapterRegistry,
     RegisteredAdapter,
 )

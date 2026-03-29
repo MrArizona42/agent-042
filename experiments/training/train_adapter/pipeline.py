@@ -16,7 +16,7 @@ from .modeling import build_model_and_tokenizer
 logger = logging.getLogger(__name__)
 
 
-def run_training(cfg: AppConfig) -> Tuple[str, str]:
+def run_training(cfg: AppConfig) -> Tuple[str, str, str]:
     project_root = Path(cfg.paths.project_root)
     if cfg.experiment.seed is not None:
         pl.seed_everything(cfg.experiment.seed, workers=True)
@@ -49,11 +49,11 @@ def run_training(cfg: AppConfig) -> Tuple[str, str]:
             scheduler_cfg=scheduler_cfg.__dict__ if scheduler_cfg else None,
         )
 
-        lightning_logs_dir = project_root / "experiments" / "logs" / "lightning_logs"
-        lightning_logs_dir.mkdir(parents=True, exist_ok=True)
+        artifacts_dir = project_root / "artifacts" / "training"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         checkpoint_callback = ModelCheckpoint(
-            dirpath=lightning_logs_dir / "checkpoints",
+            dirpath=artifacts_dir / "checkpoints",
             filename="adapter-{epoch:02d}-{val_loss:.4f}",
             save_top_k=3,
             monitor="val_loss",
@@ -71,7 +71,7 @@ def run_training(cfg: AppConfig) -> Tuple[str, str]:
             log_every_n_steps=trainer_cfg.log_every_n_steps,
             val_check_interval=trainer_cfg.val_check_interval,
             num_sanity_val_steps=0,
-            default_root_dir=str(lightning_logs_dir),
+            default_root_dir=str(artifacts_dir),
             callbacks=[checkpoint_callback],
             logger=mlf_logger,
         )
@@ -97,13 +97,11 @@ def run_training(cfg: AppConfig) -> Tuple[str, str]:
             logger.warning("Failed to log model artifacts: %s", e)
 
         logger.info(
-            "Training complete. Run ID: %s. To register in Model Registry:\n"
-            "  python scripts/manage_registry.py register %s --run-id %s",
-            mlf_logger.run_id,
-            cfg.experiment.mlflow.experiment_name,
+            "Training complete. Run ID: %s. Register via the "
+            "register_pretrained_loras notebook or AdapterRegistry API.",
             mlf_logger.run_id,
         )
 
-        return str(save_dir), str(lightning_logs_dir)
+        return mlf_logger.run_id, str(save_dir), str(artifacts_dir)
     finally:
         teardown_mlflow()

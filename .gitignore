@@ -209,6 +209,7 @@ __marimo__/
 # Custom settings
 /experiments/outputs/
 /experiments/logs/
+/artifacts/
 /assets/models/
 /assets/adapters/
 /assets/newly_trained/

@@ -12,16 +12,16 @@ accepts a ``--metric`` flag to select exactly **one** metric per invocation.
 Usage::
 
     # Stage 1 -- base model chat eval, single metric
-    python -m experiments.scripts.eval.runner \\
+    python -m experiments.eval.eval_scripts.runner \\
         --task chat --dataset hotpotqa --metric rouge_l
 
     # Stage 2 -- RAG eval, LLM-as-judge metric
-    python -m experiments.scripts.eval.runner \\
+    python -m experiments.eval.eval_scripts.runner \\
         --task chat --dataset hotpotqa --metric relevance \\
         --rag_aliases champion,challenger
 
     # Stage 3 -- full matrix
-    python -m experiments.scripts.eval.runner \\
+    python -m experiments.eval.eval_scripts.runner \\
         --task chat --dataset hotpotqa --metric correctness \\
         --rag_aliases champion,challenger \\
         --lora_aliases champion,challenger
@@ -57,19 +57,18 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 # Add src to path so shared/rag modules are importable
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "src"))
 
 # Canonical directory for pre-downloaded datasets (HF Arrow format).
-from experiments.scripts.eval.datasets import DATASET_LOCAL, load_dataset_samples
-from experiments.scripts.eval.metrics.automatic import (
+from experiments.eval.eval_scripts.datasets import DATASET_LOCAL, load_dataset_samples
+from experiments.eval.eval_scripts.metrics.automatic import (
     compute_bertscore,
     compute_ndcg_at_k,
     compute_recall_at_k,
     compute_rouge_l,
 )
-from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1, evaluate_humaneval_sample
-from experiments.scripts.eval.metrics.llm_judge import judge_batch
-from experiments.scripts.eval.retrieval_bench import (
+from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1, evaluate_humaneval_sample
+from experiments.eval.eval_scripts.metrics.llm_judge import judge_batch
+from experiments.eval.eval_scripts.retrieval_bench import (
     build_temp_collection,
     delete_temp_collection,
     read_build_config,
