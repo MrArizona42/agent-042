@@ -104,7 +104,7 @@ def build_temp_collection(
             all_texts.append(chunk)
             chunk_key = f"{collection_name}:{doc['doc_id']}:{i}"
             all_ids.append(str(uuid.uuid5(uuid.NAMESPACE_OID, chunk_key)))
-            all_meta.append({"source": doc.get("doc_id", ""), "task": task})
+            all_meta.append({"source": doc.get("doc_id", ""), "kb": kb_name})
 
     if not all_texts:
         logger.warning("No chunks produced from corpus")
