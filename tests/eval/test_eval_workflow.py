@@ -375,6 +375,7 @@ class TestRunnerConfig:
             rag_enabled=False,
             kb_name=None,
             eval_settings=settings,
+            eval_context=None,
             now=datetime.now(timezone.utc),
         )
 
@@ -411,6 +412,7 @@ class TestRunnerConfig:
             rag_enabled=True,
             kb_name="arxiv",
             eval_settings=settings,
+            eval_context=None,
             now=datetime.now(timezone.utc),
         )
 
@@ -420,6 +422,62 @@ class TestRunnerConfig:
         assert fields["adapter_name"] == "lora-chat"
         assert fields["adapter_version"] == 3
         assert fields["lora_alias"] == "champion"
+
+    def test_calculate_metrics_applies_eval_context_overrides(self):
+        from experiments.eval.eval_scripts.runner import calculate_metrics
+
+        prediction_data = {
+            "task": "summarize",
+            "dataset_name": "arxiv_summarization",
+            "kb_name": None,
+            "base_model": "base-model",
+            "eval_context": {
+                "temperature": 0.25,
+                "max_tokens": 128,
+                "extra": {"evaluation_backend": "local_peft_generation"},
+            },
+            "bundles": [
+                {
+                    "rag_alias": "none",
+                    "lora_alias": "local",
+                    "lora_info": {
+                        "adapter_name": "lora-summarize-local",
+                        "adapter_version": None,
+                        "adapter_mlflow_run_id": "run-123",
+                    },
+                    "rag_enabled": False,
+                    "predictions": ["summary"],
+                    "references": ["summary"],
+                    "judge_samples": [
+                        {
+                            "question": "article",
+                            "answer": "summary",
+                            "reference": "summary",
+                            "context": "",
+                        }
+                    ],
+                    "sample_details": [
+                        {
+                            "sample_idx": 0,
+                            "input": "article",
+                            "output": "summary",
+                            "reference": "summary",
+                            "detail": {},
+                        }
+                    ],
+                }
+            ],
+        }
+
+        with patch("experiments.eval.eval_scripts.runner._log_to_db") as mock_log_to_db:
+            rows = calculate_metrics(metric="rouge_l", prediction_data=prediction_data)
+
+        assert len(rows) == 1
+        assert rows[0]["adapter_mlflow_run_id"] == "run-123"
+        assert rows[0]["temperature"] == 0.25
+        assert rows[0]["max_tokens"] == 128
+        assert rows[0]["extra"] == {"evaluation_backend": "local_peft_generation"}
+        mock_log_to_db.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

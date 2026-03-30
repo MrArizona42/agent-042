@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import itertools
 import logging
-import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,7 +56,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 # Add src to path so shared/rag modules are importable
-
 # Canonical directory for pre-downloaded datasets (HF Arrow format).
 from experiments.eval.eval_scripts.datasets import DATASET_LOCAL, load_dataset_samples
 from experiments.eval.eval_scripts.metrics.automatic import (
@@ -66,7 +64,10 @@ from experiments.eval.eval_scripts.metrics.automatic import (
     compute_recall_at_k,
     compute_rouge_l,
 )
-from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1, evaluate_humaneval_sample
+from experiments.eval.eval_scripts.metrics.code_exec import (
+    compute_pass_at_1,
+    evaluate_humaneval_sample,
+)
 from experiments.eval.eval_scripts.metrics.llm_judge import judge_batch
 from experiments.eval.eval_scripts.retrieval_bench import (
     build_temp_collection,
@@ -342,9 +343,11 @@ def _build_common_fields(
     rag_enabled: bool,
     kb_name: str | None,
     eval_settings: Any,
+    eval_context: dict[str, Any] | None,
     now: datetime,
 ) -> dict[str, Any]:
     """Build the common fields shared by all metric rows in one eval."""
+    eval_context = eval_context or {}
     return {
         "id": uuid.uuid4(),
         "created_at": now,
@@ -359,11 +362,14 @@ def _build_common_fields(
         "rag_enabled": rag_enabled,
         "rag_alias": rag_alias if rag_alias != "none" else None,
         "knowledge_base": kb_name if rag_enabled else None,
-        "judge_model": eval_settings.judge_model,
-        "bert_score_model": eval_settings.bert_score_model,
-        "temperature": eval_settings.temperature,
-        "max_tokens": eval_settings.max_tokens,
-        "extra": {},
+        "judge_model": eval_context.get("judge_model", eval_settings.judge_model),
+        "bert_score_model": eval_context.get(
+            "bert_score_model",
+            eval_settings.bert_score_model,
+        ),
+        "temperature": eval_context.get("temperature", eval_settings.temperature),
+        "max_tokens": eval_context.get("max_tokens", eval_settings.max_tokens),
+        "extra": dict(eval_context.get("extra", {})),
     }
 
 
@@ -838,6 +844,8 @@ def calculate_metrics(
             f"Metric {metric!r} is not valid for task {task!r}. Valid: {valid_metrics}"
         )
 
+    eval_context = prediction_data.get("eval_context") or {}
+
     eval_settings = get_eval_settings()
 
     all_rows: list[dict[str, Any]] = []
@@ -864,6 +872,7 @@ def calculate_metrics(
                     base_model=base_model,
                     kb_name=kb_name,
                     eval_settings=eval_settings,
+                    eval_context=eval_context,
                 )
             elif task == "code":
                 rows = _compute_code_metric(
@@ -873,6 +882,7 @@ def calculate_metrics(
                     base_model=base_model,
                     kb_name=kb_name,
                     eval_settings=eval_settings,
+                    eval_context=eval_context,
                 )
             else:
                 rows = _compute_generation_metric(
@@ -883,6 +893,7 @@ def calculate_metrics(
                     base_model=base_model,
                     kb_name=kb_name,
                     eval_settings=eval_settings,
+                    eval_context=eval_context,
                 )
 
             # Link per-sample details to the eval_run row(s)
@@ -934,6 +945,7 @@ def _compute_generation_metric(
     base_model: str,
     kb_name: str | None,
     eval_settings: Any,
+    eval_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Compute a single metric on pre-fetched generation predictions."""
     now = datetime.now(timezone.utc)
@@ -947,6 +959,7 @@ def _compute_generation_metric(
         rag_enabled=bundle["rag_enabled"],
         kb_name=kb_name,
         eval_settings=eval_settings,
+        eval_context=eval_context,
         now=now,
     )
 
@@ -965,19 +978,27 @@ def _compute_generation_metric(
             bert = compute_bertscore(
                 predictions,
                 references,
-                model_name=eval_settings.bert_score_model,
+                model_name=(eval_context or {}).get(
+                    "bert_score_model",
+                    eval_settings.bert_score_model,
+                ),
             )
             metric_value = bert.get(metric)
         if metric_value is not None:
             rows.append({**common, "metric_name": metric, "metric_value": metric_value})
     elif metric in _JUDGE_METRICS:
-        if not eval_settings.google_ai_api_key:
+        google_ai_api_key = (eval_context or {}).get(
+            "google_ai_api_key",
+            eval_settings.google_ai_api_key,
+        )
+        judge_model = (eval_context or {}).get("judge_model", eval_settings.judge_model)
+        if not google_ai_api_key:
             raise RuntimeError(f"LLM-as-Judge metric {metric!r} requires EVAL_GOOGLE_AI_API_KEY")
         result = judge_batch(
             metric,
             samples=judge_samples,
-            api_key=eval_settings.google_ai_api_key,
-            model=eval_settings.judge_model,
+            api_key=google_ai_api_key,
+            model=judge_model,
         )
         rows.append({**common, "metric_name": metric, "metric_value": result[metric]})
 
@@ -997,6 +1018,7 @@ def _compute_code_metric(
     base_model: str,
     kb_name: str | None,
     eval_settings: Any,
+    eval_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Compute a single metric on pre-fetched code execution results."""
     now = datetime.now(timezone.utc)
@@ -1010,6 +1032,7 @@ def _compute_code_metric(
         rag_enabled=bundle["rag_enabled"],
         kb_name=kb_name,
         eval_settings=eval_settings,
+        eval_context=eval_context,
         now=now,
     )
 
@@ -1037,6 +1060,7 @@ def _compute_retrieval_metric(
     base_model: str,
     kb_name: str | None,
     eval_settings: Any,
+    eval_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Compute a single retrieval metric on pre-fetched query results."""
     query_results = bundle["query_results"]
@@ -1072,6 +1096,7 @@ def _compute_retrieval_metric(
         rag_enabled=True,
         kb_name=kb_name,
         eval_settings=eval_settings,
+        eval_context=eval_context,
         now=now,
     )
 

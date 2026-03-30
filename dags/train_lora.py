@@ -44,6 +44,8 @@ def _train_adapter(**context) -> str:
     experiment_config = params["experiment_config"]
     overrides_raw = params.get("hydra_overrides", "[]")
     overrides: list[str] = json.loads(overrides_raw) if overrides_raw else []
+    task_instance = context["ti"]
+    dag_run = context.get("dag_run")
 
     cmd = [
         "python",
@@ -56,28 +58,43 @@ def _train_adapter(**context) -> str:
     env = {
         **os.environ,
         "PYTHONPATH": f"{PROJECT_ROOT}:{PROJECT_ROOT / 'src'}",
+        "AIRFLOW_CTX_DAG_ID": context["dag"].dag_id,
+        "AIRFLOW_CTX_TASK_ID": task_instance.task_id,
+        "AIRFLOW_CTX_DAG_RUN_ID": dag_run.run_id if dag_run else "",
+        "AIRFLOW_CTX_EXECUTION_DATE": str(context.get("logical_date", "")),
     }
 
-    result = subprocess.run(
+    print(
+        f"Starting training DAG task: dag={context['dag'].dag_id} run_id={env['AIRFLOW_CTX_DAG_RUN_ID']}"
+    )
+    print(f"Experiment config: {experiment_config}")
+    if overrides:
+        print("Hydra overrides:")
+        for item in overrides:
+            print(f"  {item}")
+
+    process = subprocess.Popen(
         cmd,
         cwd=str(PROJECT_ROOT),
         env=env,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
-        check=True,
+        bufsize=1,
     )
-
-    # Print stdout/stderr for Airflow log visibility
-    print(result.stdout)
-    if result.stderr:
-        print(result.stderr)
-
-    # Extract run_id from last output line (format: "run_id=<id>")
-    for line in reversed(result.stdout.strip().splitlines()):
+    run_id = ""
+    assert process.stdout is not None
+    for line in process.stdout:
+        print(line, end="")
         if line.startswith("run_id="):
-            return line.split("=", 1)[1]
+            run_id = line.split("=", 1)[1].strip()
 
-    return ""
+    return_code = process.wait()
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, cmd)
+    if not run_id:
+        print("Training completed but no run_id was emitted.")
+    return run_id
 
 
 with DAG(

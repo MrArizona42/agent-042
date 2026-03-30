@@ -13,8 +13,14 @@ from omegaconf import DictConfig, OmegaConf
 
 from .config import load_app_config
 from .lit_module import PeftCausalLMModule
-from .mlflow_utils import log_hydra_artifacts_via_logger, setup_mlflow, teardown_mlflow
+from .mlflow_utils import (
+    log_hydra_artifacts_via_logger,
+    log_training_lineage,
+    setup_mlflow,
+    teardown_mlflow,
+)
 from .modeling import build_model_and_tokenizer
+from .post_train_eval import run_post_train_evaluation
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +76,18 @@ def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
         run_artifacts_dir = artifacts_dir / "runs" / run_tag
         run_artifacts_dir.mkdir(parents=True, exist_ok=True)
 
+        trainable_param_count = sum(
+            parameter.numel() for parameter in model.parameters() if parameter.requires_grad
+        )
+        lineage = log_training_lineage(
+            mlf_logger,
+            app_cfg,
+            cfg,
+            dataset_path=dataset_path,
+            run_artifacts_dir=run_artifacts_dir,
+            trainable_param_count=trainable_param_count,
+        )
+
         # ── Instantiate callbacks from config ──────────────────────────
         checkpoint_cb = instantiate(
             cfg.experiment.callbacks.checkpoint,
@@ -111,6 +129,23 @@ def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
                 )
             except Exception as e:
                 logger.warning("Failed to log model artifacts: %s", e)
+
+        eval_cfg = app_cfg.experiment.evaluation
+        if eval_cfg.enabled:
+            try:
+                run_post_train_evaluation(
+                    cfg=app_cfg,
+                    raw_cfg=cfg,
+                    model=lightning_module.model,
+                    tokenizer=tokenizer,
+                    mlf_logger=mlf_logger,
+                    run_artifacts_dir=run_artifacts_dir,
+                    lineage=lineage,
+                )
+            except Exception:
+                if eval_cfg.fail_on_error:
+                    raise
+                logger.exception("Post-train evaluation failed but fail_on_error=false")
 
         logger.info(
             "Training complete. Run ID: %s. Register via the "

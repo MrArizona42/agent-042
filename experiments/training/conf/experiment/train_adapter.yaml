@@ -84,7 +84,7 @@ trainer:
 logger:
   _target_: pytorch_lightning.loggers.MLFlowLogger
   experiment_name: "train_adapter"
-  run_name: "train_adapter"
+  run_name: null
   log_model: false
   tags: {}
 
@@ -95,3 +95,15 @@ tracking:
   env_path: "experiments/.env" # relative to project root
   # To register a trained adapter in the Model Registry, use the lora_ops notebook:
   #   experiments/training/lora_ops.ipynb
+
+evaluation:
+  enabled: true
+  task: "summarize"
+  dataset_name: "arxiv_summarization"
+  metrics: ["rouge_l"]
+  sample_limit: 32
+  batch_size: 1
+  max_new_tokens: 256
+  temperature: 0.0
+  do_sample: false
+  fail_on_error: true

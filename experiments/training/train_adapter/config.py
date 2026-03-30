@@ -74,6 +74,20 @@ class TrackingConfig:
 
 
 @dataclass
+class EvaluationConfig:
+    enabled: bool = True
+    task: str = "summarize"
+    dataset_name: str = "arxiv_summarization"
+    metrics: List[str] = field(default_factory=lambda: ["rouge_l"])
+    sample_limit: int = 32
+    batch_size: int = 1
+    max_new_tokens: int = 256
+    temperature: float = 0.0
+    do_sample: bool = False
+    fail_on_error: bool = True
+
+
+@dataclass
 class DataModuleConf:
     _target_: str = "experiments.training.train_adapter.data_module.ArxivDataModule"
     shuffle: bool = True
@@ -151,6 +165,7 @@ class ExperimentConfig:
     callbacks: CallbacksConf
     logger: MLFlowLoggerConf
     tracking: TrackingConfig
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     scheduler: Optional[SchedulerConfig] = None
 
 
