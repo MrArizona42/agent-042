@@ -13,7 +13,11 @@ pytest.importorskip("mlflow")
 pytest.importorskip("pytorch_lightning")
 
 from experiments.training.train_adapter.config import load_app_config, register_configs
-from experiments.training.train_adapter.mlflow_utils import _git_context, log_training_lineage
+from experiments.training.train_adapter.mlflow_utils import (
+    _find_dataset_dvc_hash,
+    _git_context,
+    log_training_lineage,
+)
 from experiments.training.train_adapter.pipeline import _restore_best_checkpoint_for_export
 from experiments.training.train_adapter.post_train_eval import run_post_train_evaluation
 
@@ -195,3 +199,16 @@ def test_git_context_marks_project_root_as_safe_directory(tmp_path):
     second_call = mock_check_output.call_args_list[1]
     assert first_call.args[0][:3] == ["git", "-c", f"safe.directory={expected_path}"]
     assert second_call.args[0][:3] == ["git", "-c", f"safe.directory={expected_path}"]
+
+
+def test_find_dataset_dvc_hash_parses_outs_md5_entry(tmp_path):
+    datasets_dir = tmp_path / "assets" / "datasets"
+    datasets_dir.mkdir(parents=True, exist_ok=True)
+    dataset_path = datasets_dir / "arxiv-summarization"
+    dataset_path.mkdir()
+    (datasets_dir / "arxiv-summarization.dvc").write_text(
+        "outs:\n- md5: hash-123.dir\n  path: arxiv-summarization\n",
+        encoding="utf-8",
+    )
+
+    assert _find_dataset_dvc_hash(dataset_path, tmp_path) == "hash-123.dir"

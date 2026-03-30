@@ -216,6 +216,7 @@ class TestLLMJudge:
             answer="Machine learning is...",
             reference="ML is a subset of AI",
             api_key="test-key",
+            model="gemini-2.0-flash",
         )
         assert result["score"] == 4
         assert "relevant" in result["reason"]
@@ -234,6 +235,7 @@ class TestLLMJudge:
                 {"question": "q2", "answer": "a2", "reference": "r2"},
             ],
             api_key="test-key",
+            model="gemini-2.0-flash",
         )
         assert "correctness" in result
         assert result["correctness"] == 3.0
@@ -242,7 +244,12 @@ class TestLLMJudge:
         from experiments.eval.eval_scripts.metrics.llm_judge import judge_single
 
         with pytest.raises(ValueError, match="Unknown judge metric"):
-            judge_single("nonexistent_metric", answer="test", api_key="key")
+            judge_single(
+                "nonexistent_metric",
+                answer="test",
+                api_key="key",
+                model="gemini-2.0-flash",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -342,14 +349,14 @@ class TestRunnerConfig:
         """_load_dataset_samples returns [] for an unknown dataset."""
         from experiments.eval.eval_scripts.runner import _load_dataset_samples
 
-        assert _load_dataset_samples("chat", "nonexistent_dataset") == []
+        assert _load_dataset_samples("chat", "nonexistent_dataset", limit=10) == []
 
     def test_load_dataset_samples_missing_dir_returns_empty(self):
         """_load_dataset_samples returns [] when dataset dir does not exist."""
         from experiments.eval.eval_scripts.runner import _load_dataset_samples
 
         # hotpotqa is valid but its directory won't exist in test env
-        result = _load_dataset_samples("chat", "hotpotqa")
+        result = _load_dataset_samples("chat", "hotpotqa", limit=10)
         assert result == []
 
     def test_build_common_fields(self):

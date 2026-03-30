@@ -315,7 +315,7 @@ class TestMetadataExclusion:
                 port=6333,
                 collection_name="test",
             )
-            vs.search(query_embedding=[0.1] * 10, top_k=5)
+            vs.search(query_embedding=[0.1] * 10, top_k=5, score_threshold=0.0)
 
             # Verify query_points was called with the right filter
             call_kwargs = mock_client.query_points.call_args.kwargs
@@ -345,6 +345,7 @@ class TestMetadataExclusion:
             vs.search(
                 query_embedding=[0.1] * 10,
                 top_k=5,
+                score_threshold=0.0,
                 filter_dict={"must": [{"key": "task", "match": {"value": "chat"}}]},
             )
 
