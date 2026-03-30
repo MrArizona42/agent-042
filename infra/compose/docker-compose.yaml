@@ -34,8 +34,8 @@ x-airflow-common-env: &airflow-common-env
   EVAL_GATEWAY_URL: http://gateway:9000
   EVAL_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY}
   EVAL_DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
-  # MLflow Model Registry — used by eval runner to resolve LoRA aliases
-  REGISTRY_MLFLOW_TRACKING_URI: http://mlflow:5000
+  # MLflow client endpoint for training, eval, and registry access
+  MLFLOW_TRACKING_URI: http://mlflow:5000
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
@@ -171,7 +171,7 @@ services:
       dockerfile: infra/docker/adapter-sync/Dockerfile
 
     environment:
-      MLFLOW_BACKEND_URI: ${MLFLOW_BACKEND_URI}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
       MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}

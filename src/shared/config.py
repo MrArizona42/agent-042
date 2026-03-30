@@ -405,7 +405,8 @@ class ModelRegistrySettings(BaseSettings):
     """Settings for MLflow Model Registry / adapter sync.
 
     Environment Variables:
-        REGISTRY_MLFLOW_TRACKING_URI: MLflow tracking server URL.
+        MLFLOW_TRACKING_URI: Preferred MLflow tracking server URL.
+        REGISTRY_MLFLOW_TRACKING_URI: Backward-compatible alias for the same value.
         REGISTRY_ADAPTERS_DIR: Local directory for downloaded LoRA adapters.
         REGISTRY_AUTO_SYNC: Pull production adapters on service startup.
     """
@@ -419,6 +420,7 @@ class ModelRegistrySettings(BaseSettings):
 
     mlflow_tracking_uri: str = Field(
         default="http://localhost:5050",
+        validation_alias=AliasChoices("MLFLOW_TRACKING_URI", "REGISTRY_MLFLOW_TRACKING_URI"),
         description="MLflow tracking server URL",
     )
     adapters_dir: str = Field(

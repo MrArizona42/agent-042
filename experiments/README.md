@@ -281,7 +281,7 @@ python -m experiments.training.train_adapter.start_train \
 > Python API.
 
 Скрипт `src/shared/model_registry.py` — программный интерфейс для управления
-адаптерами в реестре. Читает `MLFLOW_BACKEND_URI` из `experiments/.env`.
+адаптерами в реестре. Читает `MLFLOW_TRACKING_URI` из `experiments/.env`.
 
 **Просмотр всех зарегистрированных адаптеров:**
 

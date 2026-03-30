@@ -38,14 +38,14 @@ def setup_mlflow(cfg: AppConfig, raw_cfg: DictConfig) -> MLFlowLogger:
     else:
         dotenv.load_dotenv(project_root / "experiments" / ".env")
 
-    tracking_uri = os.getenv("MLFLOW_BACKEND_URI")
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
         logger.info("MLflow tracking URI: %s", tracking_uri)
 
     configured_run_name = OmegaConf.select(raw_cfg, "experiment.logger.run_name")
     configured_tags = OmegaConf.select(raw_cfg, "experiment.logger.tags") or {}
-    configured_tags = OmegaConf.to_container(configured_tags, resolve=True)
+    configured_tags = _to_plain_dict(configured_tags)
 
     return instantiate(
         raw_cfg.experiment.logger,
@@ -215,6 +215,17 @@ def _effective_batch_size(cfg: AppConfig) -> int:
         * int(cfg.experiment.trainer.accumulate_grad_batches)
         * num_devices
     )
+
+
+def _to_plain_dict(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if OmegaConf.is_config(value):
+        materialized = OmegaConf.to_container(value, resolve=True)
+        return dict(materialized or {})
+    if isinstance(value, dict):
+        return dict(value)
+    raise TypeError(f"Expected MLflow logger tags to be a mapping, got {type(value)!r}")
 
 
 def _flatten_mapping(data: Any, prefix: str = "") -> dict[str, str]:

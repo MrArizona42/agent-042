@@ -36,7 +36,7 @@ Typical flow
 
 Environment variables
 ---------------------
-``MLFLOW_BACKEND_URI``
+``MLFLOW_TRACKING_URI``
     MLflow tracking server URL (e.g. ``http://mlflow:5000``).
 ``MLFLOW_S3_ENDPOINT_URL``, ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``
     Credentials for downloading artifacts from S3.
@@ -51,7 +51,6 @@ Environment variables
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -294,8 +293,8 @@ class AdapterSyncer:
     4. Loads desired adapters via the vLLM hot-load API.
 
     Args:
-        tracking_uri: MLflow tracking URI.  Falls back to ``MLFLOW_BACKEND_URI``
-            env var, then to the MLflow default.
+        tracking_uri: MLflow tracking URI. Falls back to ``MLFLOW_TRACKING_URI``
+            from settings/env, then to the MLflow default.
         adapters_dir: Local root for downloaded adapter files.
         sync_aliases: List of MLflow aliases to iterate over.
         vllm_base_url: vLLM OpenAI-compatible server base URL.
@@ -318,7 +317,7 @@ class AdapterSyncer:
         if vllm_base_url is None:
             vllm_base_url = cfg.vllm_base_url
 
-        uri = tracking_uri or os.getenv("MLFLOW_BACKEND_URI")
+        uri = tracking_uri or cfg.mlflow_tracking_uri
         if uri:
             mlflow.set_tracking_uri(uri)
 

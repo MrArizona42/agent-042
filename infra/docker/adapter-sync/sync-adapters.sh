@@ -11,7 +11,7 @@ VLLM_URL="${REGISTRY_VLLM_BASE_URL:-http://vllm:8000}"
 SYNC_ALIASES="${REGISTRY_SYNC_ALIASES:-champion,challenger}"
 
 echo "=== adapter-sync: starting ==="
-echo "  MLflow URI       : ${MLFLOW_BACKEND_URI:-<not set>}"
+echo "  MLflow URI       : ${MLFLOW_TRACKING_URI:-<not set>}"
 echo "  Adapters dir     : ${ADAPTERS_DIR}"
 echo "  vLLM URL         : ${VLLM_URL}"
 echo "  Sync aliases     : ${SYNC_ALIASES}"
