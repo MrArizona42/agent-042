@@ -24,8 +24,8 @@ from datetime import datetime
 from pathlib import Path
 
 from airflow import DAG
-from airflow.models.param import Param
-from airflow.operators.python import PythonOperator
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import Param
 
 PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 
@@ -65,7 +65,9 @@ def _train_adapter(**context) -> str:
     }
 
     print(
-        f"Starting training DAG task: dag={context['dag'].dag_id} run_id={env['AIRFLOW_CTX_DAG_RUN_ID']}"
+        f"Starting training DAG task: \n"
+        f"  dag={context['dag'].dag_id} \n"
+        f"  run_id={env['AIRFLOW_CTX_DAG_RUN_ID']}"
     )
     print(f"Experiment config: {experiment_config}")
     if overrides:

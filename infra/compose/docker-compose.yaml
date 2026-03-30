@@ -655,7 +655,7 @@ services:
     networks:
       - backend_net
 
-  # Airflow – ensure RAG output directories are writable (one-shot)
+  # Airflow – ensure DAG output directories are writable (one-shot)
   # The project root is bind-mounted from the host, so files keep the
   # host UID.  The airflow user inside the container (UID 50000) cannot
   # write to those directories.  This service runs as root to create
@@ -672,11 +672,16 @@ services:
         mkdir -p /opt/airflow/project/assets/rag_data/pytorch_docs
         chown -R 50000:0 /opt/airflow/project/assets/rag_data
         chmod -R 775 /opt/airflow/project/assets/rag_data
+        # Training DAGs write Hydra outputs, checkpoints, and exports here.
+        mkdir -p /opt/airflow/project/artifacts/training/hydra
+        mkdir -p /opt/airflow/project/artifacts/training/runs
+        chown -R 50000:0 /opt/airflow/project/artifacts/training
+        chmod -R 775 /opt/airflow/project/artifacts/training
         # DVC uses .dvc/tmp/lock and other temp files during `dvc add/push`
         mkdir -p /opt/airflow/project/.dvc/tmp
         chown -R 50000:0 /opt/airflow/project/.dvc
         chmod -R 775 /opt/airflow/project/.dvc
-        echo "RAG data & DVC directories prepared."
+        echo "RAG data, training artifacts, and DVC directories prepared."
     volumes:
       - ${PROJECT_ROOT}:/opt/airflow/project
     logging: *default-logging
