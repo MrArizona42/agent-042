@@ -70,7 +70,7 @@ Remote хранилище называется ycloud
     - `training/conf/paths/paths_config.yaml` — ключ `paths.project_root` (по умолчанию проставлен
       Linux-путь, на своей машине лучше переопределять через CLI)
     - `training/conf/experiment/train_adapter.yaml` — все параметры обучения (
-      model/lora/data/trainer/scheduler/output/mlflow)
+      model/lora/data/trainer/scheduler/logger/tracking/evaluation)
 
 Про пути и рабочие директории в этом проекте
 
@@ -133,11 +133,14 @@ python -m experiments.training.train_adapter.start_train --info
     - `experiment.model.*` (dtype, 4-bit, gradient_checkpointing, local_path, и т.д.)
     - `experiment.lora.*` (r, lora_alpha, target_modules, ...)
     - `experiment.data.*` (max_seq_length, batch_size, local_path, prompt_template)
+  - `experiment.data_module.*` (например, `shuffle`)
     - `experiment.training.*` (lr, weight_decay)
     - `experiment.scheduler.*` (enabled, warmup_steps, type, ...)
     - `experiment.trainer.*` (max_epochs, devices, accelerator, precision, ...)
-    - `experiment.output.save_dir`
-    - `experiment.mlflow.*` (при наличии настроенной среды)
+    - `experiment.callbacks.checkpoint.*` (save_top_k, monitor, ...)
+  - `experiment.logger.*` (параметры Lightning MLflow logger)
+  - `experiment.tracking.*` (поведение MLflow tracking и env path)
+    - `experiment.evaluation.*` (post-train eval dataset/metrics/sample_limit и т.д.)
       Примеры:
 
 ```bash
@@ -176,9 +179,11 @@ python -m experiments.training.train_adapter.start_train -m \
 Где смотреть логи и артефакты
 
 - Hydra конфиги и runtime-артефакты: `artifacts/training/hydra/...`
-- Логи PyTorch Lightning: `artifacts/training/checkpoints`
-- Сохранённые веса и токенайзер: `experiment.output.save_dir` (по умолчанию вложено в
-  `assets/newly_trained/<дата>/<время>`)
+- Каждый запуск создаёт уникальную директорию: `artifacts/training/runs/<timestamp>-<uuid>/`
+  - `checkpoints/` — чекпоинты PyTorch Lightning
+  - `export/` — сохранённые веса и токенайзер лучшего чекпоинта
+  - `metadata/` — resolved Hydra config и lineage metadata
+  - `evaluation/` — post-train evaluation summary
 - При включённом MLflow (настроить .env): артефакты и метрики в трекинге MLflow; Hydra-артефакты
   также загружаются в MLflow
 
@@ -198,19 +203,26 @@ python -m experiments.training.train_adapter.start_train -m \
 - **Модели (prefetch)**: сохраняются в директорию, указанную в ноутбуке `prefetch_assets.ipynb`
   (по умолчанию `assets/models/...`).
 
-- Выходы обучения (веса адаптера/модели), токенайзер и
-  конфиги: по умолчанию `assets/newly_trained/<дата>/<время>`.
+- Каждый запуск обучения создаёт собственную директорию:
+  `artifacts/training/runs/<timestamp>-<uuid>/`.
+  Внутри неё:
+  - `checkpoints/` — Lightning checkpoints
+  - `export/` — экспортированный адаптер и токенайзер лучшего чекпоинта
+  - `metadata/` — resolved config, git SHA, dataset DVC hash, hardware info
+  - `evaluation/` — результаты автоматической post-train оценки
 
 - Логи Hydra: `artifacts/training/hydra/...`. В каждой папке запуска (`hydra.run.dir`) Hydra
   сохраняет снимок конфигов в подпапке `.hydra`.
 
 - Нативные логи Python: подхватываются Hydra и сохраняются в ту же папку (`hydra.run.dir`).
 
-- Логи Lightning: `artifacts/training/checkpoints/...`. Lightning логирует локально только
-  чекпойнты по настройкам Trainer/Callbacks (если включены).
+- Локальные артефакты Lightning: `artifacts/training/runs/<timestamp>-<uuid>/checkpoints/...`.
+- Экспорт адаптера для регистрации и дальнейшего использования:
+  `artifacts/training/runs/<timestamp>-<uuid>/export/...`.
 
 - Логи MLflow: через MLFlow проходят:
   - Метрики и параметры - триггерятся через Lightning, можно отслеживать обучение в MLFlow UI
+  - Post-train eval метрики логируются в тот же run как `eval.<metric>`
   - Вся папка Hydra - отправляется в Yandex Cloud (триггерится MLFlow, но НЕ проксируются через
     MLFlow server!)
 
@@ -243,7 +255,7 @@ python -m experiments.training.train_adapter.start_train -m \
 
 ### Регистрация адаптера в реестре
 
-Обучение через `train_hydra.py` только логирует метрики и артефакты в MLflow Tracking.
+Обучение через `start_train.py` только логирует метрики и артефакты в MLflow Tracking.
 Регистрация в Model Registry — отдельный осознанный шаг через ноутбук
 `experiments/training/lora_ops.ipynb`:
 
@@ -255,7 +267,7 @@ python -m experiments.training.train_adapter.start_train \
 # 2. Просмотреть результаты в MLflow UI, выбрать лучший run
 
 # 3. Зарегистрировать выбранный run в Model Registry
-#    (через lora_ops.ipynb или Python API: registry.register(...))
+#    (через lora_ops.ipynb или Python API: registry.register_adapter(...))
 ```
 
 Такое разделение не засоряет реестр промежуточными экспериментами и обеспечивает
@@ -277,7 +289,7 @@ python -m experiments.training.train_adapter.start_train \
 # Python API (из lora_ops.ipynb)
 from shared.model_registry import AdapterRegistry
 registry = AdapterRegistry()
-registry.list()
+registry.list_models()
 ```
 
 **Промотирование версии в production (alias champion):**
@@ -332,7 +344,7 @@ python -m experiments.training.train_adapter.start_train \
 # 2. Посмотреть версии, метрики в MLflow UI, выбрать лучший run
 
 # 3. Зарегистрировать лучший run в Model Registry (через lora_ops.ipynb)
-#    registry.register(model_name="lora-summarize", run_id="<RUN_ID>")
+#    registry.register_adapter(run_id="<RUN_ID>", artifact_path="model", model_name="lora-summarize")
 
 # 4. Промотировать зарегистрированную версию в production
 #    registry.promote(model_name="lora-summarize", version=3, alias="champion")
