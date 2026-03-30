@@ -258,9 +258,11 @@ def _log_params(client: Any, run_id: str, params: dict[str, Any]) -> None:
 
 
 def _git_context(project_root: Path) -> tuple[str | None, bool]:
+    git_cmd = ["git", "-c", f"safe.directory={project_root.as_posix()}"]
+
     try:
         sha = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
+            [*git_cmd, "rev-parse", "HEAD"],
             cwd=project_root,
             text=True,
         ).strip()
@@ -269,7 +271,7 @@ def _git_context(project_root: Path) -> tuple[str | None, bool]:
 
     try:
         dirty_output = subprocess.check_output(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
+            [*git_cmd, "status", "--porcelain", "--untracked-files=no"],
             cwd=project_root,
             text=True,
         )

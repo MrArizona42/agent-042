@@ -13,7 +13,8 @@ pytest.importorskip("mlflow")
 pytest.importorskip("pytorch_lightning")
 
 from experiments.training.train_adapter.config import load_app_config, register_configs
-from experiments.training.train_adapter.mlflow_utils import log_training_lineage
+from experiments.training.train_adapter.mlflow_utils import _git_context, log_training_lineage
+from experiments.training.train_adapter.pipeline import _restore_best_checkpoint_for_export
 from experiments.training.train_adapter.post_train_eval import run_post_train_evaluation
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -156,3 +157,41 @@ def test_run_post_train_evaluation_writes_summary_and_links_to_run_id(tmp_path):
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["metrics"] == {"rouge_l": 0.9}
     mock_log_summary.assert_called_once()
+
+
+def test_restore_best_checkpoint_for_export_filters_non_live_keys(tmp_path):
+    checkpoint_path = tmp_path / "best.ckpt"
+    torch_state = {
+        "state_dict": {
+            "model.adapter.weight": 123,
+            "model.base_layer.weight.absmax": 456,
+        }
+    }
+    module = MagicMock()
+    module.state_dict.return_value = {"model.adapter.weight": 0}
+    module.load_state_dict.return_value = SimpleNamespace(missing_keys=[], unexpected_keys=[])
+
+    with patch("experiments.training.train_adapter.pipeline.torch.load", return_value=torch_state):
+        _restore_best_checkpoint_for_export(module, str(checkpoint_path))
+
+    module.load_state_dict.assert_called_once_with(
+        {"model.adapter.weight": 123},
+        strict=False,
+    )
+
+
+def test_git_context_marks_project_root_as_safe_directory(tmp_path):
+    expected_path = tmp_path.as_posix()
+
+    with patch(
+        "experiments.training.train_adapter.mlflow_utils.subprocess.check_output",
+        side_effect=["abc123\n", " M experiments/training/train_adapter/pipeline.py\n"],
+    ) as mock_check_output:
+        sha, dirty = _git_context(tmp_path)
+
+    assert sha == "abc123"
+    assert dirty is True
+    first_call = mock_check_output.call_args_list[0]
+    second_call = mock_check_output.call_args_list[1]
+    assert first_call.args[0][:3] == ["git", "-c", f"safe.directory={expected_path}"]
+    assert second_call.args[0][:3] == ["git", "-c", f"safe.directory={expected_path}"]

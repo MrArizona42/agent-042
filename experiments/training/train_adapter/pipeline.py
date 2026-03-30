@@ -25,6 +25,47 @@ from .post_train_eval import run_post_train_evaluation
 logger = logging.getLogger(__name__)
 
 
+def _restore_best_checkpoint_for_export(
+    lightning_module: PeftCausalLMModule,
+    checkpoint_path: str,
+) -> None:
+    """Restore the best checkpoint into the live module before adapter export.
+
+    Lightning checkpoints created from 4-bit bitsandbytes models can contain
+    serialized quantization metadata keys that do not appear on the already
+    instantiated live module.  Export only needs the overlapping trainable
+    weights, so filter the checkpoint down to keys that the current module
+    actually exposes.
+    """
+
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    state_dict = checkpoint.get("state_dict", checkpoint)
+    live_keys = set(lightning_module.state_dict().keys())
+    filtered_state_dict = {key: value for key, value in state_dict.items() if key in live_keys}
+    skipped_keys = sorted(set(state_dict.keys()) - live_keys)
+
+    if skipped_keys:
+        logger.info(
+            "Skipping %d non-restorable checkpoint entries during export restore; sample keys: %s",
+            len(skipped_keys),
+            skipped_keys[:5],
+        )
+
+    incompatible = lightning_module.load_state_dict(filtered_state_dict, strict=False)
+    if incompatible.missing_keys:
+        logger.warning(
+            "Missing %d keys while restoring best checkpoint for export; sample keys: %s",
+            len(incompatible.missing_keys),
+            incompatible.missing_keys[:5],
+        )
+    if incompatible.unexpected_keys:
+        logger.warning(
+            "Unexpected %d keys while restoring best checkpoint for export; sample keys: %s",
+            len(incompatible.unexpected_keys),
+            incompatible.unexpected_keys[:5],
+        )
+
+
 def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
     """Run a full training loop.
 
@@ -113,8 +154,7 @@ def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
         best_ckpt_path = checkpoint_cb.best_model_path
         if best_ckpt_path:
             logger.info("Reloading best checkpoint for export: %s", best_ckpt_path)
-            best_ckpt = torch.load(best_ckpt_path, map_location="cpu", weights_only=False)
-            lightning_module.load_state_dict(best_ckpt["state_dict"])
+            _restore_best_checkpoint_for_export(lightning_module, best_ckpt_path)
 
         save_dir = run_artifacts_dir / "export"
         save_dir.mkdir(parents=True, exist_ok=True)
