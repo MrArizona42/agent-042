@@ -1,7 +1,12 @@
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Any, List, Optional
 
+from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
+
+# ---------------------------------------------------------------------------
+# Domain configs — no _target_, used via typed Python access
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -61,18 +66,6 @@ class SchedulerConfig:
 
 
 @dataclass
-class TrainerConfig:
-    max_epochs: int
-    devices: int
-    accelerator: str
-    precision: str
-    gradient_clip_val: float
-    accumulate_grad_batches: int
-    log_every_n_steps: int
-    val_check_interval: float | int
-
-
-@dataclass
 class OutputConfig:
     save_dir: str
 
@@ -87,6 +80,54 @@ class MlflowConfig:
     env_path: Optional[str]
 
 
+# ---------------------------------------------------------------------------
+# Instantiable configs — _target_ lets hydra.utils.instantiate build objects
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CheckpointConf:
+    _target_: str = "pytorch_lightning.callbacks.ModelCheckpoint"
+    filename: str = "adapter-{epoch:02d}-{val_loss:.4f}"
+    save_top_k: int = 3
+    monitor: str = "val_loss"
+    mode: str = "min"
+    save_last: bool = True
+
+
+@dataclass
+class EarlyStoppingConf:
+    _target_: str = "pytorch_lightning.callbacks.EarlyStopping"
+    monitor: str = "val_loss"
+    patience: int = 5
+    mode: str = "min"
+
+
+@dataclass
+class CallbacksConf:
+    checkpoint: CheckpointConf = field(default_factory=CheckpointConf)
+    early_stopping: Optional[EarlyStoppingConf] = None
+
+
+@dataclass
+class TrainerConf:
+    _target_: str = "pytorch_lightning.Trainer"
+    max_epochs: int = 1
+    devices: int = 1
+    accelerator: str = "gpu"
+    precision: str = "16-mixed"
+    gradient_clip_val: float = 1.0
+    accumulate_grad_batches: int = 8
+    log_every_n_steps: int = 10
+    val_check_interval: Any = 0.25
+    num_sanity_val_steps: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Top-level composite configs
+# ---------------------------------------------------------------------------
+
+
 @dataclass
 class ExperimentConfig:
     seed: Optional[int]
@@ -94,7 +135,8 @@ class ExperimentConfig:
     lora: LoraSection
     data: DataConfig
     training: TrainingConfig
-    trainer: TrainerConfig
+    trainer: TrainerConf
+    callbacks: CallbacksConf
     output: OutputConfig
     mlflow: MlflowConfig
     scheduler: Optional[SchedulerConfig] = None
@@ -104,6 +146,17 @@ class ExperimentConfig:
 class AppConfig:
     paths: PathsConfig
     experiment: ExperimentConfig
+
+
+# ---------------------------------------------------------------------------
+# Hydra ConfigStore registration
+# ---------------------------------------------------------------------------
+
+
+def register_configs() -> None:
+    """Register structured configs so Hydra validates YAML at load time."""
+    cs = ConfigStore.instance()
+    cs.store(name="base_config", node=AppConfig)
 
 
 def load_app_config(cfg: DictConfig) -> AppConfig:

@@ -93,8 +93,7 @@ with DAG(
             default="train_adapter",
             type="string",
             description=(
-                "Hydra experiment config name under "
-                "experiments/training/conf/experiment/"
+                "Hydra experiment config name under experiments/training/conf/experiment/"
             ),
         ),
         "hydra_overrides": Param(
@@ -102,7 +101,10 @@ with DAG(
             type="string",
             description=(
                 "JSON list of Hydra override strings in key=value format. "
-                'Example: ["training.lr=2e-5", "lora.r=16", "trainer.max_epochs=3"]'
+                "Example: "
+                '["experiment.training.lr=2e-5", '
+                '"experiment.lora.r=16", '
+                '"experiment.trainer.max_epochs=3"]'
             ),
         ),
     },

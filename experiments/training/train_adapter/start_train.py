@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import hydra
 from omegaconf import DictConfig
-from .config import load_app_config
+
+from .config import register_configs
 from .pipeline import run_training
+
+register_configs()
 
 
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    app_cfg = load_app_config(cfg)
-    run_id, save_dir, logs_dir = run_training(app_cfg)
+    run_id, save_dir, logs_dir = run_training(cfg)
 
     print(f"Saved adapter to: {save_dir}")
     print(f"Lightning logs: {logs_dir}")

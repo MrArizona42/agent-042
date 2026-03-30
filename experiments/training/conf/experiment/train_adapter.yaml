@@ -47,7 +47,23 @@ scheduler:
   T_max: 100
   eta_min: 0.0
 
+callbacks:
+  checkpoint:
+    _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    filename: "adapter-{epoch:02d}-{val_loss:.4f}"
+    save_top_k: 3
+    monitor: val_loss
+    mode: min
+    save_last: true
+  # Uncomment to enable early stopping:
+  # early_stopping:
+  #   _target_: pytorch_lightning.callbacks.EarlyStopping
+  #   monitor: val_loss
+  #   patience: 5
+  #   mode: min
+
 trainer:
+  _target_: pytorch_lightning.Trainer
   max_epochs: 1
   devices: 1
   accelerator: "gpu"  # Forces Lightning to stay on the CUDA device instead of falling back to CPU
@@ -56,6 +72,7 @@ trainer:
   accumulate_grad_batches: 8  # Keeps effective batch reasonable while fitting VRAM
   log_every_n_steps: 10  # Frequent logs help monitor short experiments
   val_check_interval: 0.25  # Validate four times per epoch to catch divergence early
+  num_sanity_val_steps: 0
 
 output:
   save_dir: "${paths.project_root}/assets/newly_trained/${now:%Y-%m-%d}/${now:%H-%M-%S}"

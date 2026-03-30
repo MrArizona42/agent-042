@@ -4,13 +4,14 @@ import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Tuple
 
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.callbacks import ModelCheckpoint
+from hydra.utils import instantiate
+from omegaconf import DictConfig, OmegaConf
 
-from .config import AppConfig
+from .config import load_app_config
 from .data_module import ArxivDataModule
 from .lit_module import PeftCausalLMModule
 from .mlflow_utils import log_hydra_artifacts_via_logger, setup_mlflow, teardown_mlflow
@@ -19,21 +20,30 @@ from .modeling import build_model_and_tokenizer
 logger = logging.getLogger(__name__)
 
 
-def run_training(cfg: AppConfig) -> Tuple[str, str, str]:
-    project_root = Path(cfg.paths.project_root)
-    if cfg.experiment.seed is not None:
-        pl.seed_everything(cfg.experiment.seed, workers=True)
+def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
+    """Run a full training loop.
+
+    Accepts a raw Hydra ``DictConfig`` so that ``hydra.utils.instantiate``
+    can build the trainer and callbacks from ``_target_`` entries.  Domain
+    configs (model, data, lora …) are still accessed through the typed
+    ``AppConfig`` produced by :func:`load_app_config`.
+    """
+    app_cfg = load_app_config(cfg)
+    project_root = Path(app_cfg.paths.project_root)
+
+    if app_cfg.experiment.seed is not None:
+        pl.seed_everything(app_cfg.experiment.seed, workers=True)
 
     # Create MLflow logger for Lightning
-    mlf_logger = setup_mlflow(cfg)
+    mlf_logger = setup_mlflow(app_cfg)
 
     try:
         # Upload Hydra config as artifacts early
         log_hydra_artifacts_via_logger(mlf_logger)
 
-        model, tokenizer = build_model_and_tokenizer(cfg)
+        model, tokenizer = build_model_and_tokenizer(app_cfg)
 
-        data_cfg = cfg.experiment.data
+        data_cfg = app_cfg.experiment.data
         dataset_path = Path(data_cfg.local_path)
         if not dataset_path.is_absolute():
             dataset_path = project_root / dataset_path
@@ -43,11 +53,11 @@ def run_training(cfg: AppConfig) -> Tuple[str, str, str]:
 
         datamodule = ArxivDataModule(tokenizer=tokenizer, data_cfg=data_cfg, shuffle=True)
 
-        scheduler_cfg = cfg.experiment.scheduler
+        scheduler_cfg = app_cfg.experiment.scheduler
         lightning_module = PeftCausalLMModule(
             model=model,
-            lr=cfg.experiment.training.lr,
-            weight_decay=cfg.experiment.training.weight_decay,
+            lr=app_cfg.experiment.training.lr,
+            weight_decay=app_cfg.experiment.training.weight_decay,
             scheduler_cfg=scheduler_cfg.__dict__ if scheduler_cfg else None,
         )
 
@@ -56,37 +66,29 @@ def run_training(cfg: AppConfig) -> Tuple[str, str, str]:
         run_artifacts_dir = artifacts_dir / "runs" / run_tag
         run_artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-        checkpoint_callback = ModelCheckpoint(
-            dirpath=run_artifacts_dir / "checkpoints",
-            filename="adapter-{epoch:02d}-{val_loss:.4f}",
-            save_top_k=3,
-            monitor="val_loss",
-            mode="min",
-            save_last=True,
+        # ── Instantiate callbacks from config ──────────────────────────
+        checkpoint_cb = instantiate(
+            cfg.experiment.callbacks.checkpoint,
+            dirpath=str(run_artifacts_dir / "checkpoints"),
         )
+        callbacks = [checkpoint_cb]
 
-        trainer_cfg = cfg.experiment.trainer
-        trainer_kwargs: Dict[str, Any] = dict(
-            max_epochs=trainer_cfg.max_epochs,
-            devices=trainer_cfg.devices,
-            accelerator=trainer_cfg.accelerator,
-            gradient_clip_val=trainer_cfg.gradient_clip_val,
-            accumulate_grad_batches=trainer_cfg.accumulate_grad_batches,
-            log_every_n_steps=trainer_cfg.log_every_n_steps,
-            val_check_interval=trainer_cfg.val_check_interval,
-            num_sanity_val_steps=0,
-            default_root_dir=str(run_artifacts_dir),
-            callbacks=[checkpoint_callback],
+        es_cfg = OmegaConf.select(cfg, "experiment.callbacks.early_stopping")
+        if es_cfg is not None:
+            callbacks.append(instantiate(es_cfg))
+
+        # ── Instantiate trainer from config ────────────────────────────
+        trainer = instantiate(
+            cfg.experiment.trainer,
+            callbacks=callbacks,
             logger=mlf_logger,
+            default_root_dir=str(run_artifacts_dir),
         )
-        # Pass precision as provided (string like "32-true") without type checker complaint
-        trainer_kwargs["precision"] = trainer_cfg.precision
-        trainer = pl.Trainer(**trainer_kwargs)
 
         trainer.fit(lightning_module, datamodule=datamodule)
 
         # Reload best checkpoint weights before export
-        best_ckpt_path = checkpoint_callback.best_model_path
+        best_ckpt_path = checkpoint_cb.best_model_path
         if best_ckpt_path:
             logger.info("Reloading best checkpoint for export: %s", best_ckpt_path)
             best_ckpt = torch.load(best_ckpt_path, map_location="cpu", weights_only=False)
