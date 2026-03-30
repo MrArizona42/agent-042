@@ -157,7 +157,7 @@ python -m experiments.training.train_adapter.start_train \
 # Переопределить модель на локальный путь (если скачали в другое место)
 python -m experiments.training.train_adapter.start_train \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  experiment.model.local_path="C:/data/models/Ministral-3b-instruct"
+  experiment.model.local_path="C:/data/models/Qwen/Qwen3-0.6B"
 ```
 
 ### Мультизапуски (sweeps) Hydra

@@ -11,7 +11,7 @@ model:
   bnb_4bit_quant_type: "nf4"
   bnb_4bit_compute_dtype: "float16"  # Match fp16 mixed precision to keep the entire stack consistent
   gradient_checkpointing: true
-  local_path: "${paths.project_root}/assets/models/ministral/Ministral-3b-instruct"
+  local_path: "${paths.project_root}/assets/models/Qwen/Qwen3-0.6B"
   offload_folder: "${paths.project_root}/assets/models/offload"
 
 lora:
