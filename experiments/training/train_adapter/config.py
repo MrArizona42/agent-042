@@ -66,18 +66,26 @@ class SchedulerConfig:
 
 
 @dataclass
-class OutputConfig:
-    save_dir: str
-
-
-@dataclass
-class MlflowConfig:
+class TrackingConfig:
     log_artifacts: bool
     log_metrics: bool
     log_params: bool
-    experiment_name: str
-    run_name: str
     env_path: Optional[str]
+
+
+@dataclass
+class DataModuleConf:
+    _target_: str = "experiments.training.train_adapter.data_module.ArxivDataModule"
+    shuffle: bool = True
+
+
+@dataclass
+class MLFlowLoggerConf:
+    _target_: str = "pytorch_lightning.loggers.MLFlowLogger"
+    experiment_name: str = "default"
+    run_name: Optional[str] = None
+    log_model: bool = False
+    tags: dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +129,9 @@ class TrainerConf:
     log_every_n_steps: int = 10
     val_check_interval: Any = 0.25
     num_sanity_val_steps: int = 0
+    limit_train_batches: Any = 1.0
+    limit_val_batches: Any = 1.0
+    enable_progress_bar: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -134,11 +145,12 @@ class ExperimentConfig:
     model: ModelConfig
     lora: LoraSection
     data: DataConfig
+    data_module: DataModuleConf
     training: TrainingConfig
     trainer: TrainerConf
     callbacks: CallbacksConf
-    output: OutputConfig
-    mlflow: MlflowConfig
+    logger: MLFlowLoggerConf
+    tracking: TrackingConfig
     scheduler: Optional[SchedulerConfig] = None
 
 
@@ -153,10 +165,20 @@ class AppConfig:
 # ---------------------------------------------------------------------------
 
 
+_CONFIGS_REGISTERED = False
+
+
 def register_configs() -> None:
     """Register structured configs so Hydra validates YAML at load time."""
+    global _CONFIGS_REGISTERED
+    if _CONFIGS_REGISTERED:
+        return
+
     cs = ConfigStore.instance()
     cs.store(name="base_config", node=AppConfig)
+    cs.store(group="paths", name="base_paths", node=PathsConfig)
+    cs.store(group="experiment", name="base_experiment", node=ExperimentConfig)
+    _CONFIGS_REGISTERED = True
 
 
 def load_app_config(cfg: DictConfig) -> AppConfig:

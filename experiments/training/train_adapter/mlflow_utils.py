@@ -7,6 +7,8 @@ from pathlib import Path
 import dotenv
 import mlflow
 from hydra.core.hydra_config import HydraConfig
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 from pytorch_lightning.loggers import MLFlowLogger
 
 from .config import AppConfig
@@ -14,18 +16,18 @@ from .config import AppConfig
 logger = logging.getLogger(__name__)
 
 
-def setup_mlflow(cfg: AppConfig) -> MLFlowLogger:
+def setup_mlflow(cfg: AppConfig, raw_cfg: DictConfig) -> MLFlowLogger:
     """Prepare environment and return a Lightning MLFlowLogger.
 
     - Loads .env with MLFLOW_* variables
     - Sets tracking URI if provided
-    - Creates MLFlowLogger configured with experiment/run names
+    - Instantiates the configured Lightning MLflow logger from Hydra config
     """
-    mlflow_cfg = cfg.experiment.mlflow
+    tracking_cfg = cfg.experiment.tracking
     project_root = Path(cfg.paths.project_root)
 
     # Load env
-    env_path = mlflow_cfg.env_path
+    env_path = tracking_cfg.env_path
     if env_path:
         env_file = project_root / env_path if not Path(env_path).is_absolute() else Path(env_path)
         if env_file.exists():
@@ -42,17 +44,14 @@ def setup_mlflow(cfg: AppConfig) -> MLFlowLogger:
         mlflow.set_tracking_uri(tracking_uri)
         logger.info("MLflow tracking URI: %s", tracking_uri)
 
-    # Create Lightning MLflow logger
-    mlf_logger = MLFlowLogger(
-        experiment_name=mlflow_cfg.experiment_name or "default",
-        run_name=mlflow_cfg.run_name or None,
+    # Create Lightning MLflow logger from config
+    mlf_logger = instantiate(
+        raw_cfg.experiment.logger,
         tracking_uri=mlflow.get_tracking_uri(),
-        log_model=False,
-        tags=None,
     )
 
     # Optionally log basic params at start via logger
-    if mlflow_cfg.log_params:
+    if tracking_cfg.log_params:
         params = {
             "lr": cfg.experiment.training.lr,
             "weight_decay": cfg.experiment.training.weight_decay,

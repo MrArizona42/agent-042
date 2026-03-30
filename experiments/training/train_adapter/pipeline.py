@@ -12,7 +12,6 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from .config import load_app_config
-from .data_module import ArxivDataModule
 from .lit_module import PeftCausalLMModule
 from .mlflow_utils import log_hydra_artifacts_via_logger, setup_mlflow, teardown_mlflow
 from .modeling import build_model_and_tokenizer
@@ -35,11 +34,12 @@ def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
         pl.seed_everything(app_cfg.experiment.seed, workers=True)
 
     # Create MLflow logger for Lightning
-    mlf_logger = setup_mlflow(app_cfg)
+    mlf_logger = setup_mlflow(app_cfg, cfg)
 
     try:
         # Upload Hydra config as artifacts early
-        log_hydra_artifacts_via_logger(mlf_logger)
+        if app_cfg.experiment.tracking.log_artifacts:
+            log_hydra_artifacts_via_logger(mlf_logger)
 
         model, tokenizer = build_model_and_tokenizer(app_cfg)
 
@@ -51,7 +51,11 @@ def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
             raise FileNotFoundError(f"Dataset path not found: {dataset_path}")
         data_cfg.local_path = str(dataset_path)
 
-        datamodule = ArxivDataModule(tokenizer=tokenizer, data_cfg=data_cfg, shuffle=True)
+        datamodule = instantiate(
+            cfg.experiment.data_module,
+            tokenizer=tokenizer,
+            data_cfg=data_cfg,
+        )
 
         scheduler_cfg = app_cfg.experiment.scheduler
         lightning_module = PeftCausalLMModule(
@@ -100,12 +104,13 @@ def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
         tokenizer.save_pretrained(save_dir)
 
         # Upload saved adapter/tokenizer as MLflow artifacts
-        try:
-            mlf_logger.experiment.log_artifacts(
-                mlf_logger.run_id, str(save_dir), artifact_path="model"
-            )
-        except Exception as e:
-            logger.warning("Failed to log model artifacts: %s", e)
+        if app_cfg.experiment.tracking.log_artifacts:
+            try:
+                mlf_logger.experiment.log_artifacts(
+                    mlf_logger.run_id, str(save_dir), artifact_path="model"
+                )
+            except Exception as e:
+                logger.warning("Failed to log model artifacts: %s", e)
 
         logger.info(
             "Training complete. Run ID: %s. Register via the "

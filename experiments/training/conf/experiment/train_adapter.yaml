@@ -1,3 +1,6 @@
+defaults:
+  - base_experiment
+
 seed: 42
 
 model:
@@ -32,6 +35,10 @@ data:
     {article}
 
     Abstract:
+
+data_module:
+  _target_: experiments.training.train_adapter.data_module.ArxivDataModule
+  shuffle: true
 
 training:
   lr: 1e-5  # Lower LR stabilizes updates with tiny effective batches
@@ -74,15 +81,17 @@ trainer:
   val_check_interval: 0.25  # Validate four times per epoch to catch divergence early
   num_sanity_val_steps: 0
 
-output:
-  save_dir: "${paths.project_root}/assets/newly_trained/${now:%Y-%m-%d}/${now:%H-%M-%S}"
+logger:
+  _target_: pytorch_lightning.loggers.MLFlowLogger
+  experiment_name: "train_adapter"
+  run_name: "train_adapter"
+  log_model: false
+  tags: {}
 
-mlflow:
+tracking:
   log_artifacts: true # requires s3 with creds in .env
   log_metrics: true
   log_params: true
-  experiment_name: "train_adapter"
-  run_name: "train_adapter"
   env_path: "experiments/.env" # relative to project root
   # To register a trained adapter in the Model Registry, use the lora_ops notebook:
   #   experiments/training/lora_ops.ipynb
