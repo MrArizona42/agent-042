@@ -292,8 +292,9 @@ def _find_dataset_dvc_hash(dataset_path: Path, project_root: Path) -> str | None
             continue
         for line in candidate.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
-            if stripped.startswith("md5:"):
-                return stripped.split(":", 1)[1].strip()
+            normalized = stripped.lstrip("-").strip()
+            if normalized.startswith("md5:"):
+                return normalized.split(":", 1)[1].strip()
     return None
 
 
