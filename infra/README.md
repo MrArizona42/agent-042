@@ -53,13 +53,13 @@ nvidia-smi
 * Установить [UV-менеджер](https://docs.astral.sh/uv/getting-started/installation/)
 * Запустить синхронизацию только нужных групп зависимостей:
 ```bash
-uv sync --extra training --extra rag --extra dev
+uv sync --extra training --extra rag --group dev
 ```
 
 Примеры выборочной установки:
 ```bash
 # только gateway + worker + UI для локального сервиса
-uv sync --extra gateway --extra worker --extra ui --extra dev
+uv sync --extra gateway --extra worker --extra ui --group dev
 
 # только инфраструктура MLflow
 uv sync --extra mlflow
