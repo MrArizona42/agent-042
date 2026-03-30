@@ -92,9 +92,7 @@ def run_training(cfg: AppConfig) -> Tuple[str, str, str]:
             best_ckpt = torch.load(best_ckpt_path, map_location="cpu", weights_only=False)
             lightning_module.load_state_dict(best_ckpt["state_dict"])
 
-        save_dir = Path(cfg.experiment.output.save_dir)
-        if not save_dir.is_absolute():
-            save_dir = project_root / save_dir
+        save_dir = run_artifacts_dir / "export"
         save_dir.mkdir(parents=True, exist_ok=True)
         lightning_module.model.save_pretrained(save_dir)
         tokenizer.save_pretrained(save_dir)

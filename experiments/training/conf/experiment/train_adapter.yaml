@@ -19,7 +19,7 @@ lora:
 
 data:
   max_seq_length: 768  # Allows enough context without blowing 12GB VRAM
-  source_max_length: 512  # Prompt budget; ensures target always keeps meaningful tokens
+  source_max_length: 511  # Prompt budget; source + target + 1 (EOS) must fit within max_seq_length
   target_max_length: 256  # Target budget; reserved exclusively for supervised signal
   train_on_inputs: false  # Mask prompt tokens from loss to focus supervision on the target
   batch_size: 1

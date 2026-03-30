@@ -33,6 +33,15 @@ class ArxivDataModule(pl.LightningDataModule):
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
 
+        budget = data_cfg.source_max_length + data_cfg.target_max_length + 1  # +1 for EOS
+        if budget > data_cfg.max_seq_length:
+            raise ValueError(
+                f"source_max_length ({data_cfg.source_max_length}) + "
+                f"target_max_length ({data_cfg.target_max_length}) + 1 (EOS) = {budget} "
+                f"exceeds max_seq_length ({data_cfg.max_seq_length}). "
+                f"Reduce source or target budget so they fit within the sequence limit."
+            )
+
     def setup(self, stage: Optional[str] = None) -> None:
         dataset = load_from_disk(self.cfg.local_path)
         self.ds_train = self._with_transform(dataset["train"])
@@ -114,7 +123,13 @@ class ArxivDataModule(pl.LightningDataModule):
                 zero_target_count,
                 len(batch),
             )
-        return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
+            "zero_target_count": torch.tensor(zero_target_count, dtype=torch.long),
+            "batch_size": torch.tensor(len(batch), dtype=torch.long),
+        }
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(

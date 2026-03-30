@@ -37,7 +37,13 @@ def build_model_and_tokenizer(cfg: AppConfig) -> Tuple[Any, PreTrainedTokenizerB
 
     device_map = model_cfg.device_map
     if load_in_4bit and device_map == "auto":
-        device_map = {"": 0}
+        # Avoid device_map="auto" with quantized models under Lightning:
+        # Lightning manages device placement, so pin to the current CUDA device.
+        # This respects CUDA_VISIBLE_DEVICES and avoids conflicts with Trainer.
+        if torch.cuda.is_available():
+            device_map = {"": torch.cuda.current_device()}
+        else:
+            device_map = {"": "cpu"}
 
     quant_cfg = (
         BitsAndBytesConfig(

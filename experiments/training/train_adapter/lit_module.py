@@ -38,14 +38,24 @@ class PeftCausalLMModule(LightningModule):
             labels = labels.unsqueeze(0)
         return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
 
-    def on_train_start(self) -> None:
-        self._last_step_t = time.perf_counter()
-
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int):
         start = time.perf_counter()
         outputs = self.forward(batch["input_ids"], batch["attention_mask"], labels=batch["labels"])
         loss = outputs.loss
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+
+        # Track samples that received no supervised target signal
+        if "zero_target_count" in batch:
+            bs = float(batch["batch_size"].item())
+            zt = float(batch["zero_target_count"].item())
+            self.log(
+                "zero_target_ratio",
+                zt / max(bs, 1.0),
+                on_step=True,
+                on_epoch=True,
+                prog_bar=False,
+                logger=True,
+            )
 
         # Additional metrics routed through Lightning's logger
         opt = self.trainer.optimizers[0] if self.trainer and self.trainer.optimizers else None
@@ -69,6 +79,19 @@ class PeftCausalLMModule(LightningModule):
         outputs = self.forward(batch["input_ids"], batch["attention_mask"], labels=batch["labels"])
         val_loss = outputs.loss
         self.log("val_loss", val_loss, on_step=False, on_epoch=True, prog_bar=True)
+
+        if "zero_target_count" in batch:
+            bs = float(batch["batch_size"].item())
+            zt = float(batch["zero_target_count"].item())
+            self.log(
+                "val_zero_target_ratio",
+                zt / max(bs, 1.0),
+                on_step=False,
+                on_epoch=True,
+                prog_bar=False,
+                logger=True,
+            )
+
         return val_loss
 
     def configure_optimizers(self):
