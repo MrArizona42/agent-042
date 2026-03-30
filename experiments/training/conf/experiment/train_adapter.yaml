@@ -6,7 +6,7 @@ model:
   load_in_4bit: true
   bnb_4bit_use_double_quant: true
   bnb_4bit_quant_type: "nf4"
-  bnb_4bit_compute_dtype: "float32"  # Keep compute dtype aligned with supported precision to avoid casts
+  bnb_4bit_compute_dtype: "float16"  # Match fp16 mixed precision to keep the entire stack consistent
   gradient_checkpointing: true
   local_path: "${paths.project_root}/assets/models/ministral/Ministral-3b-instruct"
   offload_folder: "${paths.project_root}/assets/models/offload"
@@ -19,6 +19,9 @@ lora:
 
 data:
   max_seq_length: 768  # Allows enough context without blowing 12GB VRAM
+  source_max_length: 512  # Prompt budget; ensures target always keeps meaningful tokens
+  target_max_length: 256  # Target budget; reserved exclusively for supervised signal
+  train_on_inputs: false  # Mask prompt tokens from loss to focus supervision on the target
   batch_size: 1
   num_workers: 2  # Light parallelism keeps CPU/RAM usage modest
   local_path: "${paths.project_root}/assets/datasets/arxiv-summarization"
@@ -48,7 +51,7 @@ trainer:
   max_epochs: 1
   devices: 1
   accelerator: "gpu"  # Forces Lightning to stay on the CUDA device instead of falling back to CPU
-  precision: "32-true"  # Consumer 30-series supports fp16 mixed precision reliably
+  precision: "16-mixed"  # fp16 mixed precision for RTX 3060; matches model dtype and compute dtype
   gradient_clip_val: 1.0
   accumulate_grad_batches: 8  # Keeps effective batch reasonable while fitting VRAM
   log_every_n_steps: 10  # Frequent logs help monitor short experiments

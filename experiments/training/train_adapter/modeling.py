@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Tuple
 
 import torch
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -35,6 +35,10 @@ def build_model_and_tokenizer(cfg: AppConfig) -> Tuple[Any, PreTrainedTokenizerB
     dtype_str = model_cfg.dtype
     torch_dtype = getattr(torch, dtype_str)
 
+    device_map = model_cfg.device_map
+    if load_in_4bit and device_map == "auto":
+        device_map = {"": 0}
+
     quant_cfg = (
         BitsAndBytesConfig(
             load_in_4bit=True,
@@ -59,14 +63,21 @@ def build_model_and_tokenizer(cfg: AppConfig) -> Tuple[Any, PreTrainedTokenizerB
 
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        device_map=model_cfg.device_map,
+        device_map=device_map,
         torch_dtype=torch_dtype,
         quantization_config=quant_cfg,
         local_files_only=True,
         offload_folder=str(offload_path) if offload_path else None,
     )
 
-    if model_cfg.gradient_checkpointing:
+    model.config.use_cache = False
+
+    if load_in_4bit:
+        model = prepare_model_for_kbit_training(
+            model,
+            use_gradient_checkpointing=model_cfg.gradient_checkpointing,
+        )
+    elif model_cfg.gradient_checkpointing:
         model.gradient_checkpointing_enable()
 
     lora_cfg = cfg.experiment.lora

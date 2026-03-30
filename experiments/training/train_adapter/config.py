@@ -33,6 +33,9 @@ class LoraSection:
 @dataclass
 class DataConfig:
     max_seq_length: int
+    source_max_length: int
+    target_max_length: int
+    train_on_inputs: bool
     batch_size: int
     num_workers: int
     local_path: str

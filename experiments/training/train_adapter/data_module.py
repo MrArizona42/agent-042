@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
@@ -9,6 +10,8 @@ from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizerBase
 
 from .config import DataConfig
+
+logger = logging.getLogger(__name__)
 
 
 class ArxivDataModule(pl.LightningDataModule):
@@ -37,6 +40,8 @@ class ArxivDataModule(pl.LightningDataModule):
 
     def _with_transform(self, dataset):
         max_len = self.cfg.max_seq_length
+        source_max = self.cfg.source_max_length
+        target_max = self.cfg.target_max_length
         prompt_template = self.cfg.prompt_template
 
         def transform(example: Dict[str, Any]) -> Dict[str, Any]:
@@ -46,17 +51,17 @@ class ArxivDataModule(pl.LightningDataModule):
                 prompt_ids = self.tokenizer(
                     prompt_text,
                     truncation=True,
-                    max_length=max_len,
+                    max_length=source_max,
                     add_special_tokens=False,
                 )["input_ids"]
                 target_ids = self.tokenizer(
                     target_text,
                     truncation=True,
-                    max_length=max_len,
+                    max_length=target_max,
                     add_special_tokens=False,
                 )["input_ids"]
                 input_ids = (prompt_ids + target_ids + [self.tokenizer.eos_token_id])[:max_len]
-                prompt_len = min(len(prompt_ids), max_len)
+                prompt_len = len(prompt_ids)
                 return input_ids, prompt_len
 
             if is_batched:
@@ -95,10 +100,20 @@ class ArxivDataModule(pl.LightningDataModule):
         input_ids = padded["input_ids"]
         attention_mask = padded["attention_mask"]
         labels = input_ids.clone().masked_fill(attention_mask.eq(0), -100)
+        zero_target_count = 0
         for idx, ex in enumerate(batch):
             prompt_tokens = min(int(ex.get("prompt_len", 0)), labels.shape[1])
-            if prompt_tokens > 0:
+            non_pad_target = int(attention_mask[idx, prompt_tokens:].sum().item())
+            if non_pad_target <= 1:
+                zero_target_count += 1
+            if prompt_tokens > 0 and not self.cfg.train_on_inputs:
                 labels[idx, :prompt_tokens] = -100
+        if zero_target_count > 0:
+            logger.warning(
+                "%d / %d samples in batch have zero supervised target tokens",
+                zero_target_count,
+                len(batch),
+            )
         return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
     def train_dataloader(self) -> DataLoader:

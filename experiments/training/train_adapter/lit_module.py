@@ -15,15 +15,12 @@ class PeftCausalLMModule(LightningModule):
         model: Any,
         lr: float,
         weight_decay: float,
-        mlflow_cfg: Dict[str, Any],
         scheduler_cfg: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__()
         self.model = model
         self.save_hyperparameters({"lr": lr, "weight_decay": weight_decay})
-        self.mlflow_cfg = mlflow_cfg
         self.scheduler_cfg = scheduler_cfg or {}
-        self._last_step_t: Optional[float] = None
 
     def forward(
         self,
@@ -58,14 +55,13 @@ class PeftCausalLMModule(LightningModule):
         self.log("learning_rate", lr, on_step=True, prog_bar=False, logger=True)
 
         tokens = float(batch["attention_mask"].to(torch.float32).sum().item())
-        elapsed = max(1e-9, time.perf_counter() - (self._last_step_t or start))
+        elapsed = max(1e-9, time.perf_counter() - start)
         self.log("tokens_per_second", tokens / elapsed, on_step=True, prog_bar=False, logger=True)
         if torch.cuda.is_available():
             mem_mb = torch.cuda.memory_allocated(device=self.device) / 1e6
             self.log(
                 "gpu_memory_allocated_mb", float(mem_mb), on_step=True, prog_bar=False, logger=True
             )
-        self._last_step_t = time.perf_counter()
 
         return loss
 
@@ -77,7 +73,7 @@ class PeftCausalLMModule(LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.parameters(),
+            [p for p in self.parameters() if p.requires_grad],
             lr=self.hparams.lr,
             weight_decay=self.hparams.weight_decay,
         )

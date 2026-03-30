@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import pytorch_lightning as pl
+import torch
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from .config import AppConfig
@@ -45,15 +48,16 @@ def run_training(cfg: AppConfig) -> Tuple[str, str, str]:
             model=model,
             lr=cfg.experiment.training.lr,
             weight_decay=cfg.experiment.training.weight_decay,
-            mlflow_cfg=cfg.experiment.mlflow.__dict__,
             scheduler_cfg=scheduler_cfg.__dict__ if scheduler_cfg else None,
         )
 
         artifacts_dir = project_root / "artifacts" / "training"
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        run_tag = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
+        run_artifacts_dir = artifacts_dir / "runs" / run_tag
+        run_artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         checkpoint_callback = ModelCheckpoint(
-            dirpath=artifacts_dir / "checkpoints",
+            dirpath=run_artifacts_dir / "checkpoints",
             filename="adapter-{epoch:02d}-{val_loss:.4f}",
             save_top_k=3,
             monitor="val_loss",
@@ -71,7 +75,7 @@ def run_training(cfg: AppConfig) -> Tuple[str, str, str]:
             log_every_n_steps=trainer_cfg.log_every_n_steps,
             val_check_interval=trainer_cfg.val_check_interval,
             num_sanity_val_steps=0,
-            default_root_dir=str(artifacts_dir),
+            default_root_dir=str(run_artifacts_dir),
             callbacks=[checkpoint_callback],
             logger=mlf_logger,
         )
@@ -80,6 +84,13 @@ def run_training(cfg: AppConfig) -> Tuple[str, str, str]:
         trainer = pl.Trainer(**trainer_kwargs)
 
         trainer.fit(lightning_module, datamodule=datamodule)
+
+        # Reload best checkpoint weights before export
+        best_ckpt_path = checkpoint_callback.best_model_path
+        if best_ckpt_path:
+            logger.info("Reloading best checkpoint for export: %s", best_ckpt_path)
+            best_ckpt = torch.load(best_ckpt_path, map_location="cpu", weights_only=False)
+            lightning_module.load_state_dict(best_ckpt["state_dict"])
 
         save_dir = Path(cfg.experiment.output.save_dir)
         if not save_dir.is_absolute():
@@ -102,6 +113,6 @@ def run_training(cfg: AppConfig) -> Tuple[str, str, str]:
             mlf_logger.run_id,
         )
 
-        return mlf_logger.run_id, str(save_dir), str(artifacts_dir)
+        return mlf_logger.run_id, str(save_dir), str(run_artifacts_dir)
     finally:
         teardown_mlflow()
