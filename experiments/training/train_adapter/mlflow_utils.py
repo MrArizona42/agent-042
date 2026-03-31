@@ -7,6 +7,7 @@ import platform
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import dotenv
@@ -22,8 +23,8 @@ from .config import AppConfig
 logger = logging.getLogger(__name__)
 
 
-def setup_mlflow(cfg: AppConfig, raw_cfg: DictConfig) -> MLFlowLogger:
-    """Prepare environment and return a Lightning MLFlowLogger."""
+def configure_mlflow_tracking(cfg: AppConfig) -> str:
+    """Load MLflow environment settings and return the active tracking URI."""
     tracking_cfg = cfg.experiment.tracking
     project_root = Path(cfg.paths.project_root)
 
@@ -42,6 +43,18 @@ def setup_mlflow(cfg: AppConfig, raw_cfg: DictConfig) -> MLFlowLogger:
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
         logger.info("MLflow tracking URI: %s", tracking_uri)
+
+    return mlflow.get_tracking_uri()
+
+
+def build_mlflow_run_logger(run_id: str) -> Any:
+    """Return a minimal logger-like handle for attaching to an existing MLflow run."""
+    return SimpleNamespace(run_id=run_id, experiment=mlflow.tracking.MlflowClient())
+
+
+def setup_mlflow(cfg: AppConfig, raw_cfg: DictConfig) -> MLFlowLogger:
+    """Prepare environment and return a Lightning MLFlowLogger."""
+    configure_mlflow_tracking(cfg)
 
     configured_run_name = OmegaConf.select(raw_cfg, "experiment.logger.run_name")
     configured_tags = OmegaConf.select(raw_cfg, "experiment.logger.tags") or {}

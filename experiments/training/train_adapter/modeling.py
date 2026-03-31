@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Tuple
 
 import torch
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -18,18 +18,33 @@ from .config import AppConfig
 logger = logging.getLogger(__name__)
 
 
-def build_model_and_tokenizer(cfg: AppConfig) -> Tuple[Any, PreTrainedTokenizerBase]:
-    model_cfg = cfg.experiment.model
-    project_root = Path(cfg.paths.project_root)
-    model_path = Path(model_cfg.local_path)
-    if not model_path.is_absolute():
-        model_path = project_root / model_path
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model path not found: {model_path}")
-
+def _load_tokenizer(model_path: Path) -> PreTrainedTokenizerBase:
     tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True, local_files_only=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
+    return tokenizer
+
+
+def _resolve_model_path(cfg: AppConfig, candidate: str | Path) -> Path:
+    project_root = Path(cfg.paths.project_root)
+    path = Path(candidate)
+    if not path.is_absolute():
+        path = project_root / path
+    return path
+
+
+def load_base_model_and_tokenizer(
+    cfg: AppConfig,
+    *,
+    for_training: bool,
+) -> Tuple[Any, PreTrainedTokenizerBase]:
+    model_cfg = cfg.experiment.model
+    project_root = Path(cfg.paths.project_root)
+    model_path = _resolve_model_path(cfg, model_cfg.local_path)
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model path not found: {model_path}")
+
+    tokenizer = _load_tokenizer(model_path)
 
     load_in_4bit = bool(model_cfg.load_in_4bit)
     dtype_str = model_cfg.dtype
@@ -78,14 +93,18 @@ def build_model_and_tokenizer(cfg: AppConfig) -> Tuple[Any, PreTrainedTokenizerB
 
     model.config.use_cache = False
 
-    if load_in_4bit:
+    if for_training and load_in_4bit:
         model = prepare_model_for_kbit_training(
             model,
             use_gradient_checkpointing=model_cfg.gradient_checkpointing,
         )
-    elif model_cfg.gradient_checkpointing:
+    elif for_training and model_cfg.gradient_checkpointing:
         model.gradient_checkpointing_enable()
 
+    return model, tokenizer
+
+
+def _attach_lora_adapter(model: Any, cfg: AppConfig) -> Any:
     lora_cfg = cfg.experiment.lora
     peft_config = LoraConfig(
         r=lora_cfg.r,
@@ -95,7 +114,27 @@ def build_model_and_tokenizer(cfg: AppConfig) -> Tuple[Any, PreTrainedTokenizerB
         task_type="CAUSAL_LM",
         target_modules=list(lora_cfg.target_modules),
     )
-    model = get_peft_model(model, peft_config)
+    return get_peft_model(model, peft_config)
+
+
+def build_model_and_tokenizer(cfg: AppConfig) -> Tuple[Any, PreTrainedTokenizerBase]:
+    model, tokenizer = load_base_model_and_tokenizer(cfg, for_training=True)
+    model = _attach_lora_adapter(model, cfg)
 
     model.print_trainable_parameters()
+    return model, tokenizer
+
+
+def load_exported_model_and_tokenizer(
+    cfg: AppConfig,
+    export_dir: str | Path,
+) -> Tuple[Any, PreTrainedTokenizerBase]:
+    export_path = _resolve_model_path(cfg, export_dir)
+    if not export_path.exists():
+        raise FileNotFoundError(f"Export path not found: {export_path}")
+
+    model, _ = load_base_model_and_tokenizer(cfg, for_training=False)
+    model = PeftModel.from_pretrained(model, export_path)
+    model.config.use_cache = False
+    tokenizer = _load_tokenizer(export_path)
     return model, tokenizer

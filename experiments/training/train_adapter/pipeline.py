@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Tuple
 
 import pytorch_lightning as pl
 import torch
@@ -14,15 +15,48 @@ from omegaconf import DictConfig, OmegaConf
 from .config import load_app_config
 from .lit_module import PeftCausalLMModule
 from .mlflow_utils import (
+    build_mlflow_run_logger,
+    configure_mlflow_tracking,
     log_hydra_artifacts_via_logger,
     log_training_lineage,
     setup_mlflow,
     teardown_mlflow,
 )
-from .modeling import build_model_and_tokenizer
+from .modeling import build_model_and_tokenizer, load_exported_model_and_tokenizer
 from .post_train_eval import run_post_train_evaluation
 
 logger = logging.getLogger(__name__)
+
+
+def _write_training_manifest(
+    run_id: str,
+    save_dir: Path,
+    run_artifacts_dir: Path,
+) -> Path:
+    run_artifacts_dir.mkdir(parents=True, exist_ok=True)
+    metadata_dir = run_artifacts_dir / "metadata"
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "run_id": run_id,
+        "save_dir": str(save_dir),
+        "run_artifacts_dir": str(run_artifacts_dir),
+        "metadata_dir": str(metadata_dir),
+        "resolved_config_path": str(metadata_dir / "resolved_config.json"),
+        "lineage_path": str(metadata_dir / "lineage.json"),
+    }
+    manifest_path = run_artifacts_dir / "training_manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def _load_training_manifest(manifest_path: str | Path) -> dict[str, Any]:
+    path = Path(manifest_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Training manifest not found: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _restore_best_checkpoint_for_export(
@@ -66,7 +100,43 @@ def _restore_best_checkpoint_for_export(
         )
 
 
-def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
+def run_post_train_evaluation_from_manifest(manifest_path: str | Path) -> list[dict[str, Any]]:
+    manifest = _load_training_manifest(manifest_path)
+    raw_cfg_path = Path(manifest["resolved_config_path"])
+    lineage_path = Path(manifest["lineage_path"])
+    run_artifacts_dir = Path(manifest["run_artifacts_dir"])
+    save_dir = Path(manifest["save_dir"])
+
+    raw_cfg = OmegaConf.create(json.loads(raw_cfg_path.read_text(encoding="utf-8")))
+    app_cfg = load_app_config(raw_cfg)
+    if not app_cfg.experiment.evaluation.enabled:
+        logger.info(
+            "Skipping post-train evaluation for run %s because experiment.evaluation.enabled=false",
+            manifest["run_id"],
+        )
+        return []
+
+    configure_mlflow_tracking(app_cfg)
+    model, tokenizer = load_exported_model_and_tokenizer(app_cfg, save_dir)
+    lineage = json.loads(lineage_path.read_text(encoding="utf-8"))
+    mlf_logger = build_mlflow_run_logger(manifest["run_id"])
+
+    return run_post_train_evaluation(
+        cfg=app_cfg,
+        raw_cfg=raw_cfg,
+        model=model,
+        tokenizer=tokenizer,
+        mlf_logger=mlf_logger,
+        run_artifacts_dir=run_artifacts_dir,
+        lineage=lineage,
+    )
+
+
+def run_training(
+    cfg: DictConfig,
+    *,
+    skip_post_train_evaluation: bool = False,
+) -> Tuple[str, str, str, str]:
     """Run a full training loop.
 
     Accepts a raw Hydra ``DictConfig`` so that ``hydra.utils.instantiate``
@@ -120,7 +190,7 @@ def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
         trainable_param_count = sum(
             parameter.numel() for parameter in model.parameters() if parameter.requires_grad
         )
-        lineage = log_training_lineage(
+        log_training_lineage(
             mlf_logger,
             app_cfg,
             cfg,
@@ -160,6 +230,7 @@ def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
         save_dir.mkdir(parents=True, exist_ok=True)
         lightning_module.model.save_pretrained(save_dir)
         tokenizer.save_pretrained(save_dir)
+        manifest_path = _write_training_manifest(mlf_logger.run_id, save_dir, run_artifacts_dir)
 
         # Upload saved adapter/tokenizer as MLflow artifacts
         if app_cfg.experiment.tracking.log_artifacts:
@@ -171,17 +242,11 @@ def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
                 logger.warning("Failed to log model artifacts: %s", e)
 
         eval_cfg = app_cfg.experiment.evaluation
-        if eval_cfg.enabled:
+        if skip_post_train_evaluation:
+            logger.info("Skipping in-process post-train evaluation by request")
+        elif eval_cfg.enabled:
             try:
-                run_post_train_evaluation(
-                    cfg=app_cfg,
-                    raw_cfg=cfg,
-                    model=lightning_module.model,
-                    tokenizer=tokenizer,
-                    mlf_logger=mlf_logger,
-                    run_artifacts_dir=run_artifacts_dir,
-                    lineage=lineage,
-                )
+                run_post_train_evaluation_from_manifest(manifest_path)
             except Exception:
                 if eval_cfg.fail_on_error:
                     raise
@@ -193,6 +258,11 @@ def run_training(cfg: DictConfig) -> Tuple[str, str, str]:
             mlf_logger.run_id,
         )
 
-        return mlf_logger.run_id, str(save_dir), str(run_artifacts_dir)
+        return (
+            mlf_logger.run_id,
+            str(save_dir),
+            str(run_artifacts_dir),
+            str(manifest_path),
+        )
     finally:
         teardown_mlflow()
