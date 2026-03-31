@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
@@ -22,10 +21,6 @@ from experiments.training.train_adapter.mlflow_utils import (
 from experiments.training.train_adapter.pipeline import (
     _restore_best_checkpoint_for_export,
     _write_training_summary,
-)
-from experiments.training.train_adapter.post_train_eval import (
-    _resolve_model_device,
-    run_post_train_evaluation,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -84,90 +79,6 @@ def test_log_training_lineage_writes_metadata_and_logs_key_fields(tmp_path):
     set_tags = {(call.args[1], call.args[2]) for call in client.set_tag.call_args_list}
     assert ("run.orchestrator", "cli") in set_tags
     assert client.log_artifacts.called
-
-
-def test_run_post_train_evaluation_writes_summary_and_links_to_run_id(tmp_path):
-    raw_cfg = _compose_training_cfg(["experiment.evaluation.sample_limit=1"])
-    app_cfg = load_app_config(raw_cfg)
-    run_artifacts_dir = tmp_path / "run"
-    run_artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-    bundle = {
-        "rag_alias": "none",
-        "lora_alias": "local",
-        "lora_info": {
-            "adapter_name": "lora-summarize-local",
-            "adapter_version": None,
-            "adapter_mlflow_run_id": "run-123",
-        },
-        "rag_enabled": False,
-        "predictions": ["summary"],
-        "references": ["summary"],
-        "judge_samples": [
-            {
-                "question": "article",
-                "answer": "summary",
-                "reference": "summary",
-                "context": "",
-            }
-        ],
-        "sample_details": [
-            {
-                "sample_idx": 0,
-                "input": "article",
-                "output": "summary",
-                "reference": "summary",
-                "detail": {},
-            }
-        ],
-    }
-    row = {
-        "metric_name": "rouge_l",
-        "metric_value": 0.9,
-        "adapter_mlflow_run_id": "run-123",
-    }
-
-    mlf_logger = SimpleNamespace(run_id="run-123", experiment=MagicMock())
-
-    with (
-        patch(
-            "experiments.training.train_adapter.post_train_eval.load_dataset_samples",
-            return_value=[{"question": "article", "answer": "summary"}],
-        ),
-        patch(
-            "experiments.training.train_adapter.post_train_eval._generate_local_generation_bundle",
-            return_value=bundle,
-        ) as mock_bundle,
-        patch(
-            "experiments.training.train_adapter.post_train_eval.calculate_metrics",
-            return_value=[row],
-        ) as mock_calculate,
-        patch(
-            "experiments.training.train_adapter.post_train_eval.log_evaluation_summary"
-        ) as mock_log_summary,
-    ):
-        rows = run_post_train_evaluation(
-            cfg=app_cfg,
-            raw_cfg=raw_cfg,
-            model=object(),
-            tokenizer=object(),
-            mlf_logger=mlf_logger,
-            run_artifacts_dir=run_artifacts_dir,
-            lineage={"dataset_dvc_hash": "hash-123", "git_sha": "abc123"},
-        )
-
-    assert rows == [row]
-    assert mock_bundle.call_args.kwargs["run_id"] == "run-123"
-
-    prediction_data = mock_calculate.call_args.kwargs["prediction_data"]
-    assert prediction_data["eval_context"]["extra"]["training_run_id"] == "run-123"
-    assert prediction_data["eval_context"]["extra"]["dataset_dvc_hash"] == "hash-123"
-
-    summary_path = run_artifacts_dir / "evaluation" / "post_train_eval.json"
-    assert summary_path.exists()
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary["metrics"] == {"rouge_l": 0.9}
-    mock_log_summary.assert_called_once()
 
 
 def test_restore_best_checkpoint_for_export_filters_non_live_keys(tmp_path):
@@ -241,23 +152,3 @@ def test_find_dataset_dvc_hash_parses_outs_md5_entry(tmp_path):
     )
 
     assert _find_dataset_dvc_hash(dataset_path, tmp_path) == "hash-123.dir"
-
-
-def test_resolve_model_device_prefers_cuda_from_hf_device_map():
-    model = MagicMock()
-    model.hf_device_map = {"": 0, "lm_head": "cpu"}
-
-    assert _resolve_model_device(model) == torch.device("cuda:0")
-
-
-def test_resolve_model_device_prefers_trainable_cuda_parameter():
-    cpu_param = MagicMock(requires_grad=False)
-    cpu_param.device = torch.device("cpu")
-    cuda_param = MagicMock(requires_grad=True)
-    cuda_param.device = torch.device("cuda:0")
-    model = MagicMock()
-    model.hf_device_map = {}
-    model.parameters.return_value = iter([cpu_param, cuda_param])
-    model.buffers.return_value = iter([])
-
-    assert _resolve_model_device(model) == torch.device("cuda:0")

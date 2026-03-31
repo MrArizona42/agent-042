@@ -164,32 +164,6 @@ def log_training_lineage(
     return lineage
 
 
-def log_evaluation_summary(
-    mlf_logger: MLFlowLogger,
-    cfg: AppConfig,
-    *,
-    summary_metrics: dict[str, float],
-    evaluation_dir: Path,
-) -> None:
-    """Log post-train evaluation metrics and artifacts into the same MLflow run."""
-    tracking_cfg = cfg.experiment.tracking
-    client = mlf_logger.experiment
-    run_id = mlf_logger.run_id
-
-    if tracking_cfg.log_metrics:
-        for metric_name, metric_value in summary_metrics.items():
-            client.log_metric(run_id, f"eval.{metric_name}", float(metric_value))
-
-    client.set_tag(run_id, "post_train_eval.status", "completed")
-    client.set_tag(run_id, "post_train_eval.metrics", ",".join(sorted(summary_metrics)))
-
-    if tracking_cfg.log_artifacts:
-        try:
-            client.log_artifacts(run_id, str(evaluation_dir), artifact_path="evaluation")
-        except Exception as e:
-            logger.warning("Failed to log evaluation artifacts: %s", e)
-
-
 def log_hydra_artifacts_via_logger(mlf_logger: MLFlowLogger) -> None:
     """Upload Hydra output directory to MLflow via the Lightning logger."""
     try:

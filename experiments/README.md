@@ -140,8 +140,12 @@ python -m experiments.training.train_adapter.start_train --info
     - `experiment.callbacks.checkpoint.*` (save_top_k, monitor, ...)
   - `experiment.logger.*` (параметры Lightning MLflow logger)
   - `experiment.tracking.*` (поведение MLflow tracking и env path)
-    - `experiment.evaluation.*` (post-train eval dataset/metrics/sample_limit и т.д.)
-      Примеры:
+
+  Отдельно:
+  - evaluation запускается через dedicated eval DAG, а не через training config
+  - registration / alias promotion выполняются отдельным шагом после успешного train run
+
+  Примеры:
 
 ```bash
 # Базовый запуск (использует значения по умолчанию из конфигов)
