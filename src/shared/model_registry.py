@@ -113,21 +113,30 @@ class AdapterRegistry:
         tags: dict[str, str] | None = None,
         description: str | None = None,
     ) -> Any:
-        """Register a trained LoRA adapter from an existing MLflow run."""
-        model_uri = f"runs:/{run_id}/{artifact_path}"
+        """Register a trained LoRA adapter from an existing MLflow run.
 
-        mv = mlflow.register_model(
-            model_uri=model_uri,
-            name=model_name,
-            tags=tags,
+        Uses ``MlflowClient.create_model_version`` directly so that adapters
+        logged via ``log_artifacts`` (rather than ``log_model``) are supported.
+        Newer MLflow versions (≥2.17) require a "logged model" record when
+        using ``mlflow.register_model``; ``create_model_version`` bypasses that
+        check and works with plain artifact uploads.
+        """
+        run = self.client.get_run(run_id)
+        source = f"{run.info.artifact_uri}/{artifact_path}"
+
+        tag_entities = (
+            [mlflow.entities.ModelVersionTag(k, v) for k, v in tags.items()] if tags else None
         )
 
-        if description:
-            self.client.update_model_version(
-                name=model_name,
-                version=mv.version,
-                description=description,
-            )
+        self._ensure_registered_model(model_name)
+
+        mv = self.client.create_model_version(
+            name=model_name,
+            source=source,
+            run_id=run_id,
+            tags=tag_entities,
+            description=description,
+        )
 
         logger.info(
             "Registered adapter '%s' version %s (run %s)",
@@ -136,6 +145,13 @@ class AdapterRegistry:
             run_id,
         )
         return mv
+
+    def _ensure_registered_model(self, model_name: str) -> None:
+        """Create the registered model entry if it does not already exist."""
+        try:
+            self.client.create_registered_model(model_name)
+        except MlflowException:
+            pass  # already exists
 
     # ── Promote / demote ─────────────────────────────────────────────────
     def promote(
