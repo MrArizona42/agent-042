@@ -135,6 +135,15 @@ def _generate_local_generation_bundle(
     original_padding_side = tokenizer.padding_side
     original_use_cache = getattr(model.config, "use_cache", None)
 
+    logger.info(
+        "Starting post-train local generation on %s for %d samples "
+        "(batch_size=%d, max_new_tokens=%d)",
+        device,
+        len(samples),
+        max(1, batch_size),
+        max_new_tokens,
+    )
+
     model.eval()
     tokenizer.padding_side = "left"
     if original_use_cache is not None:
@@ -196,6 +205,14 @@ def _generate_local_generation_bundle(
                             "detail": {"prompt": batch_prompts[offset]},
                         }
                     )
+
+                processed = min(start + len(batch_samples), len(prompts))
+                if processed == len(prompts) or processed % max(4, max(1, batch_size) * 4) == 0:
+                    logger.info(
+                        "Post-train local generation progress: %d/%d samples",
+                        processed,
+                        len(prompts),
+                    )
     finally:
         tokenizer.padding_side = original_padding_side
         if original_use_cache is not None:
@@ -218,12 +235,26 @@ def _generate_local_generation_bundle(
 
 
 def _resolve_model_device(model: Any) -> torch.device:
+    hf_device_map = getattr(model, "hf_device_map", None) or {}
+    for target in hf_device_map.values():
+        if isinstance(target, int):
+            return torch.device(f"cuda:{target}")
+        if isinstance(target, str) and target.startswith("cuda"):
+            return torch.device(target)
+
+    for parameter in model.parameters():
+        parameter_device = torch.device(parameter.device)
+        if parameter.requires_grad and parameter_device.type != "cpu":
+            return parameter_device
+
     parameter = next(model.parameters(), None)
     if parameter is not None:
-        return parameter.device
+        return torch.device(parameter.device)
+
     buffer = next(model.buffers(), None)
     if buffer is not None:
-        return buffer.device
+        return torch.device(buffer.device)
+
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 

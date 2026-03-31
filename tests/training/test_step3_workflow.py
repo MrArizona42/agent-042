@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
@@ -19,7 +20,10 @@ from experiments.training.train_adapter.mlflow_utils import (
     log_training_lineage,
 )
 from experiments.training.train_adapter.pipeline import _restore_best_checkpoint_for_export
-from experiments.training.train_adapter.post_train_eval import run_post_train_evaluation
+from experiments.training.train_adapter.post_train_eval import (
+    _resolve_model_device,
+    run_post_train_evaluation,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -212,3 +216,23 @@ def test_find_dataset_dvc_hash_parses_outs_md5_entry(tmp_path):
     )
 
     assert _find_dataset_dvc_hash(dataset_path, tmp_path) == "hash-123.dir"
+
+
+def test_resolve_model_device_prefers_cuda_from_hf_device_map():
+    model = MagicMock()
+    model.hf_device_map = {"": 0, "lm_head": "cpu"}
+
+    assert _resolve_model_device(model) == torch.device("cuda:0")
+
+
+def test_resolve_model_device_prefers_trainable_cuda_parameter():
+    cpu_param = MagicMock(requires_grad=False)
+    cpu_param.device = torch.device("cpu")
+    cuda_param = MagicMock(requires_grad=True)
+    cuda_param.device = torch.device("cuda:0")
+    model = MagicMock()
+    model.hf_device_map = {}
+    model.parameters.return_value = iter([cpu_param, cuda_param])
+    model.buffers.return_value = iter([])
+
+    assert _resolve_model_device(model) == torch.device("cuda:0")
