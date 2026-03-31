@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import os
+import json
+from pathlib import Path
 
 import hydra
 from omegaconf import DictConfig
@@ -13,19 +14,16 @@ register_configs()
 
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    skip_post_train_evaluation = os.getenv("TRAIN_ADAPTER_SKIP_POST_TRAIN_EVAL", "").lower() in {
-        "1",
-        "true",
-        "yes",
-    }
-    run_id, save_dir, run_artifacts_dir, manifest_path = run_training(
-        cfg,
-        skip_post_train_evaluation=skip_post_train_evaluation,
-    )
+    run_id, save_dir, run_artifacts_dir, summary_path = run_training(cfg)
+    summary = json.loads(Path(summary_path).read_text(encoding="utf-8"))
 
     print(f"Saved adapter to: {save_dir}")
     print(f"Run artifacts: {run_artifacts_dir}")
-    print(f"training_manifest={manifest_path}")
+    print(f"training_summary={summary_path}")
+    if summary.get("best_val_loss") is not None:
+        print(f"best_val_loss={summary['best_val_loss']}")
+    elif summary.get("best_model_score") is not None:
+        print(f"best_model_score={summary['best_model_score']}")
     print(f"run_id={run_id}")
 
 

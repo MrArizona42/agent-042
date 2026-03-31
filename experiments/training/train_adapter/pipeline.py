@@ -15,48 +15,55 @@ from omegaconf import DictConfig, OmegaConf
 from .config import load_app_config
 from .lit_module import PeftCausalLMModule
 from .mlflow_utils import (
-    build_mlflow_run_logger,
-    configure_mlflow_tracking,
     log_hydra_artifacts_via_logger,
     log_training_lineage,
     setup_mlflow,
     teardown_mlflow,
 )
-from .modeling import build_model_and_tokenizer, load_exported_model_and_tokenizer
-from .post_train_eval import run_post_train_evaluation
+from .modeling import build_model_and_tokenizer
 
 logger = logging.getLogger(__name__)
 
 
-def _write_training_manifest(
+def _checkpoint_score_to_float(score: Any) -> float | None:
+    if score is None:
+        return None
+    if isinstance(score, torch.Tensor):
+        return float(score.detach().cpu().item())
+    return float(score)
+
+
+def _write_training_summary(
     run_id: str,
     save_dir: Path,
     run_artifacts_dir: Path,
+    *,
+    best_checkpoint_path: str | None,
+    best_model_score: float | None,
+    monitor_name: str | None,
 ) -> Path:
     run_artifacts_dir.mkdir(parents=True, exist_ok=True)
     metadata_dir = run_artifacts_dir / "metadata"
     metadata_dir.mkdir(parents=True, exist_ok=True)
-    manifest = {
+
+    summary = {
         "run_id": run_id,
         "save_dir": str(save_dir),
         "run_artifacts_dir": str(run_artifacts_dir),
         "metadata_dir": str(metadata_dir),
-        "resolved_config_path": str(metadata_dir / "resolved_config.json"),
-        "lineage_path": str(metadata_dir / "lineage.json"),
+        "best_checkpoint_path": best_checkpoint_path,
+        "best_model_score": best_model_score,
+        "monitor_name": monitor_name,
     }
-    manifest_path = run_artifacts_dir / "training_manifest.json"
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, sort_keys=True),
+    if monitor_name == "val_loss":
+        summary["best_val_loss"] = best_model_score
+
+    summary_path = run_artifacts_dir / "training_summary.json"
+    summary_path.write_text(
+        json.dumps(summary, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    return manifest_path
-
-
-def _load_training_manifest(manifest_path: str | Path) -> dict[str, Any]:
-    path = Path(manifest_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Training manifest not found: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return summary_path
 
 
 def _restore_best_checkpoint_for_export(
@@ -100,42 +107,8 @@ def _restore_best_checkpoint_for_export(
         )
 
 
-def run_post_train_evaluation_from_manifest(manifest_path: str | Path) -> list[dict[str, Any]]:
-    manifest = _load_training_manifest(manifest_path)
-    raw_cfg_path = Path(manifest["resolved_config_path"])
-    lineage_path = Path(manifest["lineage_path"])
-    run_artifacts_dir = Path(manifest["run_artifacts_dir"])
-    save_dir = Path(manifest["save_dir"])
-
-    raw_cfg = OmegaConf.create(json.loads(raw_cfg_path.read_text(encoding="utf-8")))
-    app_cfg = load_app_config(raw_cfg)
-    if not app_cfg.experiment.evaluation.enabled:
-        logger.info(
-            "Skipping post-train evaluation for run %s because experiment.evaluation.enabled=false",
-            manifest["run_id"],
-        )
-        return []
-
-    configure_mlflow_tracking(app_cfg)
-    model, tokenizer = load_exported_model_and_tokenizer(app_cfg, save_dir)
-    lineage = json.loads(lineage_path.read_text(encoding="utf-8"))
-    mlf_logger = build_mlflow_run_logger(manifest["run_id"])
-
-    return run_post_train_evaluation(
-        cfg=app_cfg,
-        raw_cfg=raw_cfg,
-        model=model,
-        tokenizer=tokenizer,
-        mlf_logger=mlf_logger,
-        run_artifacts_dir=run_artifacts_dir,
-        lineage=lineage,
-    )
-
-
 def run_training(
     cfg: DictConfig,
-    *,
-    skip_post_train_evaluation: bool = False,
 ) -> Tuple[str, str, str, str]:
     """Run a full training loop.
 
@@ -221,7 +194,8 @@ def run_training(
         trainer.fit(lightning_module, datamodule=datamodule)
 
         # Reload best checkpoint weights before export
-        best_ckpt_path = checkpoint_cb.best_model_path
+        best_ckpt_path = checkpoint_cb.best_model_path or None
+        best_model_score = _checkpoint_score_to_float(checkpoint_cb.best_model_score)
         if best_ckpt_path:
             logger.info("Reloading best checkpoint for export: %s", best_ckpt_path)
             _restore_best_checkpoint_for_export(lightning_module, best_ckpt_path)
@@ -230,7 +204,14 @@ def run_training(
         save_dir.mkdir(parents=True, exist_ok=True)
         lightning_module.model.save_pretrained(save_dir)
         tokenizer.save_pretrained(save_dir)
-        manifest_path = _write_training_manifest(mlf_logger.run_id, save_dir, run_artifacts_dir)
+        summary_path = _write_training_summary(
+            mlf_logger.run_id,
+            save_dir,
+            run_artifacts_dir,
+            best_checkpoint_path=best_ckpt_path,
+            best_model_score=best_model_score,
+            monitor_name=getattr(checkpoint_cb, "monitor", None),
+        )
 
         # Upload saved adapter/tokenizer as MLflow artifacts
         if app_cfg.experiment.tracking.log_artifacts:
@@ -241,28 +222,19 @@ def run_training(
             except Exception as e:
                 logger.warning("Failed to log model artifacts: %s", e)
 
-        eval_cfg = app_cfg.experiment.evaluation
-        if skip_post_train_evaluation:
-            logger.info("Skipping in-process post-train evaluation by request")
-        elif eval_cfg.enabled:
-            try:
-                run_post_train_evaluation_from_manifest(manifest_path)
-            except Exception:
-                if eval_cfg.fail_on_error:
-                    raise
-                logger.exception("Post-train evaluation failed but fail_on_error=false")
-
         logger.info(
-            "Training complete. Run ID: %s. Register via the "
+            "Training complete. Run ID: %s. Best %s=%s. Register via the "
             "lora_ops notebook or AdapterRegistry API.",
             mlf_logger.run_id,
+            getattr(checkpoint_cb, "monitor", None) or "model_score",
+            best_model_score if best_model_score is not None else "n/a",
         )
 
         return (
             mlf_logger.run_id,
             str(save_dir),
             str(run_artifacts_dir),
-            str(manifest_path),
+            str(summary_path),
         )
     finally:
         teardown_mlflow()

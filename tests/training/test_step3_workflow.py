@@ -9,7 +9,6 @@ import pytest
 import torch
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
-from omegaconf import OmegaConf
 
 pytest.importorskip("mlflow")
 pytest.importorskip("pytorch_lightning")
@@ -22,8 +21,7 @@ from experiments.training.train_adapter.mlflow_utils import (
 )
 from experiments.training.train_adapter.pipeline import (
     _restore_best_checkpoint_for_export,
-    _write_training_manifest,
-    run_post_train_evaluation_from_manifest,
+    _write_training_summary,
 )
 from experiments.training.train_adapter.post_train_eval import (
     _resolve_model_device,
@@ -193,76 +191,26 @@ def test_restore_best_checkpoint_for_export_filters_non_live_keys(tmp_path):
     )
 
 
-def test_write_training_manifest_records_paths(tmp_path):
+def test_write_training_summary_records_paths_and_best_val_loss(tmp_path):
     run_artifacts_dir = tmp_path / "run"
     save_dir = run_artifacts_dir / "export"
-    manifest_path = _write_training_manifest("run-123", save_dir, run_artifacts_dir)
-
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["run_id"] == "run-123"
-    assert manifest["save_dir"] == str(save_dir)
-    assert manifest["run_artifacts_dir"] == str(run_artifacts_dir)
-    assert manifest["resolved_config_path"] == str(
-        run_artifacts_dir / "metadata" / "resolved_config.json"
+    summary_path = _write_training_summary(
+        "run-123",
+        save_dir,
+        run_artifacts_dir,
+        best_checkpoint_path="C:/tmp/best.ckpt",
+        best_model_score=0.123,
+        monitor_name="val_loss",
     )
 
-
-def test_run_post_train_evaluation_from_manifest_reloads_saved_export(tmp_path):
-    raw_cfg = _compose_training_cfg(["experiment.evaluation.sample_limit=1"])
-    app_cfg = load_app_config(raw_cfg)
-    run_artifacts_dir = tmp_path / "run"
-    metadata_dir = run_artifacts_dir / "metadata"
-    metadata_dir.mkdir(parents=True, exist_ok=True)
-    save_dir = run_artifacts_dir / "export"
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    (metadata_dir / "resolved_config.json").write_text(
-        json.dumps(OmegaConf.to_container(raw_cfg, resolve=True), indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    (metadata_dir / "lineage.json").write_text(
-        json.dumps({"dataset_dvc_hash": "hash-123", "git_sha": "abc123"}),
-        encoding="utf-8",
-    )
-    manifest_path = _write_training_manifest("run-123", save_dir, run_artifacts_dir)
-    fake_model = object()
-    fake_tokenizer = object()
-    fake_logger = SimpleNamespace(run_id="run-123", experiment=MagicMock())
-    rows = [{"metric_name": "rouge_l", "metric_value": 0.9}]
-
-    with (
-        patch(
-            "experiments.training.train_adapter.pipeline.configure_mlflow_tracking"
-        ) as mock_tracking,
-        patch(
-            "experiments.training.train_adapter.pipeline.build_mlflow_run_logger",
-            return_value=fake_logger,
-        ) as mock_run_logger,
-        patch(
-            "experiments.training.train_adapter.pipeline.load_exported_model_and_tokenizer",
-            return_value=(fake_model, fake_tokenizer),
-        ) as mock_load_exported,
-        patch(
-            "experiments.training.train_adapter.pipeline.run_post_train_evaluation",
-            return_value=rows,
-        ) as mock_run_eval,
-    ):
-        result = run_post_train_evaluation_from_manifest(manifest_path)
-
-    assert result == rows
-    mock_tracking.assert_called_once()
-    mock_run_logger.assert_called_once_with("run-123")
-    mock_load_exported.assert_called_once()
-    assert mock_load_exported.call_args.args[1] == save_dir
-
-    eval_kwargs = mock_run_eval.call_args.kwargs
-    assert (
-        eval_kwargs["cfg"].experiment.evaluation.sample_limit
-        == app_cfg.experiment.evaluation.sample_limit
-    )
-    assert eval_kwargs["mlf_logger"] is fake_logger
-    assert eval_kwargs["run_artifacts_dir"] == run_artifacts_dir
-    assert eval_kwargs["lineage"]["dataset_dvc_hash"] == "hash-123"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["run_id"] == "run-123"
+    assert summary["save_dir"] == str(save_dir)
+    assert summary["run_artifacts_dir"] == str(run_artifacts_dir)
+    assert summary["metadata_dir"] == str(run_artifacts_dir / "metadata")
+    assert summary["best_checkpoint_path"] == "C:/tmp/best.ckpt"
+    assert summary["best_model_score"] == 0.123
+    assert summary["best_val_loss"] == 0.123
 
 
 def test_git_context_marks_project_root_as_safe_directory(tmp_path):

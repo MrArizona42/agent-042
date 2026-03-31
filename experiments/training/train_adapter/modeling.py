@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Tuple
 
 import torch
-from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -122,19 +122,4 @@ def build_model_and_tokenizer(cfg: AppConfig) -> Tuple[Any, PreTrainedTokenizerB
     model = _attach_lora_adapter(model, cfg)
 
     model.print_trainable_parameters()
-    return model, tokenizer
-
-
-def load_exported_model_and_tokenizer(
-    cfg: AppConfig,
-    export_dir: str | Path,
-) -> Tuple[Any, PreTrainedTokenizerBase]:
-    export_path = _resolve_model_path(cfg, export_dir)
-    if not export_path.exists():
-        raise FileNotFoundError(f"Export path not found: {export_path}")
-
-    model, _ = load_base_model_and_tokenizer(cfg, for_training=False)
-    model = PeftModel.from_pretrained(model, export_path)
-    model.config.use_cache = False
-    tokenizer = _load_tokenizer(export_path)
     return model, tokenizer

@@ -1,11 +1,11 @@
-"""DAG: LoRA adapter training and post-train evaluation.
+"""DAG: LoRA adapter training.
 
 Runs LoRA fine-tuning on the Airflow GPU worker. The ``train_adapter``
 task invokes ``start_train.py`` as a subprocess to avoid Hydra global-state
-collisions across concurrent runs and returns a small manifest path via XCom.
+collisions across concurrent runs and returns a small training summary path via XCom.
 
-The ``eval_adapter`` task consumes that manifest and runs post-train
-evaluation as a separate Airflow step using the exported adapter artifacts.
+The main output of the DAG is the exported adapter plus the best monitored
+validation score recorded in ``training_summary.json``.
 
 **Does NOT** register, promote, or sync. Those are manual decisions made
 in ``experiments/training/lora_ops.ipynb`` after inspecting the training run.
@@ -39,7 +39,7 @@ default_args = {
 
 
 def _train_adapter(**context) -> str:
-    """Run training as subprocess; return the training manifest path."""
+    """Run training as subprocess; return the training summary path."""
     params = context["params"]
     experiment_config = params["experiment_config"]
     overrides_raw = params.get("hydra_overrides", "[]")
@@ -62,7 +62,6 @@ def _train_adapter(**context) -> str:
         "AIRFLOW_CTX_TASK_ID": task_instance.task_id,
         "AIRFLOW_CTX_DAG_RUN_ID": dag_run.run_id if dag_run else "",
         "AIRFLOW_CTX_EXECUTION_DATE": str(context.get("logical_date", "")),
-        "TRAIN_ADAPTER_SKIP_POST_TRAIN_EVAL": "1",
     }
 
     print(
@@ -86,65 +85,23 @@ def _train_adapter(**context) -> str:
         bufsize=1,
     )
     run_id = ""
-    manifest_path = ""
+    summary_path = ""
     assert process.stdout is not None
     for line in process.stdout:
         print(line, end="")
         if line.startswith("run_id="):
             run_id = line.split("=", 1)[1].strip()
-        if line.startswith("training_manifest="):
-            manifest_path = line.split("=", 1)[1].strip()
+        if line.startswith("training_summary="):
+            summary_path = line.split("=", 1)[1].strip()
 
     return_code = process.wait()
     if return_code != 0:
         raise subprocess.CalledProcessError(return_code, cmd)
-    if not manifest_path:
-        raise RuntimeError("Training completed but no training_manifest was emitted.")
+    if not summary_path:
+        raise RuntimeError("Training completed but no training_summary was emitted.")
     if not run_id:
         print("Training completed but no run_id was emitted.")
-    return manifest_path
-
-
-def _eval_adapter(**context) -> None:
-    """Run post-train evaluation as subprocess using the training manifest."""
-    task_instance = context["ti"]
-    dag_run = context.get("dag_run")
-    manifest_path = context["ti"].xcom_pull(task_ids="train_adapter")
-    if not manifest_path:
-        raise RuntimeError("No training manifest received from train_adapter task")
-
-    cmd = [
-        "python",
-        "-m",
-        "experiments.training.train_adapter.start_post_train_eval",
-        "--manifest",
-        manifest_path,
-    ]
-    env = {
-        **os.environ,
-        "PYTHONPATH": f"{PROJECT_ROOT}:{PROJECT_ROOT / 'src'}",
-        "AIRFLOW_CTX_DAG_ID": context["dag"].dag_id,
-        "AIRFLOW_CTX_TASK_ID": task_instance.task_id,
-        "AIRFLOW_CTX_DAG_RUN_ID": dag_run.run_id if dag_run else "",
-        "AIRFLOW_CTX_EXECUTION_DATE": str(context.get("logical_date", "")),
-    }
-
-    process = subprocess.Popen(
-        cmd,
-        cwd=str(PROJECT_ROOT),
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    assert process.stdout is not None
-    for line in process.stdout:
-        print(line, end="")
-
-    return_code = process.wait()
-    if return_code != 0:
-        raise subprocess.CalledProcessError(return_code, cmd)
+    return summary_path
 
 
 with DAG(
@@ -181,11 +138,3 @@ with DAG(
         python_callable=_train_adapter,
         queue="gpu",
     )
-
-    evaluate = PythonOperator(
-        task_id="eval_adapter",
-        python_callable=_eval_adapter,
-        queue="gpu",
-    )
-
-    train >> evaluate

@@ -7,7 +7,6 @@ import platform
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import dotenv
@@ -45,11 +44,6 @@ def configure_mlflow_tracking(cfg: AppConfig) -> str:
         logger.info("MLflow tracking URI: %s", tracking_uri)
 
     return mlflow.get_tracking_uri()
-
-
-def build_mlflow_run_logger(run_id: str) -> Any:
-    """Return a minimal logger-like handle for attaching to an existing MLflow run."""
-    return SimpleNamespace(run_id=run_id, experiment=mlflow.tracking.MlflowClient())
 
 
 def setup_mlflow(cfg: AppConfig, raw_cfg: DictConfig) -> MLFlowLogger:
