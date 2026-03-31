@@ -121,6 +121,20 @@ class AdapterRegistry:
         using ``mlflow.register_model``; ``create_model_version`` bypasses that
         check and works with plain artifact uploads.
         """
+        # Guard against accidental duplicate registrations.
+        existing = self.client.search_model_versions(
+            filter_string=f"name='{model_name}' and run_id='{run_id}'"
+        )
+        if existing:
+            mv = existing[0]
+            logger.warning(
+                "Run %s is already registered as '%s' version %s — skipping.",
+                run_id,
+                model_name,
+                mv.version,
+            )
+            return mv
+
         run = self.client.get_run(run_id)
         source = f"{run.info.artifact_uri}/{artifact_path}"
 
