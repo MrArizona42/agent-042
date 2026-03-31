@@ -210,13 +210,25 @@ class AdapterRegistry:
     def list_versions(self, model_name: str) -> list[RegisteredAdapter]:
         """List every version of *model_name*, newest first."""
         versions = self.client.search_model_versions(f"name='{model_name}'")
+
+        # search_model_versions intentionally omits aliases for performance;
+        # fetch them from the registered model and build a version→[aliases] map.
+        try:
+            rm = self.client.get_registered_model(model_name)
+            # rm.aliases is {alias_name: version_str}
+            version_aliases: dict[int, list[str]] = {}
+            for alias, ver in rm.aliases.items():
+                version_aliases.setdefault(int(ver), []).append(alias)
+        except Exception:
+            version_aliases = {}
+
         adapters = [
             RegisteredAdapter(
                 name=v.name,
                 version=int(v.version),
                 run_id=v.run_id,
                 source=v.source,
-                aliases=getattr(v, "aliases", []),
+                aliases=version_aliases.get(int(v.version), []),
                 tags=v.tags or {},
                 description=v.description,
             )
