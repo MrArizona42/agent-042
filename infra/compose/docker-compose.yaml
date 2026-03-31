@@ -358,7 +358,7 @@ services:
 
     environment:
       GATEWAY_EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
-      GATEWAY_EMBEDDING_DEVICE: ${EMBEDDINGS_DEVICE}
+      GATEWAY_EMBEDDING_DEVICE: ${GATEWAY_EMBEDDING_DEVICE}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
