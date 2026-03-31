@@ -9,32 +9,17 @@ from pydantic_settings import BaseSettings
 
 
 class WorkerSettings(BaseSettings):
-    """Worker configuration loaded from environment variables."""
+    """Worker-specific configuration loaded from environment variables.
+
+    Only contains fields unique to the Celery worker process.
+    Shared fields (redis_url, vllm_base_url, default_model) are read from
+    ``shared.config.Settings`` via ``get_settings()``.
+    """
 
     # Celery broker (RabbitMQ) — no default; CELERY_BROKER_URL must be set.
     celery_broker_url: str = Field(
         alias="CELERY_BROKER_URL",
         description="RabbitMQ connection URL (e.g. amqp://user:password@rabbitmq:5672//)",
-    )
-
-    # Redis for pub/sub streaming
-    redis_url: str = Field(
-        default="redis://localhost:6379/0",
-        alias="REDIS_URL",
-        description="Redis connection URL for token streaming",
-    )
-
-    # vLLM server
-    vllm_base_url: str = Field(
-        default="http://localhost:8000",
-        alias="VLLM_BASE_URL",
-        description="URL where vLLM server is reachable",
-    )
-
-    vllm_model: str = Field(
-        default="/models/Qwen/Qwen3-0.6B",
-        alias="VLLM_MODEL",
-        description="Default model for inference",
     )
 
     # Task settings

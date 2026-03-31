@@ -272,6 +272,15 @@ def _calculate_metrics_task(
 # DAG generation
 # ---------------------------------------------------------------------------
 
+# Build alias dropdown options dynamically from REGISTRY_SYNC_ALIASES env var
+# so that the Airflow UI stays in sync with the deployed configuration.
+_sync_raw = os.environ.get("REGISTRY_SYNC_ALIASES", "champion,challenger")
+_sync_aliases = [a.strip() for a in _sync_raw.split(",") if a.strip()]
+_alias_options = ["none"] + _sync_aliases
+# Add combined option for convenience when multiple aliases are configured
+if len(_sync_aliases) > 1:
+    _alias_options.append(",".join(_sync_aliases))
+
 for _suite in _EVAL_SUITES:
     _dag_id = _suite["dag_id"]
     _task = _suite["task"]
@@ -298,7 +307,7 @@ for _suite in _EVAL_SUITES:
             ),
             "rag_aliases": Param(
                 type="string",
-                enum=["none", "champion", "challenger", "champion,challenger"],
+                enum=_alias_options,
                 description=(
                     "RAG aliases to evaluate (comma-separated). "
                     "For custom aliases, use custom_params."
@@ -306,7 +315,7 @@ for _suite in _EVAL_SUITES:
             ),
             "lora_aliases": Param(
                 type="string",
-                enum=["none", "champion", "challenger", "champion,challenger"],
+                enum=_alias_options,
                 description=(
                     "LoRA aliases to evaluate (comma-separated). "
                     "For custom aliases, use custom_params."

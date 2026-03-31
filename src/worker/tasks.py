@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 import redis
 
+from shared.config import get_settings
 from worker.celery_app import celery_app
 from worker.config import get_worker_settings
 
@@ -22,7 +23,7 @@ EVENT_ERROR = "error"
 
 def get_redis_client() -> redis.Redis:
     """Create a Redis client for publishing events."""
-    settings = get_worker_settings()
+    settings = get_settings()
     return redis.from_url(settings.redis_url, decode_responses=True)
 
 
@@ -71,11 +72,12 @@ def generate_response(
         Dict with full response content and metadata
     """
     settings = get_worker_settings()
+    shared = get_settings()
     redis_client = get_redis_client()
 
     # Build request payload
     payload: dict[str, Any] = {
-        "model": model or settings.vllm_model,
+        "model": model or shared.default_model,
         "messages": messages,
         "stream": True,  # Always stream from vLLM
     }
@@ -96,7 +98,7 @@ def generate_response(
         with httpx.Client(timeout=None) as client:
             with client.stream(
                 "POST",
-                f"{settings.vllm_base_url}/v1/chat/completions",
+                f"{shared.vllm_base_url}/v1/chat/completions",
                 json=payload,
                 headers={"Content-Type": "application/json"},
             ) as response:

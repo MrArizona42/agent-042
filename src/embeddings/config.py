@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class EmbeddingsSettings(BaseSettings):
-    """Settings for the standalone embeddings service.
+    """Service-specific settings for the standalone embeddings HTTP server.
+
+    Only contains fields unique to the embeddings microservice (host, port).
+    Shared fields (model, device, batch_size) are read from
+    ``shared.config.Settings`` via ``get_settings()``.
 
     Environment Variables:
-        EMBEDDINGS_MODEL: HuggingFace model identifier for embeddings.
-        EMBEDDINGS_DEVICE: Device to run model on (cpu, cuda, mps).
-        EMBEDDINGS_BATCH_SIZE: Maximum batch size for encoding.
         EMBEDDINGS_HOST: Host to bind the HTTP server to.
         EMBEDDINGS_PORT: Port to bind the HTTP server to.
     """
@@ -27,19 +27,6 @@ class EmbeddingsSettings(BaseSettings):
         env_file_encoding="utf-8",
     )
 
-    model: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2",
-        description="HuggingFace model for embeddings",
-    )
-    device: Literal["cpu", "cuda", "mps"] = Field(
-        default="cpu",
-        description="Device for embedding model (cpu, cuda, mps)",
-    )
-    batch_size: int = Field(
-        default=32,
-        description="Maximum batch size for encoding",
-        ge=1,
-    )
     host: str = Field(
         default="0.0.0.0",
         description="Host to bind the HTTP server to",
@@ -53,6 +40,6 @@ class EmbeddingsSettings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> EmbeddingsSettings:
+def get_embeddings_settings() -> EmbeddingsSettings:
     """Get cached embeddings service settings."""
     return EmbeddingsSettings()

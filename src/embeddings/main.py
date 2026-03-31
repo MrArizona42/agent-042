@@ -16,7 +16,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
-from embeddings.config import get_settings
+from embeddings.config import get_embeddings_settings
+from shared.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load the embedding model on startup."""
     global _model
     settings = get_settings()
-    logger.info(f"Loading embedding model: {settings.model} on device: {settings.device}")
-    _model = SentenceTransformer(settings.model, device=settings.device)
+    logger.info(f"Loading embedding model: {settings.embedding_model} on device: {settings.embedding_device}")
+    _model = SentenceTransformer(settings.embedding_model, device=settings.embedding_device)
     dimension = _model.get_sentence_embedding_dimension()
     logger.info(f"Embedding model loaded — dimension: {dimension}")
     yield
@@ -91,7 +92,7 @@ def dimension() -> DimensionResponse:
         raise HTTPException(status_code=503, detail="Model not loaded")
     settings = get_settings()
     dim = _model.get_sentence_embedding_dimension()
-    return DimensionResponse(dimension=dim, model=settings.model)
+    return DimensionResponse(dimension=dim, model=settings.embedding_model)
 
 
 @app.post("/v1/embeddings", response_model=EmbeddingsResponse)
@@ -104,13 +105,13 @@ def embed(request: EmbeddingsRequest) -> EmbeddingsResponse:
     if not request.input:
         return EmbeddingsResponse(
             data=[],
-            model=settings.model,
+            model=settings.embedding_model,
             dimension=_model.get_sentence_embedding_dimension(),
         )
 
     vectors = _model.encode(
         request.input,
-        batch_size=settings.batch_size,
+        batch_size=settings.embedding_batch_size,
         show_progress_bar=False,
         convert_to_numpy=True,
     )
@@ -122,6 +123,6 @@ def embed(request: EmbeddingsRequest) -> EmbeddingsResponse:
 
     return EmbeddingsResponse(
         data=data,
-        model=settings.model,
+        model=settings.embedding_model,
         dimension=_model.get_sentence_embedding_dimension(),
     )

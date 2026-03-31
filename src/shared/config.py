@@ -243,6 +243,16 @@ class Settings(BaseSettings):
         description="Timeout for vLLM requests in seconds",
         ge=1.0,
     )
+    streaming_timeout: float = Field(
+        default=300.0,
+        description="Timeout for Redis Pub/Sub streaming in seconds",
+        ge=1.0,
+    )
+    embeddings_timeout: float = Field(
+        default=120.0,
+        description="Timeout for embeddings service HTTP requests in seconds",
+        ge=1.0,
+    )
 
     # =========================================================================
     # Async Inference Settings (Phase 1)
@@ -315,14 +325,23 @@ class Settings(BaseSettings):
     )
     embedding_model: str = Field(
         default="sentence-transformers/all-MiniLM-L6-v2",
+        validation_alias=AliasChoices(
+            "GATEWAY_EMBEDDING_MODEL", "EMBEDDINGS_MODEL",
+        ),
         description="HuggingFace model for embeddings",
     )
     embedding_device: Literal["cpu", "cuda", "mps"] = Field(
         default="cpu",
+        validation_alias=AliasChoices(
+            "GATEWAY_EMBEDDING_DEVICE", "EMBEDDINGS_DEVICE",
+        ),
         description="Device for embedding model",
     )
     embedding_batch_size: int = Field(
         default=32,
+        validation_alias=AliasChoices(
+            "GATEWAY_EMBEDDING_BATCH_SIZE", "EMBEDDINGS_BATCH_SIZE",
+        ),
         description="Batch size for embedding generation",
         ge=1,
     )
@@ -448,6 +467,7 @@ class ModelRegistrySettings(BaseSettings):
 
     vllm_base_url: str = Field(
         default="http://localhost:8000",
+        validation_alias=AliasChoices("REGISTRY_VLLM_BASE_URL", "GATEWAY_VLLM_BASE_URL"),
         description="vLLM OpenAI-compatible server URL for hot-loading adapters.",
     )
     auto_sync: bool = Field(

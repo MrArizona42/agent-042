@@ -2,22 +2,30 @@
 # Reusable fragments
 # =====================
 
+# Internal container-to-container URLs.  Services that need these merge
+# the anchor; a per-service override wins thanks to YAML merge semantics.
+x-internal-urls: &internal-urls
+  GATEWAY_VLLM_BASE_URL: http://vllm:8000
+  REDIS_URL: redis://redis:6379/0
+  GATEWAY_EMBEDDINGS_URL: http://embeddings:8100
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+
 x-airflow-common-env: &airflow-common-env
   AIRFLOW__CORE__EXECUTOR: CeleryExecutor
   AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
   AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
-  AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER:-airflow}:admin
+  AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER}:admin
   AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/logs/simple_auth_manager_passwords.json
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
   AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/airflow/execution/
-  AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-airflow_jwt_secret}
-  AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER:-airflow}
+  AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+  AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER}
   # Shared key for signing worker log-fetch JWTs (HS512).  Without this,
   # each container auto-generates a random key and the webserver cannot
   # read task logs from the worker (InvalidSignatureError).
-  AIRFLOW__API__SECRET_KEY: ${AIRFLOW_JWT_SECRET:-airflow_jwt_secret}
+  AIRFLOW__API__SECRET_KEY: ${AIRFLOW_JWT_SECRET}
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
@@ -36,6 +44,7 @@ x-airflow-common-env: &airflow-common-env
   EVAL_DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
   # MLflow client endpoint for training, eval, and registry access
   MLFLOW_TRACKING_URI: http://mlflow:5000
+  REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES}
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
@@ -177,8 +186,8 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
       REGISTRY_ADAPTERS_DIR: /adapters
-      REGISTRY_VLLM_BASE_URL: http://vllm:8000
-      REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES:-champion,challenger}
+      GATEWAY_VLLM_BASE_URL: http://vllm:8000
+      REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES}
 
     volumes:
       - ${PROJECT_ROOT}/assets/adapters:/adapters:rw
@@ -348,8 +357,8 @@ services:
       dockerfile: infra/docker/embeddings/Dockerfile
 
     environment:
-      EMBEDDINGS_MODEL: ${GATEWAY_EMBEDDING_MODEL}
-      EMBEDDINGS_DEVICE: ${EMBEDDINGS_DEVICE:-cpu}
+      GATEWAY_EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
+      GATEWAY_EMBEDDING_DEVICE: ${EMBEDDINGS_DEVICE}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
@@ -375,8 +384,8 @@ services:
     environment:
       CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
       REDIS_URL: redis://redis:6379/0
-      VLLM_BASE_URL: http://vllm:8000
-      VLLM_MODEL: ${VLLM_MODEL}
+      GATEWAY_VLLM_BASE_URL: http://vllm:8000
+      GATEWAY_DEFAULT_MODEL: ${VLLM_MODEL}
 
     depends_on:
       rabbitmq:
@@ -535,13 +544,13 @@ services:
       CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
       REDIS_URL: redis://redis:6379/0
       # OAuth2 / OIDC
-      GATEWAY_GOOGLE_CLIENT_ID: ${GATEWAY_GOOGLE_CLIENT_ID:-}
-      GATEWAY_GOOGLE_CLIENT_SECRET: ${GATEWAY_GOOGLE_CLIENT_SECRET:-}
-      GATEWAY_GOOGLE_REDIRECT_URI: ${GATEWAY_GOOGLE_REDIRECT_URI:-}
-      GATEWAY_AGENT042_DB_URL: ${GATEWAY_AGENT042_DB_URL:-}
-      GATEWAY_SESSION_SECRET_KEY: ${GATEWAY_SESSION_SECRET_KEY:-}
-      GATEWAY_SESSION_TTL_SECONDS: ${GATEWAY_SESSION_TTL_SECONDS:-86400}
-      GATEWAY_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY:-}
+      GATEWAY_GOOGLE_CLIENT_ID: ${GATEWAY_GOOGLE_CLIENT_ID}
+      GATEWAY_GOOGLE_CLIENT_SECRET: ${GATEWAY_GOOGLE_CLIENT_SECRET}
+      GATEWAY_GOOGLE_REDIRECT_URI: ${GATEWAY_GOOGLE_REDIRECT_URI}
+      GATEWAY_AGENT042_DB_URL: ${GATEWAY_AGENT042_DB_URL}
+      GATEWAY_SESSION_SECRET_KEY: ${GATEWAY_SESSION_SECRET_KEY}
+      GATEWAY_SESSION_TTL_SECONDS: ${GATEWAY_SESSION_TTL_SECONDS}
+      GATEWAY_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY}
 
     ports:
       - "127.0.0.1:${GATEWAY_PORT}:9000"
@@ -759,11 +768,11 @@ services:
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/airflow/execution/
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-airflow_jwt_secret}
-      AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER:-airflow}
-      AIRFLOW__API__SECRET_KEY: ${AIRFLOW_JWT_SECRET:-airflow_jwt_secret}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+      AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER}
+      AIRFLOW__API__SECRET_KEY: ${AIRFLOW_JWT_SECRET}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER:-airflow}:admin
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER}:admin
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/logs/simple_auth_manager_passwords.json
       AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER}
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
