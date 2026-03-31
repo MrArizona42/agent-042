@@ -1,5 +1,10 @@
 # Plan: LoRA Hot-Swap via Stateless Sync
 
+> **Note:** CLI references to `scripts/manage_registry.py` in this plan are
+> superseded. Registry operations are now performed via the
+> `experiments/training/lora_ops.ipynb` notebook or the `shared.model_registry`
+> Python API (`python -m shared.model_registry sync ...`).
+
 ## Problem
 
 Current setup requires restarting vLLM to change which LoRA adapters are loaded.

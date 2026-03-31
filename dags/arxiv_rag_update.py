@@ -38,7 +38,7 @@ _project_root = str(PROJECT_ROOT)
 _arxiv_dir = str(ARXIV_OUTPUT_DIR)
 _arxiv_rel = str(ARXIV_OUTPUT_DIR.relative_to(PROJECT_ROOT))
 _arxiv_json = str(ARXIV_OUTPUT_DIR / "arxiv_papers.json")
-_build_script = str(PROJECT_ROOT / "experiments" / "scripts" / "rag_data" / "build_arxiv_index.py")
+_build_script = str(PROJECT_ROOT / "experiments" / "rag" / "build_arxiv_index.py")
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
@@ -123,7 +123,7 @@ with DAG(
         bash_command=f"cd {_project_root} && dvc add {_arxiv_rel} && dvc push ",
     )
 
-    # The build script handles all aliases for the arxiv KB automatically.
+    # Daily updates target only the champion alias.
     build_index = BashOperator(
         task_id="build_arxiv_index",
         bash_command=(
@@ -135,6 +135,7 @@ with DAG(
             "--qdrant_port $QDRANT_PORT "
             "--embedding_model $EMBEDDING_MODEL "
             "--kb arxiv "
+            "--alias champion "
         ),
     )
 

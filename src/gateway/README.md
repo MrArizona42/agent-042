@@ -140,6 +140,6 @@ See `src/shared/config.py` for the full list.
 ## Run (local)
 
 ```bash
-uv sync --extra gateway --extra worker --extra rag --extra dev
+uv sync --extra gateway --extra worker --extra rag --group dev
 PYTHONPATH=src GATEWAY_VLLM_BASE_URL=http://localhost:8000 uvicorn gateway.main:app --reload --port 9000
 ```

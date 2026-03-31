@@ -154,19 +154,28 @@ class SectionAwareChunker(BaseChunker):
         return [c.strip() for c in chunks if c.strip()]
 
 
-def get_chunker(task: str, **kwargs) -> BaseChunker:
-    """Factory function to get appropriate chunker for task.
+def get_chunker(strategy: str, **kwargs) -> BaseChunker:
+    """Factory function to get appropriate chunker for a chunking strategy.
 
     Args:
-        task: Task type (chat, code, summarize)
-        **kwargs: Additional arguments passed to chunker
+        strategy: Chunking strategy key (fixed_token, code, section_aware).
+            ``summarize`` is accepted as a deprecated alias for section_aware.
+        **kwargs: Additional arguments passed to chunker (chunk_size, chunk_overlap).
 
     Returns:
-        Appropriate chunker instance
+        Appropriate chunker instance.
     """
-    if task == "code":
+    if strategy == "code":
         return CodeChunker(**kwargs)
-    elif task == "summarize":
+    elif strategy in ("section_aware", "summarize"):
+        if strategy == "summarize":
+            import warnings
+
+            warnings.warn(
+                "Chunking strategy 'summarize' is deprecated, use 'section_aware' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         return SectionAwareChunker(**kwargs)
     else:
         return FixedTokenChunker(**kwargs)

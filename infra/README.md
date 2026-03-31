@@ -53,13 +53,13 @@ nvidia-smi
 * Установить [UV-менеджер](https://docs.astral.sh/uv/getting-started/installation/)
 * Запустить синхронизацию только нужных групп зависимостей:
 ```bash
-uv sync --extra training --extra rag --extra dev
+uv sync --extra training --extra rag --group dev
 ```
 
 Примеры выборочной установки:
 ```bash
 # только gateway + worker + UI для локального сервиса
-uv sync --extra gateway --extra worker --extra ui --extra dev
+uv sync --extra gateway --extra worker --extra ui --group dev
 
 # только инфраструктура MLflow
 uv sync --extra mlflow
@@ -277,6 +277,7 @@ DAG'и также используют следующие переменные (
 JupyterLab предоставляет интерактивную среду для экспериментов и анализа данных.
 
 Монтируемые директории:
+- `${PROJECT_ROOT}/src` → `/home/jovyan/src` (ro) — production-модули для импортов `shared/*`, `rag/*`, `gateway/*`
 - `experiments/` → `/home/jovyan/experiments` (rw) — скрипты и конфиги экспериментов
 - `assets/` → `/home/jovyan/assets` (rw) — данные, модели, адаптеры
 - `dags/` → `/home/jovyan/dags` (rw) — Airflow DAG-файлы
@@ -284,6 +285,14 @@ JupyterLab предоставляет интерактивную среду дл
 Переменные окружения (`.env`):
 - `JUPYTER_PORT` — порт JupyterLab (по умолчанию `8888`)
 - `JUPYTER_TOKEN` — токен для аутентификации (по умолчанию `agent042`)
+
+Дополнительно контейнер получает сервисные переменные:
+- `PROJECT_ROOT=/home/jovyan`
+- `PYTHONPATH=/home/jovyan:/home/jovyan/src`
+- `QDRANT_HOST=qdrant`, `QDRANT_PORT=${QDRANT_PORT}`
+- `EMBEDDINGS_URL=http://embeddings:8100`
+
+Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.
 
 ## DVC с бэкэндом Yandex Cloud S3
 

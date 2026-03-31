@@ -9,6 +9,17 @@
 * `./src/gateway/README.md` - документация Gateway (FastAPI)
 * `./src/ui/README.md` - документация UI (Streamlit)
 
+### Experiment Workflow
+
+Операции с экспериментами выполняются через Jupyter-ноутбуки в `experiments/`:
+
+* **LoRA**: обучение через Airflow DAG `train_lora`, регистрация/промоушен через
+  `experiments/training/lora_ops.ipynb`
+* **RAG**: обновление индексов через DAG-и `arxiv_rag_update` / `pytorch_docs_rag_update`,
+  управление коллекциями через `experiments/rag/rag_ops.ipynb`
+* **Eval**: просмотр результатов через `experiments/eval/eval_results.ipynb`
+* **Misc**: `experiments/misc_ops/` — prefetch, MLflow quickref, PostgreSQL diagnostics
+
 ## Постановка задачи. Scope / Область исследования.
 
 Целью данной работы является создать агентскую систему production уровня, которая способна
@@ -258,7 +269,7 @@ Registry** — единый реестр версионированных LoRA-�
 #### Жизненный цикл адаптера
 
 ```
-train_hydra.py                 manage_registry.py            sync (model_registry.py)
+train_adapter                  lora_ops.ipynb                sync (model_registry.py)
 ─────────────                  ────────────────────          ──────────────────────────
   Обучение LoRA                  Просмотр метрик              Скачивание aliased
        ↓                        в MLflow UI                   адаптеров из S3
@@ -281,7 +292,7 @@ train_hydra.py                 manage_registry.py            sync (model_registr
 
 * **Registry backend**: PostgreSQL (тот же, что для MLflow Tracking).
 * **Artifact storage**: Yandex Object Storage (S3) — адаптеры хранятся рядом с MLflow-артефактами.
-* **Hot-load sync**: `python -m shared.model_registry sync` (или `manage_registry.py sync`)
+* **Hot-load sync**: `python -m shared.model_registry sync`
   скачивает aliased-адаптеры в `assets/adapters/{model}/v{N}/` и загружает их в работающий
   vLLM через `POST /v1/load_lora_adapter`. В vLLM адаптер регистрируется как `{model}-{alias}`
   (например, `lora-summarize-champion`).

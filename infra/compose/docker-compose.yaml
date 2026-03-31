@@ -34,8 +34,8 @@ x-airflow-common-env: &airflow-common-env
   EVAL_GATEWAY_URL: http://gateway:9000
   EVAL_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY}
   EVAL_DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
-  # MLflow Model Registry — used by eval runner to resolve LoRA aliases
-  REGISTRY_MLFLOW_TRACKING_URI: http://mlflow:5000
+  # MLflow client endpoint for training, eval, and registry access
+  MLFLOW_TRACKING_URI: http://mlflow:5000
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
@@ -47,6 +47,10 @@ x-airflow-common-build: &airflow-common-build
 x-airflow-worker-build: &airflow-worker-build
   context: ${PROJECT_ROOT}
   dockerfile: infra/docker/airflow-worker/Dockerfile
+
+x-airflow-worker-gpu-build: &airflow-worker-gpu-build
+  context: ${PROJECT_ROOT}
+  dockerfile: infra/docker/airflow-worker-gpu/Dockerfile
 
 x-airflow-common-volumes: &airflow-common-volumes
   - ${PROJECT_ROOT}/dags:/opt/airflow/dags
@@ -167,7 +171,7 @@ services:
       dockerfile: infra/docker/adapter-sync/Dockerfile
 
     environment:
-      MLFLOW_BACKEND_URI: ${MLFLOW_BACKEND_URI}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
       MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
@@ -437,6 +441,56 @@ services:
     restart: unless-stopped
 
   # =====================
+  # Airflow GPU Worker (Celery) – routes the "gpu" queue
+  # Uses a separate Dockerfile with CUDA-enabled torch and training deps.
+  # Concurrency 1: each training job needs exclusive GPU access.
+  # =====================
+  airflow-worker-gpu:
+    build: *airflow-worker-gpu-build
+    command: celery worker --queues gpu --concurrency 1
+    environment:
+      <<: *airflow-common-env
+      DUMB_INIT_SETSID: "0"
+    volumes:
+      - ${PROJECT_ROOT}/dags:/opt/airflow/dags
+      - ${PROJECT_ROOT}:/opt/airflow/project
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-prepare-dirs:
+        condition: service_completed_successfully
+      airflow-webserver:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      # yamllint disable rule:line-length
+      test:
+        - "CMD-SHELL"
+        - 'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}" || celery --app airflow.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"'
+      # yamllint enable rule:line-length
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - mlflow_db_net
+      - backend_net
+      - sandbox_net
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
   # Code execution sandbox sidecar
   # =====================
   code-sandbox:
@@ -601,7 +655,7 @@ services:
     networks:
       - backend_net
 
-  # Airflow – ensure RAG output directories are writable (one-shot)
+  # Airflow – ensure DAG output directories are writable (one-shot)
   # The project root is bind-mounted from the host, so files keep the
   # host UID.  The airflow user inside the container (UID 50000) cannot
   # write to those directories.  This service runs as root to create
@@ -618,11 +672,16 @@ services:
         mkdir -p /opt/airflow/project/assets/rag_data/pytorch_docs
         chown -R 50000:0 /opt/airflow/project/assets/rag_data
         chmod -R 775 /opt/airflow/project/assets/rag_data
+        # Training DAGs write Hydra outputs, checkpoints, and exports here.
+        mkdir -p /opt/airflow/project/artifacts/training/hydra
+        mkdir -p /opt/airflow/project/artifacts/training/runs
+        chown -R 50000:0 /opt/airflow/project/artifacts/training
+        chmod -R 775 /opt/airflow/project/artifacts/training
         # DVC uses .dvc/tmp/lock and other temp files during `dvc add/push`
         mkdir -p /opt/airflow/project/.dvc/tmp
         chown -R 50000:0 /opt/airflow/project/.dvc
         chmod -R 775 /opt/airflow/project/.dvc
-        echo "RAG data & DVC directories prepared."
+        echo "RAG data, training artifacts, and DVC directories prepared."
     volumes:
       - ${PROJECT_ROOT}:/opt/airflow/project
     logging: *default-logging
@@ -823,7 +882,13 @@ services:
       dockerfile: infra/docker/jupyter/Dockerfile
     command: start-notebook.py --ServerApp.base_url=/jupyter
     environment:
+      PROJECT_ROOT: /home/jovyan
+      PYTHONPATH: /home/jovyan:/home/jovyan/src
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      # Qdrant / embeddings are reached over the internal Docker network.
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: ${QDRANT_PORT}
+      EMBEDDINGS_URL: http://embeddings:8100
       # PostgreSQL — used by diagnostics/analytics notebooks
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # MLflow — direct container-to-container access (no auth needed)
@@ -836,6 +901,7 @@ services:
     ports:
       - "127.0.0.1:${JUPYTER_PORT}:8888"
     volumes:
+      - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
       - ${PROJECT_ROOT}/experiments:/home/jovyan/experiments:rw
       - ${PROJECT_ROOT}/assets:/home/jovyan/assets:rw
       - ${PROJECT_ROOT}/dags:/home/jovyan/dags:rw

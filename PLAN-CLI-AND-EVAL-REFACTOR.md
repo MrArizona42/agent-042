@@ -3,6 +3,11 @@
 Status: **Done**
 Branch: `refactor/lora-swap-optimization` (continuation)
 
+> **Note:** The CLI scripts `scripts/manage_registry.py` and `scripts/manage_rag.py`
+> referenced in §1.2 and §1.3 have been deleted. Registry and RAG operations are now
+> performed via operation notebooks (`experiments/training/lora_ops.ipynb`,
+> `experiments/rag/rag_ops.ipynb`) or the underlying Python APIs.
+
 ---
 
 ## 1. Migrate CLI Scripts to Python Fire

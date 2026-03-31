@@ -9,7 +9,7 @@ from gateway.config import get_settings
 from rag.embeddings import EmbeddingService
 from rag.retriever import Retriever
 from rag.vector_store import QdrantVectorStore
-from shared.config import Settings, get_knowledge_bases
+from shared.config import Settings, get_kb_config, get_knowledge_bases
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +73,9 @@ class RAGService:
         if cache_key in self._retrievers:
             return self._retrievers[cache_key]
 
-        kb_registry = get_knowledge_bases()
-
-        if kb_name not in kb_registry:
+        kb_cfg = get_kb_config(kb_name)
+        if kb_cfg is None:
             return None
-
-        kb_cfg = kb_registry[kb_name]
         if alias not in kb_cfg.aliases:
             return None
 
@@ -125,17 +122,40 @@ class RAGService:
         ``aliases``, and ``update_strategy``.
         """
         result: dict[str, dict] = {}
-        for name, cfg in get_knowledge_bases().items():
-            result[name] = {
-                "label": cfg.label,
-                "description": cfg.description,
-                "aliases": cfg.aliases,
-                "update_strategy": cfg.update_strategy,
-                "chunking_strategy": cfg.chunking_strategy,
-                "chunk_size": cfg.chunk_size,
-                "chunk_overlap": cfg.chunk_overlap,
-            }
+        for task_cfg in get_knowledge_bases().values():
+            for kb_cfg in task_cfg.knowledge_bases:
+                result[kb_cfg.name] = {
+                    "label": kb_cfg.label,
+                    "description": kb_cfg.description,
+                    "aliases": kb_cfg.aliases,
+                    "update_strategy": kb_cfg.update_strategy,
+                }
         return result
+
+    def validate_knowledge_bases(self) -> None:
+        """Check every alias in config resolves to an existing Qdrant collection.
+
+        Logs warnings for missing collections; does not raise.
+        """
+        if not self.enabled:
+            return
+
+        for task_cfg in get_knowledge_bases().values():
+            for kb_cfg in task_cfg.knowledge_bases:
+                for alias in kb_cfg.aliases:
+                    collection = self._qdrant_alias(kb_cfg.name, alias)
+                    vs = QdrantVectorStore(
+                        host=self.settings.qdrant_host,
+                        port=self.settings.qdrant_port,
+                        collection_name=collection,
+                    )
+                    if not vs.collection_exists():
+                        logger.warning(
+                            "KB alias not found in Qdrant at startup: "
+                            "task=%s kb=%s alias=%s collection=%s — marking unavailable",
+                            task_cfg.task, kb_cfg.name, alias, collection,
+                        )
+                        self._unavailable.add(collection)
 
     def retrieve_context(
         self,

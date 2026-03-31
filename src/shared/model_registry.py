@@ -36,7 +36,7 @@ Typical flow
 
 Environment variables
 ---------------------
-``MLFLOW_BACKEND_URI``
+``MLFLOW_TRACKING_URI``
     MLflow tracking server URL (e.g. ``http://mlflow:5000``).
 ``MLFLOW_S3_ENDPOINT_URL``, ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``
     Credentials for downloading artifacts from S3.
@@ -51,7 +51,6 @@ Environment variables
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -114,21 +113,44 @@ class AdapterRegistry:
         tags: dict[str, str] | None = None,
         description: str | None = None,
     ) -> Any:
-        """Register a trained LoRA adapter from an existing MLflow run."""
-        model_uri = f"runs:/{run_id}/{artifact_path}"
+        """Register a trained LoRA adapter from an existing MLflow run.
 
-        mv = mlflow.register_model(
-            model_uri=model_uri,
-            name=model_name,
-            tags=tags,
+        Uses ``MlflowClient.create_model_version`` directly so that adapters
+        logged via ``log_artifacts`` (rather than ``log_model``) are supported.
+        Newer MLflow versions (≥2.17) require a "logged model" record when
+        using ``mlflow.register_model``; ``create_model_version`` bypasses that
+        check and works with plain artifact uploads.
+        """
+        # Guard against accidental duplicate registrations.
+        existing = self.client.search_model_versions(
+            filter_string=f"name='{model_name}' and run_id='{run_id}'"
+        )
+        if existing:
+            mv = existing[0]
+            logger.warning(
+                "Run %s is already registered as '%s' version %s — skipping.",
+                run_id,
+                model_name,
+                mv.version,
+            )
+            return mv
+
+        run = self.client.get_run(run_id)
+        source = f"{run.info.artifact_uri}/{artifact_path}"
+
+        tag_entities = (
+            [mlflow.entities.ModelVersionTag(k, v) for k, v in tags.items()] if tags else None
         )
 
-        if description:
-            self.client.update_model_version(
-                name=model_name,
-                version=mv.version,
-                description=description,
-            )
+        self._ensure_registered_model(model_name)
+
+        mv = self.client.create_model_version(
+            name=model_name,
+            source=source,
+            run_id=run_id,
+            tags=tag_entities,
+            description=description,
+        )
 
         logger.info(
             "Registered adapter '%s' version %s (run %s)",
@@ -137,6 +159,13 @@ class AdapterRegistry:
             run_id,
         )
         return mv
+
+    def _ensure_registered_model(self, model_name: str) -> None:
+        """Create the registered model entry if it does not already exist."""
+        try:
+            self.client.create_registered_model(model_name)
+        except MlflowException:
+            pass  # already exists
 
     # ── Promote / demote ─────────────────────────────────────────────────
     def promote(
@@ -195,13 +224,25 @@ class AdapterRegistry:
     def list_versions(self, model_name: str) -> list[RegisteredAdapter]:
         """List every version of *model_name*, newest first."""
         versions = self.client.search_model_versions(f"name='{model_name}'")
+
+        # search_model_versions intentionally omits aliases for performance;
+        # fetch them from the registered model and build a version→[aliases] map.
+        try:
+            rm = self.client.get_registered_model(model_name)
+            # rm.aliases is {alias_name: version_str}
+            version_aliases: dict[int, list[str]] = {}
+            for alias, ver in rm.aliases.items():
+                version_aliases.setdefault(int(ver), []).append(alias)
+        except Exception:
+            version_aliases = {}
+
         adapters = [
             RegisteredAdapter(
                 name=v.name,
                 version=int(v.version),
                 run_id=v.run_id,
                 source=v.source,
-                aliases=getattr(v, "aliases", []),
+                aliases=version_aliases.get(int(v.version), []),
                 tags=v.tags or {},
                 description=v.description,
             )
@@ -294,8 +335,8 @@ class AdapterSyncer:
     4. Loads desired adapters via the vLLM hot-load API.
 
     Args:
-        tracking_uri: MLflow tracking URI.  Falls back to ``MLFLOW_BACKEND_URI``
-            env var, then to the MLflow default.
+        tracking_uri: MLflow tracking URI. Falls back to ``MLFLOW_TRACKING_URI``
+            from settings/env, then to the MLflow default.
         adapters_dir: Local root for downloaded adapter files.
         sync_aliases: List of MLflow aliases to iterate over.
         vllm_base_url: vLLM OpenAI-compatible server base URL.
@@ -318,7 +359,7 @@ class AdapterSyncer:
         if vllm_base_url is None:
             vllm_base_url = cfg.vllm_base_url
 
-        uri = tracking_uri or os.getenv("MLFLOW_BACKEND_URI")
+        uri = tracking_uri or cfg.mlflow_tracking_uri
         if uri:
             mlflow.set_tracking_uri(uri)
 

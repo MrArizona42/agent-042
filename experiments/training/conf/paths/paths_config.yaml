@@ -1,0 +1,4 @@
+defaults:
+  - base_paths
+
+project_root: "${oc.env:PROJECT_ROOT,.}"

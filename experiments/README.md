@@ -13,12 +13,12 @@
 
 ## 🚀 Быстрый старт
 
-1. Скачать датасет и модель — откройте ноутбук `experiments/notebooks/prefetch_assets.ipynb`,
+1. Скачать датасет и модель — откройте ноутбук `experiments/misc_ops/prefetch_assets.ipynb`,
    задайте `PROJECT_ROOT` и выполните нужные ячейки.
 2. Запустить обучение адаптера:
 
 ```bash
-python ./experiments/scripts/train_hydra.py \
+python -m experiments.training.train_adapter.start_train \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042"
 ```
 
@@ -26,8 +26,15 @@ python ./experiments/scripts/train_hydra.py \
 
 ## 🗂️ Структура директории
 
-* `./conf` - Hydra конфиги
-* `./scripts` - Скрипты экспериментов
+* `./training/conf` - Hydra конфиги
+* `./training` - Обучение адаптера
+* `./training/lora_ops.ipynb` - Операции с LoRA (регистрация, промоушен, синхронизация)
+* `./rag` - RAG индексы
+* `./rag/rag_ops.ipynb` - Операции с RAG (коллекции, алиасы, диагностика)
+* `./eval` - Оценка моделей
+* `./eval/eval_results.ipynb` - Результаты оценки (сравнение, отчёты)
+* `./eval/debug_eval.ipynb` - Отладка пайплайна оценки
+* `./misc_ops` - Прочие операции (prefetch, MLflow, PostgreSQL диагностика)
 
 ## 📦 DVC
 
@@ -52,18 +59,18 @@ Remote хранилище называется ycloud
 
 ## ⚙️ Hydra и конфигурирование
 
-- Конфиги лежат в `experiments/conf` и используются для обучения адаптера:
+- Конфиги лежат в `experiments/training/conf` и используются для обучения адаптера:
     - Обучение адаптера: `config.yaml`
 - Скрипт обучения читает конфиги через декоратор `@hydra.main(..., config_path="../conf", ...)` и
   принимает оверрайды из CLI.
 - Скачивание датасетов и моделей выполняется интерактивно через ноутбук
-  `experiments/notebooks/prefetch_assets.ipynb` (без Hydra).
+  `experiments/misc_ops/prefetch_assets.ipynb` (без Hydra).
 
 - Группы конфигов:
-    - `conf/paths/paths_config.yaml` — ключ `paths.project_root` (по умолчанию проставлен
+    - `training/conf/paths/paths_config.yaml` — ключ `paths.project_root` (по умолчанию проставлен
       Linux-путь, на своей машине лучше переопределять через CLI)
-    - `conf/experiment/train_adapter.yaml` — все параметры обучения (
-      model/lora/data/trainer/scheduler/output/mlflow)
+    - `training/conf/experiment/train_adapter.yaml` — все параметры обучения (
+      model/lora/data/trainer/scheduler/logger/tracking/evaluation)
 
 Про пути и рабочие директории в этом проекте
 
@@ -78,32 +85,32 @@ Remote хранилище называется ycloud
 - Посмотреть доступные группы и опции (help выводит список override-групп):
 
 ```bash
-python ./experiments/scripts/train_hydra.py --help
+python -m experiments.training.train_adapter.start_train --help
 ```
 
 - Вывести финальный составленный конфиг, не запуская задачу (`--resolve` разворачивает интерполяции
   `${...}`):
 
 ```bash
-python ./experiments/scripts/train_hydra.py --cfg job --resolve
+python -m experiments.training.train_adapter.start_train --cfg job --resolve
 ```
 
 - Показать только поддерево (например, секцию `experiment`):
 
 ```bash
-python ./experiments/scripts/train_hydra.py --cfg job --resolve -p experiment
+python -m experiments.training.train_adapter.start_train --cfg job --resolve -p experiment
 ```
 
 - Посмотреть конфиг самой Hydra (логгирование, каталоги и т.п.):
 
 ```bash
-python ./experiments/scripts/train_hydra.py --cfg hydra --resolve
+python -m experiments.training.train_adapter.start_train --cfg hydra --resolve
 ```
 
 - Диагностическая информация (плагины, searchpath, версия):
 
 ```bash
-python ./experiments/scripts/train_hydra.py --info
+python -m experiments.training.train_adapter.start_train --info
 ```
 
 Примечания:
@@ -115,39 +122,46 @@ python ./experiments/scripts/train_hydra.py --info
 ### Запуск скриптов
 
 1) **Скачивание датасета и модели** — используйте ноутбук
-   `experiments/notebooks/prefetch_assets.ipynb`.
+   `experiments/misc_ops/prefetch_assets.ipynb`.
    Задайте `PROJECT_ROOT`, выберите конфигурацию датасета / модели и запустите ячейки.
    Ноутбук позволяет интерактивно изучить скачанные данные перед добавлением в DVC.
 
-2) **Обучение адаптера (scripts/train_hydra.py)**
+2) **Обучение адаптера (training/train_adapter/start_train.py)**
 
 - Использует `config.yaml` -> `experiment: train_adapter`
 - Основные секции, которые можно переопределять из CLI:
     - `experiment.model.*` (dtype, 4-bit, gradient_checkpointing, local_path, и т.д.)
     - `experiment.lora.*` (r, lora_alpha, target_modules, ...)
     - `experiment.data.*` (max_seq_length, batch_size, local_path, prompt_template)
+  - `experiment.data_module.*` (например, `shuffle`)
     - `experiment.training.*` (lr, weight_decay)
     - `experiment.scheduler.*` (enabled, warmup_steps, type, ...)
     - `experiment.trainer.*` (max_epochs, devices, accelerator, precision, ...)
-    - `experiment.output.save_dir`
-    - `experiment.mlflow.*` (при наличии настроенной среды)
-      Примеры:
+    - `experiment.callbacks.checkpoint.*` (save_top_k, monitor, ...)
+  - `experiment.logger.*` (параметры Lightning MLflow logger)
+  - `experiment.tracking.*` (поведение MLflow tracking и env path)
+
+  Отдельно:
+  - evaluation запускается через dedicated eval DAG, а не через training config
+  - registration / alias promotion выполняются отдельным шагом после успешного train run
+
+  Примеры:
 
 ```bash
 # Базовый запуск (использует значения по умолчанию из конфигов)
-python ./experiments/scripts/train_hydra.py \
+python -m experiments.training.train_adapter.start_train \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042"
 
 # Изменить число эпох и LR
-python ./experiments/scripts/train_hydra.py \
+python -m experiments.training.train_adapter.start_train \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
   experiment.trainer.max_epochs=3 \
   experiment.training.lr=5e-5
 
 # Переопределить модель на локальный путь (если скачали в другое место)
-python ./experiments/scripts/train_hydra.py \
+python -m experiments.training.train_adapter.start_train \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  experiment.model.local_path="C:/data/models/Ministral-3b-instruct"
+  experiment.model.local_path="C:/data/models/Qwen/Qwen3-0.6B"
 ```
 
 ### Мультизапуски (sweeps) Hydra
@@ -156,7 +170,7 @@ python ./experiments/scripts/train_hydra.py \
 
 ```bash
 # Перебор LR и accumulate_grad_batches (2×2 = 4 запуска)
-python ./experiments/scripts/train_hydra.py -m \
+python -m experiments.training.train_adapter.start_train -m \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
   experiment.training.lr=1e-4,5e-5 \
   experiment.trainer.accumulate_grad_batches=4,8
@@ -168,20 +182,22 @@ python ./experiments/scripts/train_hydra.py -m \
 
 Где смотреть логи и артефакты
 
-- Hydra конфиги и runtime-артефакты: `experiments/logs/hydra-logs/...`
-- Логи PyTorch Lightning: `experiments/logs/lightning_logs`
-- Сохранённые веса и токенайзер: `experiment.output.save_dir` (по умолчанию вложено в
-  `assets/newly_trained/<дата>/<время>`)
+- Hydra конфиги и runtime-артефакты: `artifacts/training/hydra/...`
+- Каждый запуск создаёт уникальную директорию: `artifacts/training/runs/<timestamp>-<uuid>/`
+  - `checkpoints/` — чекпоинты PyTorch Lightning
+  - `export/` — сохранённые веса и токенайзер лучшего чекпоинта
+  - `metadata/` — resolved Hydra config и lineage metadata
+  - `evaluation/` — post-train evaluation summary
 - При включённом MLflow (настроить .env): артефакты и метрики в трекинге MLflow; Hydra-артефакты
   также загружаются в MLflow
 
 Советы по конфигам
 
-- Если `conf/paths/paths_config.yaml` содержит чужой путь — не редактируйте его в репозитории, а
+- Если `training/conf/paths/paths_config.yaml` содержит чужой путь — не редактируйте его в репозитории, а
   переопределяйте через CLI `paths.project_root=...`.
 - Для Windows используйте прямые слэши (`C:/...`) или экранируйте обратные слэши в кавычках.
 - Чтобы скачать новый датасет или модель — отредактируйте параметры в ноутбуке
-  `experiments/notebooks/prefetch_assets.ipynb` и запустите нужные ячейки.
+  `experiments/misc_ops/prefetch_assets.ipynb` и запустите нужные ячейки.
 
 ## Куда что складывается (данные, логи, метрики, артефакты, параметры)
 
@@ -191,24 +207,31 @@ python ./experiments/scripts/train_hydra.py -m \
 - **Модели (prefetch)**: сохраняются в директорию, указанную в ноутбуке `prefetch_assets.ipynb`
   (по умолчанию `assets/models/...`).
 
-- Выходы обучения (веса адаптера/модели), токенайзер и
-  конфиги: по умолчанию `assets/newly_trained/<дата>/<время>`.
+- Каждый запуск обучения создаёт собственную директорию:
+  `artifacts/training/runs/<timestamp>-<uuid>/`.
+  Внутри неё:
+  - `checkpoints/` — Lightning checkpoints
+  - `export/` — экспортированный адаптер и токенайзер лучшего чекпоинта
+  - `metadata/` — resolved config, git SHA, dataset DVC hash, hardware info
+  - `evaluation/` — результаты автоматической post-train оценки
 
-- Логи Hydra: `experiments/logs/hydra-logs/...`. В каждой папке запуска (`hydra.run.dir`) Hydra
+- Логи Hydra: `artifacts/training/hydra/...`. В каждой папке запуска (`hydra.run.dir`) Hydra
   сохраняет снимок конфигов в подпапке `.hydra`.
 
 - Нативные логи Python: подхватываются Hydra и сохраняются в ту же папку (`hydra.run.dir`).
 
-- Логи Lightning: `experiments/logs/lightning_logs/...`. Lightning логирует локально только
-  чекпойнты по настройкам Trainer/Callbacks (если включены).
+- Локальные артефакты Lightning: `artifacts/training/runs/<timestamp>-<uuid>/checkpoints/...`.
+- Экспорт адаптера для регистрации и дальнейшего использования:
+  `artifacts/training/runs/<timestamp>-<uuid>/export/...`.
 
 - Логи MLflow: через MLFlow проходят:
   - Метрики и параметры - триггерятся через Lightning, можно отслеживать обучение в MLFlow UI
+  - Post-train eval метрики логируются в тот же run как `eval.<metric>`
   - Вся папка Hydra - отправляется в Yandex Cloud (триггерится MLFlow, но НЕ проксируются через
     MLFlow server!)
 
 - **Model Registry (MLflow)**: после обучения адаптер можно вручную зарегистрировать в MLflow Model
-  Registry через CLI `scripts/manage_registry.py register`. Подробнее — ниже.
+  Registry через ноутбук `experiments/training/lora_ops.ipynb`. Подробнее — ниже.
 
 - Базовый корень для относительных путей: `paths.project_root` (обязательно указывайте корректный
   путь для своей машины).
@@ -236,68 +259,53 @@ python ./experiments/scripts/train_hydra.py -m \
 
 ### Регистрация адаптера в реестре
 
-Обучение через `train_hydra.py` только логирует метрики и артефакты в MLflow Tracking.
-Регистрация в Model Registry — отдельный осознанный шаг через CLI:
+Обучение через `start_train.py` только логирует метрики и артефакты в MLflow Tracking.
+Регистрация в Model Registry — отдельный осознанный шаг через ноутбук
+`experiments/training/lora_ops.ipynb`:
 
 ```bash
 # 1. Обучить адаптер (без регистрации в Registry)
-python ./experiments/scripts/train_hydra.py \
+python -m experiments.training.train_adapter.start_train \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042"
 
 # 2. Просмотреть результаты в MLflow UI, выбрать лучший run
 
 # 3. Зарегистрировать выбранный run в Model Registry
-python scripts/manage_registry.py register lora-summarize --run-id <RUN_ID>
+#    (через lora_ops.ipynb или Python API: registry.register_adapter(...))
 ```
 
 Такое разделение не засоряет реестр промежуточными экспериментами и обеспечивает
 осознанный контроль над тем, какие адаптеры попадают в каталог развёртывания.
 
-### CLI для управления реестром: `manage_registry.py`
+### CLI для управления реестром
 
-Скрипт `scripts/manage_registry.py` — операционный инструмент (не Hydra) для просмотра
-и управления адаптерами в реестре. Читает `MLFLOW_BACKEND_URI` из `experiments/.env`.
+> **Примечание:** CLI-скрипт `scripts/manage_registry.py` удалён. Операции с реестром
+> (register, promote, demote, download, sync) теперь выполняются через ноутбук
+> `experiments/training/lora_ops.ipynb` или напрямую через `shared.model_registry`
+> Python API.
+
+Скрипт `src/shared/model_registry.py` — программный интерфейс для управления
+адаптерами в реестре. Читает `MLFLOW_TRACKING_URI` из `experiments/.env`.
 
 **Просмотр всех зарегистрированных адаптеров:**
 
-```bash
-python scripts/manage_registry.py list
-```
-
-**Все версии конкретного адаптера:**
-
-```bash
-python scripts/manage_registry.py versions lora-summarize
+```python
+# Python API (из lora_ops.ipynb)
+from shared.model_registry import AdapterRegistry
+registry = AdapterRegistry()
+registry.list_models()
 ```
 
 **Промотирование версии в production (alias champion):**
 
-```bash
-python scripts/manage_registry.py promote lora-summarize 3
-```
-
-**Промотировать в staging (alias challenger):**
-
-```bash
-python scripts/manage_registry.py promote lora-summarize 5 --alias challenger
+```python
+registry.promote(model_name="lora-summarize", version=3, alias="champion")
 ```
 
 **Снять alias:**
 
-```bash
-python scripts/manage_registry.py demote lora-summarize
-```
-
-**Посмотреть, какие адаптеры сейчас в production:**
-
-```bash
-python scripts/manage_registry.py production
-```
-
-**Скачать production-адаптер локально:**
-
-```bash
-python scripts/manage_registry.py download lora-summarize ./my_adapters
+```python
+registry.demote(model_name="lora-summarize", alias="champion")
 ```
 
 ### Синхронизация адаптеров на inference-хосте
@@ -309,9 +317,6 @@ python scripts/manage_registry.py download lora-summarize ./my_adapters
 ```bash
 # Из корня проекта (с настроенным .env)
 python -m shared.model_registry sync --adapters-dir ./assets/adapters --vllm-url http://localhost:8000
-
-# Или через manage_registry.py
-python scripts/manage_registry.py sync --vllm-url http://localhost:8000
 ```
 
 Результат на диске:
@@ -337,19 +342,19 @@ assets/adapters/
 
 ```bash
 # 1. Обучить адаптер (метрики и артефакты логируются в MLflow)
-python ./experiments/scripts/train_hydra.py \
+python -m experiments.training.train_adapter.start_train \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042"
 
 # 2. Посмотреть версии, метрики в MLflow UI, выбрать лучший run
 
-# 3. Зарегистрировать лучший run в Model Registry
-python scripts/manage_registry.py register lora-summarize --run-id <RUN_ID>
+# 3. Зарегистрировать лучший run в Model Registry (через lora_ops.ipynb)
+#    registry.register_adapter(run_id="<RUN_ID>", artifact_path="model", model_name="lora-summarize")
 
 # 4. Промотировать зарегистрированную версию в production
-python scripts/manage_registry.py promote lora-summarize 3
+#    registry.promote(model_name="lora-summarize", version=3, alias="champion")
 
 # 5. Синхронизировать адаптеры на inference-хосте (hot-load в работающий vLLM)
-python scripts/manage_registry.py sync --vllm-url http://localhost:8000
+python -m shared.model_registry sync --vllm-url http://localhost:8000
 ```
 
 ### Конфигурация vLLM для multi-LoRA

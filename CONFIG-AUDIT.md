@@ -269,7 +269,7 @@ These URLs are hardcoded directly in compose instead of being `.env` vars:
 |---|---|---|
 | airflow-common-env | `GATEWAY_EMBEDDINGS_URL` | `http://embeddings:8100` |
 | airflow-common-env | `EVAL_GATEWAY_URL` | `http://gateway:9000` |
-| airflow-common-env | `REGISTRY_MLFLOW_TRACKING_URI` | `http://mlflow:5000` |
+| airflow-common-env | `MLFLOW_TRACKING_URI` | `http://mlflow:5000` |
 | vllm-adapter-sync | `REGISTRY_VLLM_BASE_URL` | `http://vllm:8000` |
 | gateway | `GATEWAY_EMBEDDINGS_URL` | `http://embeddings:8100` |
 | celery-worker | `REDIS_URL` | `redis://redis:6379/0` |
