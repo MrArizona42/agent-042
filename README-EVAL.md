@@ -453,6 +453,10 @@ export EVAL_JUDGE_MODEL="gemini-2.0-flash"
 export EVAL_SAMPLE_LIMIT="50"    # limit samples for quick testing
 ```
 
+Inside Docker Compose and the bundled Jupyter container, `EVAL_GATEWAY_URL`
+is already injected as `http://gateway:9000`. Export it only when you want to
+target a different endpoint.
+
 **3. Run evaluations from the CLI**
 
 ```bash

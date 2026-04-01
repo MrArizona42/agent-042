@@ -3,7 +3,10 @@
 > **Note:** CLI references to `scripts/manage_registry.py` in this plan are
 > superseded. Registry operations are now performed via the
 > `experiments/training/lora_ops.ipynb` notebook or the `shared.model_registry`
-> Python API (`python -m shared.model_registry sync ...`).
+> Python API. The default sync path is `python -m shared.model_registry sync`
+> with `GATEWAY_VLLM_BASE_URL` as the canonical vLLM endpoint env var;
+> `REGISTRY_VLLM_BASE_URL` remains a backward-compatible alias and
+> `--vllm-url` is only an explicit override.
 
 ## Problem
 
@@ -20,7 +23,7 @@ points to, you must restart the whole vLLM container — slow and disruptive.
 4. **Sync is stateless**: no `lora-modules.json`, no `.sync-state.json`. MLflow is source of truth. Sync unconditionally unloads + reloads.
 5. **Startup order flips**: vLLM starts first (no adapters), then sync runs against the live vLLM API, then gateway/UI start.
 6. **No custom vLLM entrypoint**: drop `vllm-entrypoint.sh` and the wrapper Dockerfile — use stock `vllm/vllm-openai` image.
-7. **CLI as primary entry point**: `manage_registry.py sync` for both startup and on-the-fly updates.
+7. **CLI as primary entry point**: `python -m shared.model_registry sync` for both startup and on-the-fly updates.
 
 ## Architecture: Before vs After
 
@@ -65,7 +68,7 @@ lora-code-champion        →  /adapters/lora-code/v2/model
 
 ## Sync Algorithm
 
-`manage_registry.py sync --vllm-url <URL>`:
+`python -m shared.model_registry sync` (optionally `--vllm-url <URL>`):
 
 ```
 1. Query MLflow: for each registered model × each alias in REGISTRY_SYNC_ALIASES
@@ -92,27 +95,29 @@ lora-code-champion        →  /adapters/lora-code/v2/model
 
 ### Deploy first-ever adapter
 ```bash
-# Train, register, promote in MLflow:
-python scripts/manage_registry.py register lora-summarize --run-id <RUN_ID>
-python scripts/manage_registry.py promote lora-summarize 1 --alias champion
+# Train, then register/promote in lora_ops.ipynb or via AdapterRegistry API:
+#   registry.register_adapter(run_id="<RUN_ID>", artifact_path="model", model_name="lora-summarize")
+#   registry.promote(model_name="lora-summarize", version=1, alias="champion")
 
 # Hot-load into running vLLM:
-python scripts/manage_registry.py sync --vllm-url http://localhost:8000
+python -m shared.model_registry sync
 # → downloads v1, loads lora-summarize-champion
 ```
 
 ### Swap champion to newer version
 ```bash
-python scripts/manage_registry.py promote lora-summarize 5 --alias champion
-python scripts/manage_registry.py sync --vllm-url http://localhost:8000
+# Promote via lora_ops.ipynb or AdapterRegistry API, then sync:
+#   registry.promote(model_name="lora-summarize", version=5, alias="champion")
+python -m shared.model_registry sync
 # → downloads v5 (v3 stays on disk), unloads lora-summarize-champion, reloads pointing to v5
 ```
 
 ### A/B test champion vs challenger
 ```bash
-python scripts/manage_registry.py promote lora-summarize 3 --alias champion
-python scripts/manage_registry.py promote lora-summarize 5 --alias challenger
-python scripts/manage_registry.py sync --vllm-url http://localhost:8000
+# Promote via lora_ops.ipynb or AdapterRegistry API, then sync:
+#   registry.promote(model_name="lora-summarize", version=3, alias="champion")
+#   registry.promote(model_name="lora-summarize", version=5, alias="challenger")
+python -m shared.model_registry sync
 # → both lora-summarize-champion and lora-summarize-challenger available
 
 # Eval:
@@ -121,8 +126,9 @@ python experiments/scripts/eval/runner.py --lora-aliases champion,challenger
 
 ### Remove all adapters (go back to base model only)
 ```bash
-python scripts/manage_registry.py demote lora-summarize --alias champion
-python scripts/manage_registry.py sync --vllm-url http://localhost:8000
+# Demote via lora_ops.ipynb or AdapterRegistry API, then sync:
+#   registry.demote(model_name="lora-summarize", alias="champion")
+python -m shared.model_registry sync
 # → unloads everything, vLLM serves base model only
 ```
 
@@ -132,7 +138,8 @@ python scripts/manage_registry.py sync --vllm-url http://localhost:8000
 - Add `sync_aliases: list[str]` to `ModelRegistrySettings` (default: `["champion", "challenger"]`)
   loaded from `REGISTRY_SYNC_ALIASES` env var (comma-separated).
 - Add `vllm_base_url: str` to `ModelRegistrySettings` (default: `"http://localhost:8000"`),
-  loaded from `REGISTRY_VLLM_BASE_URL`.
+  loaded from canonical `GATEWAY_VLLM_BASE_URL`
+  (`REGISTRY_VLLM_BASE_URL` stays as a backward-compatible alias).
 - `production_alias` field stays for backward compat (used by `promote`/`demote` default).
 
 ### 2. `src/shared/model_registry.py`
@@ -145,11 +152,12 @@ python scripts/manage_registry.py sync --vllm-url http://localhost:8000
   - Remove `adapters-summary.json` writing.
 - **`AdapterSyncer.discover_production_adapters()`** — rename/refactor to `discover_aliased_adapters()`,
   iterate over `sync_aliases` list instead of single `production_alias`.
-- **CLI `sync` subcommand** — add `--vllm-url` flag.
+- **CLI `sync` subcommand** — add optional `--vllm-url` override.
 - **`AdapterRegistry.download_adapter()`** — update path scheme to `{model}/v{version}/`.
 
 ### 3. `infra/docker/adapter-sync/sync-adapters.sh`
-- Pass `--vllm-url http://vllm:8000` to sync command.
+- Invoke `python -m shared.model_registry sync` without passing explicit endpoint flags;
+  rely on shared settings/env resolution for vLLM URL and aliases.
 - No longer sets `VLLM_BASE_MODEL` (not needed without `lora-modules.json`).
 
 ### 4. `infra/docker/adapter-sync/Dockerfile`
@@ -188,7 +196,7 @@ vllm-adapter-sync:
   environment:
     # ... MLflow + S3 creds unchanged
     REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES:-champion,challenger}
-    REGISTRY_VLLM_BASE_URL: http://vllm:8000     # ← NEW
+    GATEWAY_VLLM_BASE_URL: http://vllm:8000      # ← canonical env
   depends_on:
     mlflow:
       condition: service_healthy
@@ -207,13 +215,13 @@ gateway:
     # ... rest unchanged
 ```
 
-### 8. `scripts/manage_registry.py`
-- Add `sync` subcommand:
+### 8. `python -m shared.model_registry`
+- Use the built-in CLI entry point:
   ```
-  manage_registry.py sync [--vllm-url URL] [--aliases champion,challenger]
+  python -m shared.model_registry sync [--vllm-url URL] [--aliases champion,challenger]
   ```
-  Calls `AdapterSyncer.sync()` with vLLM URL.
-- Keep all existing commands (`list`, `register`, `versions`, `promote`, `demote`, `download`, `production`).
+  By default it reads the vLLM URL from `GATEWAY_VLLM_BASE_URL`; pass
+  `--vllm-url` only to override the target explicitly.
 
 ### 9. `experiments/scripts/eval/runner.py`
 - Simplify `_resolve_lora_alias()`:
@@ -232,7 +240,7 @@ gateway:
   The runner change (item 9) handles the new naming transparently.
 
 ### 11. `experiments/notebooks/register_pretrained_loras.ipynb`
-- Update Part III (deployment cells) to use `!python scripts/manage_registry.py sync`.
+- Update Part III (deployment cells) to use `!python -m shared.model_registry sync`.
 - Remove Option A (full restart) / Option B (manual curl) distinction — there's only one path now.
 - Update curl examples to show the new adapter naming (`lora-summarize-champion`).
 
@@ -252,8 +260,11 @@ gateway:
 # Aliases to sync from MLflow to vLLM (comma-separated)
 REGISTRY_SYNC_ALIASES=champion,challenger
 
-# vLLM URL for hot-load API (used by sync command)
-REGISTRY_VLLM_BASE_URL=http://vllm:8000
+# Canonical vLLM URL for hot-load API (used by sync command)
+GATEWAY_VLLM_BASE_URL=http://vllm:8000
+
+# Optional backward-compatible alias understood by Python settings
+# REGISTRY_VLLM_BASE_URL=http://vllm:8000
 ```
 
 ## Migration / Backward Compatibility
@@ -268,7 +279,7 @@ REGISTRY_VLLM_BASE_URL=http://vllm:8000
 
 ## Testing Checklist
 
-- [ ] `manage_registry.py sync` with zero aliases in MLflow → vLLM has no adapters
+- [ ] `python -m shared.model_registry sync` with zero aliases in MLflow → vLLM has no adapters
 - [ ] `promote` + `sync` → adapter appears in `GET /v1/models`
 - [ ] Request with `"model": "lora-summarize-champion"` → uses adapter
 - [ ] Request with `"model": null` → uses base model

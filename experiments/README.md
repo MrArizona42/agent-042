@@ -316,8 +316,12 @@ registry.demote(model_name="lora-summarize", alias="champion")
 
 ```bash
 # Из корня проекта (с настроенным .env)
-python -m shared.model_registry sync --adapters-dir ./assets/adapters --vllm-url http://localhost:8000
+python -m shared.model_registry sync --adapters-dir ./assets/adapters
 ```
+
+По умолчанию команда читает endpoint vLLM из `GATEWAY_VLLM_BASE_URL`
+(`REGISTRY_VLLM_BASE_URL` остаётся обратно совместимым alias).
+`--vllm-url` нужен только для явного override.
 
 Результат на диске:
 
@@ -354,7 +358,7 @@ python -m experiments.training.train_adapter.start_train \
 #    registry.promote(model_name="lora-summarize", version=3, alias="champion")
 
 # 5. Синхронизировать адаптеры на inference-хосте (hot-load в работающий vLLM)
-python -m shared.model_registry sync --vllm-url http://localhost:8000
+python -m shared.model_registry sync
 ```
 
 ### Конфигурация vLLM для multi-LoRA

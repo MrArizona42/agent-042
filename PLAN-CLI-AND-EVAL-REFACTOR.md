@@ -31,8 +31,8 @@ Steps:
 - [x] Positional args in argparse become method positional params; optional
       flags become keyword params with defaults.
 - [x] Remove the `dispatch = {…}` dict and `parser.add_subparsers` block.
-- [x] Verify: `python scripts/manage_registry.py list`,
-      `python scripts/manage_registry.py sync --vllm-url …`.
+- [x] Verify: registry sync now runs via `python -m shared.model_registry sync`
+      (with `--vllm-url` only as an explicit override).
 
 ### 1.3 Migrate `scripts/manage_rag.py` (3 subcommands)
 
@@ -53,7 +53,7 @@ Current state: ~70 lines, argparse with `sync`, `list`.
 Steps:
 - [x] Replace internal `_cli()` with a `RegistryCli` Fire class.
 - [x] `sync` and `list` become methods.
-- [x] Verify: `python -m shared.model_registry sync --vllm-url …`.
+- [x] Verify: `python -m shared.model_registry sync`.
 
 ### 1.5 Migrate `experiments/scripts/eval/runner.py` (flat flags)
 

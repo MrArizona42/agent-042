@@ -1,6 +1,15 @@
 # Configuration Audit
 
-Status: **observations only** — no changes made yet.
+Status: **historical audit snapshot** — captured before the config cleanup pass.
+
+Current runtime contract:
+
+- `shared/config.py` owns shared cross-service settings.
+- Canonical internal endpoint vars in compose/docs are `GATEWAY_VLLM_BASE_URL`, `GATEWAY_EMBEDDINGS_URL`, and `EVAL_GATEWAY_URL`.
+- `REGISTRY_VLLM_BASE_URL` and `EMBEDDINGS_URL` are still accepted by Python settings as backward-compatible aliases, but they are no longer the documented compose contract.
+- `src/embeddings/config.py` was removed; embeddings runtime config now lives in `shared.config` plus the compose and Docker service definition.
+
+The sections below describe the pre-refactor state that was audited.
 
 ## Architecture overview
 
@@ -209,9 +218,10 @@ touching Python code.
 
 ```yaml
 x-internal-urls: &internal-urls
-  VLLM_BASE_URL: http://vllm:8000
+   GATEWAY_VLLM_BASE_URL: http://vllm:8000
   REDIS_URL: redis://redis:6379/0
-  EMBEDDINGS_URL: http://embeddings:8100
+   GATEWAY_EMBEDDINGS_URL: http://embeddings:8100
+   EVAL_GATEWAY_URL: http://gateway:9000
   MLFLOW_TRACKING_URI: http://mlflow:5000
 ```
 
