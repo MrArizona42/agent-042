@@ -1,13 +1,14 @@
 """DAG: Weekly PyTorch documentation RAG data update.
 
 Scrapes a fresh copy of core PyTorch documentation pages,
-versions the data with DVC, and rebuilds the code vector
-index in Qdrant using the **replace** strategy.
+versions the data with DVC, and refreshes the champion
+code collection in Qdrant using the production replace
+update workflow from ``rag.ops.update``.
 
-The DAG only rebuilds the **champion** alias.  It does NOT touch
-challenger.  The build script creates a new timestamped collection,
-writes ``_meta``, creates a staging alias, builds the index, and
-then atomically swaps the champion alias.
+The DAG only rebuilds the **champion** alias. It does NOT touch
+challenger. The production update workflow creates a successor
+collection from champion `_meta`, writes fresh metadata, and then
+atomically swaps the champion alias.
 
 Schedule: @weekly
 """
@@ -56,12 +57,8 @@ PYTORCH_PAGES: list[str] = [
 
 # Paths as strings for bash commands
 _project_root = str(PROJECT_ROOT)
-_pytorch_dir = str(PYTORCH_OUTPUT_DIR)
 _pytorch_rel = str(PYTORCH_OUTPUT_DIR.relative_to(PROJECT_ROOT))
 _pytorch_json = str(PYTORCH_OUTPUT_DIR / "pytorch_docs.json")
-_build_script = str(
-    PROJECT_ROOT / "experiments" / "rag" / "build_pytorch_docs_index.py"
-)
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
@@ -134,6 +131,17 @@ def _collect_pytorch_docs() -> str:
     return str(output_file)
 
 
+def _update_pytorch_index() -> dict[str, object]:
+    """Refresh the champion PyTorch docs collection using production ops."""
+    from rag.ops.update import update_pytorch_docs_collection
+
+    return update_pytorch_docs_collection(
+        pytorch_docs_file=_pytorch_json,
+        kb="pytorch_docs",
+        alias="champion",
+    )
+
+
 # ---------------------------------------------------------------------------
 # DAG definition
 # ---------------------------------------------------------------------------
@@ -161,19 +169,9 @@ with DAG(
     # The build script reads _meta from the current champion, creates a
     # new timestamped collection with a staging alias, builds the index,
     # and then swaps the champion alias.
-    build_index = BashOperator(
+    build_index = PythonOperator(
         task_id="build_pytorch_index",
-        bash_command=(
-            f"cd {_project_root} && "
-            f"PYTHONPATH={_project_root}/src:$PYTHONPATH "
-            f"python {_build_script} "
-            f"--pytorch_docs_file {_pytorch_json} "
-            "--qdrant_host $QDRANT_HOST "
-            "--qdrant_port $QDRANT_PORT "
-            "--embedding_model $EMBEDDING_MODEL "
-            "--kb pytorch_docs "
-            "--alias champion "
-        ),
+        python_callable=_update_pytorch_index,
     )
 
     scrape >> dvc_version >> build_index

@@ -763,8 +763,11 @@ def _fetch_retrieval_predictions(
     )
 
     try:
-        embedding_model = build_config["embedding_model"]
-        emb_service = EmbeddingService(model_name=embedding_model)
+        embedding_model = build_config.embedding_model
+        emb_service = EmbeddingService(
+            model_name=embedding_model,
+            embeddings_url=settings.embeddings_url,
+        )
         vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
 
         queries = [s for s in samples if s.get("query")]
@@ -816,12 +819,7 @@ def _fetch_retrieval_predictions(
         "rag_enabled": True,
         "query_results": query_results,
         "sample_details": sample_details,
-        "build_config": {
-            "embedding_model": build_config.get("embedding_model"),
-            "chunking_strategy": build_config.get("chunking_strategy"),
-            "chunk_size": build_config.get("chunk_size"),
-            "chunk_overlap": build_config.get("chunk_overlap"),
-        },
+        "build_config": build_config.to_payload(),
         "temp_collection": temp_collection,
     }
 

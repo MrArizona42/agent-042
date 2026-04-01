@@ -1,12 +1,9 @@
 """DAG: Daily ArXiv RAG data update.
 
 Downloads the latest ArXiv papers in target categories,
-versions the data with DVC, and rebuilds the chat vector
-index in Qdrant using the **incremental** strategy.
-
-The build script resolves all aliases for the ``arxiv`` KB,
-reads ``_meta`` from each to determine the build config, and
-upserts new papers into every active collection.
+versions the data with DVC, and refreshes the champion
+chat collection in Qdrant using the production incremental
+update workflow from ``rag.ops.update``.
 
 Schedule: @daily
 """
@@ -35,10 +32,8 @@ ARXIV_MAX_RESULTS: int = 100
 
 # Paths as strings for bash commands
 _project_root = str(PROJECT_ROOT)
-_arxiv_dir = str(ARXIV_OUTPUT_DIR)
 _arxiv_rel = str(ARXIV_OUTPUT_DIR.relative_to(PROJECT_ROOT))
 _arxiv_json = str(ARXIV_OUTPUT_DIR / "arxiv_papers.json")
-_build_script = str(PROJECT_ROOT / "experiments" / "rag" / "build_arxiv_index.py")
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
@@ -100,6 +95,17 @@ def _download_arxiv_papers() -> str:
     return str(output_file)
 
 
+def _update_arxiv_index() -> dict[str, object]:
+    """Refresh the champion ArXiv collection using production ops."""
+    from rag.ops.update import update_arxiv_collection
+
+    return update_arxiv_collection(
+        arxiv_file=_arxiv_json,
+        kb="arxiv",
+        alias="champion",
+    )
+
+
 # ---------------------------------------------------------------------------
 # DAG definition
 # ---------------------------------------------------------------------------
@@ -124,19 +130,9 @@ with DAG(
     )
 
     # Daily updates target only the champion alias.
-    build_index = BashOperator(
+    build_index = PythonOperator(
         task_id="build_arxiv_index",
-        bash_command=(
-            f"cd {_project_root} && "
-            f"PYTHONPATH={_project_root}/src:$PYTHONPATH "
-            f"python {_build_script} "
-            f"--arxiv_file {_arxiv_json} "
-            "--qdrant_host $QDRANT_HOST "
-            "--qdrant_port $QDRANT_PORT "
-            "--embedding_model $EMBEDDING_MODEL "
-            "--kb arxiv "
-            "--alias champion "
-        ),
+        python_callable=_update_arxiv_index,
     )
 
     download >> dvc_version >> build_index

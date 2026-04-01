@@ -231,8 +231,8 @@ DAG-файлы размещаются в директории `dags/` в кор�
 
 | DAG | Расписание | Описание |
 |-----|-----------|----------|
-| `arxiv_rag_update` | `@daily` | Загрузка новых ArXiv статей → `dvc add/push` → пересборка индекса `chat_documents` в Qdrant |
-| `pytorch_docs_rag_update` | `@weekly` | Скрейпинг документации PyTorch → `dvc add/push` → пересборка индекса `code_documents` в Qdrant |
+| `arxiv_rag_update` | `@daily` | Загрузка новых ArXiv статей → `dvc add/push` → refresh коллекции за alias `arxiv_champion` через `rag.ops.update.update_arxiv_collection()` |
+| `pytorch_docs_rag_update` | `@weekly` | Скрейпинг документации PyTorch → `dvc add/push` → rebuild successor collection из `_meta` у `pytorch_docs_champion` через `rag.ops.update.update_pytorch_docs_collection()` |
 
 Каждый DAG состоит из трёх задач:
 ```
@@ -241,7 +241,8 @@ download / scrape  >>  dvc_version  >>  build_index
 
 - **download / scrape** — PythonOperator: загрузка данных (ArXiv API или web scraping)
 - **dvc_version** — BashOperator: `dvc add` + `dvc push` для версионирования данных
-- **build_index** — BashOperator: запуск `build_arxiv_index.py` / `build_pytorch_docs_index.py` для пересборки вектор-индекса
+- **build_index** — PythonOperator: вызов production update-функций из `src/rag/ops/update`
+  (`update_arxiv_collection` или `update_pytorch_docs_collection`) для refresh/rebuild векторного индекса
 
 ### Зависимости DAG'ов
 
@@ -295,6 +296,10 @@ JupyterLab предоставляет интерактивную среду дл
 - `EVAL_GATEWAY_URL=http://gateway:9000`
 
 Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.
+
+RAG operator boundary в JupyterLab:
+- `experiments/rag/notebook_ops.py` — единственная notebook façade над production entrypoints из `src/rag/ops/`.
+- `experiments/rag/sandboxes/` — notebook-only experimental код. Gateway, Airflow DAG-и и production evals не должны импортировать его.
 
 ## DVC с бэкэндом Yandex Cloud S3
 

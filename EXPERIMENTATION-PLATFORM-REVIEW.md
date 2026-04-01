@@ -75,8 +75,8 @@ experiments/
     lora_ops.ipynb                 ← LoRA manual operations (NEW)
   rag/
     __init__.py
-    build_arxiv_index.py             ← from experiments/scripts/rag_data/
-    build_pytorch_docs_index.py
+    notebook_ops.py               ← notebook wrappers around production rag.ops
+    sandboxes/                    ← notebook-only experimental forks of production code
     rag_ops.ipynb                  ← RAG manual operations (NEW)
   eval/
     __init__.py
@@ -108,7 +108,7 @@ from rag.chunking import get_chunker
 
 # after
 from rag.chunking import get_chunker                         # via src/ on PYTHONPATH
-from experiments.rag.build_arxiv_index import build_arxiv   # via project root on PYTHONPATH
+from rag.ops.update import update_arxiv_collection          # production ops via src/
 ```
 
 ---
@@ -143,11 +143,11 @@ There is no central export directory.
 runtime: which tasks are supported, which KBs serve each task, and which aliases
 each KB exposes. It does **not** store chunking params — those live only in
 the `_meta` sentinel inside each Qdrant collection, written at build time and
-read by build scripts on incremental updates.
+read by production update ops on incremental or replace refreshes.
 
 ### Chunking factory (`get_chunker`)
 
-`get_chunker(strategy, **kwargs)` in `src/RAG/chunking.py` maps string keys
+`get_chunker(strategy, **kwargs)` in `src/rag/chunking.py` maps string keys
 to chunker classes. The supported keys after this plan are:
 
 | Key | Class |
@@ -168,14 +168,14 @@ to chunker classes. The supported keys after this plan are:
    name that leaked into the config). Add `section_aware` as a direct key and
    keep `summarize` as a deprecated alias.
 
-The build script at `experiments/rag/build_arxiv_index.py` contains a local
-`_STRATEGY_TO_TASK` dict that converts strategy names back to the old `task`
-parameter names. After the rename this hack is unreachable — remove it.
+The old experiment build scripts have been deleted. Notebook operations now call
+production workflows from `src/rag/ops`, while notebook-only experimental code
+lives under `experiments/rag/sandboxes/` and is never imported by production.
 
 Adding a new strategy:
-1. Add class to `src/RAG/chunking.py`
+1. Add class to `src/rag/chunking.py`
 2. Add key to `get_chunker()` factory
-3. Set the key in `knowledge_bases.json` for the target alias
+3. Build a new collection through `experiments.rag.notebook_ops.create_*()` so `_meta` records the new key
 
 No DAG, no notebook, no gateway code needs to change.
 
@@ -237,8 +237,10 @@ the version handle; the KB config does not need to know about it.
 
 1. Add `ASTCodeChunker` class and register key `"code_ast"` in the factory.
    This is a one-time code change before the experiment.
-2. Build the challenger: `build_pytorch_docs(chunking_strategy="code_ast", ...)`.
-   `_meta` records `"chunking_strategy": "code_ast"`.
+2. Build the challenger via the notebook façade:
+  `from experiments.rag.notebook_ops import create_pytorch_docs` and then
+  `create_pytorch_docs(chunking_strategy="code_ast", ...)`.
+  `_meta` records `"chunking_strategy": "code_ast"`.
 3. The challenger collection is a **snapshot** — daily update DAGs only update
    `alias="champion"`. The challenger is evaluated as-is and then either
    promoted or dropped.
@@ -351,11 +353,12 @@ writing any new code. All three strategies (`fixed_token`, `code`,
 
 ```
 Jupyter: experiments/rag/rag_ops.ipynb
-  → call build_arxiv(chunking_strategy="section_aware",
-                     chunk_size=256, chunk_overlap=25)
+  → from experiments.rag.notebook_ops import create_arxiv
+  → call create_arxiv(chunking_strategy="section_aware",
+                      chunk_size=256, chunk_overlap=25,
+                      alias="challenger")
      → creates new timestamped collection (e.g. arxiv_20260326_143012)
      → writes _meta sentinel with build config
-  → assign challenger alias to the new collection
   → spot-check retrieval quality (embed query, inspect results)
   → trigger retrieval eval DAGs (champion vs challenger)
   → compare recall@10, nDCG@10
@@ -371,27 +374,28 @@ champion collection uses consistent chunking params across daily runs.
 ### RAG Experiment Flow B: New Strategy (new code)
 
 Add a new chunking strategy, reranker, or retrieval approach. This
-requires code changes in `src/RAG/` followed by a collection rebuild.
+requires code changes in `src/rag/` followed by a collection rebuild.
 
 ```
 1. Write code:
-   - New chunker → add class to src/RAG/chunking.py
+  - New chunker → add class to src/rag/chunking.py
                   → add key to get_chunker() factory
                   (no change to knowledge_bases.json — chunking is not stored there)
-   - New reranker → add class to src/RAG/rerankers.py (new file)
+  - New reranker → add class to src/rag/rerankers.py (new file)
                    → add key to get_reranker() factory
-   - New retriever variant → modify src/RAG/retriever.py
+  - New retriever variant → modify src/rag/retriever.py
+  - Notebook-only prototype → keep it under experiments/rag/sandboxes/<experiment>/...
+                     until it is ready to graduate into src/rag/
 
 2. Build challenger collection (Jupyter: `experiments/rag/rag_ops.ipynb`):
-   → call build_arxiv(..., chunking_strategy="my_new_strategy")
-   → assign challenger alias
+  → call `create_arxiv(..., chunking_strategy="my_new_strategy", alias="challenger")`
 
 3. Evaluate (same as Flow A):
    → trigger eval DAGs, compare, promote or discard
 
 4. Activate in production:
    - Chunker: automatic — collection's _meta records the strategy,
-     build scripts and daily DAGs use it for incremental updates.
+    production update ops and daily DAGs use it for incremental updates.
    - Reranker: one-line change in gateway's rag_service.py:
        Retriever(..., reranker=get_reranker("cross_encoder"))
      To roll back: change back to reranker=None.
@@ -405,11 +409,9 @@ rolling back means pointing to the old factory key, not reverting code.
 
 ## Cleanup: Dead Config Files
 
-`src/RAG/config.py` is dead code. It re-exports `Settings` and
-`get_settings` from `shared.config` under backward-compat aliases
-(`RAGSettings`, `get_rag_settings`). **Nothing imports from it** — every
-consumer already uses `from shared.config import get_settings` directly.
-Delete it.
+Legacy references to `src/RAG/config.py` are obsolete. Production code reads
+settings directly from `shared.config`, and RAG-specific operator flows go
+through `src/rag/ops` plus `experiments/rag/notebook_ops.py`.
 
 This is consistent with the centralized config approach: `shared/config.py`
 is the single source of truth. No per-module config wrappers needed.
@@ -535,10 +537,11 @@ Replaces `register_pretrained_loras.ipynb` and all LoRA CLI usage.
 - Inspect `_meta` sentinel (chunking strategy, params, build timestamp)
 
 **§2 Build Challenger** (supports Flow A and Flow B)
-- Call `build_arxiv(chunking_strategy=..., chunk_size=..., chunk_overlap=...)`
-  or `build_pytorch_docs(...)` directly
-- Creates new timestamped collection, writes `_meta`
-- Assign challenger alias to the new collection
+- Import notebook wrappers from `experiments.rag.notebook_ops`
+- Call `create_arxiv(...)` / `create_pytorch_docs(...)` for a fresh collection,
+  or `refresh_arxiv(...)` / `refresh_pytorch_docs(...)` when intentionally re-running
+  an existing alias from `_meta`
+- Creates new timestamped collection, writes `_meta`, and can attach the requested alias immediately
 
 **§3 Spot-check**
 - Embed a query, search, inspect results from champion vs challenger
@@ -546,6 +549,11 @@ Replaces `register_pretrained_loras.ipynb` and all LoRA CLI usage.
 **§4 Promote / Discard**
 - Promote challenger → champion
 - Drop stale collection (or defer to cleanup DAG)
+
+**Boundary rule**
+- Notebook-only experiments live under `experiments/rag/sandboxes/` and are never imported by
+  Gateway, Airflow, or production eval code. Promote the code into `src/rag/` before promoting a
+  sandbox-built retrieval approach to champion.
 
 **§5 Trigger RAG Eval**
 - Call `trigger_eval_dag(dag_id, metric, rag_aliases, lora_aliases)` via Airflow REST API.
@@ -688,10 +696,10 @@ Update these files to remove CLI references and describe the new workflow:
 | 3 | Add `airflow-worker-gpu` extra + lock + compose service; update `update_locks.sh` | — | Low |
 | 4 | Update daily RAG DAGs to pass `alias="champion"` explicitly | — | Trivial |
 | 5 | Operations notebooks (`lora_ops`, `rag_ops`, `eval_results`) | #1 | Medium |
-| 6 | Fix `get_chunker()`: rename `task` parameter → `strategy`; add `section_aware` key; keep `summarize` as deprecated alias; remove `_STRATEGY_TO_TASK` hack from build scripts | — | Trivial |
-| 7 | `knowledge_bases.json` task-first schema: task → KB → aliases, `update_strategy`/`label`/`description` per KB, remove all chunking fields; update `shared/config.py` to `TaskConfig`/`KBConfig`; add `get_kb_config(kb_name)` flat-lookup helper; update `_KBProxy._ensure()` to flatten task-first structure; update `openai_compat.py` request validation, `rag_service.py` retriever lookup and KB listing, `knowledge_bases.py` discovery endpoint; remove build script chunking fallback lines; update daily RAG DAGs to iterate task config | — | Small |
+| 6 | Fix `get_chunker()`: rename `task` parameter → `strategy`; add `section_aware` key; keep `summarize` as deprecated alias; remove old mixed build-path hacks from production ops | — | Trivial |
+| 7 | `knowledge_bases.json` task-first schema: task → KB → aliases, `update_strategy`/`label`/`description` per KB, remove all chunking fields; update `shared/config.py` to `TaskConfig`/`KBConfig`; add `get_kb_config(kb_name)` flat-lookup helper; update `_KBProxy._ensure()` to flatten task-first structure; update `openai_compat.py` request validation, `rag_service.py` retriever lookup and KB listing, `knowledge_bases.py` discovery endpoint; remove old chunking fallback lines from notebook/ops callers; update daily RAG DAGs to iterate task config | — | Small |
 | 8 | Gateway startup validation: add `validate_knowledge_bases()` to `RAGService`; call it from `lifespan()` after RAG service init; warn (not fail) for missing collections | #7 | Small |
-| 9 | Delete `src/RAG/config.py` | — | Trivial |
+| 9 | Remove obsolete `src/RAG/config.py` references and keep `shared.config` as the only live settings entrypoint | — | Trivial |
 | 10 | Delete old notebooks, update docs | #5 | Low |
 
 Task #1 goes first — everything else imports from the new paths.

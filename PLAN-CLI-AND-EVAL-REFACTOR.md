@@ -7,6 +7,11 @@ Branch: `refactor/lora-swap-optimization` (continuation)
 > referenced in §1.2 and §1.3 have been deleted. Registry and RAG operations are now
 > performed via operation notebooks (`experiments/training/lora_ops.ipynb`,
 > `experiments/rag/rag_ops.ipynb`) or the underlying Python APIs.
+>
+> **Historical note:** the RAG-specific items in §1.3, §1.6, and §2 describe an older
+> build-script plan that has since been superseded. The live operator path is production
+> `src/rag/ops/*` entrypoints surfaced to notebooks through `experiments/rag/notebook_ops.py`,
+> with notebook-only experimental forks isolated under `experiments/rag/sandboxes/`.
 
 ---
 

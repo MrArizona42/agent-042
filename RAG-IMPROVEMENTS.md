@@ -59,7 +59,7 @@ The system uses two separate configs with clearly different audiences.
 ### 2.1 Runtime config — Knowledge Bases registry
 
 **File**: `src/shared/knowledge_bases.json`
-**Used by**: gateway, eval runner, build scripts.
+**Used by**: gateway, eval runner, production `src/rag/ops` workflows, and notebook wrappers.
 **Purpose**: defines which KBs exist, which alias roles are valid, and the update strategy.
 
 ```json
@@ -95,7 +95,7 @@ Loaded into Pydantic `Settings` via the env var `GATEWAY_KNOWLEDGE_BASES_PATH`
 There is **no YAML or JSON file** storing build parameters. Instead, each collection stores its
 own build configuration as a sentinel point in Qdrant.
 
-When a build script creates a collection, it writes a metadata point:
+When a production create workflow creates a collection, it writes a metadata point:
 
 ```python
 vector_store.upsert(
@@ -192,7 +192,8 @@ source and the error is surfaced to the caller.
 |---|---|
 | `GET /v1/knowledge-bases` | List available KBs, their aliases, and which aliases currently resolve in Qdrant. |
 
-Alias promotion is performed only via CLI (over SSH) or automatically within DAGs.
+Alias promotion is performed only via notebooks / Python APIs (`experiments.rag.notebook_ops`
+and `rag.ops.aliases`) or automatically within DAGs.
 There is no promotion endpoint in the API.
 
 ---
@@ -220,124 +221,92 @@ effect immediately without cache invalidation logic.
 
 ---
 
-## 5. Two workflows: data freshness vs. experimentation
+## 5. Operator entrypoints
 
-The system has two distinct workflows that must not interfere with each other.
+Production-safe RAG lifecycle code lives under `src/rag/ops/`.
+`experiments/rag/rag_ops.ipynb` does not implement a second runtime; it imports
+`experiments.rag.notebook_ops`, which is a convenience layer over the same production entrypoints.
 
-### 5.1 Data freshness (DAG-driven, automated)
+| Workflow | Production entrypoints | Notebook wrappers | Typical caller |
+|---|---|---|---|
+| Create fresh collection | `create_arxiv_collection`, `create_pytorch_docs_collection` | `create_arxiv`, `create_pytorch_docs` | bootstrap, challenger builds |
+| Refresh existing alias from `_meta` | `update_arxiv_collection`, `update_pytorch_docs_collection` | `refresh_arxiv`, `refresh_pytorch_docs` | Airflow DAGs, manual repair |
+| Alias management | `assign_alias_to_collection`, `promote_alias`, `detach_alias` | `assign_alias`, `promote`, `detach` | operator notebook |
+| Inspection | `inspect_alias`, `inspect_collection`, `list_alias_mappings` | `inspect_kb_alias`, `inspect_existing_collection`, `list_aliases` | operator notebook, debugging |
 
-**Purpose**: keep production data current (new arxiv papers, updated pytorch docs).
-**Scope**: only touches `champion` alias.
+### 5.1 Automated data freshness (DAG-driven, automated)
+
+**Purpose**: keep production data current (new arXiv papers, updated PyTorch docs).
+**Scope**: production DAGs target only `champion`.
 **Trigger**: scheduled Airflow DAGs.
 
-#### Incremental strategy (e.g., arxiv)
+#### Incremental strategy (ArXiv)
 
 DAG: `arxiv_rag_update` (daily).
 
-1. Download new data (arxiv papers).
+1. Download new data (arXiv papers).
 2. Version with DVC.
-3. For each alias in `KNOWLEDGE_BASES["arxiv"]["aliases"]`: resolve alias → get collection name.
-4. Read `_meta` from each resolved collection → extract build config (chunking, embedding model).
-5. Upsert new data into each collection using its own build config.
-6. If an alias does not resolve (collection doesn't exist), log a warning and skip. Do not fail
-   the entire DAG — other aliases may still be valid.
+3. Call `update_arxiv_collection(kb="arxiv", alias="champion")`.
+4. Resolve `arxiv_champion` and read `_meta` from the target collection.
+5. Reconstruct chunking and embeddings settings from stored build config.
+6. Upsert refreshed data into the same collection.
 
-**Why update all aliases, not just champion**: for incremental KBs, champion and challenger share
-the same underlying data — they may differ in chunking/embedding but both need fresh papers. If
-challenger doesn't exist, it's simply skipped.
+The DAG does not touch challenger collections. If a non-production alias needs a refresh, an
+operator runs it manually from the notebook path.
 
-#### Replace strategy (e.g., pytorch_docs)
+#### Replace strategy (PyTorch docs)
 
 DAG: `pytorch_docs_rag_update` (weekly).
 
-**The DAG only rebuilds champion. It does not touch challenger.**
+1. Call `update_pytorch_docs_collection(kb="pytorch_docs", alias="champion")`.
+2. Resolve `pytorch_docs_champion` and read `_meta` from the current champion collection.
+3. Create a successor collection `pytorch_docs_{timestamp}` with fresh `_meta`.
+4. Point `pytorch_docs_champion_staging` at the successor collection.
+5. Build the new index into the successor collection.
+6. Atomically swap `pytorch_docs_champion` to the successor collection.
 
-Step-by-step:
+### 5.2 Manual notebook operations (human-driven, manual)
 
-1. Resolve `pytorch_docs_champion` → get current collection name → read `_meta` → extract
-   build config.
-2. Create new collection: `pytorch_docs_{timestamp}`.
-3. Create staging alias: `pytorch_docs_champion_staging` → point to new collection.
-4. Write `_meta` point with the same build config to the new collection.
-5. Build index into new collection (via staging alias).
-6. Run gating eval: **nDCG@10 on BEIR-SciFact** (single metric).
-7. Compare with current champion's last eval score:
-   - **Within -5% to +20%**: auto-promote.
-     - Re-point `pytorch_docs_champion` to the new collection.
-     - Staging alias `pytorch_docs_champion_staging` remains on the same collection (will be
-       re-pointed at next build).
-     - Old collection (previously behind champion) loses its alias and will be cleaned up
-       by the cleanup DAG after 7 days.
-   - **Outside range** (drop > 5% or improvement > 20%):
-     - Log as anomaly (future: send notification).
-     - Do **not** re-point champion. Production continues serving from old collection.
-     - Staging alias stays on the new collection. At next build, staging will be re-pointed
-       to an even newer collection.
+**Purpose**: bootstrap empty clusters, build challengers, inspect state, or manually repair alias
+mappings.
+**Scope**: notebook path can create, refresh, assign, promote, detach, and inspect collections.
+**Trigger**: manual notebook invocation from `experiments/rag/rag_ops.ipynb`.
 
-### 5.2 Experimentation (human-driven, manual)
+Typical notebook flow:
 
-**Purpose**: test new retrieval architectures (different chunking, embedding model, etc.).
-**Scope**: only touches `challenger` alias. Never modifies `champion`.
-**Trigger**: manual CLI invocation.
+1. **Create** a challenger or first champion collection:
+   ```python
+   from experiments.rag.notebook_ops import create_pytorch_docs
 
-Step-by-step:
-
-1. **Build** a new collection with experimental parameters:
-   ```bash
-   python build_pytorch_docs_index.py \
-       --kb pytorch_docs \
-       --alias challenger \
-       --chunking_strategy section_aware \
-       --chunk_size 1024 \
-       --chunk_overlap 128
+   create_pytorch_docs(
+      chunking_strategy="section_aware",
+      chunk_size=1024,
+      chunk_overlap=128,
+      alias="challenger",
+   )
    ```
-   The script:
-   - Creates collection `pytorch_docs_{timestamp}`.
-   - Writes `_meta` with the provided build config.
-   - Builds the index.
-   - Points `pytorch_docs_challenger` at the new collection.
+2. **Evaluate** champion vs challenger via the eval runner.
+3. **Promote** or reattach aliases with `promote(...)` / `assign_alias(...)` / `detach(...)`.
+4. **Inspect** live alias mappings and `_meta` with `inspect_kb_alias(...)` or `list_aliases()`.
 
-2. **Evaluate** against champion:
-   ```bash
-   python -m experiments.scripts.eval.runner \
-       --task retrieval --kb pytorch_docs --dataset beir_scifact \
-       --rag-aliases champion,challenger
-   ```
-   For each alias, the eval runner resolves `pytorch_docs_{alias}` → reads `_meta` → builds a
-   temporary benchmark collection with the same config → computes retrieval metrics. Results are
-   logged to `eval_runs` with the `rag_alias` and `knowledge_base` columns.
+Because the notebook wrappers call `src/rag/ops`, notebook experiments and DAGs stay aligned on
+the same production runtime.
 
-3. **Promote** if results are good:
-   ```bash
-   python manage_rag.py promote --kb pytorch_docs --from challenger --to champion
-   ```
-   This re-points `pytorch_docs_champion` to the collection currently behind
-   `pytorch_docs_challenger`. The old champion collection loses its alias and will be cleaned up.
+### 5.3 Sandbox boundary
 
-4. **After promotion**: the next DAG run for data freshness will read `_meta` from the new
-   champion collection — which now has the experimental build config. The DAG automatically
-   inherits the new parameters. No config files to update.
+- Notebook-only experimental retrieval code lives under `experiments/rag/sandboxes/`.
+- Production services, Airflow DAGs, and production evals must never import from that directory.
+- If a sandbox experiment is worth promoting, port the implementation into `src/rag` or
+  `src/rag/ops` first, then rebuild and promote a collection using the production entrypoints.
 
 ---
 
-## 6. Promotion and collection management
+## 6. Collection management and cleanup
 
-### 6.1 Manual promotion CLI
+There is no dedicated `manage_rag.py` operator CLI anymore. Alias operations are performed from the
+notebook path (`experiments.rag.notebook_ops`) or directly through the Python APIs in `rag.ops`.
 
-A new script `manage_rag.py` (analogous to `manage_registry.py` for LoRA adapters):
-
-```bash
-# Promote challenger → champion
-python -m scripts.manage_rag promote --kb pytorch_docs --from challenger --to champion
-
-# List all aliases and their target collections
-python -m scripts.manage_rag list
-
-# Inspect collection metadata
-python -m scripts.manage_rag inspect --kb pytorch_docs --alias champion
-```
-
-### 6.2 Orphan collection cleanup
+### 6.1 Orphan collection cleanup
 
 A daily Airflow DAG (`rag_collection_cleanup`) handles garbage collection:
 
@@ -352,6 +321,11 @@ A daily Airflow DAG (`rag_collection_cleanup`) handles garbage collection:
 
 ## 7. Eval pipeline integration
 
+Sections 7-9 are rollout and future-state notes. The current live operator path is defined in
+sections 5-6: production entrypoints in `src/rag/ops`, notebook wrappers in
+`experiments/rag/notebook_ops.py`, and notebook-only experimental forks in
+`experiments/rag/sandboxes/`.
+
 ### 7.1 Request routing
 
 | Caller | What is sent | Alias resolution |
@@ -363,7 +337,7 @@ A daily Airflow DAG (`rag_collection_cleanup`) handles garbage collection:
 **Generation evals** (Chat, Summarization, Code, RAG+Chat, RAG+Code) call the **gateway API**.
 The gateway is the single source of truth for alias resolution, RAG retrieval, and inference.
 
-**Retrieval-only evals** use the `RAG/` library directly (not the gateway) to build temporary
+**Retrieval-only evals** use the production `src/rag` library directly (not the gateway) to build temporary
 benchmark collections replicating a production collection's build config. See README-EVAL.md
 Section 2.5 for details.
 
@@ -401,10 +375,10 @@ Summary of what changes from the current codebase:
 | `ChatCompletionRequest` | `knowledge_base: str \| None` | `rag_sources: list[RAGSource] \| None` |
 | `RAGService._get_retriever()` | `KNOWLEDGE_BASES[kb]["collection"]` → single vector store | `(kb, alias)` → `{kb}_{alias}` → vector store, resolved per query |
 | `QdrantVectorStore.search()` | No metadata exclusion filter | Add `must_not` filter for `type=collection_meta` |
-| `build_chat_index()` | Upserts into `chat_documents` (no alias) | Resolves all aliases for KB → reads `_meta` per collection → upserts with correct config |
-| `build_code_index()` | Single-alias swap (`code_documents`) | Champion-only rebuild via staging alias, with gating eval |
+| ArXiv refresh path | Champion refresh via `rag.ops.update.update_arxiv_collection()` | Champion-only `_meta`-driven incremental refresh |
+| PyTorch docs refresh path | Champion refresh via `rag.ops.update.update_pytorch_docs_collection()` | Champion-only successor build via staging alias |
 | Airflow DAGs | Build + swap in one step | Build → staging → eval → conditional promote |
-| Build parameters | Hardcoded in build scripts | Stored in collection `_meta` point; passed via CLI args on first build |
+| Build parameters | Passed ad hoc by mixed scripts | Stored in collection `_meta` point; supplied only on create via `src/rag/ops/create/*` or notebook wrappers |
 | Eval runner | No alias awareness | Sends `rag_alias` in API request; logs alias + build config in `eval_runs` |
 | Admin | No KB discovery endpoint | `GET /v1/knowledge-bases` |
 | Cleanup | Manual | Daily DAG: delete orphan collections older than 7 days |
@@ -415,15 +389,16 @@ Summary of what changes from the current codebase:
 
 Suggested sequence for implementation:
 
-1. **Collection metadata point**: add `_meta` write to build scripts, add `must_not`
+1. **Collection metadata point**: add `_meta` write to production create workflows, add `must_not`
    filter to `QdrantVectorStore.search()`.
 2. **Runtime config**: create `src/shared/knowledge_bases.json`, add Pydantic model and loader to
    `shared/config.py`, replace `KNOWLEDGE_BASES` dict.
 3. **API contract**: add `RAGSource` schema, update `ChatCompletionRequest`, update
    `RAGService` resolution logic.
 4. **Error handling**: add 404 responses for missing alias/KB in gateway routes.
-5. **Build scripts**: refactor `build_chat_index` and `build_code_index` to use aliases + `_meta`.
-6. **Promotion CLI**: create `manage_rag.py`.
+5. **Production ops**: add create / update / alias / inspect entrypoints under `src/rag/ops`.
+6. **Notebook surface**: expose those entrypoints through `experiments/rag/notebook_ops.py` and
+   keep notebook-only experimental forks under `experiments/rag/sandboxes/`.
 7. **DAGs**: update `arxiv_rag_update` and `pytorch_docs_rag_update` for new alias workflow.
 8. **Eval integration**: add `rag_alias` column, update eval runner to pass alias in API calls.
 9. **Admin endpoint**: implement `GET /v1/knowledge-bases`.
