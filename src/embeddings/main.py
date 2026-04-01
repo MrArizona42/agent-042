@@ -10,15 +10,18 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator, List
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
-from shared.config import get_settings
+from shared.config import bootstrap_local_settings_env, get_settings
 
 logger = logging.getLogger(__name__)
+
+bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[2])
 
 # ---------------------------------------------------------------------------
 # Request / response schemas

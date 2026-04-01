@@ -349,35 +349,35 @@ CLI:
 
 ```bash
 # Chat eval — single metric (automatic)
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task chat --dataset hotpotqa --metric rouge_l
 
 # Chat eval — LLM-as-judge metric
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task chat --dataset hotpotqa --metric relevance
 
 # Chat eval — LLM-as-judge, comparing champion vs challenger RAG + LoRA matrix
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task chat --dataset hotpotqa --metric correctness \
     --rag-aliases champion,challenger \
     --lora-aliases champion,challenger
 
 # Retrieval-only eval (arxiv KB config vs BEIR-SciFact benchmark)
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task retrieval --kb arxiv --dataset beir_scifact --metric recall_at_10 \
     --rag-aliases champion,challenger
 
 # Retrieval-only eval (pytorch_docs KB config vs MS MARCO benchmark)
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task retrieval --kb pytorch_docs --dataset msmarco --metric ndcg_at_10 \
     --rag-aliases champion,challenger
 
 # Code eval — pass@1
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task code --dataset humaneval --metric pass_at_1
 
 # Summarization — LLM-as-judge metric (no RAG, LoRA comparison)
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task summarize --dataset arxiv_summarization --metric faithfulness \
     --lora-aliases champion,challenger
 ```
@@ -457,26 +457,29 @@ Inside Docker Compose and the bundled Jupyter container, `EVAL_GATEWAY_URL`
 is already injected as `http://gateway:9000`. Export it only when you want to
 target a different endpoint.
 
+For local CLI runs and `experiments/eval/debug_eval.ipynb`, the repo-root
+`.env` is now loaded explicitly before eval settings are constructed.
+
 **3. Run evaluations from the CLI**
 
 ```bash
 # Stage 1 — base model baselines (one metric per invocation)
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task chat --dataset hotpotqa --metric rouge_l
 
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task chat --dataset hotpotqa --metric relevance
 
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task code --dataset humaneval --metric pass_at_1
 
 # Stage 2 — add RAG
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task chat --dataset hotpotqa --metric bertscore_f1 \
     --rag-aliases champion
 
 # Stage 3 — full RAG + LoRA matrix
-python -m experiments.scripts.eval.runner \
+python -m experiments.eval.eval_scripts.runner \
     --task chat --dataset hotpotqa --metric correctness \
     --rag-aliases champion,challenger \
     --lora-aliases champion,none

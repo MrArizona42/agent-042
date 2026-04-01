@@ -105,24 +105,22 @@ scripts/update_locks.sh --dry-run
 
 ### Подготовка переменных окружения
 
-1) Перейдите в папку compose:
-```bash
-cd ./infra/compose/
-```
-
-2) Создайте `.env` на основе примера и заполните значениями:
+1) Из корня репозитория создайте `.env` на основе примера и заполните значениями:
 ```bash
 cp .env.example .env
 ```
+
+2) При необходимости скорректируйте `PROJECT_ROOT` и остальные значения `# CHANGE ME!`.
 
 Ключевые переменные:
 - `PROJECT_ROOT` — абсолютный путь к корню репозитория на машине, где запускается Compose
   - Linux пример: `/home/user/agent-042`
   - Windows пример (как в шаблоне): `C:/Users/user/MyGitRepos/agent-042`
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — креды для Yandex Object Storage (нужны MLflow)
+- `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` — опциональная auth-пара для локальных MLflow-клиентов и ноутбуков
 - `MLFLOW_*` — конфиг MLflow (backend store + artifact root)
 - `VLLM_*` — модель/квантизация/параметры GPU для vLLM
-- `GATEWAY_*` — настройки Gateway (RAG, Qdrant, vLLM, async mode)
+- `GATEWAY_*` — настройки Gateway (RAG, auth, async mode)
 - `RABBITMQ_*` — логин/пароль и порты RabbitMQ (брокер для Celery)
 - `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
 - `FLOWER_*` — порт Flower (мониторинг Celery)
@@ -130,20 +128,23 @@ cp .env.example .env
 - `AIRFLOW_*` — конфиг Airflow (порт, БД, Fernet-ключ, admin-пользователь)
 - `JUPYTER_*` — конфиг JupyterLab (порт, токен)
 
+Замечание:
+- Канонический шаблон `.env.example` намеренно не содержит внутренние endpoint'ы вроде `VLLM_BASE_URL`, `EMBEDDINGS_URL`, `GATEWAY_URL`, `QDRANT_HOST` или `MLFLOW_TRACKING_URI`.
+  Compose подставляет свои Docker-network значения напрямую из `infra/compose/docker-compose.yaml`, а локальные Python-запуски используют значения по умолчанию из `shared.config`.
+
 Важно:
 - MLflow в текущей конфигурации подключён к S3, но не проксирует артефакты (опция `--serve-artifacts` отключена).
   Поэтому при логировании/чтении артефактов из MLflow-клиента нужны S3 креды в окружении процесса.
 
 ### Запуск полного стека
 
-Из папки `infra/compose/`:
 ```bash
-docker compose up --build -d
+docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d
 ```
 
 Проверка статуса:
 ```bash
-docker compose ps
+docker compose --env-file .env -f infra/compose/docker-compose.yaml ps
 ```
 
 Полезные URL (если используете значения портов по умолчанию из `.env.example`):
@@ -161,39 +162,39 @@ docker compose ps
 
 Только MLflow + Postgres:
 ```bash
-docker compose up --build -d postgres mlflow
+docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d postgres mlflow
 ```
 
 Только inference + RAG (vLLM + Qdrant + Gateway + UI):
 ```bash
-docker compose up --build -d vllm qdrant gateway ui
+docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d vllm qdrant gateway ui
 ```
 
 ### Остановка / перезапуск / логи
 
 Остановить:
 ```bash
-docker compose down
+docker compose --env-file .env -f infra/compose/docker-compose.yaml down
 ```
 
 Остановить и удалить volume'ы (удалит Postgres/Qdrant данные):
 ```bash
-docker compose down -v
+docker compose --env-file .env -f infra/compose/docker-compose.yaml down -v
 ```
 
 Логи всех сервисов:
 ```bash
-docker compose logs -f
+docker compose --env-file .env -f infra/compose/docker-compose.yaml logs -f
 ```
 
 Логи конкретного сервиса:
 ```bash
-docker compose logs -f vllm
+docker compose --env-file .env -f infra/compose/docker-compose.yaml logs -f vllm
 ```
 
 Пересобрать и перезапустить один сервис:
 ```bash
-docker compose up --build -d gateway
+docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d gateway
 ```
 
 ### Модели для vLLM
@@ -290,7 +291,7 @@ JupyterLab предоставляет интерактивную среду дл
 - `PROJECT_ROOT=/home/jovyan`
 - `PYTHONPATH=/home/jovyan:/home/jovyan/src`
 - `QDRANT_HOST=qdrant`, `QDRANT_PORT=${QDRANT_PORT}`
-- `GATEWAY_EMBEDDINGS_URL=http://embeddings:8100`
+- `EMBEDDINGS_URL=http://embeddings:8100`
 - `EVAL_GATEWAY_URL=http://gateway:9000`
 
 Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.

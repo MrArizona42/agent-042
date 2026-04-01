@@ -285,7 +285,8 @@ python -m experiments.training.train_adapter.start_train \
 > Python API.
 
 Скрипт `src/shared/model_registry.py` — программный интерфейс для управления
-адаптерами в реестре. Читает `MLFLOW_TRACKING_URI` из `experiments/.env`.
+адаптерами в реестре. Для локальных запусков читает `MLFLOW_TRACKING_URI`
+из корневого `.env` репозитория, созданного из корневого `.env.example`.
 
 **Просмотр всех зарегистрированных адаптеров:**
 
@@ -319,8 +320,7 @@ registry.demote(model_name="lora-summarize", alias="champion")
 python -m shared.model_registry sync --adapters-dir ./assets/adapters
 ```
 
-По умолчанию команда читает endpoint vLLM из `GATEWAY_VLLM_BASE_URL`
-(`REGISTRY_VLLM_BASE_URL` остаётся обратно совместимым alias).
+По умолчанию команда читает endpoint vLLM из `VLLM_BASE_URL`
 `--vllm-url` нужен только для явного override.
 
 Результат на диске:

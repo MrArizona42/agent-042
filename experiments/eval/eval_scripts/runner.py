@@ -76,10 +76,17 @@ from experiments.eval.eval_scripts.retrieval_bench import (
 )
 from rag.embeddings import EmbeddingService
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_eval_settings, get_registry_settings, get_settings
+from shared.config import (
+    bootstrap_local_settings_env,
+    get_eval_settings,
+    get_registry_settings,
+    get_settings,
+)
 from shared.model_registry import AdapterRegistry
 
 logger = logging.getLogger(__name__)
+
+bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[3])
 
 # ---------------------------------------------------------------------------
 # Eval-suite configuration: (task, dataset) → fixed KB

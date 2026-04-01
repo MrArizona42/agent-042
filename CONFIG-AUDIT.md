@@ -4,9 +4,22 @@ Status: **historical audit snapshot** — captured before the config cleanup pas
 
 Current runtime contract:
 
-- `shared/config.py` owns shared cross-service settings.
-- Canonical internal endpoint vars in compose/docs are `GATEWAY_VLLM_BASE_URL`, `GATEWAY_EMBEDDINGS_URL`, and `EVAL_GATEWAY_URL`.
-- `REGISTRY_VLLM_BASE_URL` and `EMBEDDINGS_URL` are still accepted by Python settings as backward-compatible aliases, but they are no longer the documented compose contract.
+- `shared/config.py` owns shared cross-service settings and is now split into
+   concern groups: `PlatformSettings`, `GatewayBehaviorSettings`,
+   `RagSettings`, `AuthSettings`, `RegistrySettings`, `EvalSettings`, and
+   `UISettings`, with `GatewaySettings` as the flat gateway-facing aggregate.
+- Canonical local env template is the repo-root `.env.example`; duplicate
+   example files under `infra/compose/` and `experiments/` are removed.
+- Local training and registry helpers load only the repo-root `.env`; the old
+   `experiments/.env` fallback is removed.
+- Short active reference now lives in `CONFIG-CONTRACT.md`; this audit remains
+   historical context plus migration notes.
+- Canonical shared endpoint vars in compose/docs are `VLLM_BASE_URL`,
+   `EMBEDDINGS_URL`, `QDRANT_HOST`, `QDRANT_PORT`, `MLFLOW_TRACKING_URI`,
+   `REDIS_URL`, and `CELERY_BROKER_URL`. `EVAL_GATEWAY_URL` remains an eval-specific
+   endpoint.
+- Legacy prefixed endpoint vars are no longer read by Python settings; local
+   env files and deployment manifests must use the canonical names above.
 - `src/embeddings/config.py` was removed; embeddings runtime config now lives in `shared.config` plus the compose and Docker service definition.
 
 The sections below describe the pre-refactor state that was audited.
@@ -495,3 +508,219 @@ between Python and infrastructure.**
 - **Infra files touched:** 2 (`docker-compose.yaml`, `.env.example`)
 - **DAG files touched:** 1 (`eval_dags.py`)
 - **No API changes, no new dependencies, no migration.**
+
+---
+
+## Phase 2 — Architecture cleanup roadmap
+
+This phase starts **after** the cleanup work described above. The aim is not to
+turn the project into a generic multi-cluster platform. The aim is to keep the
+current **single-repo, single-server** operating model simple while making the
+application config contract cleaner and more portable.
+
+The guiding idea for Phase 2:
+
+- **Application config must be deployment-agnostic.** Python code should care
+   about env vars and validated settings, not whether values came from Compose,
+   Helm, ConfigMaps, Secrets, or a local `.env` file.
+- **Deployment topology belongs to deployment manifests.** Compose and future
+   Kubernetes manifests should inject the same canonical env vars.
+- **Local developer ergonomics still matter.** One-server local/dev workflows
+   should stay first-class instead of becoming a degraded imitation of a future
+   k8s setup.
+
+### Phase 2 decisions
+
+#### Decision 1 — Canonical local env file: repo-root `.env`
+
+Use a single **repo-root `.env`** as the canonical local env file for Python
+entrypoints, notebooks, scripts, and ad-hoc local runs.
+
+Implications:
+
+- `experiments/.env` should be retired.
+- `infra/compose/.env` should stop being a hand-edited second source of truth.
+- Compose should be started with an **explicit** env file selection
+   (`docker compose --env-file .env ...`) via a wrapper command, task, or
+   script from the repo root.
+
+Rationale:
+
+- One repo should not require multiple local env files for the same stack.
+- The current split between `experiments/.env`, implicit `.env` loading in
+   Python, and `infra/compose/.env` makes it unclear which file is authoritative.
+- That fallback has now been removed from local training and registry helpers;
+   repo-root `.env` is the only local dotenv path in active runtime code.
+
+#### Decision 2 — K8s-ready principle: env contract is app-level, topology is deployment-level
+
+The project should stay **k8s-ready**, but not by making Kubernetes the primary
+source of truth for application config.
+
+The right split is:
+
+- **Python settings define the contract**.
+- **Compose injects that contract for one-server deployments**.
+- **Helm / k8s manifests inject that same contract later**.
+
+This means Phase 2 should move toward **deployment-neutral canonical names**
+for shared platform endpoints, for example:
+
+- `VLLM_BASE_URL`
+- `EMBEDDINGS_URL`
+- `QDRANT_HOST`
+- `QDRANT_PORT`
+- `MLFLOW_TRACKING_URI`
+- `REDIS_URL`
+- `CELERY_BROKER_URL`
+
+Service-local behavior can keep service-specific prefixes such as:
+
+- `GATEWAY_*`
+- `EVAL_*`
+- `UI_*`
+
+This keeps the app contract portable across Compose and k8s.
+
+#### Decision 3 — Config organization: one file is acceptable, but split by concern
+
+Keep `src/shared/config.py` as **one file for now**, but reorganize it into
+smaller concern-specific settings classes. That gets most of the architectural
+benefit without introducing file sprawl.
+
+Target structure inside `shared/config.py`:
+
+- `PlatformSettings`
+- `GatewaySettings`
+- `RagSettings`
+- `AuthSettings`
+- `RegistrySettings`
+- `EvalSettings`
+- `UISettings`
+
+If the file later becomes unwieldy, it can move into a `src/shared/config/`
+package without changing the env contract.
+
+### Phase 2 work items
+
+#### 1. Introduce `PlatformSettings`
+
+Create a small shared settings group for platform-wide connectivity and shared
+runtime dependencies.
+
+Canonical fields:
+
+- `vllm_base_url`
+- `embeddings_url`
+- `qdrant_host`
+- `qdrant_port`
+- `mlflow_tracking_uri`
+- `redis_url`
+- `celery_broker_url`
+
+Phase 2 policy:
+
+- These become the **canonical** endpoint names.
+- Old prefixed endpoint names are removed once Compose, docs, and local env
+   files are switched to the canonical contract.
+
+#### 2. Split settings by concern inside `shared/config.py`
+
+Break the current large `Settings` object into smaller settings classes, but
+keep them in the same file initially.
+
+This should reduce coupling between:
+
+- shared platform endpoints
+- gateway behavior
+- RAG retrieval behavior
+- auth/session behavior
+- registry sync behavior
+- eval behavior
+- UI behavior
+
+This is the main readability and maintainability step of Phase 2.
+
+#### 3. Make env loading explicit
+
+Stop relying on implicit “if `.env` exists, maybe load it” behavior scattered
+through settings classes and CLI helpers.
+
+Target behavior:
+
+- Local Python entrypoints explicitly load the repo-root `.env`.
+- Compose explicitly chooses its env file.
+- Kubernetes never depends on dotenv loading.
+
+Likely implementation shape:
+
+- a small `load_local_env()` helper or bootstrap module for local-only entrypoints
+- explicit wrapper commands for Compose
+- no hidden fallback to `experiments/.env`
+
+#### 4. Shrink `.env.example`
+
+Reduce `.env.example` to values a human operator is expected to change:
+
+- secrets
+- public ports
+- model choice
+- feature flags
+- selected external URLs / credentials
+
+Keep invariant internal Docker DNS names and stable in-cluster topology values
+in Compose or future Helm defaults instead of exposing them as user-tuned envs.
+
+#### 5. Remove old endpoint names in one pass
+
+Once the canonical contract is in place, remove legacy prefixed endpoint names
+from Python settings, scripts, and active documentation instead of keeping a
+second compatibility path alive.
+
+Phase 2 should ensure:
+
+- Compose and local env files use only canonical endpoint names
+- Python settings read only canonical endpoint names
+- Any breakage is fixed directly instead of preserving long-lived dual logic
+
+#### 6. Add a short config contract doc
+
+Add one small document describing:
+
+- where defaults live
+- where deployment topology lives
+- where deploy-time values live
+- which env names are canonical
+- which names are no longer supported
+
+This should be a short operator/developer reference, not another long audit.
+
+### Recommended execution order for Phase 2
+
+```text
+1. Decide canonical env file policy (repo-root .env)
+2. Introduce PlatformSettings + canonical shared endpoint names
+3. Split shared/config.py into concern-specific classes (same file)
+4. Update explicit env loading paths and remove experiments/.env fallback
+5. Shrink .env.example and move topology defaults into Compose/Helm
+6. Add alias warnings and deprecation target
+7. Add a short config contract document
+```
+
+### Notes for this repo specifically
+
+- **Question 1 — root `.env` vs `experiments/.env`:** repo-root `.env` is the
+   better long-term choice for this project. It matches the single-repo model,
+   removes ambiguity, and works better with explicit local bootstrap logic.
+- **Question 2 — k8s readiness:** keeping multiple settings classes in one file
+   is fine. k8s readiness depends much more on the env contract and explicit
+   injection model than on whether settings live in one file or many.
+- The project should avoid making Docker Compose naming conventions the long-term
+   application contract. Compose is a deployment adapter, not the schema owner.
+
+### Non-goals for Phase 2
+
+- Do **not** re-introduce per-service duplicated defaults.
+- Do **not** make Kubernetes manifests the source of application defaults.
+- Do **not** optimize for arbitrary multi-environment complexity at the expense
+   of the current one-server development workflow.

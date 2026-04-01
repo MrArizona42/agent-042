@@ -21,7 +21,14 @@ from pathlib import Path
 from rag.chunking import get_chunker
 from rag.embeddings import EmbeddingService
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_kb_config, get_knowledge_bases, get_settings
+from shared.config import (
+    bootstrap_local_settings_env,
+    get_kb_config,
+    get_knowledge_bases,
+    get_settings,
+)
+
+bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[2])
 
 
 def _timestamp() -> str:
@@ -73,7 +80,10 @@ def build_pytorch_docs(
         for task_cfg in kb_registry.values():
             for kbc in task_cfg.knowledge_bases:
                 available_kbs.append(kbc.name)
-        print(f"Error: knowledge base '{kb}' not found. Available: {', '.join(available_kbs) or '(none)'}")
+        print(
+            f"Error: knowledge base '{kb}' not found. Available: "
+            f"{', '.join(available_kbs) or '(none)'}"
+        )
         sys.exit(1)
 
     docs_path = Path(pytorch_docs_file)

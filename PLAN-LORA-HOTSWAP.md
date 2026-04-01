@@ -4,8 +4,7 @@
 > superseded. Registry operations are now performed via the
 > `experiments/training/lora_ops.ipynb` notebook or the `shared.model_registry`
 > Python API. The default sync path is `python -m shared.model_registry sync`
-> with `GATEWAY_VLLM_BASE_URL` as the canonical vLLM endpoint env var;
-> `REGISTRY_VLLM_BASE_URL` remains a backward-compatible alias and
+> with `VLLM_BASE_URL` as the canonical vLLM endpoint env var;
 > `--vllm-url` is only an explicit override.
 
 ## Problem
@@ -138,8 +137,7 @@ python -m shared.model_registry sync
 - Add `sync_aliases: list[str]` to `ModelRegistrySettings` (default: `["champion", "challenger"]`)
   loaded from `REGISTRY_SYNC_ALIASES` env var (comma-separated).
 - Add `vllm_base_url: str` to `ModelRegistrySettings` (default: `"http://localhost:8000"`),
-  loaded from canonical `GATEWAY_VLLM_BASE_URL`
-  (`REGISTRY_VLLM_BASE_URL` stays as a backward-compatible alias).
+  loaded from canonical `VLLM_BASE_URL`.
 - `production_alias` field stays for backward compat (used by `promote`/`demote` default).
 
 ### 2. `src/shared/model_registry.py`
@@ -196,7 +194,7 @@ vllm-adapter-sync:
   environment:
     # ... MLflow + S3 creds unchanged
     REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES:-champion,challenger}
-    GATEWAY_VLLM_BASE_URL: http://vllm:8000      # ← canonical env
+    VLLM_BASE_URL: http://vllm:8000              # ← canonical env
   depends_on:
     mlflow:
       condition: service_healthy
@@ -220,8 +218,8 @@ gateway:
   ```
   python -m shared.model_registry sync [--vllm-url URL] [--aliases champion,challenger]
   ```
-  By default it reads the vLLM URL from `GATEWAY_VLLM_BASE_URL`; pass
-  `--vllm-url` only to override the target explicitly.
+  By default it reads the vLLM URL from `VLLM_BASE_URL`; pass `--vllm-url`
+  only to override the target explicitly.
 
 ### 9. `experiments/scripts/eval/runner.py`
 - Simplify `_resolve_lora_alias()`:
@@ -261,9 +259,10 @@ gateway:
 REGISTRY_SYNC_ALIASES=champion,challenger
 
 # Canonical vLLM URL for hot-load API (used by sync command)
-GATEWAY_VLLM_BASE_URL=http://vllm:8000
+VLLM_BASE_URL=http://vllm:8000
 
-# Optional backward-compatible alias understood by Python settings
+# Optional backward-compatible aliases understood by Python settings
+# GATEWAY_VLLM_BASE_URL=http://vllm:8000
 # REGISTRY_VLLM_BASE_URL=http://vllm:8000
 ```
 

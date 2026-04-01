@@ -92,6 +92,6 @@ tracking:
   log_artifacts: true # requires s3 with creds in .env
   log_metrics: true
   log_params: true
-  env_path: "experiments/.env" # relative to project root
+  env_path: ".env" # relative to project root; canonical local env file
   # To register a trained adapter in the Model Registry, use the lora_ops notebook:
   #   experiments/training/lora_ops.ipynb

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from celery import Celery
 
+from shared.config import bootstrap_local_settings_env
 from worker.config import get_worker_settings
+
+bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[2])
 
 settings = get_worker_settings()
 

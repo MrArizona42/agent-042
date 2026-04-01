@@ -2,17 +2,20 @@
 # Reusable fragments
 # =====================
 
-# Internal container-to-container URLs.  Services that need these merge
-# the anchor; a per-service override wins thanks to YAML merge semantics.
-x-internal-urls: &internal-urls
-  GATEWAY_VLLM_BASE_URL: http://vllm:8000
-  REDIS_URL: redis://redis:6379/0
-  GATEWAY_EMBEDDINGS_URL: http://embeddings:8100
+# Canonical shared endpoint vars injected into services.
+# Python settings still accept older prefixed aliases temporarily, but the
+# Compose contract now uses the deployment-neutral names below.
+x-shared-endpoints: &shared-endpoints
+  VLLM_BASE_URL: ${VLLM_BASE_URL:-http://vllm:8000}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  EMBEDDINGS_URL: ${EMBEDDINGS_URL:-http://embeddings:8100}
   EVAL_GATEWAY_URL: http://gateway:9000
-  MLFLOW_TRACKING_URI: http://mlflow:5000
+  MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+  QDRANT_HOST: ${QDRANT_HOST:-qdrant}
+  QDRANT_PORT: ${QDRANT_PORT:-6333}
 
 x-airflow-common-env: &airflow-common-env
-  <<: *internal-urls
+  <<: *shared-endpoints
   AIRFLOW__CORE__EXECUTOR: CeleryExecutor
   AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
   AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
@@ -37,8 +40,6 @@ x-airflow-common-env: &airflow-common-env
 
   # Project paths & service endpoints used by DAGs
   PROJECT_ROOT: /opt/airflow/project
-  QDRANT_HOST: qdrant
-  QDRANT_PORT: ${QDRANT_PORT}
   EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
   EVAL_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY}
   EVAL_DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
@@ -179,7 +180,7 @@ services:
       dockerfile: infra/docker/adapter-sync/Dockerfile
 
     environment:
-      <<: *internal-urls
+      <<: *shared-endpoints
       MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
@@ -380,7 +381,7 @@ services:
       dockerfile: infra/docker/celery/Dockerfile
 
     environment:
-      <<: *internal-urls
+      <<: *shared-endpoints
       CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
       GATEWAY_DEFAULT_MODEL: ${VLLM_MODEL}
 
@@ -530,11 +531,8 @@ services:
       dockerfile: infra/docker/gateway/Dockerfile
 
     environment:
-      <<: *internal-urls
-      GATEWAY_VLLM_BASE_URL: ${GATEWAY_VLLM_BASE_URL}
+      <<: *shared-endpoints
       GATEWAY_DEFAULT_MODEL: ${VLLM_MODEL}
-      GATEWAY_QDRANT_HOST: ${GATEWAY_QDRANT_HOST}
-      GATEWAY_QDRANT_PORT: ${GATEWAY_QDRANT_PORT}
       GATEWAY_RAG_ENABLED: ${GATEWAY_RAG_ENABLED}
       GATEWAY_EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
       GATEWAY_ASYNC_ENABLED: ${GATEWAY_ASYNC_ENABLED}
@@ -591,7 +589,7 @@ services:
       dockerfile: infra/docker/ui/Dockerfile
 
     environment:
-      GATEWAY_URL: ${GATEWAY_URL}
+      GATEWAY_URL: http://gateway:9000
 
     ports:
       - "127.0.0.1:${UI_PORT}:8501"
@@ -887,13 +885,11 @@ services:
       dockerfile: infra/docker/jupyter/Dockerfile
     command: start-notebook.py --ServerApp.base_url=/jupyter
     environment:
-      <<: *internal-urls
+      <<: *shared-endpoints
       PROJECT_ROOT: /home/jovyan
       PYTHONPATH: /home/jovyan:/home/jovyan/src
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
-      # Qdrant, embeddings, eval gateway, and MLflow are reached over the internal Docker network.
-      QDRANT_HOST: qdrant
-      QDRANT_PORT: ${QDRANT_PORT}
+      # Shared services are reached over the internal Docker network.
       # PostgreSQL — used by diagnostics/analytics notebooks
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # S3 / Yandex Object Storage — needed for artifact upload/download

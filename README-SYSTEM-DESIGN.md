@@ -4,6 +4,7 @@
 
 * `./infra/README.md` - настройка окружения и инфраструктуры
 * `./experiments/README.md` - как проводить эксперименты
+* `./CONFIG-CONTRACT.md` - краткий актуальный контракт конфигурации
 * `./RAG-QUICK-START.md` - быстрый старт RAG-системы
 * `./RAG-SETUP.md` - подробная настройка RAG-системы
 * `./src/gateway/README.md` - документация Gateway (FastAPI)
