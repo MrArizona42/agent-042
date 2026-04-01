@@ -23,7 +23,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LOCAL_LOG_DIR="$PROJECT_ROOT/infra/compose"
+LOCAL_LOG_DIR="$PROJECT_ROOT/artifacts/infra"
 
 if [[ $# -lt 2 ]]; then
     echo "Usage: $0 [user@]host remote_project_root [service ...]"
