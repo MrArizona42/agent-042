@@ -290,7 +290,8 @@ JupyterLab предоставляет интерактивную среду дл
 - `PROJECT_ROOT=/home/jovyan`
 - `PYTHONPATH=/home/jovyan:/home/jovyan/src`
 - `QDRANT_HOST=qdrant`, `QDRANT_PORT=${QDRANT_PORT}`
-- `EMBEDDINGS_URL=http://embeddings:8100`
+- `GATEWAY_EMBEDDINGS_URL=http://embeddings:8100`
+- `EVAL_GATEWAY_URL=http://gateway:9000`
 
 Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.
 

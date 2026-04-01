@@ -321,26 +321,30 @@ class Settings(BaseSettings):
     )
     embeddings_url: str = Field(
         default="http://localhost:8100",
+        validation_alias=AliasChoices("GATEWAY_EMBEDDINGS_URL", "EMBEDDINGS_URL"),
         description="URL of the embeddings microservice",
     )
     embedding_model: str = Field(
         default="sentence-transformers/all-MiniLM-L6-v2",
         validation_alias=AliasChoices(
-            "GATEWAY_EMBEDDING_MODEL", "EMBEDDINGS_MODEL",
+            "GATEWAY_EMBEDDING_MODEL",
+            "EMBEDDINGS_MODEL",
         ),
         description="HuggingFace model for embeddings",
     )
     embedding_device: Literal["cpu", "cuda", "mps"] = Field(
         default="cpu",
         validation_alias=AliasChoices(
-            "GATEWAY_EMBEDDING_DEVICE", "EMBEDDINGS_DEVICE",
+            "GATEWAY_EMBEDDING_DEVICE",
+            "EMBEDDINGS_DEVICE",
         ),
         description="Device for embedding model",
     )
     embedding_batch_size: int = Field(
         default=32,
         validation_alias=AliasChoices(
-            "GATEWAY_EMBEDDING_BATCH_SIZE", "EMBEDDINGS_BATCH_SIZE",
+            "GATEWAY_EMBEDDING_BATCH_SIZE",
+            "EMBEDDINGS_BATCH_SIZE",
         ),
         description="Batch size for embedding generation",
         ge=1,

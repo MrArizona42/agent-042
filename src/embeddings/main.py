@@ -16,7 +16,6 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
-from embeddings.config import get_embeddings_settings
 from shared.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -66,7 +65,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load the embedding model on startup."""
     global _model
     settings = get_settings()
-    logger.info(f"Loading embedding model: {settings.embedding_model} on device: {settings.embedding_device}")
+    logger.info(
+        f"Loading embedding model: {settings.embedding_model} on device: "
+        f"{settings.embedding_device}"
+    )
     _model = SentenceTransformer(settings.embedding_model, device=settings.embedding_device)
     dimension = _model.get_sentence_embedding_dimension()
     logger.info(f"Embedding model loaded — dimension: {dimension}")
@@ -116,10 +118,7 @@ def embed(request: EmbeddingsRequest) -> EmbeddingsResponse:
         convert_to_numpy=True,
     )
 
-    data = [
-        EmbeddingItem(embedding=vec.tolist(), index=i)
-        for i, vec in enumerate(vectors)
-    ]
+    data = [EmbeddingItem(embedding=vec.tolist(), index=i) for i, vec in enumerate(vectors)]
 
     return EmbeddingsResponse(
         data=data,

@@ -8,9 +8,11 @@ x-internal-urls: &internal-urls
   GATEWAY_VLLM_BASE_URL: http://vllm:8000
   REDIS_URL: redis://redis:6379/0
   GATEWAY_EMBEDDINGS_URL: http://embeddings:8100
+  EVAL_GATEWAY_URL: http://gateway:9000
   MLFLOW_TRACKING_URI: http://mlflow:5000
 
 x-airflow-common-env: &airflow-common-env
+  <<: *internal-urls
   AIRFLOW__CORE__EXECUTOR: CeleryExecutor
   AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
   AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
@@ -38,12 +40,9 @@ x-airflow-common-env: &airflow-common-env
   QDRANT_HOST: qdrant
   QDRANT_PORT: ${QDRANT_PORT}
   EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
-  GATEWAY_EMBEDDINGS_URL: http://embeddings:8100
-  EVAL_GATEWAY_URL: http://gateway:9000
   EVAL_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY}
   EVAL_DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
   # MLflow client endpoint for training, eval, and registry access
-  MLFLOW_TRACKING_URI: http://mlflow:5000
   REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES}
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
@@ -180,13 +179,12 @@ services:
       dockerfile: infra/docker/adapter-sync/Dockerfile
 
     environment:
-      MLFLOW_TRACKING_URI: http://mlflow:5000
+      <<: *internal-urls
       MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
       REGISTRY_ADAPTERS_DIR: /adapters
-      GATEWAY_VLLM_BASE_URL: http://vllm:8000
       REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES}
 
     volumes:
@@ -382,9 +380,8 @@ services:
       dockerfile: infra/docker/celery/Dockerfile
 
     environment:
+      <<: *internal-urls
       CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
-      REDIS_URL: redis://redis:6379/0
-      GATEWAY_VLLM_BASE_URL: http://vllm:8000
       GATEWAY_DEFAULT_MODEL: ${VLLM_MODEL}
 
     depends_on:
@@ -533,16 +530,15 @@ services:
       dockerfile: infra/docker/gateway/Dockerfile
 
     environment:
+      <<: *internal-urls
       GATEWAY_VLLM_BASE_URL: ${GATEWAY_VLLM_BASE_URL}
       GATEWAY_DEFAULT_MODEL: ${VLLM_MODEL}
       GATEWAY_QDRANT_HOST: ${GATEWAY_QDRANT_HOST}
       GATEWAY_QDRANT_PORT: ${GATEWAY_QDRANT_PORT}
       GATEWAY_RAG_ENABLED: ${GATEWAY_RAG_ENABLED}
       GATEWAY_EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
-      GATEWAY_EMBEDDINGS_URL: http://embeddings:8100
       GATEWAY_ASYNC_ENABLED: ${GATEWAY_ASYNC_ENABLED}
       CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
-      REDIS_URL: redis://redis:6379/0
       # OAuth2 / OIDC
       GATEWAY_GOOGLE_CLIENT_ID: ${GATEWAY_GOOGLE_CLIENT_ID}
       GATEWAY_GOOGLE_CLIENT_SECRET: ${GATEWAY_GOOGLE_CLIENT_SECRET}
@@ -891,17 +887,15 @@ services:
       dockerfile: infra/docker/jupyter/Dockerfile
     command: start-notebook.py --ServerApp.base_url=/jupyter
     environment:
+      <<: *internal-urls
       PROJECT_ROOT: /home/jovyan
       PYTHONPATH: /home/jovyan:/home/jovyan/src
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
-      # Qdrant / embeddings are reached over the internal Docker network.
+      # Qdrant, embeddings, eval gateway, and MLflow are reached over the internal Docker network.
       QDRANT_HOST: qdrant
       QDRANT_PORT: ${QDRANT_PORT}
-      EMBEDDINGS_URL: http://embeddings:8100
       # PostgreSQL — used by diagnostics/analytics notebooks
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      # MLflow — direct container-to-container access (no auth needed)
-      MLFLOW_TRACKING_URI: http://mlflow:5000
       # S3 / Yandex Object Storage — needed for artifact upload/download
       MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
