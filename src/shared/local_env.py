@@ -61,16 +61,45 @@ def load_local_env(
     Returns:
         The env file path that was loaded, or ``None`` if no candidate exists.
     """
-    root = repo_root.resolve() if repo_root is not None else get_repo_root()
-    canonical_env = root / ".env"
+    root = repo_root.resolve() if repo_root is not None else None
+    canonical_env: Path | None = None
+    explicit_env: Path | None = None
+
+    def ensure_root() -> Path:
+        nonlocal root, canonical_env
+
+        if root is None:
+            root = get_repo_root()
+        if canonical_env is None:
+            canonical_env = root / ".env"
+        return root
 
     candidates: list[Path] = []
     if env_file is not None:
-        candidates.append(resolve_local_env_path(env_file, repo_root=root))
+        path = Path(env_file)
+        if path.is_absolute():
+            explicit_env = path
+        else:
+            explicit_env = resolve_local_env_path(path, repo_root=ensure_root())
+        candidates.append(explicit_env)
     else:
-        candidates.append(canonical_env)
+        try:
+            candidates.append(ensure_root() / ".env")
+        except FileNotFoundError:
+            logger.info(
+                "No local repo root available for dotenv discovery; using process environment only"
+            )
+            return None
 
-    candidates.extend(resolve_local_env_path(path, repo_root=root) for path in legacy_fallbacks)
+    for path in legacy_fallbacks:
+        try:
+            candidates.append(resolve_local_env_path(path, repo_root=ensure_root()))
+        except FileNotFoundError:
+            logger.info(
+                "No local repo root available for legacy dotenv discovery;"
+                "using process environment only"
+            )
+            break
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -83,13 +112,15 @@ def load_local_env(
             continue
 
         dotenv.load_dotenv(candidate, override=override)
-        if candidate == canonical_env:
+        if (canonical_env is not None and candidate == canonical_env) or (
+            explicit_env is not None and candidate == explicit_env
+        ):
             logger.info("Loaded local env from %s", candidate)
         else:
             logger.warning(
                 "Loaded legacy env file %s; migrate these values to %s",
                 candidate,
-                canonical_env,
+                canonical_env or ".env",
             )
         return candidate
 
