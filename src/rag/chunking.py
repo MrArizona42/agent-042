@@ -159,7 +159,6 @@ def get_chunker(strategy: str, **kwargs) -> BaseChunker:
 
     Args:
         strategy: Chunking strategy key (fixed_token, code, section_aware).
-            ``summarize`` is accepted as a deprecated alias for section_aware.
         **kwargs: Additional arguments passed to chunker (chunk_size, chunk_overlap).
 
     Returns:
