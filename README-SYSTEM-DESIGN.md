@@ -249,10 +249,6 @@ ML/DL/AI/LLM, который ускоряет поиск информации, �
 * Краткий операционный reference по ownership и canonical env names живёт в
   `CONFIG-CONTRACT.md`.
 
-> **Примечание**: полный config cleanup не завершен — worker и отдельные runtime-path-ы всё ещё
-> дублируют часть shared settings, а в compose и коде остаются отдельные hardcoded URLs / timeouts
-> (см. `REMAINING-CHANGES.md`).
-
 ### Этап 1. Базовая LLM.
 
 * Клиент делает запрос
@@ -320,7 +316,7 @@ ML/DL/AI/LLM, который ускоряет поиск информации, �
     * vLLM генерирует ответ, который через FastAPI направляется клиенту
 
 > **Примечание**: Agent layer с динамическим выбором инструментов — запланированное расширение
-> (см. `REMAINING-CHANGES.md`).
+> (см. `REMAINING-CHANGES.md` §2.12).
 
 ### Конвейер inference запроса
 
@@ -436,8 +432,8 @@ CUDA и MPS devices. Batch size настраивается через `EMBEDDING
   non-streaming диалоги сохраняются gateway-ем в историю пользователя.
 
 > **Примечание**: chat history частично server-side only — gateway сохраняет завершенные
-> non-streaming exchanges, но prompt reconstruction всё еще опирается на client-supplied history,
-> а streaming responses не персистятся (см. `REMAINING-CHANGES.md`).
+> non-streaming exchanges, но streaming responses не персистятся (`stream_chat()` принимает
+> `user_id`/`chat_session_id`, но не использует их) (см. `REMAINING-CHANGES.md` §1.2).
 
 ### Streamlit UI
 
@@ -472,7 +468,7 @@ RAG-система разрабатывается для двух ключевы
   качества.
 
 > **Примечание**: RAG hybrid-search и reranking benchmarks являются запланированными, но ещё не
-> реализованными улучшениями (см. `REMAINING-CHANGES.md`).
+> реализованными улучшениями (см. `REMAINING-CHANGES.md` §2.3–2.4).
 
 #### Реализованные chunking-стратегии
 
@@ -620,8 +616,7 @@ train_adapter                  lora_ops.ipynb                sync (model_registr
 **Подробности использования**: `./experiments/README.md` → раздел «Model Registry».
 
 > **Примечание**: Training orchestration пока заканчивается на `train → inspect/promote`;
-> автоматический шаг `train → evaluate → human decision` не подключен (см.
-> `REMAINING-CHANGES.md`).
+> автоматический шаг `train → evaluate → human decision` не подключен
 
 ### 6. Версионирование RAG-индексов
 
@@ -732,8 +727,9 @@ DAG `rag_collection_cleanup` (расписание: `@daily`) удаляет orp
   `experiments/rag/rag_ops.ipynb`, а не отдельным CLI.
 
 > **Примечание**: UI и discovery API для KB ещё не сведены к одному источнику — UI читает
-> локальный registry, а `/v1/knowledge-bases` возвращает flat list, а не task-grouped discovery
-> contract (см. `REMAINING-CHANGES.md`).
+> локальный registry через `_KBProxy`, а `/v1/knowledge-bases` возвращает flat list, теряя
+> task-grouped структуру. Internal helpers (`TaskConfig`, `KBConfig`, `get_kb_config()`) готовы,
+> но API contract не обновлен (см. `REMAINING-CHANGES.md` §1.1, §2.2).
 
 ## Архитектура оценки
 
@@ -914,7 +910,7 @@ judge model, status (running/completed/failed), timestamps и JSONB `extra` дл
 schema.
 
 > **Примечание**: Alembic migrations для `agent042` DB не заведены — schema bootstrap по-прежнему
-> опирается на ORM table creation / SQL scripts (см. `REMAINING-CHANGES.md`).
+> опирается на ORM `Base.metadata.create_all` в gateway startup (см. `REMAINING-CHANGES.md` §2.8).
 
 ## Развёртывание и инфраструктура
 
@@ -986,7 +982,7 @@ Security headers: `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosnif
 | **Gateway `/config`** | `/api/config` | Текущая runtime-конфигурация gateway |
 
 > **Примечание**: token/cost tracking и более полная observability для LLM path являются
-> запланированными улучшениями (см. `REMAINING-CHANGES.md`).
+> запланированными улучшениями (см. `REMAINING-CHANGES.md` §2.5–2.6, §2.9).
 
 ## Тестирование
 
@@ -1070,21 +1066,8 @@ request из develop в main.
 операционный контур развёртывания и сопровождения.
 
 > **Примечание**: Hosted CI/CD workflows (GitHub Actions и аналоги) являются запланированным
-> улучшением (см. `REMAINING-CHANGES.md`).
+> улучшением (см. `REMAINING-CHANGES.md` §2.7).
 
 ## Незавершенные изменения и будущая работа
 
 Полный список незавершенных изменений и планируемых доработок ведётся в `REMAINING-CHANGES.md`.
-Ключевые пункты:
-
-* **Config cleanup**: worker и runtime-path-ы дублируют часть shared settings; hardcoded URLs.
-* **KB discovery**: UI и gateway `/v1/knowledge-bases` не сведены к единому task-grouped контракту.
-* **Chat history**: prompt reconstruction опирается на client-supplied history; streaming не
-  персистится.
-* **Training → eval pipeline**: автоматический шаг `train → evaluate → human decision` не
-  подключен.
-* **DB migrations**: Alembic migrations для `agent042` не заведены.
-* **RAG benchmarks**: hybrid-search и reranking эксперименты.
-* **Observability**: token/cost tracking для LLM path.
-* **CI/CD**: hosted CI/CD workflows.
-* **Agent layer**: динамический выбор инструментов (Stage 4).
