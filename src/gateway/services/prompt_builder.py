@@ -13,7 +13,7 @@ class PromptBuilder:
     def build_system_prompt(
         self,
         task: str,
-        rag_mode: str = "off",
+        rag_mode: str,
         retrieved_context: Optional[str] = None,
     ) -> PromptBuildResult:
         base = "You are an AI assistant for ML/DL/AI/LLM researchers."
@@ -39,13 +39,10 @@ class PromptBuilder:
                 "\n\n--- RETRIEVED CONTEXT ---\n"
                 "Below is relevant information retrieved from the knowledge base. "
                 "Use it to provide accurate, well-informed answers. "
-                "Cite sources when appropriate.\n\n"
-                + retrieved_context
-                + "\n--- END CONTEXT ---"
+                "Cite sources when appropriate.\n\n" + retrieved_context + "\n--- END CONTEXT ---"
             )
         elif rag_mode != "off":
             # RAG enabled but no context retrieved
             sys += "\n\n(No relevant context was found in the knowledge base for this query.)"
 
         return PromptBuildResult(system_prompt=sys)
-

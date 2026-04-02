@@ -53,13 +53,13 @@ nvidia-smi
 * Установить [UV-менеджер](https://docs.astral.sh/uv/getting-started/installation/)
 * Запустить синхронизацию только нужных групп зависимостей:
 ```bash
-uv sync --extra training --extra rag --extra dev
+uv sync --extra training --extra rag --group dev
 ```
 
 Примеры выборочной установки:
 ```bash
 # только gateway + worker + UI для локального сервиса
-uv sync --extra gateway --extra worker --extra ui --extra dev
+uv sync --extra gateway --extra worker --extra ui --group dev
 
 # только инфраструктура MLflow
 uv sync --extra mlflow
@@ -67,12 +67,17 @@ uv sync --extra mlflow
 
 Сборка lock-файлов для Docker-сервисов (выполнять из корня репозитория):
 ```bash
-uv --no-config pip compile pyproject.toml --extra gateway --python-version 3.12 --python-platform linux -o infra/docker/gateway/requirements-gateway.lock
-uv --no-config pip compile pyproject.toml --extra ui --python-version 3.12 --python-platform linux -o infra/docker/ui/requirements-ui.lock
-uv --no-config pip compile pyproject.toml --extra worker --python-version 3.12 --python-platform linux -o infra/docker/celery/requirements-celery.lock
-uv --no-config pip compile pyproject.toml --extra mlflow --python-version 3.12 --python-platform linux -o infra/docker/mlflow/requirements-mlflow.lock
-uv --no-config pip compile pyproject.toml --extra airflow --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
-uv --no-config pip compile pyproject.toml --extra training --extra rag --extra dev --python-version 3.13 --python-platform linux -o infra/docker/jupyter/requirements-jupyter.lock
+# Обновить все lock-файлы разом:
+scripts/update_locks.sh
+
+# Или только конкретные сервисы:
+scripts/update_locks.sh gateway airflow-worker
+
+# Посмотреть список сервисов:
+scripts/update_locks.sh --list
+
+# Проверить команды без выполнения:
+scripts/update_locks.sh --dry-run
 ```
 
 ## Docker / Docker Compose
@@ -100,24 +105,22 @@ uv --no-config pip compile pyproject.toml --extra training --extra rag --extra d
 
 ### Подготовка переменных окружения
 
-1) Перейдите в папку compose:
-```bash
-cd ./infra/compose/
-```
-
-2) Создайте `.env` на основе примера и заполните значениями:
+1) Из корня репозитория создайте `.env` на основе примера и заполните значениями:
 ```bash
 cp .env.example .env
 ```
+
+2) При необходимости скорректируйте `PROJECT_ROOT` и остальные значения `# CHANGE ME!`.
 
 Ключевые переменные:
 - `PROJECT_ROOT` — абсолютный путь к корню репозитория на машине, где запускается Compose
   - Linux пример: `/home/user/agent-042`
   - Windows пример (как в шаблоне): `C:/Users/user/MyGitRepos/agent-042`
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — креды для Yandex Object Storage (нужны MLflow)
+- `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` — опциональная auth-пара для локальных MLflow-клиентов и ноутбуков
 - `MLFLOW_*` — конфиг MLflow (backend store + artifact root)
 - `VLLM_*` — модель/квантизация/параметры GPU для vLLM
-- `GATEWAY_*` — настройки Gateway (RAG, Qdrant, vLLM, async mode)
+- `GATEWAY_*` — настройки Gateway (RAG, auth, async mode)
 - `RABBITMQ_*` — логин/пароль и порты RabbitMQ (брокер для Celery)
 - `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
 - `FLOWER_*` — порт Flower (мониторинг Celery)
@@ -125,20 +128,23 @@ cp .env.example .env
 - `AIRFLOW_*` — конфиг Airflow (порт, БД, Fernet-ключ, admin-пользователь)
 - `JUPYTER_*` — конфиг JupyterLab (порт, токен)
 
+Замечание:
+- Канонический шаблон `.env.example` намеренно не содержит внутренние endpoint'ы вроде `VLLM_BASE_URL`, `EMBEDDINGS_URL`, `GATEWAY_URL`, `QDRANT_HOST` или `MLFLOW_TRACKING_URI`.
+  Compose подставляет свои Docker-network значения напрямую из `infra/compose/docker-compose.yaml`, а локальные Python-запуски используют значения по умолчанию из `shared.config`.
+
 Важно:
 - MLflow в текущей конфигурации подключён к S3, но не проксирует артефакты (опция `--serve-artifacts` отключена).
   Поэтому при логировании/чтении артефактов из MLflow-клиента нужны S3 креды в окружении процесса.
 
 ### Запуск полного стека
 
-Из папки `infra/compose/`:
 ```bash
-docker compose up --build -d
+docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d
 ```
 
 Проверка статуса:
 ```bash
-docker compose ps
+docker compose --env-file .env -f infra/compose/docker-compose.yaml ps
 ```
 
 Полезные URL (если используете значения портов по умолчанию из `.env.example`):
@@ -156,39 +162,39 @@ docker compose ps
 
 Только MLflow + Postgres:
 ```bash
-docker compose up --build -d postgres mlflow
+docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d postgres mlflow
 ```
 
 Только inference + RAG (vLLM + Qdrant + Gateway + UI):
 ```bash
-docker compose up --build -d vllm qdrant gateway ui
+docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d vllm qdrant gateway ui
 ```
 
 ### Остановка / перезапуск / логи
 
 Остановить:
 ```bash
-docker compose down
+docker compose --env-file .env -f infra/compose/docker-compose.yaml down
 ```
 
 Остановить и удалить volume'ы (удалит Postgres/Qdrant данные):
 ```bash
-docker compose down -v
+docker compose --env-file .env -f infra/compose/docker-compose.yaml down -v
 ```
 
 Логи всех сервисов:
 ```bash
-docker compose logs -f
+docker compose --env-file .env -f infra/compose/docker-compose.yaml logs -f
 ```
 
 Логи конкретного сервиса:
 ```bash
-docker compose logs -f vllm
+docker compose --env-file .env -f infra/compose/docker-compose.yaml logs -f vllm
 ```
 
 Пересобрать и перезапустить один сервис:
 ```bash
-docker compose up --build -d gateway
+docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d gateway
 ```
 
 ### Модели для vLLM
@@ -225,8 +231,8 @@ DAG-файлы размещаются в директории `dags/` в кор�
 
 | DAG | Расписание | Описание |
 |-----|-----------|----------|
-| `arxiv_rag_update` | `@daily` | Загрузка новых ArXiv статей → `dvc add/push` → пересборка индекса `chat_documents` в Qdrant |
-| `pytorch_docs_rag_update` | `@weekly` | Скрейпинг документации PyTorch → `dvc add/push` → пересборка индекса `code_documents` в Qdrant |
+| `arxiv_rag_update` | `@daily` | Загрузка новых ArXiv статей → `dvc add/push` → refresh коллекции за alias `arxiv_champion` через `rag.ops.update.update_arxiv_collection()` |
+| `pytorch_docs_rag_update` | `@weekly` | Скрейпинг документации PyTorch → `dvc add/push` → rebuild successor collection из `_meta` у `pytorch_docs_champion` через `rag.ops.update.update_pytorch_docs_collection()` |
 
 Каждый DAG состоит из трёх задач:
 ```
@@ -235,28 +241,30 @@ download / scrape  >>  dvc_version  >>  build_index
 
 - **download / scrape** — PythonOperator: загрузка данных (ArXiv API или web scraping)
 - **dvc_version** — BashOperator: `dvc add` + `dvc push` для версионирования данных
-- **build_index** — BashOperator: запуск `build_vector_index.py` для пересборки вектор-индекса
+- **build_index** — PythonOperator: вызов production update-функций из `src/rag/ops/update`
+  (`update_arxiv_collection` или `update_pytorch_docs_collection`) для refresh/rebuild векторного индекса
 
 ### Зависимости DAG'ов
 
-Зависимости, необходимые для выполнения DAG'ов, задаются в `pyproject.toml` в группе `airflow` (`[project.optional-dependencies]`) и устанавливаются при сборке кастомного Airflow-образа (`infra/docker/airflow/Dockerfile`) из lock-файла `infra/docker/airflow/requirements.lock`. Все три Airflow-сервиса (`airflow-init`, `airflow-webserver`, `airflow-scheduler`) собираются из этого Dockerfile через `x-airflow-common-build` якорь в `docker-compose.yaml`.
+Зависимости для выполнения DAG-задач задаются в `pyproject.toml` в группе `airflow-worker` и устанавливаются при сборке образа Celery-воркера (`infra/docker/airflow-worker/Dockerfile`). Scheduler, webserver и dag-processor используют лёгкий базовый образ без лишних пакетов.
 
 Чтобы обновить зависимости:
 ```bash
-# 1. Отредактируйте группу airflow в pyproject.toml
+# 1. Отредактируйте группу airflow-worker в pyproject.toml
 # 2. Пересоберите lock:
-uv --no-config pip compile pyproject.toml --extra airflow --python-version 3.12 --python-platform linux -o infra/docker/airflow/requirements.lock
+scripts/update_locks.sh airflow-worker
 
 # 3. Пересоберите образ:
 cd infra/compose
-docker compose build airflow-webserver airflow-scheduler airflow-init
-docker compose up -d airflow-webserver airflow-scheduler
+docker compose build airflow-worker
+docker compose up -d airflow-worker
 ```
 
 Переменные окружения (`.env`):
 - `AIRFLOW_DB` — имя базы в PostgreSQL (по умолчанию `airflow`)
 - `AIRFLOW_PORT` — порт веб-интерфейса (по умолчанию `8080`)
 - `AIRFLOW_FERNET_KEY` — ключ шифрования; сгенерировать: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+- `AIRFLOW_JWT_SECRET` — JWT-секрет для Execution API между scheduler/webserver/dag-processor (Airflow 3.x); сгенерировать: `python -c "import secrets; print(secrets.token_hex(32))"` (по умолчанию `airflow_jwt_secret`)
 - `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` — логин/пароль admin-пользователя
 
 DAG'и также используют следующие переменные (передаются через `x-airflow-common-env`):
@@ -271,6 +279,7 @@ DAG'и также используют следующие переменные (
 JupyterLab предоставляет интерактивную среду для экспериментов и анализа данных.
 
 Монтируемые директории:
+- `${PROJECT_ROOT}/src` → `/home/jovyan/src` (ro) — production-модули для импортов `shared/*`, `rag/*`, `gateway/*`
 - `experiments/` → `/home/jovyan/experiments` (rw) — скрипты и конфиги экспериментов
 - `assets/` → `/home/jovyan/assets` (rw) — данные, модели, адаптеры
 - `dags/` → `/home/jovyan/dags` (rw) — Airflow DAG-файлы
@@ -278,6 +287,19 @@ JupyterLab предоставляет интерактивную среду дл
 Переменные окружения (`.env`):
 - `JUPYTER_PORT` — порт JupyterLab (по умолчанию `8888`)
 - `JUPYTER_TOKEN` — токен для аутентификации (по умолчанию `agent042`)
+
+Дополнительно контейнер получает сервисные переменные:
+- `PROJECT_ROOT=/home/jovyan`
+- `PYTHONPATH=/home/jovyan:/home/jovyan/src`
+- `QDRANT_HOST=qdrant`, `QDRANT_PORT=${QDRANT_PORT}`
+- `EMBEDDINGS_URL=http://embeddings:8100`
+- `EVAL_GATEWAY_URL=http://gateway:9000`
+
+Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.
+
+RAG operator boundary в JupyterLab:
+- `experiments/rag/notebook_ops.py` — единственная notebook façade над production entrypoints из `src/rag/ops/`.
+- `experiments/rag/sandboxes/` — notebook-only experimental код. Gateway, Airflow DAG-и и production evals не должны импортировать его.
 
 ## DVC с бэкэндом Yandex Cloud S3
 

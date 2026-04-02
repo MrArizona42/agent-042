@@ -22,8 +22,8 @@ from airflow.operators.python import PythonOperator
 # Configuration
 # ---------------------------------------------------------------------------
 
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+QDRANT_HOST = os.environ["QDRANT_HOST"]
+QDRANT_PORT = int(os.environ["QDRANT_PORT"])
 RETENTION_DAYS = 7
 
 # Legacy collections that don't follow the {kb}_{timestamp} naming convention.
@@ -44,8 +44,7 @@ default_args = {
     "depends_on_past": False,
     "email_on_failure": False,
     "email_on_retry": False,
-    "retries": 1,
-    "retry_delay": timedelta(minutes=5),
+    "retries": 0,
 }
 
 # ---------------------------------------------------------------------------
@@ -112,7 +111,6 @@ with DAG(
     catchup=False,
     tags=["rag", "cleanup", "maintenance"],
 ) as dag:
-
     cleanup = PythonOperator(
         task_id="cleanup_orphan_collections",
         python_callable=_cleanup_orphan_collections,

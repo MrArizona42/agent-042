@@ -13,13 +13,16 @@ Simple chat UI that talks to the FastAPI gateway.
 
 ## Environment
 
-- `GATEWAY_URL` (default `http://localhost:9000`)
+- `GATEWAY_URL` (default `http://localhost:9001` for host-side runs; Compose injects `http://gateway:9000` inside the UI container)
 
 ## Run (local)
 
+`src/ui/app.py` explicitly loads the repo-root `.env` for local runs before
+settings are cached.
+
 ```bash
-uv sync --extra ui --extra dev
-PYTHONPATH=src GATEWAY_URL=http://localhost:9000 streamlit run src/ui/app.py
+uv sync --extra ui --group dev
+PYTHONPATH=src streamlit run src/ui/app.py
 ```
 
 ## Production Deployment

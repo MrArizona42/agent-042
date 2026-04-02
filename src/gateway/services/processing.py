@@ -82,34 +82,35 @@ class _ProcessChat:
 
         if self._rag_service and self._rag_service.enabled and req.rag_sources:
             try:
+                settings = get_settings()
                 context_parts: list[str] = []
                 for src in req.rag_sources:
+                    effective_alias = src.alias or settings.default_alias
                     logger.info(
-                        f"RAG — retrieving from kb={src.knowledge_base} alias={src.alias}"
+                        f"RAG — retrieving from kb={src.knowledge_base} alias={effective_alias}"
                     )
                     docs = self._rag_service.retrieve_documents(
                         query=last_user,
                         knowledge_base=src.knowledge_base,
-                        alias=src.alias,
-                        top_k=5,
+                        alias=effective_alias,
                     )
                     if docs:
-                        source_label = f"{src.knowledge_base}_{src.alias}"
+                        source_label = f"{src.knowledge_base}_{effective_alias}"
                         for doc in docs:
-                            rag_context_chunks.append({
-                                "content": doc.content,
-                                "score": doc.score if doc.score is not None else 0.0,
-                                "source": source_label,
-                            })
+                            rag_context_chunks.append(
+                                {
+                                    "content": doc.content,
+                                    "score": doc.score if doc.score is not None else 0.0,
+                                    "source": source_label,
+                                }
+                            )
                         ctx = self._rag_service.format_documents(docs)
                         if ctx:
                             context_parts.append(ctx)
                 if context_parts:
                     retrieved_context = "\n\n".join(context_parts)
                     rag_mode = "on"
-                    logger.info(
-                        f"RAG context retrieved from {len(context_parts)} source(s)"
-                    )
+                    logger.info(f"RAG context retrieved from {len(context_parts)} source(s)")
                 else:
                     logger.info("No RAG context found from any source")
             except Exception as e:
@@ -199,6 +200,7 @@ class _ProcessChat:
         self, req: ChatCompletionRequest, payload: Dict[str, Any] | None = None
     ) -> Any:
         """Asynchronous chat: enqueue task and wait for result via Redis."""
+        settings = get_settings()
         if payload is None:
             payload = self._build_payload(req)
 
@@ -222,7 +224,7 @@ class _ProcessChat:
         full_content = ""
         finish_reason = "stop"
 
-        async for event in redis_stream.subscribe(conversation_id):
+        async for event in redis_stream.subscribe(conversation_id, timeout=settings.streaming_timeout):
             event_type = event.get("type")
 
             if event_type == "token":
@@ -283,6 +285,7 @@ class _ProcessChat:
 
     async def _stream_chat_async(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
         """Asynchronous streaming: enqueue task and stream via Redis."""
+        settings = get_settings()
         payload = self._build_payload(req)
         payload.pop("_rag_context_chunks", None)
 
@@ -303,7 +306,7 @@ class _ProcessChat:
         logger.info(f"Enqueued async stream task {task_id} for conversation {conversation_id}")
 
         # Stream from Redis
-        async for chunk in redis_stream.subscribe_sse(conversation_id):
+        async for chunk in redis_stream.subscribe_sse(conversation_id, timeout=settings.streaming_timeout):
             yield chunk
 
     # ------------------------------------------------------------------
@@ -324,9 +327,7 @@ class _ProcessChat:
             last_user_msg = next(
                 (m.content for m in reversed(req.messages) if m.role == "user"), None
             )
-            assistant_content = (
-                result.get("choices", [{}])[0].get("message", {}).get("content", "")
-            )
+            assistant_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
 
             session_uuid = _uuid.UUID(chat_session_id)
 

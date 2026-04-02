@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import List
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-from shared.config import get_settings
 
 
 class BaseChunker:
@@ -33,20 +31,15 @@ class FixedTokenChunker(BaseChunker):
 
     def __init__(
         self,
-        chunk_size: Optional[int] = None,
-        chunk_overlap: Optional[int] = None,
+        chunk_size: int,
+        chunk_overlap: int,
     ):
         """Initialize chunker.
 
         Args:
-            chunk_size: Target size of each chunk in characters (uses config default if None)
+            chunk_size: Target size of each chunk in characters
             chunk_overlap: Number of overlapping characters between chunks
-            (uses config default if None)
         """
-        settings = get_settings()
-        chunk_size = chunk_size if chunk_size is not None else settings.chunk_size
-        chunk_overlap = chunk_overlap if chunk_overlap is not None else settings.chunk_overlap
-
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -68,20 +61,17 @@ class CodeChunker(BaseChunker):
 
     def __init__(
         self,
-        chunk_size: Optional[int] = None,
-        chunk_overlap: Optional[int] = None,
+        chunk_size: int,
+        chunk_overlap: int,
     ):
         """Initialize code chunker.
 
         Args:
-            chunk_size: Target size of each chunk (uses config default if None)
-            chunk_overlap: Overlap between chunks (uses config default if None)
+            chunk_size: Target size of each chunk
+            chunk_overlap: Overlap between chunks
         """
-        settings = get_settings()
-        self.chunk_size = chunk_size if chunk_size is not None else settings.code_chunk_size
-        self.chunk_overlap = (
-            chunk_overlap if chunk_overlap is not None else settings.code_chunk_overlap
-        )
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
 
     def chunk(self, text: str) -> List[str]:
         """Split code into chunks, preserving logical boundaries."""
@@ -131,20 +121,17 @@ class SectionAwareChunker(BaseChunker):
 
     def __init__(
         self,
-        chunk_size: Optional[int] = None,
-        chunk_overlap: Optional[int] = None,
+        chunk_size: int,
+        chunk_overlap: int,
     ):
         """Initialize section-aware chunker.
 
         Args:
-            chunk_size: Target chunk size (uses config default if None)
-            chunk_overlap: Overlap size (uses config default if None)
+            chunk_size: Target chunk size
+            chunk_overlap: Overlap size
         """
-        settings = get_settings()
-        self.chunk_size = chunk_size if chunk_size is not None else settings.section_chunk_size
-        self.chunk_overlap = (
-            chunk_overlap if chunk_overlap is not None else settings.section_chunk_overlap
-        )
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
 
     def chunk(self, text: str) -> List[str]:
         """Split text by sections while respecting size limits."""
@@ -167,19 +154,19 @@ class SectionAwareChunker(BaseChunker):
         return [c.strip() for c in chunks if c.strip()]
 
 
-def get_chunker(task: str = "chat", **kwargs) -> BaseChunker:
-    """Factory function to get appropriate chunker for task.
+def get_chunker(strategy: str, **kwargs) -> BaseChunker:
+    """Factory function to get appropriate chunker for a chunking strategy.
 
     Args:
-        task: Task type (chat, code, summarize)
-        **kwargs: Additional arguments passed to chunker
+        strategy: Chunking strategy key (fixed_token, code, section_aware).
+        **kwargs: Additional arguments passed to chunker (chunk_size, chunk_overlap).
 
     Returns:
-        Appropriate chunker instance
+        Appropriate chunker instance.
     """
-    if task == "code":
+    if strategy == "code":
         return CodeChunker(**kwargs)
-    elif task == "summarize":
+    elif strategy == "section_aware":
         return SectionAwareChunker(**kwargs)
     else:
         return FixedTokenChunker(**kwargs)

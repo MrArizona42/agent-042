@@ -11,6 +11,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import (
     CreateAlias,
     CreateAliasOperation,
+    DeleteAlias,
+    DeleteAliasOperation,
     Distance,
     FieldCondition,
     Filter,
@@ -18,8 +20,6 @@ from qdrant_client.models import (
     PointStruct,
     VectorParams,
 )
-
-from shared.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,21 +38,17 @@ class QdrantVectorStore:
 
     def __init__(
         self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        collection_name: str = "documents",
+        host: str,
+        port: int,
+        collection_name: str,
     ):
         """Initialize Qdrant client.
 
         Args:
-            host: Qdrant server host (uses config default if None)
-            port: Qdrant server port (uses config default if None)
+            host: Qdrant server host
+            port: Qdrant server port
             collection_name: Name of the collection to use
         """
-        settings = get_settings()
-        host = host if host is not None else settings.qdrant_host
-        port = port if port is not None else settings.qdrant_port
-
         self.client = QdrantClient(host=host, port=port)
         self.collection_name = collection_name
         logger.info(f"Connected to Qdrant at {host}:{port}")
@@ -64,8 +60,8 @@ class QdrantVectorStore:
             dimension: Dimension of embedding vectors
             force_recreate: If True, delete existing collection and create new one
         """
-        collections = self.client.get_collections().collections
-        exists = any(c.name == self.collection_name for c in collections)
+        # Use collection_exists() which correctly handles aliases
+        exists = self.collection_exists()
 
         if exists and force_recreate:
             logger.info(f"Deleting existing collection: {self.collection_name}")
@@ -127,17 +123,20 @@ class QdrantVectorStore:
                 )
             )
 
-        self.client.upsert(
-            collection_name=self.collection_name,
-            points=points,
-        )
+        batch_size = 500
+        for start in range(0, len(points), batch_size):
+            batch = points[start : start + batch_size]
+            self.client.upsert(
+                collection_name=self.collection_name,
+                points=batch,
+            )
         logger.info(f"Added {len(points)} documents to {self.collection_name}")
 
     def search(
         self,
         query_embedding: List[float],
-        top_k: int = 5,
-        score_threshold: float = 0.0,
+        top_k: int,
+        score_threshold: float,
         filter_dict: Optional[Dict[str, Any]] = None,
     ) -> List[Document]:
         """Search for similar documents.
@@ -156,7 +155,8 @@ class QdrantVectorStore:
         """
         # Exclude metadata sentinel points from search results
         meta_exclusion = FieldCondition(
-            key="type", match=MatchValue(value="collection_meta"),
+            key="type",
+            match=MatchValue(value="collection_meta"),
         )
 
         if filter_dict:
@@ -243,6 +243,27 @@ class QdrantVectorStore:
             ]
         )
         logger.info(f"Alias '{alias_name}' now points to collection '{collection_name}'")
+
+    def delete_alias(self, alias_name: str) -> None:
+        """Delete an alias by name."""
+        self.client.update_collection_aliases(
+            change_aliases_operations=[
+                DeleteAliasOperation(
+                    delete_alias=DeleteAlias(alias_name=alias_name),
+                )
+            ]
+        )
+        logger.info(f"Deleted alias: {alias_name}")
+
+    def list_aliases(self) -> List[Dict[str, str]]:
+        """List all aliases visible to the client."""
+        return [
+            {
+                "alias_name": alias.alias_name,
+                "collection_name": alias.collection_name,
+            }
+            for alias in self.client.get_aliases().aliases
+        ]
 
     def delete_collection(self, collection_name: str) -> None:
         """Delete a collection by explicit name."""

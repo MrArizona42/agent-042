@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI
@@ -13,7 +14,11 @@ from gateway.auth.middleware import AuthMiddleware
 from gateway.auth.oidc import OIDCClient
 from gateway.auth.router import router as auth_router
 from gateway.auth.session import SessionManager
-from gateway.config import get_settings, validate_settings_on_startup
+from gateway.config import (
+    bootstrap_local_settings_env,
+    get_settings,
+    validate_settings_on_startup,
+)
 from gateway.services.celery_client import CeleryClient
 from gateway.services.processing import process_chat
 from gateway.services.redis_stream import RedisStreamService
@@ -24,6 +29,8 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[2])
 
 # Validate settings at module load time (fail fast)
 validate_settings_on_startup()
@@ -44,6 +51,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if settings.rag_enabled:
         logger.info(f"Qdrant: {settings.qdrant_host}:{settings.qdrant_port}")
         logger.info(f"Embedding model: {settings.embedding_model}")
+        # Validate knowledge base aliases at startup
+        from gateway.services.rag_service import RAGService
+
+        try:
+            rag_service = RAGService(settings)
+            rag_service.validate_knowledge_bases()
+            logger.info("Knowledge base startup validation complete")
+        except Exception:
+            logger.warning("Knowledge base startup validation failed", exc_info=True)
 
     # --- Create managed connections ---
     redis_stream = RedisStreamService(settings.redis_url)
@@ -68,9 +84,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # --- Auth services ---
     auth_redis: aioredis.Redis | None = None
     if settings.google_client_id:
-        auth_redis = aioredis.from_url(
-            settings.redis_url, encoding="utf-8", decode_responses=True
-        )
+        auth_redis = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
         app.state.oidc_client = OIDCClient(settings)
         app.state.session_manager = SessionManager(auth_redis)
         logger.info("OAuth2 / OIDC services initialized")

@@ -1,0 +1,9 @@
+defaults:
+  - base_config
+  - paths: paths_config
+  - experiment: train_adapter
+  - _self_
+
+hydra:
+  run:
+    dir: "${paths.project_root}/artifacts/training/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}"

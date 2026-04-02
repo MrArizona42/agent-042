@@ -29,6 +29,8 @@ filelock==3.24.3
     # via
     #   huggingface-hub
     #   torch
+fire==0.7.1
+    # via agent-042 (pyproject.toml)
 fsspec==2026.2.0
     # via
     #   huggingface-hub
@@ -119,6 +121,7 @@ packaging==26.0
     #   transformers
 pydantic==2.12.5
     # via
+    #   agent-042 (pyproject.toml)
     #   fastapi
     #   pydantic-settings
 pydantic-core==2.41.5
@@ -129,6 +132,7 @@ pygments==2.19.2
     # via rich
 python-dotenv==1.2.1
     # via
+    #   agent-042 (pyproject.toml)
     #   pydantic-settings
     #   uvicorn
 pyyaml==6.0.3
@@ -158,6 +162,8 @@ starlette==0.52.1
     # via fastapi
 sympy==1.14.0
     # via torch
+termcolor==3.3.0
+    # via fire
 threadpoolctl==3.6.0
     # via scikit-learn
 tokenizers==0.22.2

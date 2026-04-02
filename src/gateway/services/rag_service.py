@@ -9,7 +9,7 @@ from gateway.config import get_settings
 from rag.embeddings import EmbeddingService
 from rag.retriever import Retriever
 from rag.vector_store import QdrantVectorStore
-from shared.config import Settings, get_knowledge_bases
+from shared.config import Settings, get_kb_config, get_knowledge_bases
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class RAGService:
         """Construct the Qdrant alias name: ``{kb}_{alias}``."""
         return f"{kb_name}_{alias}"
 
-    def _get_retriever(self, kb_name: str, alias: str = "champion") -> Optional[Retriever]:
+    def _get_retriever(self, kb_name: str, alias: str) -> Optional[Retriever]:
         """Return (and lazily create) a retriever for *(kb_name, alias)*.
 
         Validates that the KB exists in the registry and that the alias
@@ -73,12 +73,9 @@ class RAGService:
         if cache_key in self._retrievers:
             return self._retrievers[cache_key]
 
-        kb_registry = get_knowledge_bases()
-
-        if kb_name not in kb_registry:
+        kb_cfg = get_kb_config(kb_name)
+        if kb_cfg is None:
             return None
-
-        kb_cfg = kb_registry[kb_name]
         if alias not in kb_cfg.aliases:
             return None
 
@@ -125,21 +122,47 @@ class RAGService:
         ``aliases``, and ``update_strategy``.
         """
         result: dict[str, dict] = {}
-        for name, cfg in get_knowledge_bases().items():
-            result[name] = {
-                "label": cfg.label,
-                "description": cfg.description,
-                "aliases": cfg.aliases,
-                "update_strategy": cfg.update_strategy,
-            }
+        for task_cfg in get_knowledge_bases().values():
+            for kb_cfg in task_cfg.knowledge_bases:
+                result[kb_cfg.name] = {
+                    "label": kb_cfg.label,
+                    "description": kb_cfg.description,
+                    "aliases": kb_cfg.aliases,
+                    "update_strategy": kb_cfg.update_strategy,
+                }
         return result
+
+    def validate_knowledge_bases(self) -> None:
+        """Check every alias in config resolves to an existing Qdrant collection.
+
+        Logs warnings for missing collections; does not raise.
+        """
+        if not self.enabled:
+            return
+
+        for task_cfg in get_knowledge_bases().values():
+            for kb_cfg in task_cfg.knowledge_bases:
+                for alias in kb_cfg.aliases:
+                    collection = self._qdrant_alias(kb_cfg.name, alias)
+                    vs = QdrantVectorStore(
+                        host=self.settings.qdrant_host,
+                        port=self.settings.qdrant_port,
+                        collection_name=collection,
+                    )
+                    if not vs.collection_exists():
+                        logger.warning(
+                            "KB alias not found in Qdrant at startup: "
+                            "task=%s kb=%s alias=%s collection=%s — marking unavailable",
+                            task_cfg.task, kb_cfg.name, alias, collection,
+                        )
+                        self._unavailable.add(collection)
 
     def retrieve_context(
         self,
         query: str,
         knowledge_base: Optional[str] = None,
-        alias: str = "champion",
-        top_k: int = 5,
+        alias: Optional[str] = None,
+        top_k: Optional[int] = None,
     ) -> Optional[str]:
         """Retrieve relevant context for a query.
 
@@ -147,12 +170,16 @@ class RAGService:
             query: User query
             knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
                 If None the retrieval is skipped.
-            alias: Alias role (default ``"champion"``).
-            top_k: Number of documents to retrieve
+            alias: Alias role (uses settings.default_alias if None).
+            top_k: Number of documents to retrieve (uses config default if None)
 
         Returns:
             Formatted context string or None if RAG is disabled/unavailable
         """
+        if alias is None:
+            alias = self.settings.default_alias
+        if top_k is None:
+            top_k = self.settings.top_k
         docs = self.retrieve_documents(
             query=query,
             knowledge_base=knowledge_base,
@@ -167,22 +194,27 @@ class RAGService:
         self,
         query: str,
         knowledge_base: Optional[str] = None,
-        alias: str = "champion",
-        top_k: int = 5,
+        alias: Optional[str] = None,
+        top_k: Optional[int] = None,
     ) -> list:
         """Retrieve relevant documents as a list of Document objects.
 
         Args:
             query: User query
             knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
-            alias: Alias role (default ``"champion"``).
-            top_k: Number of documents to retrieve
+            alias: Alias role (uses settings.default_alias if None).
+            top_k: Number of documents to retrieve (uses config default if None)
 
         Returns:
             List of Document objects, or empty list if unavailable.
         """
         if not self.enabled:
             return []
+
+        if alias is None:
+            alias = self.settings.default_alias
+        if top_k is None:
+            top_k = self.settings.top_k
 
         if not knowledge_base:
             logger.info("No knowledge base selected — skipping RAG retrieval")
@@ -198,8 +230,7 @@ class RAGService:
         try:
             documents = retriever.retrieve(query=query, top_k=top_k)
             logger.info(
-                f"Retrieved {len(documents)} documents "
-                f"(kb={knowledge_base}, alias={alias})"
+                f"Retrieved {len(documents)} documents (kb={knowledge_base}, alias={alias})"
             )
             return documents
         except Exception as e:
@@ -222,9 +253,7 @@ class RAGService:
         for i, doc in enumerate(documents, 1):
             source = doc.metadata.get("source", "unknown")
             score = doc.score if doc.score is not None else 0.0
-            parts.append(
-                f"[Document {i}] (Source: {source}, Score: {score:.3f})\n{doc.content}"
-            )
+            parts.append(f"[Document {i}] (Source: {source}, Score: {score:.3f})\n{doc.content}")
 
         context = "\n\n".join(parts)
         max_len = self.settings.context_max_length

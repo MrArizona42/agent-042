@@ -6,6 +6,7 @@ Tables
 - chat_sessions    — per-user conversation sessions
 - chat_messages    — individual messages within a session
 - eval_runs        — evaluation benchmark results
+- eval_samples     — per-sample evaluation details
 """
 
 from __future__ import annotations
@@ -133,3 +134,29 @@ class EvalRun(Base):
 
     extra: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+    samples: Mapped[list["EvalSample"]] = relationship(
+        back_populates="eval_run", cascade="all, delete-orphan"
+    )
+
+
+class EvalSample(Base):
+    """Per-sample evaluation detail, linked to an :class:`EvalRun`."""
+
+    __tablename__ = "eval_samples"
+    __table_args__ = (UniqueConstraint("eval_run_id", "sample_idx"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    eval_run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("eval_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    sample_idx: Mapped[int] = mapped_column(Integer, nullable=False)
+    sample_id: Mapped[str | None] = mapped_column(Text)
+
+    input: Mapped[str | None] = mapped_column(Text)
+    output: Mapped[str | None] = mapped_column(Text)
+    reference: Mapped[str | None] = mapped_column(Text)
+
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    eval_run: Mapped[EvalRun] = relationship(back_populates="samples")

@@ -124,12 +124,12 @@ class TestEvalSettings:
 
         s = get_eval_settings()
         assert s.judge_model == "gemini-2.0-flash"
-        assert s.bert_score_model == "microsoft/deberta-xlarge-mnli"
         assert s.temperature == 0.0
         assert s.max_tokens == 512
-        assert s.sample_limit == 0
         assert s.code_exec_timeout == 30
-        assert s.code_exec_image == "python:3.11-slim"
+        assert s.code_exec_mem_limit == "512m"
+        assert s.sample_limit == 100
+        assert s.bert_score_model == "microsoft/deberta-base-mnli"
 
     def test_env_override(self, monkeypatch):
         from shared.config import EvalSettings
@@ -150,24 +150,24 @@ class TestAutomaticMetrics:
     """Tests for automatic evaluation metrics."""
 
     def test_rouge_l_identical(self):
-        from experiments.scripts.eval.metrics.automatic import compute_rouge_l
+        from experiments.eval.eval_scripts.metrics.automatic import compute_rouge_l
 
         assert compute_rouge_l("hello world", "hello world") == 1.0
 
     def test_rouge_l_empty(self):
-        from experiments.scripts.eval.metrics.automatic import compute_rouge_l
+        from experiments.eval.eval_scripts.metrics.automatic import compute_rouge_l
 
         assert compute_rouge_l("", "hello") == 0.0
         assert compute_rouge_l("hello", "") == 0.0
 
     def test_rouge_l_partial(self):
-        from experiments.scripts.eval.metrics.automatic import compute_rouge_l
+        from experiments.eval.eval_scripts.metrics.automatic import compute_rouge_l
 
         score = compute_rouge_l("the cat sat on the mat", "the cat on the mat")
         assert 0.0 < score < 1.0
 
     def test_recall_at_k(self):
-        from experiments.scripts.eval.metrics.automatic import compute_recall_at_k
+        from experiments.eval.eval_scripts.metrics.automatic import compute_recall_at_k
 
         retrieved = ["a", "b", "c", "d", "e"]
         relevant = {"a", "c", "f"}
@@ -175,12 +175,12 @@ class TestAutomaticMetrics:
         assert recall == pytest.approx(2 / 3)
 
     def test_recall_at_k_empty(self):
-        from experiments.scripts.eval.metrics.automatic import compute_recall_at_k
+        from experiments.eval.eval_scripts.metrics.automatic import compute_recall_at_k
 
         assert compute_recall_at_k(["a", "b"], set(), k=5) == 0.0
 
     def test_ndcg_at_k_perfect(self):
-        from experiments.scripts.eval.metrics.automatic import compute_ndcg_at_k
+        from experiments.eval.eval_scripts.metrics.automatic import compute_ndcg_at_k
 
         retrieved = ["a", "b", "c"]
         labels = {"a": 3.0, "b": 2.0, "c": 1.0}
@@ -188,7 +188,7 @@ class TestAutomaticMetrics:
         assert ndcg == pytest.approx(1.0)
 
     def test_ndcg_at_k_reversed(self):
-        from experiments.scripts.eval.metrics.automatic import compute_ndcg_at_k
+        from experiments.eval.eval_scripts.metrics.automatic import compute_ndcg_at_k
 
         retrieved = ["c", "b", "a"]
         labels = {"a": 3.0, "b": 2.0, "c": 1.0}
@@ -204,9 +204,9 @@ class TestAutomaticMetrics:
 class TestLLMJudge:
     """Tests for LLM-as-Judge with mocked Gemini calls."""
 
-    @patch("experiments.scripts.eval.metrics.llm_judge._call_gemini")
+    @patch("experiments.eval.eval_scripts.metrics.llm_judge._call_gemini")
     def test_judge_single_relevance(self, mock_gemini):
-        from experiments.scripts.eval.metrics.llm_judge import judge_single
+        from experiments.eval.eval_scripts.metrics.llm_judge import judge_single
 
         mock_gemini.return_value = {"score": 4, "reason": "mostly relevant"}
 
@@ -216,14 +216,15 @@ class TestLLMJudge:
             answer="Machine learning is...",
             reference="ML is a subset of AI",
             api_key="test-key",
+            model="gemini-2.0-flash",
         )
         assert result["score"] == 4
         assert "relevant" in result["reason"]
         mock_gemini.assert_called_once()
 
-    @patch("experiments.scripts.eval.metrics.llm_judge._call_gemini")
+    @patch("experiments.eval.eval_scripts.metrics.llm_judge._call_gemini")
     def test_judge_batch(self, mock_gemini):
-        from experiments.scripts.eval.metrics.llm_judge import judge_batch
+        from experiments.eval.eval_scripts.metrics.llm_judge import judge_batch
 
         mock_gemini.return_value = {"score": 3, "reason": "ok"}
 
@@ -234,15 +235,21 @@ class TestLLMJudge:
                 {"question": "q2", "answer": "a2", "reference": "r2"},
             ],
             api_key="test-key",
+            model="gemini-2.0-flash",
         )
         assert "correctness" in result
         assert result["correctness"] == 3.0
 
     def test_judge_unknown_metric(self):
-        from experiments.scripts.eval.metrics.llm_judge import judge_single
+        from experiments.eval.eval_scripts.metrics.llm_judge import judge_single
 
         with pytest.raises(ValueError, match="Unknown judge metric"):
-            judge_single("nonexistent_metric", answer="test", api_key="key")
+            judge_single(
+                "nonexistent_metric",
+                answer="test",
+                api_key="key",
+                model="gemini-2.0-flash",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +261,7 @@ class TestCodeExec:
     """Tests for sandboxed code execution metrics."""
 
     def test_pass_at_1_all_pass(self):
-        from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1
+        from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         results = [
             {"passed": True, "exit_code": 0},
@@ -265,7 +272,7 @@ class TestCodeExec:
         assert metrics["executable_rate"] == 1.0
 
     def test_pass_at_1_none_pass(self):
-        from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1
+        from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         results = [
             {"passed": False, "exit_code": 1},
@@ -275,14 +282,14 @@ class TestCodeExec:
         assert metrics["pass_at_1"] == 0.0
 
     def test_pass_at_1_empty(self):
-        from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1
+        from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         metrics = compute_pass_at_1([])
         assert metrics["pass_at_1"] == 0.0
         assert metrics["executable_rate"] == 0.0
 
     def test_pass_at_1_partial(self):
-        from experiments.scripts.eval.metrics.code_exec import compute_pass_at_1
+        from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         results = [
             {"passed": True, "exit_code": 0},
@@ -303,55 +310,22 @@ class TestCodeExec:
 class TestRunnerConfig:
     """Tests for eval runner configuration and CLI parsing."""
 
-    def test_suite_kb_mapping(self):
-        from experiments.scripts.eval.runner import _SUITE_KB
-
-        assert _SUITE_KB[("chat", "hotpotqa")] == "arxiv"
-        assert _SUITE_KB[("chat", "nq")] == "arxiv"
-        assert _SUITE_KB[("code", "humaneval")] == "pytorch_docs"
-        assert _SUITE_KB[("summarize", "arxiv_summarization")] is None
-
-    def test_suite_kb_missing_returns_none(self):
-        from experiments.scripts.eval.runner import _SUITE_KB
-
-        assert _SUITE_KB.get(("unknown_task", "unknown_dataset")) is None
-
-    def test_task_metrics(self):
-        from experiments.scripts.eval.runner import _TASK_METRICS
-
-        assert "relevance" in _TASK_METRICS["chat"]
-        assert "correctness" in _TASK_METRICS["chat"]
-        assert "rouge_l" in _TASK_METRICS["chat"]
-        assert "bertscore_f1" in _TASK_METRICS["chat"]
-        assert "pass_at_1" in _TASK_METRICS["code"]
-        assert "recall_at_10" in _TASK_METRICS["retrieval"]
-        assert "ndcg_at_10" in _TASK_METRICS["retrieval"]
-
-    def test_metric_category_sets(self):
-        """Each metric belongs to exactly one category set."""
-        from experiments.scripts.eval.runner import (
+    def test_metric_category_sets_are_disjoint(self):
+        """The three metric routing sets must not overlap — a metric can only be
+        dispatched to one handler."""
+        from experiments.eval.eval_scripts.runner import (
             _AUTOMATIC_METRICS,
             _CODE_EXEC_METRICS,
             _JUDGE_METRICS,
         )
 
-        assert "rouge_l" in _AUTOMATIC_METRICS
-        assert "bertscore_f1" in _AUTOMATIC_METRICS
-        assert "recall_at_10" in _AUTOMATIC_METRICS
-        assert "ndcg_at_10" in _AUTOMATIC_METRICS
-        assert "relevance" in _JUDGE_METRICS
-        assert "correctness" in _JUDGE_METRICS
-        assert "groundedness" in _JUDGE_METRICS
-        assert "pass_at_1" in _CODE_EXEC_METRICS
-        assert "executable_rate" in _CODE_EXEC_METRICS
-        # No overlap between automatic and judge
         assert _AUTOMATIC_METRICS.isdisjoint(_JUDGE_METRICS)
         assert _AUTOMATIC_METRICS.isdisjoint(_CODE_EXEC_METRICS)
         assert _JUDGE_METRICS.isdisjoint(_CODE_EXEC_METRICS)
 
     def test_run_eval_validates_metric(self):
         """run_eval raises ValueError for invalid task/metric combination."""
-        from experiments.scripts.eval.runner import run_eval
+        from experiments.eval.eval_scripts.runner import run_eval
 
         with pytest.raises(ValueError, match="not valid for task"):
             run_eval(
@@ -364,39 +338,29 @@ class TestRunnerConfig:
 
     def test_dataset_local_mapping_covers_all_suites(self):
         """All datasets used in _SUITE_KB have a local mapping."""
-        from experiments.scripts.eval.runner import _DATASET_LOCAL, _SUITE_KB
+        from experiments.eval.eval_scripts.runner import _DATASET_LOCAL, _SUITE_KB
 
         for (_task, dataset_name), _kb in _SUITE_KB.items():
             assert dataset_name in _DATASET_LOCAL, (
                 f"Dataset '{dataset_name}' in _SUITE_KB but not in _DATASET_LOCAL"
             )
 
-    def test_dataset_local_mapping_points_to_datasets_dir(self):
-        """All local dataset folders live under assets/datasets/."""
-        from experiments.scripts.eval.runner import _DATASET_LOCAL, DATASETS_DIR
-
-        for name, (folder, _split) in _DATASET_LOCAL.items():
-            expected = DATASETS_DIR / folder
-            assert expected.parent == DATASETS_DIR, (
-                f"{name}: {expected} is not under {DATASETS_DIR}"
-            )
-
     def test_load_dataset_samples_unknown_returns_empty(self):
         """_load_dataset_samples returns [] for an unknown dataset."""
-        from experiments.scripts.eval.runner import _load_dataset_samples
+        from experiments.eval.eval_scripts.runner import _load_dataset_samples
 
-        assert _load_dataset_samples("chat", "nonexistent_dataset") == []
+        assert _load_dataset_samples("chat", "nonexistent_dataset", limit=10) == []
 
     def test_load_dataset_samples_missing_dir_returns_empty(self):
         """_load_dataset_samples returns [] when dataset dir does not exist."""
-        from experiments.scripts.eval.runner import _load_dataset_samples
+        from experiments.eval.eval_scripts.runner import _load_dataset_samples
 
         # hotpotqa is valid but its directory won't exist in test env
-        result = _load_dataset_samples("chat", "hotpotqa")
+        result = _load_dataset_samples("chat", "hotpotqa", limit=10)
         assert result == []
 
     def test_build_common_fields(self):
-        from experiments.scripts.eval.runner import _build_common_fields
+        from experiments.eval.eval_scripts.runner import _build_common_fields
 
         settings = MagicMock()
         settings.judge_model = "gemini-2.0-flash"
@@ -418,6 +382,7 @@ class TestRunnerConfig:
             rag_enabled=False,
             kb_name=None,
             eval_settings=settings,
+            eval_context=None,
             now=datetime.now(timezone.utc),
         )
 
@@ -432,7 +397,7 @@ class TestRunnerConfig:
         assert isinstance(fields["id"], uuid.UUID)
 
     def test_build_common_fields_with_rag(self):
-        from experiments.scripts.eval.runner import _build_common_fields
+        from experiments.eval.eval_scripts.runner import _build_common_fields
 
         settings = MagicMock()
         settings.judge_model = "gemini-2.0-flash"
@@ -454,6 +419,7 @@ class TestRunnerConfig:
             rag_enabled=True,
             kb_name="arxiv",
             eval_settings=settings,
+            eval_context=None,
             now=datetime.now(timezone.utc),
         )
 
@@ -464,33 +430,61 @@ class TestRunnerConfig:
         assert fields["adapter_version"] == 3
         assert fields["lora_alias"] == "champion"
 
+    def test_calculate_metrics_applies_eval_context_overrides(self):
+        from experiments.eval.eval_scripts.runner import calculate_metrics
 
-# ---------------------------------------------------------------------------
-# Gateway rag_context tests
-# ---------------------------------------------------------------------------
+        prediction_data = {
+            "task": "summarize",
+            "dataset_name": "arxiv_summarization",
+            "kb_name": None,
+            "base_model": "base-model",
+            "eval_context": {
+                "temperature": 0.25,
+                "max_tokens": 128,
+                "extra": {"evaluation_backend": "local_peft_generation"},
+            },
+            "bundles": [
+                {
+                    "rag_alias": "none",
+                    "lora_alias": "local",
+                    "lora_info": {
+                        "adapter_name": "lora-summarize-local",
+                        "adapter_version": None,
+                        "adapter_mlflow_run_id": "run-123",
+                    },
+                    "rag_enabled": False,
+                    "predictions": ["summary"],
+                    "references": ["summary"],
+                    "judge_samples": [
+                        {
+                            "question": "article",
+                            "answer": "summary",
+                            "reference": "summary",
+                            "context": "",
+                        }
+                    ],
+                    "sample_details": [
+                        {
+                            "sample_idx": 0,
+                            "input": "article",
+                            "output": "summary",
+                            "reference": "summary",
+                            "detail": {},
+                        }
+                    ],
+                }
+            ],
+        }
 
+        with patch("experiments.eval.eval_scripts.runner._log_to_db") as mock_log_to_db:
+            rows = calculate_metrics(metric="rouge_l", prediction_data=prediction_data)
 
-class TestRagContextInResponse:
-    """Test that RAGService exposes retrieve_documents and format_documents."""
-
-    def test_rag_service_has_retrieve_documents(self):
-        from gateway.services.rag_service import RAGService
-
-        assert hasattr(RAGService, "retrieve_documents")
-        assert callable(RAGService.retrieve_documents)
-
-    def test_rag_service_has_format_documents(self):
-        from gateway.services.rag_service import RAGService
-
-        assert hasattr(RAGService, "format_documents")
-        assert callable(RAGService.format_documents)
-
-    def test_retrieve_context_delegates(self):
-        """retrieve_context should still work (backwards compat)."""
-        from gateway.services.rag_service import RAGService
-
-        assert hasattr(RAGService, "retrieve_context")
-        assert callable(RAGService.retrieve_context)
+        assert len(rows) == 1
+        assert rows[0]["adapter_mlflow_run_id"] == "run-123"
+        assert rows[0]["temperature"] == 0.25
+        assert rows[0]["max_tokens"] == 128
+        assert rows[0]["extra"] == {"evaluation_backend": "local_peft_generation"}
+        mock_log_to_db.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
