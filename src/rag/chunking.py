@@ -159,7 +159,6 @@ def get_chunker(strategy: str, **kwargs) -> BaseChunker:
 
     Args:
         strategy: Chunking strategy key (fixed_token, code, section_aware).
-            ``summarize`` is accepted as a deprecated alias for section_aware.
         **kwargs: Additional arguments passed to chunker (chunk_size, chunk_overlap).
 
     Returns:
@@ -167,15 +166,7 @@ def get_chunker(strategy: str, **kwargs) -> BaseChunker:
     """
     if strategy == "code":
         return CodeChunker(**kwargs)
-    elif strategy in ("section_aware", "summarize"):
-        if strategy == "summarize":
-            import warnings
-
-            warnings.warn(
-                "Chunking strategy 'summarize' is deprecated, use 'section_aware' instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+    elif strategy == "section_aware":
         return SectionAwareChunker(**kwargs)
     else:
         return FixedTokenChunker(**kwargs)

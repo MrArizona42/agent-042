@@ -122,13 +122,15 @@ Example payload:
 
 ## Environment
 
-Key environment variables (all prefixed `GATEWAY_`):
+Shared endpoint vars use canonical names. Gateway-specific behavior keeps the
+`GATEWAY_` prefix.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GATEWAY_VLLM_BASE_URL` | `http://localhost:8000` | vLLM server URL |
-| `GATEWAY_QDRANT_HOST` | `localhost` | Qdrant host |
-| `GATEWAY_QDRANT_PORT` | `6333` | Qdrant port |
+| `VLLM_BASE_URL` | `http://localhost:8000` | Shared vLLM server URL |
+| `QDRANT_HOST` | `localhost` | Shared Qdrant host |
+| `QDRANT_PORT` | `6333` | Shared Qdrant port |
+| `EMBEDDINGS_URL` | `http://localhost:8100` | Shared embeddings service URL |
 | `GATEWAY_RAG_ENABLED` | `true` | Enable/disable RAG |
 | `GATEWAY_EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model |
 | `GATEWAY_ASYNC_ENABLED` | `true` | Enable Celery async mode |
@@ -139,7 +141,10 @@ See `src/shared/config.py` for the full list.
 
 ## Run (local)
 
+`gateway.main` explicitly loads the repo-root `.env` for local runs before
+settings are cached.
+
 ```bash
 uv sync --extra gateway --extra worker --extra rag --group dev
-PYTHONPATH=src GATEWAY_VLLM_BASE_URL=http://localhost:8000 uvicorn gateway.main:app --reload --port 9000
+PYTHONPATH=src uvicorn gateway.main:app --reload --port 9000
 ```

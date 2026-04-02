@@ -29,12 +29,30 @@ python -m experiments.training.train_adapter.start_train \
 * `./training/conf` - Hydra конфиги
 * `./training` - Обучение адаптера
 * `./training/lora_ops.ipynb` - Операции с LoRA (регистрация, промоушен, синхронизация)
-* `./rag` - RAG индексы
-* `./rag/rag_ops.ipynb` - Операции с RAG (коллекции, алиасы, диагностика)
+* `./rag` - RAG operator notebooks и notebook wrappers поверх `src/rag/ops`
+* `./rag/rag_ops.ipynb` - Операции с RAG (create / refresh / alias management / диагностика)
+* `./rag/notebook_ops.py` - notebook façade над production entrypoints из `src/rag/ops`
+* `./rag/sandboxes/` - notebook-only experimental forks, которые не импортируются production-кодом
 * `./eval` - Оценка моделей
 * `./eval/eval_results.ipynb` - Результаты оценки (сравнение, отчёты)
 * `./eval/debug_eval.ipynb` - Отладка пайплайна оценки
 * `./misc_ops` - Прочие операции (prefetch, MLflow, PostgreSQL диагностика)
+
+## RAG operator path
+
+- Production-safe lifecycle код для RAG живёт в `src/rag/ops/`.
+- Создание новых коллекций выполняется через `src/rag/ops/create/` и notebook wrappers
+  `create_arxiv(...)` / `create_pytorch_docs(...)` из `experiments/rag/notebook_ops.py`.
+- Refresh существующих production-коллекций выполняется через `src/rag/ops/update/` и wrappers
+  `refresh_arxiv(...)` / `refresh_pytorch_docs(...)`. Airflow DAG-и используют только эти
+  production update entrypoints.
+- Alias management и inspection идут через `src/rag/ops/aliases.py`, `src/rag/ops/inspect.py`
+  и notebook wrappers `assign_alias(...)`, `promote(...)`, `detach(...)`, `inspect_kb_alias(...)`.
+- `experiments/rag/rag_ops.ipynb` должен вызывать только `experiments.rag.notebook_ops`, чтобы
+  notebook и Airflow использовали один и тот же production runtime.
+- `experiments/rag/sandboxes/` предназначен только для notebook-only experiments. Если sandbox
+  эксперимент нужно продвигать в champion, код сначала переносится в `src/rag/` или
+  `src/rag/ops/`, а уже потом пересобирается и промоутится коллекция.
 
 ## 📦 DVC
 
@@ -285,7 +303,8 @@ python -m experiments.training.train_adapter.start_train \
 > Python API.
 
 Скрипт `src/shared/model_registry.py` — программный интерфейс для управления
-адаптерами в реестре. Читает `MLFLOW_TRACKING_URI` из `experiments/.env`.
+адаптерами в реестре. Для локальных запусков читает `MLFLOW_TRACKING_URI`
+из корневого `.env` репозитория, созданного из корневого `.env.example`.
 
 **Просмотр всех зарегистрированных адаптеров:**
 
@@ -316,8 +335,11 @@ registry.demote(model_name="lora-summarize", alias="champion")
 
 ```bash
 # Из корня проекта (с настроенным .env)
-python -m shared.model_registry sync --adapters-dir ./assets/adapters --vllm-url http://localhost:8000
+python -m shared.model_registry sync --adapters-dir ./assets/adapters
 ```
+
+По умолчанию команда читает endpoint vLLM из `VLLM_BASE_URL`
+`--vllm-url` нужен только для явного override.
 
 Результат на диске:
 
@@ -354,7 +376,7 @@ python -m experiments.training.train_adapter.start_train \
 #    registry.promote(model_name="lora-summarize", version=3, alias="champion")
 
 # 5. Синхронизировать адаптеры на inference-хосте (hot-load в работающий vLLM)
-python -m shared.model_registry sync --vllm-url http://localhost:8000
+python -m shared.model_registry sync
 ```
 
 ### Конфигурация vLLM для multi-LoRA

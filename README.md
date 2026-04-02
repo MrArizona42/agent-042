@@ -53,10 +53,14 @@
 
 **RAG-трек:**
 Эксперименты по сборке RAG системы. Стэк:
-* JupyterLab и Python скрипты для скачивания датасетов, сборки индексов и оценки качества RAG
+* JupyterLab и Python API для скачивания датасетов, сборки индексов и оценки качества RAG;
+	notebook path использует `experiments/rag/notebook_ops.py`, который вызывает production
+	entrypoints из `src/rag/ops/`
 * Airflow для автоматизации сборки RAG-индексов по расписанию. DAG-и скачивают новые данные, обрабатывают их, генерируют эмбеддинги и загружают в Qdrant.
 * Vector Store: Qdrant для хранения векторных представлений документов.
 * Aliases. Каждая коллекция может иметь более одного alias, например: `champion` (для прод-запросов) и `challenger` (для новых сборок в экспериментах).
+* Notebook-only experimental forks живут в `experiments/rag/sandboxes/`; production сервисы,
+	Airflow DAG-и и production evals импортируют только код из `src/rag/`.
 
 **Evaluation and benchmarking:**
 * Запуск в Airflow, JupyterLab или через Python скрипты
@@ -78,7 +82,7 @@
 - `agent042` — прикладная БД: пользователи (`users`), сессии (`chat_sessions`), сообщения (`chat_messages`), результаты бенчмарков (`eval_runs`)
 
 **Qdrant:**
-Векторные коллекции для RAG. Каждая база знаний (`arxiv`, `pytorch_docs`) имеет под одним или несколькими alias: `{kb}_champion` - прод-запросы, и `{kb}_challenger` - для экспериментов и тестоов. Метаданные коллекции хранятся внутри неё же в виде sentinel-точки с `id="_meta"`.
+Векторные коллекции для RAG. Каждая база знаний (`arxiv`, `pytorch_docs`) имеет один или несколько alias: `{kb}_champion` для прод-запросов и `{kb}_challenger` для ручных экспериментов и тестов. Метаданные коллекции хранятся внутри неё же в виде sentinel-точки с `id="_meta"`. Автоматические refresh-пайплайны идут через `src/rag/ops/update`, а ручные create/promote/inspect операции — через `experiments/rag/notebook_ops.py`.
 
 **Yandex Cloud S3 (два независимых префикса):**
 - `mlflow/` — артефакты MLflow: веса LoRA-адаптеров, чекпоинты.
