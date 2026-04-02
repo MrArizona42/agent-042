@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
 from airflow import DAG
-from airflow.operators.bash import BashOperator
-from airflow.operators.python import PythonOperator
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.providers.standard.operators.python import PythonOperator
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -34,6 +35,17 @@ ARXIV_MAX_RESULTS: int = 100
 _project_root = str(PROJECT_ROOT)
 _arxiv_rel = str(ARXIV_OUTPUT_DIR.relative_to(PROJECT_ROOT))
 _arxiv_json = str(ARXIV_OUTPUT_DIR / "arxiv_papers.json")
+
+
+def _bootstrap_project_imports() -> None:
+    """Ensure task-time imports can resolve the repo's src/ layout."""
+    for path in (PROJECT_ROOT, PROJECT_ROOT / "src"):
+        path_str = str(path)
+        if path_str not in sys.path:
+            sys.path.insert(0, path_str)
+
+
+_bootstrap_project_imports()
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
