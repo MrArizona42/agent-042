@@ -11,6 +11,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import (
     CreateAlias,
     CreateAliasOperation,
+    DeleteAlias,
+    DeleteAliasOperation,
     Distance,
     FieldCondition,
     Filter,
@@ -241,6 +243,27 @@ class QdrantVectorStore:
             ]
         )
         logger.info(f"Alias '{alias_name}' now points to collection '{collection_name}'")
+
+    def delete_alias(self, alias_name: str) -> None:
+        """Delete an alias by name."""
+        self.client.update_collection_aliases(
+            change_aliases_operations=[
+                DeleteAliasOperation(
+                    delete_alias=DeleteAlias(alias_name=alias_name),
+                )
+            ]
+        )
+        logger.info(f"Deleted alias: {alias_name}")
+
+    def list_aliases(self) -> List[Dict[str, str]]:
+        """List all aliases visible to the client."""
+        return [
+            {
+                "alias_name": alias.alias_name,
+                "collection_name": alias.collection_name,
+            }
+            for alias in self.client.get_aliases().aliases
+        ]
 
     def delete_collection(self, collection_name: str) -> None:
         """Delete a collection by explicit name."""

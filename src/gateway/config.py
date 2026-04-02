@@ -11,7 +11,12 @@ Usage:
 
 from __future__ import annotations
 
-from shared.config import Settings, get_settings, validate_settings_on_startup
+from shared.config import (
+    Settings,
+    bootstrap_local_settings_env,
+    get_settings,
+    validate_settings_on_startup,
+)
 
 # Backward compatibility alias
 GatewaySettings = Settings
@@ -19,6 +24,7 @@ GatewaySettings = Settings
 __all__ = [
     "GatewaySettings",
     "Settings",
+    "bootstrap_local_settings_env",
     "get_settings",
     "validate_settings_on_startup",
 ]

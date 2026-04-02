@@ -15,8 +15,9 @@ async processing, and production-like patterns.
 * **RAG system** is the strongest part. Alias-based versioning (champion/challenger), multiple
   chunking strategies (fixed-token, code-aware, section-aware), incremental vs. replace update
   policies, collection metadata stored as sentinel points — this is well-thought-out and goes beyond
-  typical thesis RAG implementations. The `knowledge_bases.json` registry + `manage_rag.py` CLI is
-  practical.
+  typical thesis RAG implementations. The `knowledge_bases.json` registry + production
+  `src/rag/ops` entrypoints, surfaced to operators via `experiments/rag/notebook_ops.py`, is
+  practical and keeps notebooks aligned with the runtime used by DAGs.
 * **MLflow + Model Registry** lifecycle for LoRA adapters is real MLOps. The
   `train → register → promote → sync → serve` pipeline with alias-based promotion mirrors how
   production ML teams work.

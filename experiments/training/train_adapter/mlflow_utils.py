@@ -9,13 +9,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import dotenv
 import mlflow
 import torch
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.loggers import MLFlowLogger
+
+from shared.local_env import load_local_env, resolve_local_env_path
 
 from .config import AppConfig
 
@@ -29,14 +30,19 @@ def configure_mlflow_tracking(cfg: AppConfig) -> str:
 
     env_path = tracking_cfg.env_path
     if env_path:
-        env_file = project_root / env_path if not Path(env_path).is_absolute() else Path(env_path)
-        if env_file.exists():
-            dotenv.load_dotenv(env_file)
-            logger.info("Loaded MLflow env from %s", env_file)
-        else:
+        env_file = resolve_local_env_path(env_path, repo_root=project_root)
+        loaded_env = load_local_env(
+            env_file,
+            repo_root=project_root,
+        )
+        if loaded_env is None:
             logger.warning("MLflow env file missing: %s", env_file)
     else:
-        dotenv.load_dotenv(project_root / "experiments" / ".env")
+        loaded_env = load_local_env(
+            repo_root=project_root,
+        )
+        if loaded_env is None:
+            logger.info("No local env file loaded; using process environment only")
 
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
     if tracking_uri:

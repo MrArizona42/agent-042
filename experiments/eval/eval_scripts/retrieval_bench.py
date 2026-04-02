@@ -34,19 +34,18 @@ def read_build_config(
     Returns:
         Meta payload dict, or ``None`` if not found.
     """
-    from rag.vector_store import QdrantVectorStore
+    from rag.ops.meta import read_build_config_for_alias
 
-    alias_name = f"{kb_name}_{rag_alias}"
-    vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=alias_name)
-    meta = vs.read_meta()
-    if meta is None:
-        logger.warning("No _meta point in alias '%s'", alias_name)
+    try:
+        return read_build_config_for_alias(
+            kb_name=kb_name,
+            rag_alias=rag_alias,
+            qdrant_host=qdrant_host,
+            qdrant_port=qdrant_port,
+        )
+    except RuntimeError:
+        logger.warning("Cannot read validated build config for alias '%s_%s'", kb_name, rag_alias)
         return None
-    build_cfg = meta.get("build_config")
-    if build_cfg is None:
-        logger.warning("No 'build_config' key in _meta for alias '%s'", alias_name)
-        return None
-    return build_cfg
 
 
 def build_temp_collection(
@@ -55,7 +54,7 @@ def build_temp_collection(
     dataset_name: str,
     rag_alias: str,
     corpus: list[dict[str, Any]],
-    build_config: dict[str, Any],
+    build_config: Any,
     qdrant_host: str,
     qdrant_port: int,
     embeddings_url: str,
@@ -85,14 +84,19 @@ def build_temp_collection(
     collection_name = f"eval_{kb_name}_{dataset_name}_{rag_alias}_{_timestamp()}"
     logger.info("Building temporary collection: %s", collection_name)
 
-    embedding_model = build_config["embedding_model"]
-    chunk_size = build_config["chunk_size"]
-    chunk_overlap = build_config["chunk_overlap"]
-    chunking_strategy = build_config["chunking_strategy"]
+    embedding_model = build_config.embedding_model
+    chunk_size = build_config.chunk_size
+    chunk_overlap = build_config.chunk_overlap
+    chunking_strategy = build_config.chunking_strategy
 
     # Use chunking strategy directly with get_chunker
-    emb_service = EmbeddingService(model_name=embedding_model)
-    chunker = get_chunker(strategy=chunking_strategy, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    emb_service = EmbeddingService(
+        model_name=embedding_model,
+        embeddings_url=embeddings_url,
+    )
+    chunker = get_chunker(
+        strategy=chunking_strategy, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+    )
 
     # Chunk corpus
     all_texts: list[str] = []

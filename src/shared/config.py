@@ -4,9 +4,13 @@ This module provides a single source of truth for all configuration settings
 across the gateway, RAG, and UI services. Configuration is loaded from
 environment variables with sensible defaults for local development.
 
-Usage:
-    from shared.config import get_settings
+Local-only entrypoints that want repo-root ``.env`` support should call
+``bootstrap_local_settings_env()`` before the first settings access.
 
+Usage:
+    from shared.config import bootstrap_local_settings_env, get_settings
+
+    bootstrap_local_settings_env()
     settings = get_settings()
     print(settings.qdrant_host)
 """
@@ -21,6 +25,8 @@ from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from shared.local_env import load_local_env
 
 logger = logging.getLogger(__name__)
 
@@ -173,58 +179,80 @@ class _KBProxy(dict):
         self._ensure()
         return super().get(key, default)
 
+    def reset(self) -> None:
+        super().clear()
+        self._loaded = False
 
-KNOWLEDGE_BASES: dict[str, dict] = _KBProxy()
+
+KNOWLEDGE_BASES = _KBProxy()
+
+PLATFORM_VLLM_BASE_URL_ENV = "VLLM_BASE_URL"
+PLATFORM_EMBEDDINGS_URL_ENV = "EMBEDDINGS_URL"
+PLATFORM_QDRANT_HOST_ENV = "QDRANT_HOST"
+PLATFORM_QDRANT_PORT_ENV = "QDRANT_PORT"
+PLATFORM_MLFLOW_TRACKING_URI_ENV = "MLFLOW_TRACKING_URI"
+PLATFORM_REDIS_URL_ENV = "REDIS_URL"
+PLATFORM_CELERY_BROKER_URL_ENV = "CELERY_BROKER_URL"
 
 
-class Settings(BaseSettings):
-    """Unified settings for all services.
+class PlatformSettings(BaseSettings):
+    """Canonical shared endpoint settings used across services.
 
-    All settings are configurable via environment variables with the GATEWAY_ prefix.
-    This class consolidates previously scattered configuration from:
-    - gateway/config.py (GatewaySettings)
-    - RAG/config.py (RAGSettings)
-    - ui/app.py (hardcoded defaults)
-    - ui/client.py (hardcoded timeouts)
+    Canonical environment variable names:
+        VLLM_BASE_URL
+        EMBEDDINGS_URL
+        QDRANT_HOST
+        QDRANT_PORT
+        MLFLOW_TRACKING_URI
+        REDIS_URL
+        CELERY_BROKER_URL
 
-    Environment Variables:
-        GATEWAY_VLLM_BASE_URL: vLLM server URL
-        GATEWAY_DEFAULT_MODEL: Default model for inference
-        GATEWAY_API_KEY: Optional API key for vLLM
-        GATEWAY_CORS_ALLOW_ORIGINS: Comma-separated list of allowed origins
-        GATEWAY_SERVICE_NAME: Service name for API docs
-        GATEWAY_QDRANT_HOST: Qdrant server host
-        GATEWAY_QDRANT_PORT: Qdrant server port
-        GATEWAY_RAG_ENABLED: Enable/disable RAG functionality
-        GATEWAY_EMBEDDING_MODEL: Model for generating embeddings
-        GATEWAY_EMBEDDING_DEVICE: Device for embedding model (cpu, cuda, mps)
-        GATEWAY_TOP_K: Default number of documents to retrieve
-        GATEWAY_SCORE_THRESHOLD: Minimum similarity score for retrieval
-        GATEWAY_VLLM_TIMEOUT: Timeout for vLLM requests in seconds
-        GATEWAY_EMBEDDING_BATCH_SIZE: Batch size for embedding generation
-        GATEWAY_CONTEXT_MAX_LENGTH: Maximum context length for RAG
-        GATEWAY_DEFAULT_ALIAS: Default alias role for RAG retrieval
-        GATEWAY_URL: Full URL to the gateway (used by UI)
-        UI_HEALTH_TIMEOUT: Timeout for health check requests
-        UI_MODELS_TIMEOUT: Timeout for models list requests
-        UI_CHAT_TIMEOUT: Timeout for chat completion requests
     """
 
-    model_config = SettingsConfigDict(
-        env_prefix="GATEWAY_",
-        extra="ignore",
-        # Support loading from .env file if present
-        env_file=".env",
-        env_file_encoding="utf-8",
-    )
+    model_config = SettingsConfigDict(extra="ignore")
 
-    # =========================================================================
-    # vLLM / Inference Settings
-    # =========================================================================
     vllm_base_url: str = Field(
         default="http://localhost:8000",
-        description="URL where vLLM server is reachable",
+        validation_alias=PLATFORM_VLLM_BASE_URL_ENV,
+        description="URL where the shared vLLM server is reachable",
     )
+    embeddings_url: str = Field(
+        default="http://localhost:8100",
+        validation_alias=PLATFORM_EMBEDDINGS_URL_ENV,
+        description="URL of the shared embeddings microservice",
+    )
+    qdrant_host: str = Field(
+        default="localhost",
+        validation_alias=PLATFORM_QDRANT_HOST_ENV,
+        description="Shared Qdrant server hostname",
+    )
+    qdrant_port: int = Field(
+        default=6333,
+        validation_alias=PLATFORM_QDRANT_PORT_ENV,
+        description="Shared Qdrant server port",
+        ge=1,
+        le=65535,
+    )
+    mlflow_tracking_uri: str = Field(
+        default="http://localhost:5050",
+        validation_alias=PLATFORM_MLFLOW_TRACKING_URI_ENV,
+        description="Shared MLflow tracking server URL",
+    )
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias=PLATFORM_REDIS_URL_ENV,
+        description="Redis connection URL for shared streaming and coordination",
+    )
+    celery_broker_url: str | None = Field(
+        default=None,
+        validation_alias=PLATFORM_CELERY_BROKER_URL_ENV,
+        description="RabbitMQ broker URL for shared Celery-based workflows",
+    )
+
+
+class GatewayBehaviorSettings(BaseModel):
+    """Gateway request handling and service behavior settings."""
+
     default_model: str = Field(
         default="/models/Qwen/Qwen3-0.6B",
         description="Default model when none specified in request",
@@ -243,28 +271,20 @@ class Settings(BaseSettings):
         description="Timeout for vLLM requests in seconds",
         ge=1.0,
     )
-
-    # =========================================================================
-    # Async Inference Settings (Phase 1)
-    # =========================================================================
+    streaming_timeout: float = Field(
+        default=300.0,
+        description="Timeout for Redis Pub/Sub streaming in seconds",
+        ge=1.0,
+    )
+    embeddings_timeout: float = Field(
+        default=120.0,
+        description="Timeout for embeddings service HTTP requests in seconds",
+        ge=1.0,
+    )
     async_enabled: bool = Field(
         default=True,
         description="Enable async inference via Celery workers",
     )
-    celery_broker_url: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("CELERY_BROKER_URL", "GATEWAY_CELERY_BROKER_URL"),
-        description="RabbitMQ broker URL for Celery (e.g. amqp://user:pass@rabbitmq:5672//)",
-    )
-    redis_url: str = Field(
-        default="redis://localhost:6379/0",
-        validation_alias=AliasChoices("REDIS_URL", "GATEWAY_REDIS_URL"),
-        description="Redis connection URL for token streaming pub/sub",
-    )
-
-    # =========================================================================
-    # Gateway Service Settings
-    # =========================================================================
     cors_allow_origins_csv: str = Field(
         default="*",
         validation_alias=AliasChoices("GATEWAY_CORS_ALLOW_ORIGINS"),
@@ -281,48 +301,46 @@ class Settings(BaseSettings):
         default="agent-042-gateway",
         description="Service name displayed in API docs",
     )
+    url: str = Field(
+        default="http://localhost:9001",
+        alias="GATEWAY_URL",
+        description="Full URL to the gateway (used by UI)",
+    )
 
-    # =========================================================================
-    # Qdrant / Vector Store Settings
-    # =========================================================================
-    qdrant_host: str = Field(
-        default="localhost",
-        validation_alias=AliasChoices("QDRANT_HOST", "GATEWAY_QDRANT_HOST"),
-        description="Qdrant server hostname",
-    )
-    qdrant_port: int = Field(
-        default=6333,
-        validation_alias=AliasChoices("QDRANT_PORT", "GATEWAY_QDRANT_PORT"),
-        description="Qdrant server port",
-        ge=1,
-        le=65535,
-    )
+
+class RagSettings(BaseModel):
+    """Gateway RAG behavior and embedding model settings."""
+
     knowledge_bases_path: str = Field(
         default="",
         description="Override path to knowledge_bases.json (leave empty to use bundled default)",
     )
-
-    # =========================================================================
-    # RAG Settings
-    # =========================================================================
     rag_enabled: bool = Field(
         default=True,
         description="Enable RAG functionality",
     )
-    embeddings_url: str = Field(
-        default="http://localhost:8100",
-        description="URL of the embeddings microservice",
-    )
     embedding_model: str = Field(
         default="sentence-transformers/all-MiniLM-L6-v2",
+        validation_alias=AliasChoices(
+            "GATEWAY_EMBEDDING_MODEL",
+            "EMBEDDINGS_MODEL",
+        ),
         description="HuggingFace model for embeddings",
     )
     embedding_device: Literal["cpu", "cuda", "mps"] = Field(
         default="cpu",
+        validation_alias=AliasChoices(
+            "GATEWAY_EMBEDDING_DEVICE",
+            "EMBEDDINGS_DEVICE",
+        ),
         description="Device for embedding model",
     )
     embedding_batch_size: int = Field(
         default=32,
+        validation_alias=AliasChoices(
+            "GATEWAY_EMBEDDING_BATCH_SIZE",
+            "EMBEDDINGS_BATCH_SIZE",
+        ),
         description="Batch size for embedding generation",
         ge=1,
     )
@@ -347,9 +365,10 @@ class Settings(BaseSettings):
         description="Default alias role for RAG retrieval when none is specified",
     )
 
-    # =========================================================================
-    # OAuth2 / OIDC Settings
-    # =========================================================================
+
+class AuthSettings(BaseModel):
+    """Gateway auth, session, and internal caller authentication settings."""
+
     google_client_id: str = Field(
         default="",
         description="Google OAuth2 client ID",
@@ -379,34 +398,36 @@ class Settings(BaseSettings):
         description="Session TTL in seconds (default 24 hours)",
         ge=60,
     )
-
-    # =========================================================================
-    # Internal Service API Key
-    # =========================================================================
     internal_api_key: str = Field(
         default="",
         description="Pre-shared API key for internal service-to-service calls "
         "(e.g. Airflow eval runner)",
     )
 
-    # =========================================================================
-    # UI Settings (uses different prefix for some settings)
-    # =========================================================================
-    # Note: GATEWAY_URL is the full URL to access the gateway from UI
-    # This is separate from gateway's internal settings
-    url: str = Field(
-        default="http://localhost:9001",
-        alias="GATEWAY_URL",
-        description="Full URL to the gateway (used by UI)",
+
+class GatewaySettings(PlatformSettings, GatewayBehaviorSettings, RagSettings, AuthSettings):
+    """Gateway-facing settings composed from smaller concern groups.
+
+    Shared platform endpoints prefer canonical names such as VLLM_BASE_URL and
+    QDRANT_HOST, while gateway-specific behavior uses the GATEWAY_ prefix.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="GATEWAY_",
+        extra="ignore",
     )
 
 
-class ModelRegistrySettings(BaseSettings):
+# Backward compatibility alias used across the existing codebase.
+Settings = GatewaySettings
+
+
+class RegistrySettings(BaseSettings):
     """Settings for MLflow Model Registry / adapter sync.
 
     Environment Variables:
         MLFLOW_TRACKING_URI: Preferred MLflow tracking server URL.
-        REGISTRY_MLFLOW_TRACKING_URI: Backward-compatible alias for the same value.
+        VLLM_BASE_URL: Preferred shared vLLM server URL.
         REGISTRY_ADAPTERS_DIR: Local directory for downloaded LoRA adapters.
         REGISTRY_AUTO_SYNC: Pull production adapters on service startup.
     """
@@ -414,13 +435,11 @@ class ModelRegistrySettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="REGISTRY_",
         extra="ignore",
-        env_file=".env",
-        env_file_encoding="utf-8",
     )
 
     mlflow_tracking_uri: str = Field(
         default="http://localhost:5050",
-        validation_alias=AliasChoices("MLFLOW_TRACKING_URI", "REGISTRY_MLFLOW_TRACKING_URI"),
+        validation_alias=PLATFORM_MLFLOW_TRACKING_URI_ENV,
         description="MLflow tracking server URL",
     )
     adapters_dir: str = Field(
@@ -448,12 +467,17 @@ class ModelRegistrySettings(BaseSettings):
 
     vllm_base_url: str = Field(
         default="http://localhost:8000",
+        validation_alias=PLATFORM_VLLM_BASE_URL_ENV,
         description="vLLM OpenAI-compatible server URL for hot-loading adapters.",
     )
     auto_sync: bool = Field(
         default=False,
         description="Automatically sync production adapters on startup",
     )
+
+
+# Backward compatibility alias used across the existing codebase.
+ModelRegistrySettings = RegistrySettings
 
 
 class EvalSettings(BaseSettings):
@@ -472,8 +496,6 @@ class EvalSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="EVAL_",
         extra="ignore",
-        env_file=".env",
-        env_file_encoding="utf-8",
     )
 
     gateway_url: str = Field(
@@ -541,6 +563,12 @@ def get_eval_settings() -> EvalSettings:
     return EvalSettings()
 
 
+@lru_cache
+def get_platform_settings() -> PlatformSettings:
+    """Get cached canonical shared endpoint settings."""
+    return PlatformSettings()
+
+
 class UISettings(BaseSettings):
     """UI-specific settings with UI_ prefix.
 
@@ -550,8 +578,6 @@ class UISettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="UI_",
         extra="ignore",
-        env_file=".env",
-        env_file_encoding="utf-8",
     )
 
     health_timeout: float = Field(
@@ -572,25 +598,25 @@ class UISettings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
+def get_settings() -> GatewaySettings:
     """Get cached application settings.
 
     Settings are loaded once and cached for the lifetime of the process.
     This ensures consistent configuration and avoids repeated parsing.
 
     Returns:
-        Settings: Validated application settings
+        GatewaySettings: Validated application settings
 
     Raises:
         ValidationError: If environment variables contain invalid values
     """
-    return Settings()
+    return GatewaySettings()
 
 
 @lru_cache
-def get_registry_settings() -> ModelRegistrySettings:
+def get_registry_settings() -> RegistrySettings:
     """Get cached model registry settings."""
-    return ModelRegistrySettings()
+    return RegistrySettings()
 
 
 @lru_cache
@@ -603,6 +629,42 @@ def get_ui_settings() -> UISettings:
     return UISettings()
 
 
+def clear_settings_caches() -> None:
+    """Clear cached settings and derived config state."""
+    global _KB_REGISTRY  # noqa: PLW0603
+
+    get_platform_settings.cache_clear()
+    get_settings.cache_clear()
+    get_registry_settings.cache_clear()
+    get_eval_settings.cache_clear()
+    get_ui_settings.cache_clear()
+    _KB_REGISTRY = None
+    KNOWLEDGE_BASES.reset()
+
+
+def bootstrap_local_settings_env(
+    *,
+    repo_root: Path | None = None,
+    env_file: str | Path | None = None,
+    legacy_fallbacks: tuple[str | Path, ...] = (),
+) -> Path | None:
+    """Explicitly load the repo-root ``.env`` for local entrypoints.
+
+    Containerized deployments should inject env vars directly and may call this
+    helper safely; it becomes a no-op when no local env file exists.
+    """
+    resolved_root = (
+        repo_root.resolve() if repo_root is not None else Path(__file__).resolve().parents[2]
+    )
+    loaded_env = load_local_env(
+        env_file,
+        repo_root=resolved_root,
+        legacy_fallbacks=legacy_fallbacks,
+    )
+    clear_settings_caches()
+    return loaded_env
+
+
 def validate_settings_on_startup() -> None:
     """Validate all settings at application startup.
 
@@ -612,6 +674,8 @@ def validate_settings_on_startup() -> None:
     Raises:
         ValidationError: If any settings are invalid
     """
+    get_platform_settings()
+
     # Force settings to be loaded and validated
     settings = get_settings()
     ui_settings = get_ui_settings()

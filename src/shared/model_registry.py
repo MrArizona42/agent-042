@@ -44,8 +44,8 @@ Environment variables
     Where to store downloaded adapters (default ``./adapters``).
 ``REGISTRY_SYNC_ALIASES``
     Comma-separated list of MLflow aliases to sync (default ``champion,challenger``).
-``REGISTRY_VLLM_BASE_URL``
-    vLLM server URL for hot-load API (default ``http://localhost:8000``).
+``VLLM_BASE_URL``
+    Canonical vLLM server URL for the hot-load API (default ``http://localhost:8000``).
 """
 
 from __future__ import annotations
@@ -535,13 +535,13 @@ class AdapterSyncer:
 
 
 def _load_env(env_file: str | None) -> None:
-    """Load dotenv from *env_file* or fall back to .env."""
-    import dotenv
+    """Load dotenv from *env_file* or the canonical repo-root `.env`."""
+    from shared.local_env import load_local_env, resolve_local_env_path
 
-    if env_file and Path(env_file).exists():
-        dotenv.load_dotenv(env_file)
-    elif Path(".env").exists():
-        dotenv.load_dotenv(".env")
+    loaded_env = load_local_env(env_file)
+
+    if env_file and loaded_env is None:
+        logger.warning("Env file missing: %s", resolve_local_env_path(env_file))
 
 
 def _resolve_aliases(aliases: str | list | tuple | None):

@@ -7,6 +7,11 @@ Branch: `refactor/lora-swap-optimization` (continuation)
 > referenced in §1.2 and §1.3 have been deleted. Registry and RAG operations are now
 > performed via operation notebooks (`experiments/training/lora_ops.ipynb`,
 > `experiments/rag/rag_ops.ipynb`) or the underlying Python APIs.
+>
+> **Historical note:** the RAG-specific items in §1.3, §1.6, and §2 describe an older
+> build-script plan that has since been superseded. The live operator path is production
+> `src/rag/ops/*` entrypoints surfaced to notebooks through `experiments/rag/notebook_ops.py`,
+> with notebook-only experimental forks isolated under `experiments/rag/sandboxes/`.
 
 ---
 
@@ -31,8 +36,8 @@ Steps:
 - [x] Positional args in argparse become method positional params; optional
       flags become keyword params with defaults.
 - [x] Remove the `dispatch = {…}` dict and `parser.add_subparsers` block.
-- [x] Verify: `python scripts/manage_registry.py list`,
-      `python scripts/manage_registry.py sync --vllm-url …`.
+- [x] Verify: registry sync now runs via `python -m shared.model_registry sync`
+      (with `--vllm-url` only as an explicit override).
 
 ### 1.3 Migrate `scripts/manage_rag.py` (3 subcommands)
 
@@ -53,7 +58,7 @@ Current state: ~70 lines, argparse with `sync`, `list`.
 Steps:
 - [x] Replace internal `_cli()` with a `RegistryCli` Fire class.
 - [x] `sync` and `list` become methods.
-- [x] Verify: `python -m shared.model_registry sync --vllm-url …`.
+- [x] Verify: `python -m shared.model_registry sync`.
 
 ### 1.5 Migrate `experiments/scripts/eval/runner.py` (flat flags)
 

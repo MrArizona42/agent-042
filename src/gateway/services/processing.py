@@ -200,6 +200,7 @@ class _ProcessChat:
         self, req: ChatCompletionRequest, payload: Dict[str, Any] | None = None
     ) -> Any:
         """Asynchronous chat: enqueue task and wait for result via Redis."""
+        settings = get_settings()
         if payload is None:
             payload = self._build_payload(req)
 
@@ -223,7 +224,7 @@ class _ProcessChat:
         full_content = ""
         finish_reason = "stop"
 
-        async for event in redis_stream.subscribe(conversation_id):
+        async for event in redis_stream.subscribe(conversation_id, timeout=settings.streaming_timeout):
             event_type = event.get("type")
 
             if event_type == "token":
@@ -284,6 +285,7 @@ class _ProcessChat:
 
     async def _stream_chat_async(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
         """Asynchronous streaming: enqueue task and stream via Redis."""
+        settings = get_settings()
         payload = self._build_payload(req)
         payload.pop("_rag_context_chunks", None)
 
@@ -304,7 +306,7 @@ class _ProcessChat:
         logger.info(f"Enqueued async stream task {task_id} for conversation {conversation_id}")
 
         # Stream from Redis
-        async for chunk in redis_stream.subscribe_sse(conversation_id):
+        async for chunk in redis_stream.subscribe_sse(conversation_id, timeout=settings.streaming_timeout):
             yield chunk
 
     # ------------------------------------------------------------------

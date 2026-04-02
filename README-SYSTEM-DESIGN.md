@@ -4,8 +4,9 @@
 
 * `./infra/README.md` - настройка окружения и инфраструктуры
 * `./experiments/README.md` - как проводить эксперименты
-* `./RAG-QUICK-START.md` - быстрый старт RAG-системы
-* `./RAG-SETUP.md` - подробная настройка RAG-системы
+* `./CONFIG-CONTRACT.md` - краткий актуальный контракт конфигурации
+* `./RAG-IMPROVEMENTS.md` - RAG lifecycle, alias workflow и operator entrypoints
+* `./README-EVAL.md` - пайплайн оценки и retrieval-only benchmarking
 * `./src/gateway/README.md` - документация Gateway (FastAPI)
 * `./src/ui/README.md` - документация UI (Streamlit)
 
@@ -16,7 +17,9 @@
 * **LoRA**: обучение через Airflow DAG `train_lora`, регистрация/промоушен через
   `experiments/training/lora_ops.ipynb`
 * **RAG**: обновление индексов через DAG-и `arxiv_rag_update` / `pytorch_docs_rag_update`,
-  управление коллекциями через `experiments/rag/rag_ops.ipynb`
+  production entrypoints в `src/rag/ops`, manual create/promote/inspect через
+  `experiments/rag/rag_ops.ipynb` → `experiments/rag/notebook_ops.py`,
+  notebook-only experimental forks в `experiments/rag/sandboxes/`
 * **Eval**: просмотр результатов через `experiments/eval/eval_results.ipynb`
 * **Misc**: `experiments/misc_ops/` — prefetch, MLflow quickref, PostgreSQL diagnostics
 
@@ -318,11 +321,22 @@ train_adapter                  lora_ops.ipynb                sync (model_registr
   reranking, top-k и т.д.).
 * **Atomic switch** — promotion выполняется через переключение alias на новую
   коллекцию
+* **Production entrypoints** — создание, refresh, alias-management и inspection живут только в
+  `src/rag/ops/`.
+* **Notebook façade** — `experiments/rag/notebook_ops.py` оборачивает production entrypoints для
+  `experiments/rag/rag_ops.ipynb`.
+* **Sandbox boundary** — `experiments/rag/sandboxes/` предназначен только для notebook-only
+  экспериментального кода; Gateway, Airflow и production evals не импортируют его.
 
 Политика обновления индексов:
 
-* Если происходит полная замена индекса (например, для pytorch docs), новый индекс строится в staging collection, тестируется и затем продвигается на alias-ы.
-* Если данные добавляются к существующему индексу (например, для arxiv статей), новые данные добавляются ко всем collection-ам, привязанным к исходному датасету. В этом случае нет необходимости в staging collection, так как индекс строится инкрементально.
+* `arxiv_rag_update` вызывает `rag.ops.update.update_arxiv_collection(kb="arxiv", alias="champion")`.
+  Функция читает `_meta` у текущей champion-коллекции и инкрементально обновляет именно её.
+  Непродовые alias-ы можно refresh-ить вручную только из notebook path.
+* `pytorch_docs_rag_update` вызывает
+  `rag.ops.update.update_pytorch_docs_collection(kb="pytorch_docs", alias="champion")`.
+  Функция читает `_meta` champion-коллекции, создаёт successor collection, вешает staging alias и
+  затем атомарно перепривязывает champion.
 
 Production policy (текущее целевое поведение):
 
@@ -337,6 +351,8 @@ Production policy (текущее целевое поведение):
 
 * Production inference по умолчанию использует `rag_alias="champion"` (хардкод/дефолт).
 * Непродовые alias-ы (`challenger` и др.) используются для eval/тестов/ручных проверок.
+* Создание новых challenger-коллекций и alias promotion выполняются через
+  `experiments/rag/rag_ops.ipynb` и `experiments/rag/notebook_ops.py`, а не отдельным CLI.
 
 ## Workflow automation and CI/CD
 
