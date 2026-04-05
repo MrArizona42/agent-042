@@ -328,8 +328,9 @@ for _suite in _EVAL_SUITES:
                 else {}
             ),
             "metrics": Param(
+                [],
                 type="array",
-                items={"type": "string", "enum": _metrics},
+                examples=_metrics,
                 description=(
                     f"Metrics to compute (multi-select). Valid: {', '.join(_metrics)}. "
                     "For values outside this list, use custom_params."
@@ -349,16 +350,18 @@ for _suite in _EVAL_SUITES:
                 else {}
             ),
             "knowledge_base_aliases": Param(
+                [],
                 type="array",
-                items={"type": "string", "enum": _alias_options},
+                examples=_alias_options,
                 description=(
                     "Knowledge-base aliases to evaluate (multi-select). "
                     "For custom aliases, use custom_params."
                 ),
             ),
             "lora_aliases": Param(
+                [],
                 type="array",
-                items={"type": "string", "enum": _alias_options},
+                examples=_alias_options,
                 description=(
                     "LoRA aliases to evaluate (multi-select). "
                     "For custom aliases, use custom_params."
