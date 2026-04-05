@@ -211,6 +211,40 @@ class TestAutomaticMetrics:
         assert score_deduped == pytest.approx(score_duped)
         assert score_deduped == pytest.approx(1.0)  # doc1 is first, perfect ranking
 
+    def test_mrr_at_k_first_hit(self):
+        from experiments.eval.eval_scripts.metrics.automatic import compute_mrr_at_k
+
+        relevant = {"doc2"}
+        retrieved = ["doc1", "doc2", "doc3"]
+        assert compute_mrr_at_k(retrieved, relevant, k=10) == pytest.approx(1 / 2)
+
+    def test_mrr_at_k_no_hit(self):
+        from experiments.eval.eval_scripts.metrics.automatic import compute_mrr_at_k
+
+        relevant = {"doc99"}
+        retrieved = ["doc1", "doc2", "doc3"]
+        assert compute_mrr_at_k(retrieved, relevant, k=10) == pytest.approx(0.0)
+
+    def test_mrr_at_k_deduplicates_chunk_ids(self):
+        from experiments.eval.eval_scripts.metrics.automatic import compute_mrr_at_k
+
+        # Duplicate chunks for the same source doc should not inflate rank.
+        # doc2 is relevant; after dedup it sits at rank 2.
+        relevant = {"doc2"}
+        retrieved_duped = ["doc1", "doc1", "doc2", "doc3"]
+        retrieved_clean = ["doc1", "doc2", "doc3"]
+        assert compute_mrr_at_k(retrieved_duped, relevant, k=10) == pytest.approx(
+            compute_mrr_at_k(retrieved_clean, relevant, k=10)
+        )
+
+    def test_mrr_at_k_respects_cutoff(self):
+        from experiments.eval.eval_scripts.metrics.automatic import compute_mrr_at_k
+
+        relevant = {"doc3"}
+        retrieved = ["doc1", "doc2", "doc3", "doc4"]
+        assert compute_mrr_at_k(retrieved, relevant, k=2) == pytest.approx(0.0)
+        assert compute_mrr_at_k(retrieved, relevant, k=3) == pytest.approx(1 / 3)
+
 
 # ---------------------------------------------------------------------------
 # LLM judge tests (mocked)

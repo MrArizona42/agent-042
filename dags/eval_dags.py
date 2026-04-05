@@ -101,7 +101,7 @@ _EVAL_SUITES: list[dict] = [
         "dag_id": "eval_retrieval_arxiv_beir_scifact",
         "task": "retrieval",
         "dataset": "beir_scifact",
-        "metrics": ["recall_at_10", "ndcg_at_10"],
+        "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
         "kb": "arxiv",
         "description": "Eval: retrieval on BEIR-SciFact (arxiv KB)",
         "tags": ["eval", "retrieval"],
@@ -110,7 +110,7 @@ _EVAL_SUITES: list[dict] = [
         "dag_id": "eval_retrieval_arxiv_beir_nfcorpus",
         "task": "retrieval",
         "dataset": "beir_nfcorpus",
-        "metrics": ["recall_at_10", "ndcg_at_10"],
+        "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
         "kb": "arxiv",
         "description": "Eval: retrieval on BEIR-NFCorpus (arxiv KB)",
         "tags": ["eval", "retrieval"],
@@ -119,7 +119,7 @@ _EVAL_SUITES: list[dict] = [
         "dag_id": "eval_retrieval_pytorch_msmarco",
         "task": "retrieval",
         "dataset": "msmarco",
-        "metrics": ["recall_at_10", "ndcg_at_10"],
+        "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
         "kb": "pytorch_docs",
         "description": "Eval: retrieval on MS MARCO (pytorch_docs KB)",
         "tags": ["eval", "retrieval"],
@@ -147,6 +147,7 @@ def _resolve_params(context: dict) -> dict:
     metric = custom["metric"] if "metric" in custom else params["metric"]
     rag_aliases = custom["rag_aliases"] if "rag_aliases" in custom else params["rag_aliases"]
     lora_aliases = custom["lora_aliases"] if "lora_aliases" in custom else params["lora_aliases"]
+    k = int(custom["k"]) if "k" in custom else int(params.get("k", 10))
 
     # Normalise aliases to list[str]
     if isinstance(rag_aliases, str):
@@ -166,6 +167,7 @@ def _resolve_params(context: dict) -> dict:
         "metric": metric,
         "rag_aliases": rag_aliases,
         "lora_aliases": lora_aliases,
+        "k": k,
     }
 
 
@@ -205,6 +207,7 @@ def _fetch_predictions_task(
         kb_name=kb,
         rag_aliases=resolved["rag_aliases"],
         lora_aliases=resolved["lora_aliases"],
+        k=resolved["k"],
     )
 
     # Persist to file (avoids XCom size limits)
@@ -321,11 +324,24 @@ for _suite in _EVAL_SUITES:
                     "For custom aliases, use custom_params."
                 ),
             ),
+            **(
+                {
+                    "k": Param(
+                        default=10,
+                        type="integer",
+                        description="Top-K cutoff for Recall@K, nDCG@K, MRR@K (default: 10)",
+                        minimum=1,
+                        maximum=100,
+                    )
+                }
+                if _task == "retrieval"
+                else {}
+            ),
             "custom_params": Param(
                 default="",
                 type=["string", "null"],
                 description=(
-                    'Optional JSON overrides. Example: '
+                    "Optional JSON overrides. Example: "
                     '{"metric": "my_metric", "rag_aliases": ["a1", "a2"]}'
                 ),
             ),

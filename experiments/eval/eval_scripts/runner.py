@@ -60,6 +60,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from experiments.eval.eval_scripts.datasets import DATASET_LOCAL, load_dataset_samples
 from experiments.eval.eval_scripts.metrics.automatic import (
     compute_bertscore,
+    compute_mrr_at_k,
     compute_ndcg_at_k,
     compute_recall_at_k,
     compute_rouge_l,
@@ -107,14 +108,14 @@ _TASK_METRICS: dict[str, list[str]] = {
     "chat": ["relevance", "correctness", "bertscore_f1", "rouge_l"],
     "summarize": ["faithfulness", "coverage", "bertscore_f1", "rouge_l"],
     "code": ["pass_at_1", "executable_rate"],
-    "retrieval": ["recall_at_10", "ndcg_at_10"],
+    "retrieval": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
 }
 
 # LLM-judge metrics (need Gemini API)
 _JUDGE_METRICS = {"relevance", "correctness", "faithfulness", "coverage", "groundedness"}
 
 # Automatic metrics (computed locally, no external API needed)
-_AUTOMATIC_METRICS = {"bertscore_f1", "rouge_l", "recall_at_10", "ndcg_at_10"}
+_AUTOMATIC_METRICS = {"bertscore_f1", "rouge_l", "recall_at_k", "ndcg_at_k", "mrr_at_k"}
 
 # Code-execution metrics (sandboxed Docker execution)
 _CODE_EXEC_METRICS = {"pass_at_1", "executable_rate"}
@@ -403,6 +404,7 @@ def run_eval(
     kb_name: str | None = None,
     rag_aliases: list[str],
     lora_aliases: list[str],
+    k: int = 10,
 ) -> list[dict[str, Any]]:
     """Run evaluation for a single metric across all (rag_alias, lora_alias) combinations.
 
@@ -426,6 +428,7 @@ def run_eval(
         kb_name=kb_name,
         rag_aliases=rag_aliases,
         lora_aliases=lora_aliases,
+        k=k,
     )
 
     return calculate_metrics(
@@ -445,6 +448,7 @@ def fetch_predictions(
     kb_name: str | None = None,
     rag_aliases: list[str],
     lora_aliases: list[str],
+    k: int = 10,
 ) -> dict[str, Any]:
     """Phase 1: Generate predictions for all (rag, lora) combinations.
 
@@ -485,6 +489,7 @@ def fetch_predictions(
                     rag_alias=rag_alias,
                     kb_name=kb_name,
                     eval_settings=eval_settings,
+                    k=k,
                 )
             elif task == "code":
                 bundle = _fetch_code_predictions(
@@ -529,6 +534,7 @@ def fetch_predictions(
         "max_tokens": eval_settings.max_tokens,
         "judge_model": eval_settings.judge_model,
         "bert_score_model": eval_settings.bert_score_model,
+        "k": k,
         "bundles": bundles,
     }
 
@@ -712,6 +718,7 @@ def _fetch_retrieval_predictions(
     rag_alias: str,
     kb_name: str | None,
     eval_settings: Any,
+    k: int,
 ) -> dict[str, Any]:
     """Fetch retrieval query results for a single rag_alias."""
     if not kb_name:
@@ -776,7 +783,7 @@ def _fetch_retrieval_predictions(
 
         for idx, q in enumerate(queries):
             query_emb = emb_service.embed_query(q["query"])
-            results = vs.search(query_embedding=query_emb, top_k=10, score_threshold=0.0)
+            results = vs.search(query_embedding=query_emb, top_k=k, score_threshold=0.0)
             retrieved_ids = [doc.metadata.get("source", "") for doc in results]
             relevance = q.get("relevance", {})
             query_results.append(
@@ -878,6 +885,7 @@ def calculate_metrics(
                     kb_name=kb_name,
                     eval_settings=eval_settings,
                     eval_context=eval_context,
+                    k=prediction_data["k"],
                 )
             elif task == "code":
                 rows = _compute_code_metric(
@@ -1066,25 +1074,29 @@ def _compute_retrieval_metric(
     kb_name: str | None,
     eval_settings: Any,
     eval_context: dict[str, Any] | None = None,
+    k: int,
 ) -> list[dict[str, Any]]:
     """Compute a single retrieval metric on pre-fetched query results."""
     query_results = bundle["query_results"]
     recall_scores: list[float] = []
     ndcg_scores: list[float] = []
+    mrr_scores: list[float] = []
 
     for qr in query_results:
         retrieved_ids = qr["retrieved_ids"]
         relevance = qr["relevance"]
         relevant_ids = {doc_id for doc_id, rel in relevance.items() if rel > 0}
 
-        recall_scores.append(compute_recall_at_k(retrieved_ids, relevant_ids, k=10))
-        ndcg_scores.append(compute_ndcg_at_k(retrieved_ids, relevance, k=10))
+        recall_scores.append(compute_recall_at_k(retrieved_ids, relevant_ids, k=k))
+        ndcg_scores.append(compute_ndcg_at_k(retrieved_ids, relevance, k=k))
+        mrr_scores.append(compute_mrr_at_k(retrieved_ids, relevant_ids, k=k))
 
     if not recall_scores:
         raise RuntimeError(f"No query results for retrieval/{dataset_name}")
 
     avg_recall = sum(recall_scores) / len(recall_scores)
     avg_ndcg = sum(ndcg_scores) / len(ndcg_scores)
+    avg_mrr = sum(mrr_scores) / len(mrr_scores)
 
     now = datetime.now(timezone.utc)
     common = _build_common_fields(
@@ -1117,22 +1129,32 @@ def _compute_retrieval_metric(
     )
 
     rows = []
-    if metric == "recall_at_10":
+    if metric == "recall_at_k":
         rows.append(
             {
                 **common,
-                "metric_name": "recall_at_10",
+                "metric_name": f"recall_at_{k}",
                 "metric_value": avg_recall,
                 "finished_at": now,
                 "status": "completed",
             }
         )
-    elif metric == "ndcg_at_10":
+    elif metric == "ndcg_at_k":
         rows.append(
             {
                 **common,
-                "metric_name": "ndcg_at_10",
+                "metric_name": f"ndcg_at_{k}",
                 "metric_value": avg_ndcg,
+                "finished_at": now,
+                "status": "completed",
+            }
+        )
+    elif metric == "mrr_at_k":
+        rows.append(
+            {
+                **common,
+                "metric_name": f"mrr_at_{k}",
+                "metric_value": avg_mrr,
                 "finished_at": now,
                 "status": "completed",
             }
@@ -1152,16 +1174,18 @@ def main(
     kb: str | None = None,
     rag_aliases: str = "none",
     lora_aliases: str = "none",
+    k: int = 10,
 ) -> None:
     """Run evaluation for a single metric.
 
     Args:
         task: One of chat, summarize, code, retrieval.
         dataset: Dataset name (e.g. hotpotqa, humaneval).
-        metric: Metric to compute (e.g. rouge_l, relevance, pass_at_1, recall_at_10).
+        metric: Metric to compute (e.g. rouge_l, relevance, pass_at_1, recall_at_k).
         kb: Knowledge base name (required for retrieval evals).
         rag_aliases: Comma-separated RAG alias roles.
         lora_aliases: Comma-separated LoRA alias roles.
+        k: Top-K cutoff for retrieval metrics (default: 10).
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -1182,6 +1206,7 @@ def main(
         kb_name=kb,
         rag_aliases=rag_list,
         lora_aliases=lora_list,
+        k=k,
     )
 
     # Print summary
