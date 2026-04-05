@@ -558,7 +558,7 @@ def _fetch_generation_predictions(
         rag_sources = [{"knowledge_base": kb_name, "alias": rag_alias}]
         rag_enabled = True
 
-    samples = _load_dataset_samples(task, dataset_name, limit=eval_settings.sample_limit)
+    samples = _load_dataset_samples(task, dataset_name)
     if not samples:
         raise RuntimeError(f"No samples loaded for {task}/{dataset_name}")
 
@@ -652,7 +652,7 @@ def _fetch_code_predictions(
         rag_sources = [{"knowledge_base": kb_name, "alias": rag_alias}]
         rag_enabled = True
 
-    samples = _load_dataset_samples("code", dataset_name, limit=eval_settings.sample_limit)
+    samples = _load_dataset_samples("code", dataset_name)
     if not samples:
         raise RuntimeError(f"No samples loaded for code/{dataset_name}")
 
@@ -737,7 +737,7 @@ def _fetch_retrieval_predictions(
     if build_config is None:
         raise RuntimeError(f"Cannot read build config for {kb_name}_{rag_alias}")
 
-    samples = _load_dataset_samples("retrieval", dataset_name, limit=eval_settings.sample_limit)
+    samples = _load_dataset_samples("retrieval", dataset_name)
     if not samples:
         raise RuntimeError(f"No samples loaded for retrieval/{dataset_name}")
 

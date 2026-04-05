@@ -490,7 +490,6 @@ class EvalSettings(BaseSettings):
         EVAL_BERT_SCORE_MODEL: Model for BERTScore computation.
         EVAL_TEMPERATURE: Temperature for generation requests.
         EVAL_MAX_TOKENS: Max tokens for generation requests.
-        EVAL_SAMPLE_LIMIT: Max samples per dataset (0 = unlimited).
     """
 
     model_config = SettingsConfigDict(
@@ -523,11 +522,6 @@ class EvalSettings(BaseSettings):
         default=512,
         description="Max tokens for generation requests",
         ge=1,
-    )
-    sample_limit: int = Field(
-        default=100,
-        description="Max samples per dataset (0 = unlimited)",
-        ge=0,
     )
     code_exec_timeout: int = Field(
         default=30,

@@ -128,7 +128,6 @@ class TestEvalSettings:
         assert s.max_tokens == 512
         assert s.code_exec_timeout == 30
         assert s.code_exec_mem_limit == "512m"
-        assert s.sample_limit == 100
         assert s.bert_score_model == "microsoft/deberta-base-mnli"
 
     def test_env_override(self, monkeypatch):
