@@ -122,7 +122,13 @@ def compute_ndcg_at_k(
         relevance_labels: Gold relevance dict ``{doc_id: relevance_score}``.
         k: Cutoff position.
     """
-    rels = [relevance_labels.get(doc_id, 0.0) for doc_id in retrieved_ids[:k]]
+    # Deduplicate retrieved_ids while preserving rank order so that multiple
+    # chunks from the same source document are counted only once.  Without this
+    # a single highly-relevant doc split into N chunks would inflate DCG by
+    # contributing its relevance score at N positions.
+    seen_ids: set[str] = set()
+    deduped: list[str] = [x for x in retrieved_ids if not (x in seen_ids or seen_ids.add(x))]
+    rels = [relevance_labels.get(doc_id, 0.0) for doc_id in deduped[:k]]
     dcg = _dcg(rels, k)
     ideal_rels = sorted(relevance_labels.values(), reverse=True)[:k]
     idcg = _dcg(ideal_rels, k)

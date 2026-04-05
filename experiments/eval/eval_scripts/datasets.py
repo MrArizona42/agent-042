@@ -80,6 +80,16 @@ def load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[
         corpus_split = next((s for s in ("corpus", "train") if s in ds_dict), None)
         corpus_ds = ds_dict[corpus_split] if corpus_split else None
 
+        # Build the full corpus once — all documents, not just judged-relevant ones.
+        # Filtering to only relevant docs would make the task trivially easy (no
+        # hard negatives) and inflate Recall/nDCG scores.
+        full_corpus: list[dict] = []
+        if corpus_ds is not None:
+            full_corpus = [
+                {"doc_id": str(doc["_id"]), "text": doc.get("text", "")} for doc in corpus_ds
+            ]
+            logger.info("Loaded full BEIR corpus: %d docs from %s", len(full_corpus), dataset_path)
+
         samples: list[dict[str, str]] = []
         for item in queries_ds:
             qid = str(item["_id"])
@@ -91,22 +101,14 @@ def load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[
 
             rel = relevance_map[qid]
 
-            # Corpus docs for this query (needed to build temp collection)
-            relevant_docs: list[dict] = []
-            if corpus_ds is not None:
-                relevant_cids = set(rel.keys())
-                for doc in corpus_ds:
-                    if str(doc["_id"]) in relevant_cids:
-                        relevant_docs.append(
-                            {"doc_id": str(doc["_id"]), "text": doc.get("text", "")}
-                        )
-
             samples.append(
                 {
                     "query_id": qid,
                     "query": query_text,
                     "relevance": rel,
-                    "relevant_docs": relevant_docs,
+                    # All queries share the same full corpus list object —
+                    # no memory duplication; runner.py deduplication handles it.
+                    "relevant_docs": full_corpus,
                 }
             )
             if limit > 0 and len(samples) >= limit:
@@ -151,31 +153,44 @@ def load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[
                 }
             )
         elif task == "retrieval":
-            # Support both BEIR-style (top-level "text"/"_id") and
-            # msmarco-style (nested "passages.passage_text") datasets.
-            text = item.get("text", "")
-            if not text:
-                passages_data = item.get("passages", {})
-                passage_texts = passages_data.get("passage_text", [])
-                is_selected = passages_data.get("is_selected", [0] * len(passage_texts))
-                selected_texts = [t for t, s in zip(passage_texts, is_selected) if s]
-                text = (
-                    selected_texts[0]
-                    if selected_texts
-                    else (passage_texts[0] if passage_texts else "")
-                )
-            if not text:
+            # MSMARCO: each row has a query and multiple candidate passages with
+            # is_selected labels.  Include ALL passages in the corpus so the
+            # retriever faces real candidate distractors (not just correct answers).
+            passages_data = item.get("passages", {})
+            passage_texts = passages_data.get("passage_text", [])
+            is_selected = passages_data.get("is_selected", [0] * len(passage_texts))
+
+            if not passage_texts:
                 continue
-            doc_id = str(
-                item.get("doc_id") or item.get("_id") or item.get("query_id") or len(samples)
+
+            query_id = str(
+                item.get("query_id") or item.get("_id") or item.get("doc_id") or len(samples)
             )
             query = item.get("query", "") or item.get("question", "")
+
+            # Each passage gets a unique doc_id: "<query_id>:<passage_index>"
+            passage_docs = [
+                {"doc_id": f"{query_id}:{i}", "text": t} for i, t in enumerate(passage_texts) if t
+            ]
+            if not passage_docs:
+                continue
+
+            # Relevance: only is_selected=1 passages are relevant.
+            relevance = {
+                f"{query_id}:{i}": 1
+                for i, s in enumerate(is_selected)
+                if s and i < len(passage_texts) and passage_texts[i]
+            }
+            if not relevance:
+                # No selected passage — fall back to first passage as relevant
+                relevance = {passage_docs[0]["doc_id"]: 1}
+
             samples.append(
                 {
-                    "doc_id": doc_id,
-                    "text": text,
+                    "query_id": query_id,
                     "query": query,
-                    "relevance": {doc_id: 1} if query else {},
+                    "relevance": relevance,
+                    "relevant_docs": passage_docs,
                 }
             )
         else:
