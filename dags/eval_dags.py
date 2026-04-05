@@ -148,7 +148,9 @@ def _resolve_params(context: dict) -> dict:
         if "knowledge_base_aliases" in custom
         else params["knowledge_base_aliases"]
     )
-    lora_aliases = custom["lora_aliases"] if "lora_aliases" in custom else params["lora_aliases"]
+    lora_aliases = (
+        custom["lora_aliases"] if "lora_aliases" in custom else params.get("lora_aliases", ["none"])
+    )
 
     # Normalise to list[str] (handles both array params and custom_params strings)
     if isinstance(metrics, str):
@@ -357,14 +359,21 @@ for _suite in _EVAL_SUITES:
                 if _task == "retrieval"
                 else {}
             ),
-            "lora_aliases": Param(
-                [],
-                type="array",
-                examples=_alias_options,
-                description=(
-                    "LoRA aliases to evaluate (multi-select). "
-                    "For custom aliases, use custom_params."
-                ),
+            # noqa: PIE800
+            **(
+                {
+                    "lora_aliases": Param(
+                        [],
+                        type="array",
+                        examples=_alias_options,
+                        description=(
+                            "LoRA aliases to evaluate (multi-select). "
+                            "For custom aliases, use custom_params."
+                        ),
+                    ),
+                }
+                if _task != "retrieval"
+                else {}
             ),
             "custom_params": Param(
                 default="",
