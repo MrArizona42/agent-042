@@ -327,6 +327,15 @@ for _suite in _EVAL_SUITES:
                 if _task == "retrieval"
                 else {}
             ),
+            "knowledge_base_aliases": Param(
+                [],
+                type="array",
+                examples=_alias_options,
+                description=(
+                    "Knowledge-base aliases to evaluate (multi-select). "
+                    "For custom aliases, use custom_params."
+                ),
+            ),
             "metrics": Param(
                 [],
                 type="array",
@@ -339,24 +348,14 @@ for _suite in _EVAL_SUITES:
             **(
                 {
                     "metric_k": Param(
-                        default=10,
+                        5,
                         type="integer",
-                        description="Top-K cutoff for Recall@K, nDCG@K, MRR@K (default: 10)",
-                        minimum=1,
-                        maximum=100,
+                        enum=[1, 3, 5, 10, 20],
+                        description="Top-K cutoff for Recall@K, nDCG@K, MRR@K.",
                     ),
                 }
                 if _task == "retrieval"
                 else {}
-            ),
-            "knowledge_base_aliases": Param(
-                [],
-                type="array",
-                examples=_alias_options,
-                description=(
-                    "Knowledge-base aliases to evaluate (multi-select). "
-                    "For custom aliases, use custom_params."
-                ),
             ),
             "lora_aliases": Param(
                 [],
