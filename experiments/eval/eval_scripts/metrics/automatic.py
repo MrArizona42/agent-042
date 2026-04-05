@@ -151,3 +151,30 @@ def compute_recall_at_k(
         return 0.0
     retrieved_set = set(retrieved_ids[:k])
     return len(retrieved_set & relevant_ids) / len(relevant_ids)
+
+
+def compute_mrr_at_k(
+    retrieved_ids: list[str],
+    relevant_ids: set[str],
+    k: int,
+) -> float:
+    """Mean Reciprocal Rank at *k*.
+
+    Returns the reciprocal of the rank of the first relevant document
+    found in the top-*k* results, or 0.0 if none are found.  Duplicate
+    chunk IDs for the same source document are collapsed before ranking
+    (same deduplication strategy as :func:`compute_ndcg_at_k`).
+
+    Args:
+        retrieved_ids: Ordered list of returned document IDs.
+        relevant_ids: Set of gold relevant document IDs.
+        k: Cutoff position.
+    """
+    if not relevant_ids:
+        return 0.0
+    seen_ids: set[str] = set()
+    deduped: list[str] = [x for x in retrieved_ids if not (x in seen_ids or seen_ids.add(x))]
+    for rank, doc_id in enumerate(deduped[:k], start=1):
+        if doc_id in relevant_ids:
+            return 1.0 / rank
+    return 0.0
