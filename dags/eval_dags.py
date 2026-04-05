@@ -1,12 +1,13 @@
 """Airflow DAGs for evaluation workflows.
 
 Each DAG represents a unique ``(task, dataset)`` evaluation suite.
-The **metric** to compute and the **alias** configuration are selected
-at trigger time via Airflow ``Params`` (rendered as dropdowns in the UI).
+The **metrics** to compute and the **alias** configuration are selected
+at trigger time via Airflow ``Params`` (rendered as multi-select lists
+in the UI).
 
 Two-step execution:
     1. ``fetch_predictions`` — calls the gateway / retrieval system.
-    2. ``calculate_metrics`` — computes the selected metric on the
+    2. ``calculate_metrics`` — computes every selected metric on the
        pre-fetched predictions and logs results to the database.
 
 Predictions are handed between tasks via a temporary JSON file to avoid
@@ -19,7 +20,7 @@ For custom parameter values that are not in the dropdown lists, put
 a JSON string into the ``custom_params`` field when triggering the DAG.
 Example::
 
-    {"metric": "my_custom_metric", "knowledge_base_aliases": ["my_alias"]}
+    {"metrics": ["my_custom_metric"], "knowledge_base_aliases": ["my_alias"]}
 
 Zero retries.  No silent fallback to default values — if any required
 parameter is missing or invalid the DAG fails immediately.
@@ -140,7 +141,7 @@ def _resolve_params(context: dict) -> dict:
     knowledge_base = (
         custom["knowledge_base"] if "knowledge_base" in custom else params.get("knowledge_base")
     )
-    metric = custom["metric"] if "metric" in custom else params["metric"]
+    metrics = custom["metrics"] if "metrics" in custom else params["metrics"]
     metric_k = int(custom["metric_k"]) if "metric_k" in custom else int(params.get("metric_k", 10))
     kb_aliases = (
         custom["knowledge_base_aliases"]
@@ -149,15 +150,17 @@ def _resolve_params(context: dict) -> dict:
     )
     lora_aliases = custom["lora_aliases"] if "lora_aliases" in custom else params["lora_aliases"]
 
-    # Normalise aliases to list[str]
+    # Normalise to list[str] (handles both array params and custom_params strings)
+    if isinstance(metrics, str):
+        metrics = [m.strip() for m in metrics.split(",") if m.strip()]
     if isinstance(kb_aliases, str):
         kb_aliases = [a.strip() for a in kb_aliases.split(",") if a.strip()]
     if isinstance(lora_aliases, str):
         lora_aliases = [a.strip() for a in lora_aliases.split(",") if a.strip()]
 
     # Strict validation — fail if anything is absent
-    if not metric:
-        raise ValueError("Required parameter 'metric' is empty")
+    if not metrics:
+        raise ValueError("Required parameter 'metrics' is empty")
     if not kb_aliases:
         raise ValueError("Required parameter 'knowledge_base_aliases' is empty")
     if not lora_aliases:
@@ -165,7 +168,7 @@ def _resolve_params(context: dict) -> dict:
 
     return {
         "knowledge_base": knowledge_base,
-        "metric": metric,
+        "metrics": metrics,
         "metric_k": metric_k,
         "knowledge_base_aliases": kb_aliases,
         "lora_aliases": lora_aliases,
@@ -248,16 +251,19 @@ def _calculate_metrics_task(
         prediction_data = json.load(f)
 
     resolved = _resolve_params(context)
-    metric = resolved["metric"]
+    metrics = resolved["metrics"]
 
-    log.info("calculate_metrics: metric=%s", metric)
+    log.info("calculate_metrics: metrics=%s", metrics)
 
     from experiments.eval.eval_scripts.runner import calculate_metrics
 
-    rows = calculate_metrics(metric=metric, prediction_data=prediction_data)
+    all_rows: list[dict] = []
+    for metric in metrics:
+        rows = calculate_metrics(metric=metric, prediction_data=prediction_data)
+        all_rows.extend(rows)
 
-    log.info("Metrics complete: %d rows", len(rows))
-    for row in rows:
+    log.info("Metrics complete: %d rows", len(all_rows))
+    for row in all_rows:
         log.info(
             "  %s/%s metric=%s rag=%s lora=%s → %.4f",
             row["task"],
@@ -281,9 +287,6 @@ def _calculate_metrics_task(
 _sync_raw = os.environ.get("REGISTRY_SYNC_ALIASES", "champion,challenger")
 _sync_aliases = [a.strip() for a in _sync_raw.split(",") if a.strip()]
 _alias_options = ["none"] + _sync_aliases
-# Add combined option for convenience when multiple aliases are configured
-if len(_sync_aliases) > 1:
-    _alias_options.append(",".join(_sync_aliases))
 
 # Build knowledge-base dropdown options from knowledge_bases.json.
 _kb_config_path = PROJECT_ROOT / "src" / "shared" / "knowledge_bases.json"
@@ -324,11 +327,11 @@ for _suite in _EVAL_SUITES:
                 if _task == "retrieval"
                 else {}
             ),
-            "metric": Param(
-                type="string",
-                enum=_metrics,
+            "metrics": Param(
+                type="array",
+                items={"type": "string", "enum": _metrics},
                 description=(
-                    f"Metric to compute. Valid: {', '.join(_metrics)}. "
+                    f"Metrics to compute (multi-select). Valid: {', '.join(_metrics)}. "
                     "For values outside this list, use custom_params."
                 ),
             ),
@@ -346,18 +349,18 @@ for _suite in _EVAL_SUITES:
                 else {}
             ),
             "knowledge_base_aliases": Param(
-                type="string",
-                enum=_alias_options,
+                type="array",
+                items={"type": "string", "enum": _alias_options},
                 description=(
-                    "Knowledge-base aliases to evaluate (comma-separated). "
+                    "Knowledge-base aliases to evaluate (multi-select). "
                     "For custom aliases, use custom_params."
                 ),
             ),
             "lora_aliases": Param(
-                type="string",
-                enum=_alias_options,
+                type="array",
+                items={"type": "string", "enum": _alias_options},
                 description=(
-                    "LoRA aliases to evaluate (comma-separated). "
+                    "LoRA aliases to evaluate (multi-select). "
                     "For custom aliases, use custom_params."
                 ),
             ),
@@ -366,7 +369,7 @@ for _suite in _EVAL_SUITES:
                 type=["string", "null"],
                 description=(
                     "Optional JSON overrides. Example: "
-                    '{"metric": "my_metric", "knowledge_base_aliases": ["a1", "a2"]}'
+                    '{"metrics": ["my_metric"], "knowledge_base_aliases": ["a1", "a2"]}'
                 ),
             ),
         },
