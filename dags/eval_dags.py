@@ -66,7 +66,6 @@ _EVAL_SUITES: list[dict] = [
         "task": "chat",
         "dataset": "hotpotqa",
         "metrics": ["relevance", "correctness", "bertscore_f1", "rouge_l"],
-        "kb": None,
         "description": "Eval: chat on HotpotQA",
         "tags": ["eval", "chat"],
     },
@@ -75,7 +74,6 @@ _EVAL_SUITES: list[dict] = [
         "task": "chat",
         "dataset": "nq",
         "metrics": ["relevance", "correctness", "bertscore_f1", "rouge_l"],
-        "kb": None,
         "description": "Eval: chat on Natural Questions",
         "tags": ["eval", "chat"],
     },
@@ -84,7 +82,6 @@ _EVAL_SUITES: list[dict] = [
         "task": "summarize",
         "dataset": "arxiv_summarization",
         "metrics": ["faithfulness", "coverage", "bertscore_f1", "rouge_l"],
-        "kb": None,
         "description": "Eval: summarization on ArXiv",
         "tags": ["eval", "summarize"],
     },
@@ -93,35 +90,31 @@ _EVAL_SUITES: list[dict] = [
         "task": "code",
         "dataset": "humaneval",
         "metrics": ["pass_at_1", "executable_rate"],
-        "kb": None,
         "description": "Eval: code generation on HumanEval",
         "tags": ["eval", "code"],
     },
     {
-        "dag_id": "eval_retrieval_arxiv_beir_scifact",
+        "dag_id": "eval_retrieval_beir_scifact",
         "task": "retrieval",
         "dataset": "beir_scifact",
         "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
-        "kb": "arxiv",
-        "description": "Eval: retrieval on BEIR-SciFact (arxiv KB)",
+        "description": "Eval: retrieval on BEIR-SciFact",
         "tags": ["eval", "retrieval"],
     },
     {
-        "dag_id": "eval_retrieval_arxiv_beir_nfcorpus",
+        "dag_id": "eval_retrieval_beir_nfcorpus",
         "task": "retrieval",
         "dataset": "beir_nfcorpus",
         "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
-        "kb": "arxiv",
-        "description": "Eval: retrieval on BEIR-NFCorpus (arxiv KB)",
+        "description": "Eval: retrieval on BEIR-NFCorpus",
         "tags": ["eval", "retrieval"],
     },
     {
-        "dag_id": "eval_retrieval_pytorch_msmarco",
+        "dag_id": "eval_retrieval_msmarco",
         "task": "retrieval",
         "dataset": "msmarco",
         "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
-        "kb": "pytorch_docs",
-        "description": "Eval: retrieval on MS MARCO (pytorch_docs KB)",
+        "description": "Eval: retrieval on MS MARCO",
         "tags": ["eval", "retrieval"],
     },
 ]
@@ -148,6 +141,7 @@ def _resolve_params(context: dict) -> dict:
     rag_aliases = custom["rag_aliases"] if "rag_aliases" in custom else params["rag_aliases"]
     lora_aliases = custom["lora_aliases"] if "lora_aliases" in custom else params["lora_aliases"]
     k = int(custom["k"]) if "k" in custom else int(params.get("k", 10))
+    kb = custom["kb"] if "kb" in custom else params.get("kb")
 
     # Normalise aliases to list[str]
     if isinstance(rag_aliases, str):
@@ -168,6 +162,7 @@ def _resolve_params(context: dict) -> dict:
         "rag_aliases": rag_aliases,
         "lora_aliases": lora_aliases,
         "k": k,
+        "kb": kb,
     }
 
 
@@ -179,7 +174,6 @@ def _resolve_params(context: dict) -> dict:
 def _fetch_predictions_task(
     eval_task: str,
     dataset: str,
-    kb: str | None,
     **context: object,
 ) -> str:
     """Airflow task: call the model/retrieval system and save predictions."""
@@ -192,9 +186,10 @@ def _fetch_predictions_task(
     resolved = _resolve_params(context)
 
     log.info(
-        "fetch_predictions: task=%s dataset=%s rag=%s lora=%s",
+        "fetch_predictions: task=%s dataset=%s kb=%s rag=%s lora=%s",
         eval_task,
         dataset,
+        resolved["kb"],
         resolved["rag_aliases"],
         resolved["lora_aliases"],
     )
@@ -204,7 +199,7 @@ def _fetch_predictions_task(
     prediction_data = fetch_predictions(
         task=eval_task,
         dataset_name=dataset,
-        kb_name=kb,
+        kb_name=resolved["kb"],
         rag_aliases=resolved["rag_aliases"],
         lora_aliases=resolved["lora_aliases"],
         k=resolved["k"],
@@ -284,12 +279,21 @@ _alias_options = ["none"] + _sync_aliases
 if len(_sync_aliases) > 1:
     _alias_options.append(",".join(_sync_aliases))
 
+# Build knowledge-base dropdown options from knowledge_bases.json.
+_kb_config_path = PROJECT_ROOT / "src" / "shared" / "knowledge_bases.json"
+if _kb_config_path.exists():
+    with open(_kb_config_path, encoding="utf-8") as _fh:
+        _kb_options = sorted(
+            {kb["name"] for entry in json.load(_fh) for kb in entry.get("knowledge_bases", [])}
+        )
+else:
+    _kb_options = ["arxiv", "pytorch_docs"]
+
 for _suite in _EVAL_SUITES:
     _dag_id = _suite["dag_id"]
     _task = _suite["task"]
     _dataset = _suite["dataset"]
     _metrics = _suite["metrics"]
-    _kb = _suite["kb"]
 
     _dag = DAG(
         dag_id=_dag_id,
@@ -326,13 +330,21 @@ for _suite in _EVAL_SUITES:
             ),
             **(
                 {
+                    "kb": Param(
+                        type="string",
+                        enum=_kb_options,
+                        description=(
+                            "Target knowledge base for retrieval evaluation. "
+                            f"Valid: {', '.join(_kb_options)}."
+                        ),
+                    ),
                     "k": Param(
                         default=10,
                         type="integer",
                         description="Top-K cutoff for Recall@K, nDCG@K, MRR@K (default: 10)",
                         minimum=1,
                         maximum=100,
-                    )
+                    ),
                 }
                 if _task == "retrieval"
                 else {}
@@ -352,7 +364,7 @@ for _suite in _EVAL_SUITES:
         _fetch = PythonOperator(
             task_id="fetch_predictions",
             python_callable=_fetch_predictions_task,
-            op_kwargs={"eval_task": _task, "dataset": _dataset, "kb": _kb},
+            op_kwargs={"eval_task": _task, "dataset": _dataset},
         )
 
         _calc = PythonOperator(
