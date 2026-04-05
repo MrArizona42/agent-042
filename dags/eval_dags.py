@@ -19,7 +19,7 @@ For custom parameter values that are not in the dropdown lists, put
 a JSON string into the ``custom_params`` field when triggering the DAG.
 Example::
 
-    {"metric": "my_custom_metric", "rag_aliases": ["my_alias"]}
+    {"metric": "my_custom_metric", "knowledge_base_aliases": ["my_alias"]}
 
 Zero retries.  No silent fallback to default values — if any required
 parameter is missing or invalid the DAG fails immediately.
@@ -137,32 +137,38 @@ def _resolve_params(context: dict) -> dict:
     custom_raw = params["custom_params"]
     custom: dict = json.loads(custom_raw) if custom_raw else {}
 
+    knowledge_base = (
+        custom["knowledge_base"] if "knowledge_base" in custom else params.get("knowledge_base")
+    )
     metric = custom["metric"] if "metric" in custom else params["metric"]
-    rag_aliases = custom["rag_aliases"] if "rag_aliases" in custom else params["rag_aliases"]
+    metric_k = int(custom["metric_k"]) if "metric_k" in custom else int(params.get("metric_k", 10))
+    kb_aliases = (
+        custom["knowledge_base_aliases"]
+        if "knowledge_base_aliases" in custom
+        else params["knowledge_base_aliases"]
+    )
     lora_aliases = custom["lora_aliases"] if "lora_aliases" in custom else params["lora_aliases"]
-    k = int(custom["k"]) if "k" in custom else int(params.get("k", 10))
-    kb = custom["kb"] if "kb" in custom else params.get("kb")
 
     # Normalise aliases to list[str]
-    if isinstance(rag_aliases, str):
-        rag_aliases = [a.strip() for a in rag_aliases.split(",") if a.strip()]
+    if isinstance(kb_aliases, str):
+        kb_aliases = [a.strip() for a in kb_aliases.split(",") if a.strip()]
     if isinstance(lora_aliases, str):
         lora_aliases = [a.strip() for a in lora_aliases.split(",") if a.strip()]
 
     # Strict validation — fail if anything is absent
     if not metric:
         raise ValueError("Required parameter 'metric' is empty")
-    if not rag_aliases:
-        raise ValueError("Required parameter 'rag_aliases' is empty")
+    if not kb_aliases:
+        raise ValueError("Required parameter 'knowledge_base_aliases' is empty")
     if not lora_aliases:
         raise ValueError("Required parameter 'lora_aliases' is empty")
 
     return {
+        "knowledge_base": knowledge_base,
         "metric": metric,
-        "rag_aliases": rag_aliases,
+        "metric_k": metric_k,
+        "knowledge_base_aliases": kb_aliases,
         "lora_aliases": lora_aliases,
-        "k": k,
-        "kb": kb,
     }
 
 
@@ -186,11 +192,11 @@ def _fetch_predictions_task(
     resolved = _resolve_params(context)
 
     log.info(
-        "fetch_predictions: task=%s dataset=%s kb=%s rag=%s lora=%s",
+        "fetch_predictions: task=%s dataset=%s kb=%s kb_aliases=%s lora=%s",
         eval_task,
         dataset,
-        resolved["kb"],
-        resolved["rag_aliases"],
+        resolved["knowledge_base"],
+        resolved["knowledge_base_aliases"],
         resolved["lora_aliases"],
     )
 
@@ -199,10 +205,10 @@ def _fetch_predictions_task(
     prediction_data = fetch_predictions(
         task=eval_task,
         dataset_name=dataset,
-        kb_name=resolved["kb"],
-        rag_aliases=resolved["rag_aliases"],
+        kb_name=resolved["knowledge_base"],
+        rag_aliases=resolved["knowledge_base_aliases"],
         lora_aliases=resolved["lora_aliases"],
-        k=resolved["k"],
+        k=resolved["metric_k"],
     )
 
     # Persist to file (avoids XCom size limits)
@@ -304,6 +310,20 @@ for _suite in _EVAL_SUITES:
         catchup=False,
         tags=_suite["tags"],
         params={
+            **(
+                {
+                    "knowledge_base": Param(
+                        type="string",
+                        enum=_kb_options,
+                        description=(
+                            "Target knowledge base for retrieval evaluation. "
+                            f"Valid: {', '.join(_kb_options)}."
+                        ),
+                    ),
+                }
+                if _task == "retrieval"
+                else {}
+            ),
             "metric": Param(
                 type="string",
                 enum=_metrics,
@@ -312,11 +332,24 @@ for _suite in _EVAL_SUITES:
                     "For values outside this list, use custom_params."
                 ),
             ),
-            "rag_aliases": Param(
+            **(
+                {
+                    "metric_k": Param(
+                        default=10,
+                        type="integer",
+                        description="Top-K cutoff for Recall@K, nDCG@K, MRR@K (default: 10)",
+                        minimum=1,
+                        maximum=100,
+                    ),
+                }
+                if _task == "retrieval"
+                else {}
+            ),
+            "knowledge_base_aliases": Param(
                 type="string",
                 enum=_alias_options,
                 description=(
-                    "RAG aliases to evaluate (comma-separated). "
+                    "Knowledge-base aliases to evaluate (comma-separated). "
                     "For custom aliases, use custom_params."
                 ),
             ),
@@ -328,33 +361,12 @@ for _suite in _EVAL_SUITES:
                     "For custom aliases, use custom_params."
                 ),
             ),
-            **(
-                {
-                    "kb": Param(
-                        type="string",
-                        enum=_kb_options,
-                        description=(
-                            "Target knowledge base for retrieval evaluation. "
-                            f"Valid: {', '.join(_kb_options)}."
-                        ),
-                    ),
-                    "k": Param(
-                        default=10,
-                        type="integer",
-                        description="Top-K cutoff for Recall@K, nDCG@K, MRR@K (default: 10)",
-                        minimum=1,
-                        maximum=100,
-                    ),
-                }
-                if _task == "retrieval"
-                else {}
-            ),
             "custom_params": Param(
                 default="",
                 type=["string", "null"],
                 description=(
                     "Optional JSON overrides. Example: "
-                    '{"metric": "my_metric", "rag_aliases": ["a1", "a2"]}'
+                    '{"metric": "my_metric", "knowledge_base_aliases": ["a1", "a2"]}'
                 ),
             ),
         },
