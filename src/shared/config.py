@@ -161,88 +161,21 @@ def get_kb_names() -> list[str]:
     return list(_KB_INDEX.keys())
 
 
-def validate_kb_alias(kb: str, alias: str) -> None:
-    """Raise ValueError with a consistent message if kb or alias is unknown."""
+def validate_kb_alias(kb: str, alias: str | None = None) -> None:
+    """Raise ValueError with a consistent message if kb or alias is unknown.
+
+    When *alias* is ``None`` only the KB name is validated.
+    """
     kb_cfg = get_kb_config(kb)
     if kb_cfg is None:
         raise ValueError(f"KB '{kb}' not found. Available: {get_kb_names()}")
-    if alias not in kb_cfg.aliases:
+    if alias is not None and alias not in kb_cfg.aliases:
         raise ValueError(
             f"Alias '{alias}' not valid for KB '{kb}'. Available: {list(kb_cfg.aliases.keys())}"
         )
 
 
 # ---------------------------------------------------------------------------
-# Backward-compatible KNOWLEDGE_BASES dict
-# ---------------------------------------------------------------------------
-# Legacy callers that import ``KNOWLEDGE_BASES`` from this module get a
-# lazy-loading proxy that returns the same dict structure as before:
-#   { "arxiv": { "collection": ..., "label": ..., "description": ... }, ... }
-# The proxy loads the JSON config on first access.
-
-
-class _KBProxy(dict):
-    """Lazy dict that loads KB config on first access.
-
-    Provides backward-compatible flat ``{kb_name: info_dict}`` access.
-    """
-
-    _loaded: bool = False
-
-    def _ensure(self) -> None:
-        if not self._loaded:
-            for task_cfg in get_knowledge_bases().values():
-                for kb_cfg in task_cfg.knowledge_bases:
-                    super().__setitem__(
-                        kb_cfg.name,
-                        {
-                            "label": kb_cfg.label,
-                            "description": kb_cfg.description,
-                            "aliases": kb_cfg.aliases,
-                            "update_strategy": kb_cfg.update_strategy,
-                        },
-                    )
-            self._loaded = True
-
-    def __getitem__(self, key):
-        self._ensure()
-        return super().__getitem__(key)
-
-    def __contains__(self, key):
-        self._ensure()
-        return super().__contains__(key)
-
-    def __iter__(self):
-        self._ensure()
-        return super().__iter__()
-
-    def __len__(self):
-        self._ensure()
-        return super().__len__()
-
-    def keys(self):
-        self._ensure()
-        return super().keys()
-
-    def values(self):
-        self._ensure()
-        return super().values()
-
-    def items(self):
-        self._ensure()
-        return super().items()
-
-    def get(self, key, default=None):
-        self._ensure()
-        return super().get(key, default)
-
-    def reset(self) -> None:
-        super().clear()
-        self._loaded = False
-
-
-KNOWLEDGE_BASES = _KBProxy()
-
 PLATFORM_VLLM_BASE_URL_ENV = "VLLM_BASE_URL"
 PLATFORM_EMBEDDINGS_URL_ENV = "EMBEDDINGS_URL"
 PLATFORM_QDRANT_HOST_ENV = "QDRANT_HOST"
@@ -670,7 +603,6 @@ def clear_knowledge_base_caches() -> None:
     global _KB_REGISTRY, _KB_INDEX  # noqa: PLW0603
     _KB_REGISTRY = None
     _KB_INDEX = None
-    KNOWLEDGE_BASES.reset()
 
 
 def clear_settings_caches() -> None:

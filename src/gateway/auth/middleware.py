@@ -42,9 +42,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
        up in Redis for user sessions via OAuth2/OIDC.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
 
         # Allow public routes through without auth
@@ -82,9 +80,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if expires_at - time.time() < _REFRESH_WINDOW_SECONDS:
             try:
                 oidc_client = request.app.state.oidc_client
-                refreshed = await oidc_client.refresh_access_token(
-                    session_data["refresh_token"]
-                )
+                refreshed = await oidc_client.refresh_access_token(session_data["refresh_token"])
                 session_data["access_token"] = refreshed["access_token"]
                 session_data["refresh_token"] = refreshed.get(
                     "refresh_token", session_data["refresh_token"]

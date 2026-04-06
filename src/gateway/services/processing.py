@@ -105,7 +105,14 @@ class _ProcessChat:
                                     "source": source_label,
                                 }
                             )
-                        ctx = self._rag_service.format_documents(docs)
+                        alias_cfg = kb_cfg.aliases.get(effective_alias) if kb_cfg else None
+                        max_len = alias_cfg.context_max_length if alias_cfg else 4000
+                        ctx = self._rag_service.format_context_for_docs(
+                            docs,
+                            knowledge_base=src.knowledge_base,
+                            alias=effective_alias,
+                            max_length=max_len,
+                        )
                         if ctx:
                             context_parts.append(ctx)
                 if context_parts:

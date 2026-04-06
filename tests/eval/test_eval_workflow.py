@@ -27,14 +27,12 @@ def _reset_settings_caches():
     cfg.get_settings.cache_clear()
     cfg.get_eval_settings.cache_clear()
     cfg._KB_REGISTRY = None
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
+    cfg._KB_INDEX = None
     yield
     cfg.get_settings.cache_clear()
     cfg.get_eval_settings.cache_clear()
     cfg._KB_REGISTRY = None
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
+    cfg._KB_INDEX = None
 
 
 # ---------------------------------------------------------------------------

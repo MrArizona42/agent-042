@@ -12,24 +12,9 @@ from rag.embeddings import EmbeddingService
 from rag.ops.materialize import batch_embed_and_upsert
 from rag.ops.meta import read_collection_meta
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_kb_config, get_knowledge_bases, get_settings
+from shared.config import get_kb_config, get_settings, validate_kb_alias
 
 _POINT_ID_NS = uuid.UUID("b8c9d0e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e")
-
-
-def _available_kbs() -> list[str]:
-    registry = get_knowledge_bases()
-    return [kb.name for task_cfg in registry.values() for kb in task_cfg.knowledge_bases]
-
-
-def _validate_kb_alias(kb: str, alias: str) -> None:
-    kb_cfg = get_kb_config(kb)
-    if kb_cfg is None:
-        raise ValueError(
-            f"Knowledge base '{kb}' not found. Available: {', '.join(_available_kbs()) or '(none)'}"
-        )
-    if alias not in kb_cfg.aliases:
-        raise ValueError(f"Alias '{alias}' is not allowed for knowledge base '{kb}'")
 
 
 def update_arxiv_collection(
@@ -44,7 +29,7 @@ def update_arxiv_collection(
     """Refresh an existing ArXiv production collection from `_meta`."""
     settings = get_settings()
     alias = alias or get_kb_config(kb).default_alias
-    _validate_kb_alias(kb, alias)
+    validate_kb_alias(kb, alias)
     qdrant_host = qdrant_host or settings.qdrant_host
     qdrant_port = qdrant_port or settings.qdrant_port
 

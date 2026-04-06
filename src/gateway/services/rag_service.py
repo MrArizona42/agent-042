@@ -101,7 +101,6 @@ class RAGService:
         retriever = Retriever(
             embedding_service=self.embedding_service,
             vector_store=vector_store,
-            settings=self.settings,
         )
         self._retrievers[cache_key] = retriever
         logger.info(
@@ -114,12 +113,32 @@ class RAGService:
     # Public API
     # ------------------------------------------------------------------
 
+    def format_context_for_docs(
+        self,
+        documents: list,
+        *,
+        knowledge_base: str,
+        alias: str,
+        max_length: int = 4000,
+    ) -> Optional[str]:
+        """Format documents using the retriever's boundary-respecting formatter.
+
+        Returns None when no retriever is available or documents are empty.
+        """
+        if not documents:
+            return None
+        retriever = self._get_retriever(knowledge_base, alias)
+        if retriever is None:
+            return None
+        result = retriever.format_context(documents, max_length=max_length)
+        return result or None
+
     @staticmethod
     def available_knowledge_bases() -> dict[str, dict]:
         """Return the registry of available knowledge bases.
 
         Returns a dict keyed by KB name with ``label``, ``description``,
-        ``aliases``, and ``update_strategy``.
+        ``aliases`` (full config), ``default_alias``, and ``update_strategy``.
         """
         result: dict[str, dict] = {}
         for task_cfg in get_knowledge_bases().values():
@@ -127,7 +146,10 @@ class RAGService:
                 result[kb_cfg.name] = {
                     "label": kb_cfg.label,
                     "description": kb_cfg.description,
-                    "aliases": kb_cfg.aliases,
+                    "aliases": {
+                        name: alias_cfg.model_dump() for name, alias_cfg in kb_cfg.aliases.items()
+                    },
+                    "default_alias": kb_cfg.default_alias,
                     "update_strategy": kb_cfg.update_strategy,
                 }
         return result
@@ -173,17 +195,18 @@ class RAGService:
             query: User query
             knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
                 If None the retrieval is skipped.
-            alias: Alias role (uses settings.default_alias if None).
-            top_k: Number of documents to retrieve (uses config default if None)
+            alias: Alias role (uses KB's default_alias if None).
+            top_k: Number of documents to retrieve (uses alias config if None)
 
         Returns:
             Formatted context string or None if RAG is disabled/unavailable
         """
+        kb_cfg = get_kb_config(knowledge_base) if knowledge_base else None
         if alias is None:
-            alias = get_kb_config(knowledge_base).default_alias if knowledge_base else "champion"
+            alias = kb_cfg.default_alias if kb_cfg else "champion"
+        alias_cfg = kb_cfg.aliases.get(alias) if kb_cfg else None
         if top_k is None:
-            kb_cfg = get_kb_config(knowledge_base) if knowledge_base else None
-            top_k = kb_cfg.aliases[alias].top_k if kb_cfg and alias in kb_cfg.aliases else 5
+            top_k = alias_cfg.top_k if alias_cfg else 5
         docs = self.retrieve_documents(
             query=query,
             knowledge_base=knowledge_base,
@@ -192,11 +215,11 @@ class RAGService:
         )
         if not docs:
             return None
-        kb_cfg = get_kb_config(knowledge_base) if knowledge_base else None
-        max_len = (
-            kb_cfg.aliases[alias].context_max_length if kb_cfg and alias in kb_cfg.aliases else 4000
-        )
-        return self.format_documents(docs, max_length=max_len)
+        max_len = alias_cfg.context_max_length if alias_cfg else 4000
+        retriever = self._get_retriever(knowledge_base, alias) if knowledge_base else None
+        if retriever is None:
+            return None
+        return retriever.format_context(docs, max_length=max_len)
 
     def retrieve_documents(
         self,
@@ -210,8 +233,8 @@ class RAGService:
         Args:
             query: User query
             knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
-            alias: Alias role (uses settings.default_alias if None).
-            top_k: Number of documents to retrieve (uses config default if None)
+            alias: Alias role (uses KB's default_alias if None).
+            top_k: Number of documents to retrieve (uses alias config if None)
 
         Returns:
             List of Document objects, or empty list if unavailable.
@@ -219,11 +242,13 @@ class RAGService:
         if not self.enabled:
             return []
 
+        kb_cfg = get_kb_config(knowledge_base) if knowledge_base else None
         if alias is None:
-            alias = get_kb_config(knowledge_base).default_alias if knowledge_base else "champion"
+            alias = kb_cfg.default_alias if kb_cfg else "champion"
+        alias_cfg = kb_cfg.aliases.get(alias) if kb_cfg else None
         if top_k is None:
-            kb_cfg = get_kb_config(knowledge_base) if knowledge_base else None
-            top_k = kb_cfg.aliases[alias].top_k if kb_cfg and alias in kb_cfg.aliases else 5
+            top_k = alias_cfg.top_k if alias_cfg else 5
+        score_threshold = alias_cfg.score_threshold if alias_cfg else 0.0
 
         if not knowledge_base:
             logger.info("No knowledge base selected — skipping RAG retrieval")
@@ -237,7 +262,11 @@ class RAGService:
             return []
 
         try:
-            documents = retriever.retrieve(query=query, top_k=top_k)
+            documents = retriever.retrieve(
+                query=query,
+                top_k=top_k,
+                score_threshold=score_threshold,
+            )
             logger.info(
                 f"Retrieved {len(documents)} documents (kb={knowledge_base}, alias={alias})"
             )
@@ -245,27 +274,3 @@ class RAGService:
         except Exception as e:
             logger.error(f"Error retrieving documents: {e}", exc_info=True)
             return []
-
-    def format_documents(self, documents: list, max_length: int = 4000) -> Optional[str]:
-        """Format retrieved documents into a context string.
-
-        Args:
-            documents: List of Document objects.
-            max_length: Maximum character length of context.
-
-        Returns:
-            Formatted context string or None if no documents.
-        """
-        if not documents:
-            return None
-
-        parts: list[str] = []
-        for i, doc in enumerate(documents, 1):
-            source = doc.metadata.get("source", "unknown")
-            score = doc.score if doc.score is not None else 0.0
-            parts.append(f"[Document {i}] (Source: {source}, Score: {score:.3f})\n{doc.content}")
-
-        context = "\n\n".join(parts)
-        if len(context) > max_length:
-            context = context[:max_length]
-        return context

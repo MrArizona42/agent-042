@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import List, Optional
 
 from rag.embeddings import EmbeddingService
 from rag.vector_store import Document, QdrantVectorStore
-
-if TYPE_CHECKING:
-    from shared.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,32 +18,29 @@ class Retriever:
         self,
         embedding_service: EmbeddingService,
         vector_store: QdrantVectorStore,
-        settings: "Settings",
     ):
         """Initialize retriever.
 
         Args:
             embedding_service: Service for generating embeddings
             vector_store: Vector database for similarity search
-            settings: Application settings
         """
         self.embedding_service = embedding_service
         self.vector_store = vector_store
-        self.settings = settings
 
     def retrieve(
         self,
         query: str,
-        top_k: Optional[int] = None,
-        score_threshold: Optional[float] = None,
+        top_k: int,
+        score_threshold: float,
         task: Optional[str] = None,
     ) -> List[Document]:
         """Retrieve relevant documents for a query.
 
         Args:
             query: User query text
-            top_k: Number of documents to retrieve (uses setting default if None)
-            score_threshold: Minimum similarity score (uses setting default if None)
+            top_k: Number of documents to retrieve
+            score_threshold: Minimum similarity score
             task: Task type for filtering (chat, code, summarize)
 
         Returns:
@@ -55,10 +49,6 @@ class Retriever:
         if not query.strip():
             logger.warning("Empty query provided to retriever")
             return []
-
-        # Use defaults from settings if not provided
-        top_k = top_k or 5
-        score_threshold = score_threshold or 0.0
 
         # Embed query
         logger.info(f"Embedding query: {query[:100]}...")
@@ -81,22 +71,18 @@ class Retriever:
         logger.info(f"Retrieved {len(documents)} documents")
         return documents
 
-    def format_context(self, documents: List[Document], max_length: Optional[int] = None) -> str:
+    def format_context(self, documents: List[Document], max_length: int) -> str:
         """Format retrieved documents into context string.
 
         Args:
             documents: Retrieved documents
-            max_length: Maximum character length of context (uses config default if None)
+            max_length: Maximum character length of context
 
         Returns:
             Formatted context string
         """
         if not documents:
             return ""
-
-        # Use config default if not provided
-        if max_length is None:
-            max_length = 4000
 
         context_parts = []
         current_length = 0

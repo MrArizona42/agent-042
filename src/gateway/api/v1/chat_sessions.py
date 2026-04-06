@@ -66,9 +66,7 @@ async def get_session_messages(request: Request, session_id: uuid.UUID) -> JSONR
     async with get_session_factory()() as db:
         # Verify ownership
         result = await db.execute(
-            select(ChatSession).where(
-                ChatSession.id == session_id, ChatSession.user_id == user_id
-            )
+            select(ChatSession).where(ChatSession.id == session_id, ChatSession.user_id == user_id)
         )
         session = result.scalar_one_or_none()
         if session is None:
@@ -100,9 +98,7 @@ async def delete_session(request: Request, session_id: uuid.UUID) -> JSONRespons
 
     async with get_session_factory()() as db:
         result = await db.execute(
-            select(ChatSession).where(
-                ChatSession.id == session_id, ChatSession.user_id == user_id
-            )
+            select(ChatSession).where(ChatSession.id == session_id, ChatSession.user_id == user_id)
         )
         session = result.scalar_one_or_none()
         if session is None:

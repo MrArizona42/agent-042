@@ -14,13 +14,9 @@ def _reset_kb_registry():
 
     cfg._KB_REGISTRY = None
     cfg._KB_INDEX = None
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
     yield
     cfg._KB_REGISTRY = None
     cfg._KB_INDEX = None
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
 
 
 @pytest.fixture()
@@ -104,16 +100,16 @@ def _collection_meta_payload(kb_name: str = "arxiv") -> dict[str, object]:
 
 class TestValidateKbAlias:
     def test_rejects_unknown_knowledge_base(self, loaded_kb_registry):
-        from rag.ops.aliases import _validate_kb_alias
+        from shared.config import validate_kb_alias
 
-        with pytest.raises(ValueError, match="Knowledge base 'missing' not found"):
-            _validate_kb_alias("missing", "champion")
+        with pytest.raises(ValueError, match="KB 'missing' not found"):
+            validate_kb_alias("missing", "champion")
 
     def test_rejects_disallowed_alias(self, loaded_kb_registry):
-        from rag.ops.aliases import _validate_kb_alias
+        from shared.config import validate_kb_alias
 
-        with pytest.raises(ValueError, match="Alias 'production' is not allowed"):
-            _validate_kb_alias("arxiv", "production")
+        with pytest.raises(ValueError, match="Alias 'production' not valid"):
+            validate_kb_alias("arxiv", "production")
 
 
 class TestAssignAliasToCollection:

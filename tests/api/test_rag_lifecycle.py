@@ -31,14 +31,9 @@ def _reset_kb_registry():
 
     cfg._KB_REGISTRY = None
     cfg._KB_INDEX = None
-    # Also reset the lazy proxy
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
     yield
     cfg._KB_REGISTRY = None
     cfg._KB_INDEX = None
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
 
 
 @pytest.fixture()
@@ -132,18 +127,17 @@ class TestKnowledgeBaseConfig:
         assert index == {}
         assert index == {}
 
-    def test_backward_compat_proxy(self, kb_json_file: Path):
-        """KNOWLEDGE_BASES proxy dict returns the same keys."""
+    def test_kb_index_lookup(self, kb_json_file: Path):
+        """get_kb_config returns correct entries from the flat index."""
         import shared.config as cfg
-        from shared.config import KNOWLEDGE_BASES, _load_knowledge_bases
+        from shared.config import _load_knowledge_bases, get_kb_config
 
-        # Load using explicit path first
         cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
-        assert "arxiv" in KNOWLEDGE_BASES
-        assert "pytorch_docs" in KNOWLEDGE_BASES
-        info = KNOWLEDGE_BASES["arxiv"]
-        assert info["label"] == "ArXiv papers"
-        assert "aliases" in info
+        arxiv_cfg = get_kb_config("arxiv")
+        assert arxiv_cfg is not None
+        assert arxiv_cfg.label == "ArXiv papers"
+        assert "champion" in arxiv_cfg.aliases
+        assert get_kb_config("nonexistent") is None
 
     def test_get_knowledge_bases_caching(self, kb_json_file: Path):
         import shared.config as cfg

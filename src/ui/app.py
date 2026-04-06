@@ -5,7 +5,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from shared.config import KNOWLEDGE_BASES, bootstrap_local_settings_env
+from shared.config import bootstrap_local_settings_env, get_knowledge_bases
 from ui.client import GatewayClient
 from ui.config import get_settings
 
@@ -129,10 +129,13 @@ with st.sidebar:
 
     st.subheader("Knowledge Base")
 
-    # Build options from the KNOWLEDGE_BASES registry
+    # Build options from the knowledge base registry
     kb_options: dict[str, str | None] = {"Disabled": None}
-    for kb_key, kb_info in KNOWLEDGE_BASES.items():
-        kb_options[kb_info["label"]] = kb_key
+    _kb_meta: dict[str, dict] = {}
+    for task_cfg in get_knowledge_bases().values():
+        for kb_cfg in task_cfg.knowledge_bases:
+            kb_options[kb_cfg.label] = kb_cfg.name
+            _kb_meta[kb_cfg.name] = {"description": kb_cfg.description}
 
     selected_kb_label = st.radio(
         "Select knowledge base for RAG retrieval",
@@ -142,7 +145,7 @@ with st.sidebar:
     selected_kb = kb_options[selected_kb_label]
 
     if selected_kb:
-        st.caption(KNOWLEDGE_BASES[selected_kb]["description"])
+        st.caption(_kb_meta[selected_kb]["description"])
 
 
 # ------------------------------------------------------------------

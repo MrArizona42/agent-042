@@ -24,7 +24,8 @@ async def list_knowledge_bases() -> list[dict[str, Any]]:
                 "knowledge_base": kb_name,
                 "label": info.get("label", ""),
                 "description": info.get("description", ""),
-                "aliases": info.get("aliases", []),
+                "aliases": info.get("aliases", {}),
+                "default_alias": info.get("default_alias", ""),
                 "update_strategy": info.get("update_strategy", "replace"),
             }
         )

@@ -10,4 +10,3 @@ router.include_router(discovery.router, tags=["discovery"])
 router.include_router(openai_compat.router, prefix="/v1", tags=["openai-compat"])
 router.include_router(chat_sessions.router, prefix="/v1", tags=["chat-sessions"])
 router.include_router(knowledge_bases.router, prefix="/v1", tags=["knowledge-bases"])
-
