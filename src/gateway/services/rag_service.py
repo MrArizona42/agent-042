@@ -7,6 +7,7 @@ from typing import Optional
 
 from gateway.config import get_settings
 from rag.embeddings import EmbeddingService
+from rag.ops.meta import BuildConfig, read_collection_meta
 from rag.retriever import Retriever
 from rag.vector_store import QdrantVectorStore
 from shared.config import Settings, get_kb_config, get_knowledge_bases
@@ -49,6 +50,7 @@ class RAGService:
         # Retrievers are created lazily on first request for each (kb, alias).
         # This avoids a startup race when Qdrant is not yet ready.
         self._retrievers: dict[str, Retriever] = {}
+        self._build_configs: dict[str, BuildConfig] = {}
         self._unavailable: set[str] = set()
 
         logger.info("RAG service initialized (retrievers will be created lazily)")
@@ -56,6 +58,17 @@ class RAGService:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def invalidate_caches(self) -> None:
+        """Clear cached retrievers and build configs.
+
+        Called by the ``/v1/admin/reload-config`` endpoint so the next
+        request per alias re-reads ``BuildConfig`` from Qdrant ``_meta``
+        and re-creates the retriever.
+        """
+        self._retrievers.clear()
+        self._build_configs.clear()
+        self._unavailable.clear()
 
     @staticmethod
     def _qdrant_alias(kb_name: str, alias: str) -> str:
@@ -157,30 +170,53 @@ class RAGService:
     def validate_knowledge_bases(self) -> None:
         """Check every alias in config resolves to an existing Qdrant collection.
 
-        Logs warnings for missing collections; does not raise.
+        For each resolvable alias, reads ``BuildConfig`` from the ``_meta``
+        sentinel point and caches it in ``self._build_configs``.  When
+        ``rag_strict_startup`` is ``True``, missing collections or missing
+        ``_meta`` cause the startup to raise instead of just logging.
         """
         if not self.enabled:
             return
 
+        strict = self.settings.rag_strict_startup
+
         for task_cfg in get_knowledge_bases().values():
             for kb_cfg in task_cfg.knowledge_bases:
                 for alias in kb_cfg.aliases:
-                    collection = self._qdrant_alias(kb_cfg.name, alias)
+                    cache_key = self._qdrant_alias(kb_cfg.name, alias)
                     vs = QdrantVectorStore(
                         host=self.settings.qdrant_host,
                         port=self.settings.qdrant_port,
-                        collection_name=collection,
+                        collection_name=cache_key,
                     )
+
                     if not vs.collection_exists():
-                        logger.warning(
-                            "KB alias not found in Qdrant at startup: "
-                            "task=%s kb=%s alias=%s collection=%s — marking unavailable",
-                            task_cfg.task,
-                            kb_cfg.name,
-                            alias,
-                            collection,
+                        msg = (
+                            f"KB alias not found in Qdrant at startup: "
+                            f"task={task_cfg.task} kb={kb_cfg.name} "
+                            f"alias={alias} collection={cache_key}"
                         )
-                        self._unavailable.add(collection)
+                        if strict:
+                            raise RuntimeError(msg)
+                        logger.warning("%s — marking unavailable", msg)
+                        self._unavailable.add(cache_key)
+                        continue
+
+                    # Read and cache BuildConfig from _meta
+                    try:
+                        meta = read_collection_meta(vs, context=cache_key)
+                        self._build_configs[cache_key] = meta.build_config
+                        logger.info(
+                            "Cached build config for %s (embedding_model=%s)",
+                            cache_key,
+                            meta.build_config.embedding_model,
+                        )
+                    except Exception as exc:
+                        msg = f"Failed to read _meta for collection '{cache_key}': {exc}"
+                        if strict:
+                            raise RuntimeError(msg) from exc
+                        logger.warning("%s — marking unavailable", msg)
+                        self._unavailable.add(cache_key)
 
     def retrieve_context(
         self,
