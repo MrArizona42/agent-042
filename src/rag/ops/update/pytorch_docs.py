@@ -44,7 +44,7 @@ def update_pytorch_docs_collection(
 ) -> dict[str, Any]:
     """Refresh PyTorch docs production collection from `_meta`."""
     settings = get_settings()
-    alias = alias or settings.default_alias
+    alias = alias or get_kb_config(kb).default_alias
     _validate_kb_alias(kb, alias)
     qdrant_host = qdrant_host or settings.qdrant_host
     qdrant_port = qdrant_port or settings.qdrant_port

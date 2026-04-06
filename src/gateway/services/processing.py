@@ -13,6 +13,7 @@ from gateway.services.rag_service import RAGService
 from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
+from shared.config import get_kb_config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -82,10 +83,10 @@ class _ProcessChat:
 
         if self._rag_service and self._rag_service.enabled and req.rag_sources:
             try:
-                settings = get_settings()
                 context_parts: list[str] = []
                 for src in req.rag_sources:
-                    effective_alias = src.alias or settings.default_alias
+                    kb_cfg = get_kb_config(src.knowledge_base)
+                    effective_alias = src.alias or (kb_cfg.default_alias if kb_cfg else "champion")
                     logger.info(
                         f"RAG — retrieving from kb={src.knowledge_base} alias={effective_alias}"
                     )
@@ -224,7 +225,9 @@ class _ProcessChat:
         full_content = ""
         finish_reason = "stop"
 
-        async for event in redis_stream.subscribe(conversation_id, timeout=settings.streaming_timeout):
+        async for event in redis_stream.subscribe(
+            conversation_id, timeout=settings.streaming_timeout
+        ):
             event_type = event.get("type")
 
             if event_type == "token":
@@ -306,7 +309,9 @@ class _ProcessChat:
         logger.info(f"Enqueued async stream task {task_id} for conversation {conversation_id}")
 
         # Stream from Redis
-        async for chunk in redis_stream.subscribe_sse(conversation_id, timeout=settings.streaming_timeout):
+        async for chunk in redis_stream.subscribe_sse(
+            conversation_id, timeout=settings.streaming_timeout
+        ):
             yield chunk
 
     # ------------------------------------------------------------------

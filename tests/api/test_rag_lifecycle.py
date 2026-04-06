@@ -30,11 +30,13 @@ def _reset_kb_registry():
     import shared.config as cfg
 
     cfg._KB_REGISTRY = None
+    cfg._KB_INDEX = None
     # Also reset the lazy proxy
     cfg.KNOWLEDGE_BASES._loaded = False
     cfg.KNOWLEDGE_BASES.clear()
     yield
     cfg._KB_REGISTRY = None
+    cfg._KB_INDEX = None
     cfg.KNOWLEDGE_BASES._loaded = False
     cfg.KNOWLEDGE_BASES.clear()
 
@@ -49,7 +51,21 @@ def kb_json_file(tmp_path: Path):
             "knowledge_bases": [
                 {
                     "name": "arxiv",
-                    "aliases": ["champion", "challenger"],
+                    "default_alias": "champion",
+                    "aliases": {
+                        "champion": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "context_max_length": 4000,
+                            "reranker": None,
+                        },
+                        "challenger": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "context_max_length": 4000,
+                            "reranker": None,
+                        },
+                    },
                     "update_strategy": "incremental",
                     "label": "ArXiv papers",
                     "description": "ML papers",
@@ -62,7 +78,15 @@ def kb_json_file(tmp_path: Path):
             "knowledge_bases": [
                 {
                     "name": "pytorch_docs",
-                    "aliases": ["champion"],
+                    "default_alias": "champion",
+                    "aliases": {
+                        "champion": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "context_max_length": 4000,
+                            "reranker": None,
+                        },
+                    },
                     "update_strategy": "replace",
                     "label": "PyTorch docs",
                     "description": "Coding docs",
@@ -86,7 +110,7 @@ class TestKnowledgeBaseConfig:
     def test_load_from_json(self, kb_json_file: Path):
         from shared.config import _load_knowledge_bases
 
-        registry = _load_knowledge_bases(kb_json_file)
+        registry, index = _load_knowledge_bases(kb_json_file)
         assert "chat" in registry
         assert "code" in registry
         # Find KB configs within task groups
@@ -103,8 +127,10 @@ class TestKnowledgeBaseConfig:
     def test_load_missing_file_returns_empty(self, tmp_path: Path):
         from shared.config import _load_knowledge_bases
 
-        registry = _load_knowledge_bases(tmp_path / "nonexistent.json")
+        registry, index = _load_knowledge_bases(tmp_path / "nonexistent.json")
         assert registry == {}
+        assert index == {}
+        assert index == {}
 
     def test_backward_compat_proxy(self, kb_json_file: Path):
         """KNOWLEDGE_BASES proxy dict returns the same keys."""
@@ -112,7 +138,7 @@ class TestKnowledgeBaseConfig:
         from shared.config import KNOWLEDGE_BASES, _load_knowledge_bases
 
         # Load using explicit path first
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
         assert "arxiv" in KNOWLEDGE_BASES
         assert "pytorch_docs" in KNOWLEDGE_BASES
         info = KNOWLEDGE_BASES["arxiv"]
@@ -123,7 +149,7 @@ class TestKnowledgeBaseConfig:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases, get_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
         reg1 = get_knowledge_bases()
         reg2 = get_knowledge_bases()  # should use cached
         assert reg1 is reg2
@@ -201,7 +227,7 @@ class TestChatCompletionsValidation:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
         app = _make_test_app()
         client = TestClient(app, raise_server_exceptions=False)
@@ -220,7 +246,7 @@ class TestChatCompletionsValidation:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
         app = _make_test_app()
         client = TestClient(app, raise_server_exceptions=False)
@@ -244,7 +270,7 @@ class TestKnowledgeBasesEndpoint:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
         app = _make_test_app()
         client = TestClient(app)
@@ -266,7 +292,7 @@ class TestKnowledgeBasesEndpoint:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(tmp_path / "nonexistent.json")
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(tmp_path / "nonexistent.json")
 
         app = _make_test_app()
         client = TestClient(app)
@@ -375,7 +401,7 @@ class TestRAGServiceResolution:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
         from gateway.services.rag_service import RAGService
 

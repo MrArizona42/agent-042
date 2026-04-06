@@ -13,10 +13,12 @@ def _reset_kb_registry():
     import shared.config as cfg
 
     cfg._KB_REGISTRY = None
+    cfg._KB_INDEX = None
     cfg.KNOWLEDGE_BASES._loaded = False
     cfg.KNOWLEDGE_BASES.clear()
     yield
     cfg._KB_REGISTRY = None
+    cfg._KB_INDEX = None
     cfg.KNOWLEDGE_BASES._loaded = False
     cfg.KNOWLEDGE_BASES.clear()
 
@@ -30,7 +32,21 @@ def kb_json_file(tmp_path: Path) -> Path:
             "knowledge_bases": [
                 {
                     "name": "arxiv",
-                    "aliases": ["champion", "challenger"],
+                    "default_alias": "champion",
+                    "aliases": {
+                        "champion": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "context_max_length": 4000,
+                            "reranker": None,
+                        },
+                        "challenger": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "context_max_length": 4000,
+                            "reranker": None,
+                        },
+                    },
                     "update_strategy": "incremental",
                     "label": "ArXiv papers",
                     "description": "ML papers",
@@ -43,7 +59,15 @@ def kb_json_file(tmp_path: Path) -> Path:
             "knowledge_bases": [
                 {
                     "name": "pytorch_docs",
-                    "aliases": ["champion"],
+                    "default_alias": "champion",
+                    "aliases": {
+                        "champion": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "context_max_length": 4000,
+                            "reranker": None,
+                        },
+                    },
                     "update_strategy": "replace",
                     "label": "PyTorch docs",
                     "description": "Coding docs",
@@ -61,7 +85,7 @@ def loaded_kb_registry(kb_json_file: Path):
     import shared.config as cfg
     from shared.config import _load_knowledge_bases
 
-    cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
     return cfg._KB_REGISTRY
 
 

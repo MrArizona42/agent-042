@@ -153,7 +153,10 @@ class RAGService:
                         logger.warning(
                             "KB alias not found in Qdrant at startup: "
                             "task=%s kb=%s alias=%s collection=%s — marking unavailable",
-                            task_cfg.task, kb_cfg.name, alias, collection,
+                            task_cfg.task,
+                            kb_cfg.name,
+                            alias,
+                            collection,
                         )
                         self._unavailable.add(collection)
 
@@ -177,9 +180,10 @@ class RAGService:
             Formatted context string or None if RAG is disabled/unavailable
         """
         if alias is None:
-            alias = self.settings.default_alias
+            alias = get_kb_config(knowledge_base).default_alias if knowledge_base else "champion"
         if top_k is None:
-            top_k = self.settings.top_k
+            kb_cfg = get_kb_config(knowledge_base) if knowledge_base else None
+            top_k = kb_cfg.aliases[alias].top_k if kb_cfg and alias in kb_cfg.aliases else 5
         docs = self.retrieve_documents(
             query=query,
             knowledge_base=knowledge_base,
@@ -188,7 +192,11 @@ class RAGService:
         )
         if not docs:
             return None
-        return self.format_documents(docs)
+        kb_cfg = get_kb_config(knowledge_base) if knowledge_base else None
+        max_len = (
+            kb_cfg.aliases[alias].context_max_length if kb_cfg and alias in kb_cfg.aliases else 4000
+        )
+        return self.format_documents(docs, max_length=max_len)
 
     def retrieve_documents(
         self,
@@ -212,9 +220,10 @@ class RAGService:
             return []
 
         if alias is None:
-            alias = self.settings.default_alias
+            alias = get_kb_config(knowledge_base).default_alias if knowledge_base else "champion"
         if top_k is None:
-            top_k = self.settings.top_k
+            kb_cfg = get_kb_config(knowledge_base) if knowledge_base else None
+            top_k = kb_cfg.aliases[alias].top_k if kb_cfg and alias in kb_cfg.aliases else 5
 
         if not knowledge_base:
             logger.info("No knowledge base selected — skipping RAG retrieval")
@@ -237,11 +246,12 @@ class RAGService:
             logger.error(f"Error retrieving documents: {e}", exc_info=True)
             return []
 
-    def format_documents(self, documents: list) -> Optional[str]:
+    def format_documents(self, documents: list, max_length: int = 4000) -> Optional[str]:
         """Format retrieved documents into a context string.
 
         Args:
             documents: List of Document objects.
+            max_length: Maximum character length of context.
 
         Returns:
             Formatted context string or None if no documents.
@@ -256,7 +266,6 @@ class RAGService:
             parts.append(f"[Document {i}] (Source: {source}, Score: {score:.3f})\n{doc.content}")
 
         context = "\n\n".join(parts)
-        max_len = self.settings.context_max_length
-        if len(context) > max_len:
-            context = context[:max_len]
+        if len(context) > max_length:
+            context = context[:max_length]
         return context

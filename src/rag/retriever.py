@@ -57,8 +57,8 @@ class Retriever:
             return []
 
         # Use defaults from settings if not provided
-        top_k = top_k or self.settings.top_k
-        score_threshold = score_threshold or self.settings.score_threshold
+        top_k = top_k or 5
+        score_threshold = score_threshold or 0.0
 
         # Embed query
         logger.info(f"Embedding query: {query[:100]}...")
@@ -96,7 +96,7 @@ class Retriever:
 
         # Use config default if not provided
         if max_length is None:
-            max_length = self.settings.context_max_length
+            max_length = 4000
 
         context_parts = []
         current_length = 0

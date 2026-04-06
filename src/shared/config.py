@@ -21,9 +21,9 @@ import json
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
-from pydantic import AliasChoices, BaseModel, Field, computed_field
+from pydantic import AliasChoices, BaseModel, Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from shared.local_env import load_local_env
@@ -37,14 +37,38 @@ logger = logging.getLogger(__name__)
 _DEFAULT_KB_PATH = Path(__file__).resolve().parent / "knowledge_bases.json"
 
 
+class AliasConfig(BaseModel):
+    """Per-alias query-time RAG configuration.
+
+    No defaults — every field must be explicit in ``knowledge_bases.json``.
+    Adding a new field forces updating every alias entry; Pydantic will
+    reject incomplete entries at load time.
+    """
+
+    top_k: int
+    score_threshold: float
+    context_max_length: int
+    reranker: Optional[str]  # null today; model name when reranker is implemented
+
+
 class KBConfig(BaseModel):
     """Single knowledge-base entry within a task group."""
 
     name: str
-    aliases: list[str] = Field(default_factory=lambda: ["champion"])
+    default_alias: str
+    aliases: dict[str, AliasConfig]
     update_strategy: Literal["incremental", "replace"] = "replace"
     label: str = ""
     description: str = ""
+
+    @model_validator(mode="after")
+    def _default_alias_must_exist(self) -> "KBConfig":
+        if self.default_alias not in self.aliases:
+            raise ValueError(
+                f"default_alias '{self.default_alias}' is not a declared alias "
+                f"(available: {list(self.aliases.keys())})"
+            )
+        return self
 
 
 class TaskConfig(BaseModel):
@@ -55,33 +79,47 @@ class TaskConfig(BaseModel):
     knowledge_bases: list[KBConfig] = Field(default_factory=list)
 
 
-def _load_knowledge_bases(path: Path | str) -> dict[str, TaskConfig]:
+def _load_knowledge_bases(
+    path: Path | str,
+) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
     """Load the knowledge-bases registry from a JSON file.
 
     Args:
         path: Path to the ``knowledge_bases.json`` file.
 
     Returns:
-        Mapping of ``task_name`` → ``TaskConfig``.
+        Tuple of (task registry, flat KB index keyed by KB name).
+
+    Raises:
+        ValueError: If duplicate KB names are found across tasks.
     """
     path = Path(path)
 
     if not path.exists():
         logger.warning("Knowledge-bases config not found at %s — using empty registry", path)
-        return {}
+        return {}, {}
 
     with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
 
     registry: dict[str, TaskConfig] = {}
+    index: dict[str, KBConfig] = {}
     for entry in raw:
         cfg = TaskConfig(**entry)
         registry[cfg.task] = cfg
-    return registry
+        for kb_cfg in cfg.knowledge_bases:
+            if kb_cfg.name in index:
+                raise ValueError(
+                    f"Duplicate KB name '{kb_cfg.name}' found across tasks. "
+                    f"KB names must be unique."
+                )
+            index[kb_cfg.name] = kb_cfg
+    return registry, index
 
 
-# Module-level registry (populated lazily via get_knowledge_bases())
+# Module-level caches (populated lazily via get_knowledge_bases())
 _KB_REGISTRY: dict[str, TaskConfig] | None = None
+_KB_INDEX: dict[str, KBConfig] | None = None
 
 
 def get_knowledge_bases() -> dict[str, TaskConfig]:
@@ -93,26 +131,45 @@ def get_knowledge_bases() -> dict[str, TaskConfig]:
     Returns:
         Mapping of ``task_name`` → ``TaskConfig``.
     """
-    global _KB_REGISTRY  # noqa: PLW0603
+    global _KB_REGISTRY, _KB_INDEX  # noqa: PLW0603
     if _KB_REGISTRY is None:
         import os
 
         env_path = os.environ.get("GATEWAY_KNOWLEDGE_BASES_PATH", "").strip()
         path = Path(env_path) if env_path else _DEFAULT_KB_PATH
-        _KB_REGISTRY = _load_knowledge_bases(path)
+        _KB_REGISTRY, _KB_INDEX = _load_knowledge_bases(path)
     return _KB_REGISTRY
 
 
 def get_kb_config(kb_name: str) -> KBConfig | None:
-    """Look up a KB by name across all tasks.
+    """Look up a KB by name (O(1) dict lookup).
 
     Returns the ``KBConfig`` for *kb_name* or ``None`` if not found.
     """
-    for task_cfg in get_knowledge_bases().values():
-        for kb_cfg in task_cfg.knowledge_bases:
-            if kb_cfg.name == kb_name:
-                return kb_cfg
-    return None
+    # Ensure registry is loaded
+    get_knowledge_bases()
+    if _KB_INDEX is None:
+        return None
+    return _KB_INDEX.get(kb_name)
+
+
+def get_kb_names() -> list[str]:
+    """Flat list of all KB names across all tasks."""
+    get_knowledge_bases()
+    if _KB_INDEX is None:
+        return []
+    return list(_KB_INDEX.keys())
+
+
+def validate_kb_alias(kb: str, alias: str) -> None:
+    """Raise ValueError with a consistent message if kb or alias is unknown."""
+    kb_cfg = get_kb_config(kb)
+    if kb_cfg is None:
+        raise ValueError(f"KB '{kb}' not found. Available: {get_kb_names()}")
+    if alias not in kb_cfg.aliases:
+        raise ValueError(
+            f"Alias '{alias}' not valid for KB '{kb}'. Available: {list(kb_cfg.aliases.keys())}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -344,25 +401,10 @@ class RagSettings(BaseModel):
         description="Batch size for embedding generation",
         ge=1,
     )
-    top_k: int = Field(
-        default=5,
-        description="Number of documents to retrieve",
-        ge=1,
-    )
-    score_threshold: float = Field(
-        default=0.35,
-        description="Minimum similarity score for retrieval",
-        ge=0.0,
-        le=1.0,
-    )
-    context_max_length: int = Field(
-        default=4000,
-        description="Maximum character length of RAG context",
-        ge=100,
-    )
-    default_alias: str = Field(
-        default="champion",
-        description="Default alias role for RAG retrieval when none is specified",
+    rag_strict_startup: bool = Field(
+        default=False,
+        description="If True, raise on legacy / invalid Qdrant collections at startup "
+        "instead of logging and marking them unavailable",
     )
 
 
@@ -623,17 +665,22 @@ def get_ui_settings() -> UISettings:
     return UISettings()
 
 
+def clear_knowledge_base_caches() -> None:
+    """Reset KB registry and index so the next access re-reads from disk."""
+    global _KB_REGISTRY, _KB_INDEX  # noqa: PLW0603
+    _KB_REGISTRY = None
+    _KB_INDEX = None
+    KNOWLEDGE_BASES.reset()
+
+
 def clear_settings_caches() -> None:
     """Clear cached settings and derived config state."""
-    global _KB_REGISTRY  # noqa: PLW0603
-
     get_platform_settings.cache_clear()
     get_settings.cache_clear()
     get_registry_settings.cache_clear()
     get_eval_settings.cache_clear()
     get_ui_settings.cache_clear()
-    _KB_REGISTRY = None
-    KNOWLEDGE_BASES.reset()
+    clear_knowledge_base_caches()
 
 
 def bootstrap_local_settings_env(
