@@ -8,6 +8,7 @@ from typing import Optional
 from gateway.config import get_settings
 from rag.embeddings import EmbeddingService
 from rag.ops.meta import BuildConfig, read_collection_meta
+from rag.reranker import Reranker, get_reranker
 from rag.retriever import Retriever
 from rag.vector_store import QdrantVectorStore
 from shared.config import Settings, get_kb_config, get_knowledge_bases
@@ -111,9 +112,16 @@ class RAGService:
 
         # Alias resolved — create the retriever and cache it
         self._unavailable.discard(cache_key)
+
+        alias_cfg = kb_cfg.aliases.get(alias)
+        reranker: Reranker | None = None
+        if alias_cfg and alias_cfg.reranker:
+            reranker = get_reranker(alias_cfg.reranker)
+
         retriever = Retriever(
             embedding_service=self.embedding_service,
             vector_store=vector_store,
+            reranker=reranker,
         )
         self._retrievers[cache_key] = retriever
         logger.info(
@@ -298,10 +306,15 @@ class RAGService:
             return []
 
         try:
+            cache_key = self._qdrant_alias(knowledge_base, alias)
+            build_cfg = self._build_configs.get(cache_key)
+            strategy = build_cfg.retrieval_strategy if build_cfg else "dense"
+
             documents = retriever.retrieve(
                 query=query,
                 top_k=top_k,
                 score_threshold=score_threshold,
+                strategy=strategy,
             )
             logger.info(
                 f"Retrieved {len(documents)} documents (kb={knowledge_base}, alias={alias})"
