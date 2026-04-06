@@ -32,7 +32,7 @@ DATASET_LOCAL: dict[str, tuple[str, str]] = {
 }
 
 
-def load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[str, str]]:
+def load_dataset_samples(task: str, dataset_name: str) -> list[dict[str, str]]:
     """Load evaluation dataset samples from local Arrow files.
 
     Datasets must be pre-downloaded to ``assets/datasets/{folder_name}``
@@ -80,6 +80,16 @@ def load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[
         corpus_split = next((s for s in ("corpus", "train") if s in ds_dict), None)
         corpus_ds = ds_dict[corpus_split] if corpus_split else None
 
+        # Build the full corpus once — all documents, not just judged-relevant ones.
+        # Filtering to only relevant docs would make the task trivially easy (no
+        # hard negatives) and inflate Recall/nDCG scores.
+        full_corpus: list[dict] = []
+        if corpus_ds is not None:
+            full_corpus = [
+                {"doc_id": str(doc["_id"]), "text": doc.get("text", "")} for doc in corpus_ds
+            ]
+            logger.info("Loaded full BEIR corpus: %d docs from %s", len(full_corpus), dataset_path)
+
         samples: list[dict[str, str]] = []
         for item in queries_ds:
             qid = str(item["_id"])
@@ -91,27 +101,16 @@ def load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[
 
             rel = relevance_map[qid]
 
-            # Corpus docs for this query (needed to build temp collection)
-            relevant_docs: list[dict] = []
-            if corpus_ds is not None:
-                relevant_cids = set(rel.keys())
-                for doc in corpus_ds:
-                    if str(doc["_id"]) in relevant_cids:
-                        relevant_docs.append(
-                            {"doc_id": str(doc["_id"]), "text": doc.get("text", "")}
-                        )
-
             samples.append(
                 {
                     "query_id": qid,
                     "query": query_text,
                     "relevance": rel,
-                    "relevant_docs": relevant_docs,
+                    # All queries share the same full corpus list object —
+                    # no memory duplication; runner.py deduplication handles it.
+                    "relevant_docs": full_corpus,
                 }
             )
-            if limit > 0 and len(samples) >= limit:
-                break
-
         logger.info(
             "Loaded %d BEIR queries from %s",
             len(samples),
@@ -133,6 +132,69 @@ def load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[
 
     ds = ds_dict[split_name]
 
+    # -----------------------------------------------------------------------
+    # MSMARCO retrieval: build the full corpus from ALL rows first so the
+    # distractor pool is always the full split.  Mirroring the BEIR approach.
+    # -----------------------------------------------------------------------
+    if task == "retrieval":
+        full_corpus: list[dict] = []
+        all_query_samples: list[dict] = []
+        seen_corpus_ids: set[str] = set()
+
+        for item in ds:
+            passages_data = item.get("passages", {})
+            passage_texts = passages_data.get("passage_text", [])
+            is_selected = passages_data.get("is_selected", [0] * len(passage_texts))
+
+            if not passage_texts:
+                continue
+
+            query_id = str(
+                item.get("query_id")
+                or item.get("_id")
+                or item.get("doc_id")
+                or len(all_query_samples)
+            )
+            query = item.get("query", "") or item.get("question", "")
+
+            passage_docs = [
+                {"doc_id": f"{query_id}:{i}", "text": t} for i, t in enumerate(passage_texts) if t
+            ]
+            if not passage_docs:
+                continue
+
+            # Accumulate all passages into the shared corpus.
+            for doc in passage_docs:
+                if doc["doc_id"] not in seen_corpus_ids:
+                    full_corpus.append(doc)
+                    seen_corpus_ids.add(doc["doc_id"])
+
+            relevance = {
+                f"{query_id}:{i}": 1
+                for i, s in enumerate(is_selected)
+                if s and i < len(passage_texts) and passage_texts[i]
+            }
+            if not relevance:
+                relevance = {passage_docs[0]["doc_id"]: 1}
+
+            all_query_samples.append(
+                {
+                    "query_id": query_id,
+                    "query": query,
+                    "relevance": relevance,
+                }
+            )
+
+        logger.info(
+            "Loaded %d MSMARCO queries with shared corpus of %d passages from %s",
+            len(all_query_samples),
+            len(full_corpus),
+            dataset_path,
+        )
+        for s in all_query_samples:
+            s["relevant_docs"] = full_corpus
+        return all_query_samples
+
     samples: list[dict[str, str]] = []
     for item in ds:
         if task == "code":
@@ -148,34 +210,6 @@ def load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[
                 {
                     "question": item.get("article", "")[:2000],
                     "answer": item.get("abstract", ""),
-                }
-            )
-        elif task == "retrieval":
-            # Support both BEIR-style (top-level "text"/"_id") and
-            # msmarco-style (nested "passages.passage_text") datasets.
-            text = item.get("text", "")
-            if not text:
-                passages_data = item.get("passages", {})
-                passage_texts = passages_data.get("passage_text", [])
-                is_selected = passages_data.get("is_selected", [0] * len(passage_texts))
-                selected_texts = [t for t, s in zip(passage_texts, is_selected) if s]
-                text = (
-                    selected_texts[0]
-                    if selected_texts
-                    else (passage_texts[0] if passage_texts else "")
-                )
-            if not text:
-                continue
-            doc_id = str(
-                item.get("doc_id") or item.get("_id") or item.get("query_id") or len(samples)
-            )
-            query = item.get("query", "") or item.get("question", "")
-            samples.append(
-                {
-                    "doc_id": doc_id,
-                    "text": text,
-                    "query": query,
-                    "relevance": {doc_id: 1} if query else {},
                 }
             )
         else:
@@ -208,9 +242,6 @@ def load_dataset_samples(task: str, dataset_name: str, limit: int) -> list[dict[
                     "answer": answer,
                 }
             )
-
-        if limit > 0 and len(samples) >= limit:
-            break
 
     logger.info(
         "Loaded %d samples from %s [%s]",

@@ -128,7 +128,6 @@ class TestEvalSettings:
         assert s.max_tokens == 512
         assert s.code_exec_timeout == 30
         assert s.code_exec_mem_limit == "512m"
-        assert s.sample_limit == 100
         assert s.bert_score_model == "microsoft/deberta-base-mnli"
 
     def test_env_override(self, monkeypatch):
@@ -194,6 +193,56 @@ class TestAutomaticMetrics:
         labels = {"a": 3.0, "b": 2.0, "c": 1.0}
         ndcg = compute_ndcg_at_k(retrieved, labels, k=3)
         assert 0.0 < ndcg < 1.0
+
+    def test_ndcg_at_k_deduplicates_chunk_ids(self):
+        from experiments.eval.eval_scripts.metrics.automatic import compute_ndcg_at_k
+
+        # Simulate a relevant doc split into 3 chunks all appearing in results.
+        # Duplicate source ids must be counted only once so the score equals
+        # the non-duplicated case.
+        labels = {"doc1": 1.0}
+        retrieved_deduped = ["doc1", "doc2", "doc3"]
+        retrieved_with_dupes = ["doc1", "doc1", "doc1", "doc2", "doc3"]
+
+        score_deduped = compute_ndcg_at_k(retrieved_deduped, labels, k=3)
+        score_duped = compute_ndcg_at_k(retrieved_with_dupes, labels, k=3)
+
+        assert score_deduped == pytest.approx(score_duped)
+        assert score_deduped == pytest.approx(1.0)  # doc1 is first, perfect ranking
+
+    def test_mrr_at_k_first_hit(self):
+        from experiments.eval.eval_scripts.metrics.automatic import compute_mrr_at_k
+
+        relevant = {"doc2"}
+        retrieved = ["doc1", "doc2", "doc3"]
+        assert compute_mrr_at_k(retrieved, relevant, k=10) == pytest.approx(1 / 2)
+
+    def test_mrr_at_k_no_hit(self):
+        from experiments.eval.eval_scripts.metrics.automatic import compute_mrr_at_k
+
+        relevant = {"doc99"}
+        retrieved = ["doc1", "doc2", "doc3"]
+        assert compute_mrr_at_k(retrieved, relevant, k=10) == pytest.approx(0.0)
+
+    def test_mrr_at_k_deduplicates_chunk_ids(self):
+        from experiments.eval.eval_scripts.metrics.automatic import compute_mrr_at_k
+
+        # Duplicate chunks for the same source doc should not inflate rank.
+        # doc2 is relevant; after dedup it sits at rank 2.
+        relevant = {"doc2"}
+        retrieved_duped = ["doc1", "doc1", "doc2", "doc3"]
+        retrieved_clean = ["doc1", "doc2", "doc3"]
+        assert compute_mrr_at_k(retrieved_duped, relevant, k=10) == pytest.approx(
+            compute_mrr_at_k(retrieved_clean, relevant, k=10)
+        )
+
+    def test_mrr_at_k_respects_cutoff(self):
+        from experiments.eval.eval_scripts.metrics.automatic import compute_mrr_at_k
+
+        relevant = {"doc3"}
+        retrieved = ["doc1", "doc2", "doc3", "doc4"]
+        assert compute_mrr_at_k(retrieved, relevant, k=2) == pytest.approx(0.0)
+        assert compute_mrr_at_k(retrieved, relevant, k=3) == pytest.approx(1 / 3)
 
 
 # ---------------------------------------------------------------------------

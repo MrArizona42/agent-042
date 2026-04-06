@@ -122,7 +122,13 @@ def compute_ndcg_at_k(
         relevance_labels: Gold relevance dict ``{doc_id: relevance_score}``.
         k: Cutoff position.
     """
-    rels = [relevance_labels.get(doc_id, 0.0) for doc_id in retrieved_ids[:k]]
+    # Deduplicate retrieved_ids while preserving rank order so that multiple
+    # chunks from the same source document are counted only once.  Without this
+    # a single highly-relevant doc split into N chunks would inflate DCG by
+    # contributing its relevance score at N positions.
+    seen_ids: set[str] = set()
+    deduped: list[str] = [x for x in retrieved_ids if not (x in seen_ids or seen_ids.add(x))]
+    rels = [relevance_labels.get(doc_id, 0.0) for doc_id in deduped[:k]]
     dcg = _dcg(rels, k)
     ideal_rels = sorted(relevance_labels.values(), reverse=True)[:k]
     idcg = _dcg(ideal_rels, k)
@@ -145,3 +151,30 @@ def compute_recall_at_k(
         return 0.0
     retrieved_set = set(retrieved_ids[:k])
     return len(retrieved_set & relevant_ids) / len(relevant_ids)
+
+
+def compute_mrr_at_k(
+    retrieved_ids: list[str],
+    relevant_ids: set[str],
+    k: int,
+) -> float:
+    """Mean Reciprocal Rank at *k*.
+
+    Returns the reciprocal of the rank of the first relevant document
+    found in the top-*k* results, or 0.0 if none are found.  Duplicate
+    chunk IDs for the same source document are collapsed before ranking
+    (same deduplication strategy as :func:`compute_ndcg_at_k`).
+
+    Args:
+        retrieved_ids: Ordered list of returned document IDs.
+        relevant_ids: Set of gold relevant document IDs.
+        k: Cutoff position.
+    """
+    if not relevant_ids:
+        return 0.0
+    seen_ids: set[str] = set()
+    deduped: list[str] = [x for x in retrieved_ids if not (x in seen_ids or seen_ids.add(x))]
+    for rank, doc_id in enumerate(deduped[:k], start=1):
+        if doc_id in relevant_ids:
+            return 1.0 / rank
+    return 0.0
