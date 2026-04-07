@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from gateway.schemas.openai_chat import ChatCompletionRequest
 from gateway.services.processing import process_chat
-from shared.config import get_kb_config, get_settings
+from shared.config import get_kb_config
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,6 @@ async def list_models() -> Any:
 async def chat_completions(payload: ChatCompletionRequest, request: Request) -> Any:
     # Validate rag_sources before processing
     if payload.rag_sources:
-        settings = get_settings()
         for src in payload.rag_sources:
             kb_cfg = get_kb_config(src.knowledge_base)
             if kb_cfg is None:
@@ -33,7 +32,7 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request) -> 
                     status_code=404,
                     detail=f"Knowledge base '{src.knowledge_base}' unavailable",
                 )
-            effective_alias = src.alias or settings.default_alias
+            effective_alias = src.alias or kb_cfg.default_alias
             if effective_alias not in kb_cfg.aliases:
                 raise HTTPException(
                     status_code=404,

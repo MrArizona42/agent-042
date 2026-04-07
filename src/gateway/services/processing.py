@@ -13,6 +13,7 @@ from gateway.services.rag_service import RAGService
 from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
+from shared.config import get_kb_config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,14 +23,7 @@ class _ProcessChat:
     def __init__(self) -> None:
         self._router = RuleBasedTaskRouter()
         self._prompt_builder = PromptBuilder()
-
-        # Initialize RAG service
-        try:
-            settings = get_settings()
-            self._rag_service = RAGService(settings)
-        except Exception as e:
-            logger.error(f"Failed to initialize RAG service: {e}")
-            self._rag_service = None
+        self._rag_service: RAGService | None = None
 
         # Services injected via init_services() during lifespan startup
         self._celery_client: CeleryClient | None = None
@@ -44,6 +38,28 @@ class _ProcessChat:
         """Inject managed service instances (called from lifespan startup)."""
         self._redis_stream = redis_stream
         self._celery_client = celery_client
+
+    def ensure_rag_service(
+        self,
+        *,
+        settings=None,
+        validate: bool = False,
+    ) -> RAGService | None:
+        """Create or refresh the shared RAG service using current settings."""
+        if settings is None:
+            settings = get_settings()
+
+        if not settings.rag_enabled:
+            self._rag_service = None
+            return None
+
+        if self._rag_service is None or self._rag_service.settings is not settings:
+            self._rag_service = RAGService(settings)
+
+        if validate and self._rag_service is not None:
+            self._rag_service.validate_knowledge_bases()
+
+        return self._rag_service
 
     def _client(self) -> VllmOpenAIClient:
         s = get_settings()
@@ -80,16 +96,24 @@ class _ProcessChat:
         rag_mode = "off"
         rag_context_chunks: list[Dict[str, Any]] = []
 
-        if self._rag_service and self._rag_service.enabled and req.rag_sources:
+        rag_service: RAGService | None = None
+        if req.rag_sources:
             try:
-                settings = get_settings()
+                rag_service = self.ensure_rag_service()
+            except Exception as e:
+                logger.error(f"Failed to initialize RAG service: {e}")
+                rag_service = None
+
+        if rag_service and rag_service.enabled and req.rag_sources:
+            try:
                 context_parts: list[str] = []
                 for src in req.rag_sources:
-                    effective_alias = src.alias or settings.default_alias
+                    kb_cfg = get_kb_config(src.knowledge_base)
+                    effective_alias = src.alias or (kb_cfg.default_alias if kb_cfg else "champion")
                     logger.info(
                         f"RAG — retrieving from kb={src.knowledge_base} alias={effective_alias}"
                     )
-                    docs = self._rag_service.retrieve_documents(
+                    docs = rag_service.retrieve_documents(
                         query=last_user,
                         knowledge_base=src.knowledge_base,
                         alias=effective_alias,
@@ -104,7 +128,14 @@ class _ProcessChat:
                                     "source": source_label,
                                 }
                             )
-                        ctx = self._rag_service.format_documents(docs)
+                        alias_cfg = kb_cfg.aliases.get(effective_alias) if kb_cfg else None
+                        max_len = alias_cfg.context_max_length if alias_cfg else 4000
+                        ctx = rag_service.format_context_for_docs(
+                            docs,
+                            knowledge_base=src.knowledge_base,
+                            alias=effective_alias,
+                            max_length=max_len,
+                        )
                         if ctx:
                             context_parts.append(ctx)
                 if context_parts:
@@ -224,7 +255,9 @@ class _ProcessChat:
         full_content = ""
         finish_reason = "stop"
 
-        async for event in redis_stream.subscribe(conversation_id, timeout=settings.streaming_timeout):
+        async for event in redis_stream.subscribe(
+            conversation_id, timeout=settings.streaming_timeout
+        ):
             event_type = event.get("type")
 
             if event_type == "token":
@@ -306,7 +339,9 @@ class _ProcessChat:
         logger.info(f"Enqueued async stream task {task_id} for conversation {conversation_id}")
 
         # Stream from Redis
-        async for chunk in redis_stream.subscribe_sse(conversation_id, timeout=settings.streaming_timeout):
+        async for chunk in redis_stream.subscribe_sse(
+            conversation_id, timeout=settings.streaming_timeout
+        ):
             yield chunk
 
     # ------------------------------------------------------------------

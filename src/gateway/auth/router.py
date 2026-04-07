@@ -42,9 +42,7 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     # 1. Validate state → get code_verifier
     code_verifier = await session_mgr.consume_oauth_state(state)
     if code_verifier is None:
-        return JSONResponse(
-            {"detail": "Invalid or expired OAuth state"}, status_code=400
-        )
+        return JSONResponse({"detail": "Invalid or expired OAuth state"}, status_code=400)
 
     # 2. Exchange authorization code for tokens
     try:
@@ -67,9 +65,7 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     picture = claims.get("picture")
 
     async with get_session_factory()() as db:
-        result = await db.execute(
-            select(User).where(User.provider == "google", User.sub == sub)
-        )
+        result = await db.execute(select(User).where(User.provider == "google", User.sub == sub))
         user = result.scalar_one_or_none()
         if user is None:
             user = User(

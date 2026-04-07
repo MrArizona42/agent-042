@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import List, Literal, Optional
 
 from rag.embeddings import EmbeddingService
+from rag.reranker import Reranker
 from rag.vector_store import Document, QdrantVectorStore
-
-if TYPE_CHECKING:
-    from shared.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,32 +19,34 @@ class Retriever:
         self,
         embedding_service: EmbeddingService,
         vector_store: QdrantVectorStore,
-        settings: "Settings",
+        reranker: Reranker | None = None,
     ):
         """Initialize retriever.
 
         Args:
             embedding_service: Service for generating embeddings
             vector_store: Vector database for similarity search
-            settings: Application settings
+            reranker: Optional post-retrieval reranker
         """
         self.embedding_service = embedding_service
         self.vector_store = vector_store
-        self.settings = settings
+        self.reranker = reranker
 
     def retrieve(
         self,
         query: str,
-        top_k: Optional[int] = None,
-        score_threshold: Optional[float] = None,
+        top_k: int,
+        score_threshold: float,
+        strategy: Literal["dense", "hybrid", "sparse"] = "dense",
         task: Optional[str] = None,
     ) -> List[Document]:
         """Retrieve relevant documents for a query.
 
         Args:
             query: User query text
-            top_k: Number of documents to retrieve (uses setting default if None)
-            score_threshold: Minimum similarity score (uses setting default if None)
+            top_k: Number of documents to retrieve
+            score_threshold: Minimum similarity score
+            strategy: Retrieval strategy (only ``"dense"`` is implemented)
             task: Task type for filtering (chat, code, summarize)
 
         Returns:
@@ -56,9 +56,8 @@ class Retriever:
             logger.warning("Empty query provided to retriever")
             return []
 
-        # Use defaults from settings if not provided
-        top_k = top_k or self.settings.top_k
-        score_threshold = score_threshold or self.settings.score_threshold
+        if strategy != "dense":
+            raise NotImplementedError(f"retrieval_strategy '{strategy}' not yet implemented")
 
         # Embed query
         logger.info(f"Embedding query: {query[:100]}...")
@@ -71,32 +70,31 @@ class Retriever:
 
         # Search vector store
         logger.info(f"Searching for top {top_k} documents (threshold={score_threshold})")
-        documents = self.vector_store.search(
+        candidates = self.vector_store.search(
             query_embedding=query_embedding,
             top_k=top_k,
             score_threshold=score_threshold,
             filter_dict=filter_dict,
         )
 
-        logger.info(f"Retrieved {len(documents)} documents")
-        return documents
+        if self.reranker is not None:
+            candidates = self.reranker.rerank(query, candidates, top_k)
 
-    def format_context(self, documents: List[Document], max_length: Optional[int] = None) -> str:
+        logger.info(f"Retrieved {len(candidates)} documents")
+        return candidates[:top_k]
+
+    def format_context(self, documents: List[Document], max_length: int) -> str:
         """Format retrieved documents into context string.
 
         Args:
             documents: Retrieved documents
-            max_length: Maximum character length of context (uses config default if None)
+            max_length: Maximum character length of context
 
         Returns:
             Formatted context string
         """
         if not documents:
             return ""
-
-        # Use config default if not provided
-        if max_length is None:
-            max_length = self.settings.context_max_length
 
         context_parts = []
         current_length = 0

@@ -49,6 +49,7 @@ def test_log_training_lineage_writes_metadata_and_logs_key_fields(tmp_path):
     app_cfg = load_app_config(raw_cfg)
     dataset_path = PROJECT_ROOT / "assets" / "datasets" / "arxiv-summarization"
     run_artifacts_dir = tmp_path / "run"
+    expected_dataset_dvc_hash = _find_dataset_dvc_hash(dataset_path, PROJECT_ROOT)
 
     client = MagicMock()
     mlf_logger = SimpleNamespace(run_id="run-123", experiment=client)
@@ -65,7 +66,7 @@ def test_log_training_lineage_writes_metadata_and_logs_key_fields(tmp_path):
     metadata_dir = run_artifacts_dir / "metadata"
     assert (metadata_dir / "resolved_config.json").exists()
     assert (metadata_dir / "lineage.json").exists()
-    assert lineage["dataset_dvc_hash"] == "7acaed09289faae03d0ed1ecb8affcc0.dir"
+    assert lineage["dataset_dvc_hash"] == expected_dataset_dvc_hash
     assert lineage["effective_batch_size"] == 16
 
     saved_lineage = json.loads((metadata_dir / "lineage.json").read_text(encoding="utf-8"))
@@ -74,7 +75,7 @@ def test_log_training_lineage_writes_metadata_and_logs_key_fields(tmp_path):
     logged_params = {call.args[1]: call.args[2] for call in client.log_param.call_args_list}
     assert logged_params["effective_batch_size"] == 16
     assert logged_params["trainable_param_count"] == 42
-    assert logged_params["dataset_dvc_hash"] == "7acaed09289faae03d0ed1ecb8affcc0.dir"
+    assert logged_params["dataset_dvc_hash"] == expected_dataset_dvc_hash
 
     set_tags = {(call.args[1], call.args[2]) for call in client.set_tag.call_args_list}
     assert ("run.orchestrator", "cli") in set_tags

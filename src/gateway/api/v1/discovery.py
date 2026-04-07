@@ -21,4 +21,3 @@ def config() -> dict:
         "tasks": ["chat", "summarize", "code"],
         "rag_modes": ["off", "stub"],
     }
-

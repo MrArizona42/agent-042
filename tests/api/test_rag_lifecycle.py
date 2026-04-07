@@ -2,7 +2,8 @@
 
 Tests the knowledge-base config loader, RAGSource schema,
 ChatCompletionRequest with rag_sources, metadata exclusion filter,
-admin endpoint, and error handling for missing KB/aliases.
+admin endpoint, error handling for missing KB/aliases, config
+propagation to Retriever, legacy metadata handling, and reload-config.
 """
 
 from __future__ import annotations
@@ -30,13 +31,10 @@ def _reset_kb_registry():
     import shared.config as cfg
 
     cfg._KB_REGISTRY = None
-    # Also reset the lazy proxy
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
+    cfg._KB_INDEX = None
     yield
     cfg._KB_REGISTRY = None
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
+    cfg._KB_INDEX = None
 
 
 @pytest.fixture()
@@ -49,7 +47,21 @@ def kb_json_file(tmp_path: Path):
             "knowledge_bases": [
                 {
                     "name": "arxiv",
-                    "aliases": ["champion", "challenger"],
+                    "default_alias": "champion",
+                    "aliases": {
+                        "champion": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "context_max_length": 4000,
+                            "reranker": None,
+                        },
+                        "challenger": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "context_max_length": 4000,
+                            "reranker": None,
+                        },
+                    },
                     "update_strategy": "incremental",
                     "label": "ArXiv papers",
                     "description": "ML papers",
@@ -62,7 +74,15 @@ def kb_json_file(tmp_path: Path):
             "knowledge_bases": [
                 {
                     "name": "pytorch_docs",
-                    "aliases": ["champion"],
+                    "default_alias": "champion",
+                    "aliases": {
+                        "champion": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "context_max_length": 4000,
+                            "reranker": None,
+                        },
+                    },
                     "update_strategy": "replace",
                     "label": "PyTorch docs",
                     "description": "Coding docs",
@@ -86,7 +106,7 @@ class TestKnowledgeBaseConfig:
     def test_load_from_json(self, kb_json_file: Path):
         from shared.config import _load_knowledge_bases
 
-        registry = _load_knowledge_bases(kb_json_file)
+        registry, index = _load_knowledge_bases(kb_json_file)
         assert "chat" in registry
         assert "code" in registry
         # Find KB configs within task groups
@@ -103,27 +123,28 @@ class TestKnowledgeBaseConfig:
     def test_load_missing_file_returns_empty(self, tmp_path: Path):
         from shared.config import _load_knowledge_bases
 
-        registry = _load_knowledge_bases(tmp_path / "nonexistent.json")
+        registry, index = _load_knowledge_bases(tmp_path / "nonexistent.json")
         assert registry == {}
+        assert index == {}
+        assert index == {}
 
-    def test_backward_compat_proxy(self, kb_json_file: Path):
-        """KNOWLEDGE_BASES proxy dict returns the same keys."""
+    def test_kb_index_lookup(self, kb_json_file: Path):
+        """get_kb_config returns correct entries from the flat index."""
         import shared.config as cfg
-        from shared.config import KNOWLEDGE_BASES, _load_knowledge_bases
+        from shared.config import _load_knowledge_bases, get_kb_config
 
-        # Load using explicit path first
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
-        assert "arxiv" in KNOWLEDGE_BASES
-        assert "pytorch_docs" in KNOWLEDGE_BASES
-        info = KNOWLEDGE_BASES["arxiv"]
-        assert info["label"] == "ArXiv papers"
-        assert "aliases" in info
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+        arxiv_cfg = get_kb_config("arxiv")
+        assert arxiv_cfg is not None
+        assert arxiv_cfg.label == "ArXiv papers"
+        assert "champion" in arxiv_cfg.aliases
+        assert get_kb_config("nonexistent") is None
 
     def test_get_knowledge_bases_caching(self, kb_json_file: Path):
         import shared.config as cfg
         from shared.config import _load_knowledge_bases, get_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
         reg1 = get_knowledge_bases()
         reg2 = get_knowledge_bases()  # should use cached
         assert reg1 is reg2
@@ -201,7 +222,7 @@ class TestChatCompletionsValidation:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
         app = _make_test_app()
         client = TestClient(app, raise_server_exceptions=False)
@@ -220,7 +241,7 @@ class TestChatCompletionsValidation:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
         app = _make_test_app()
         client = TestClient(app, raise_server_exceptions=False)
@@ -244,7 +265,7 @@ class TestKnowledgeBasesEndpoint:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
         app = _make_test_app()
         client = TestClient(app)
@@ -266,7 +287,7 @@ class TestKnowledgeBasesEndpoint:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(tmp_path / "nonexistent.json")
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(tmp_path / "nonexistent.json")
 
         app = _make_test_app()
         client = TestClient(app)
@@ -375,7 +396,7 @@ class TestRAGServiceResolution:
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
-        cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
         from gateway.services.rag_service import RAGService
 
@@ -383,3 +404,477 @@ class TestRAGServiceResolution:
         assert "arxiv" in result
         assert "pytorch_docs" in result
         assert result["arxiv"]["update_strategy"] == "incremental"
+
+
+# ---------------------------------------------------------------------------
+# RAGService.retrieve_documents config propagation tests
+# ---------------------------------------------------------------------------
+
+
+class TestRetrieveDocumentsConfig:
+    """RAGService.retrieve_documents passes alias/build config to Retriever."""
+
+    def test_passes_alias_and_build_config(self, kb_json_file: Path):
+        """retrieve_documents passes top_k, score_threshold, and strategy."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService"),
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+
+            from rag.ops.meta import BuildConfig
+
+            build_cfg = BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="test-model",
+                sparse_encoder=None,
+                retrieval_strategy="dense",
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            # Pre-populate build config cache
+            svc._build_configs["arxiv_champion"] = build_cfg
+
+            # Mock the retriever to capture the call
+            mock_retriever = MagicMock()
+            mock_retriever.retrieve.return_value = []
+            svc._retrievers["arxiv_champion"] = mock_retriever
+
+            svc.retrieve_documents(
+                query="test query",
+                knowledge_base="arxiv",
+                alias="champion",
+            )
+
+            mock_retriever.retrieve.assert_called_once_with(
+                query="test query",
+                top_k=5,
+                score_threshold=0.35,
+                strategy="dense",
+            )
+
+    def test_lazily_reads_build_config_when_cache_empty(self, kb_json_file: Path):
+        """Serving-path retrieval re-reads _meta after cache invalidation."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.Retriever") as mock_retriever_cls,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 384,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            build_cfg = BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="test-model",
+                sparse_encoder=None,
+                retrieval_strategy="dense",
+            )
+            mock_read_meta.return_value = MagicMock(build_config=build_cfg)
+
+            mock_retriever = mock_retriever_cls.return_value
+            mock_retriever.retrieve.return_value = []
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc.retrieve_documents(
+                query="test query",
+                knowledge_base="arxiv",
+                alias="champion",
+            )
+
+            mock_read_meta.assert_called_once()
+            mock_retriever.retrieve.assert_called_once_with(
+                query="test query",
+                top_k=5,
+                score_threshold=0.35,
+                strategy="dense",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Legacy metadata handling tests
+# ---------------------------------------------------------------------------
+
+
+class TestLegacyMetadataHandling:
+    """Legacy collections missing sparse_encoder/retrieval_strategy are rejected."""
+
+    def _make_kb_json(self, tmp_path: Path) -> Path:
+        data = [
+            {
+                "task": "chat",
+                "knowledge_bases": [
+                    {
+                        "name": "arxiv",
+                        "default_alias": "champion",
+                        "aliases": {
+                            "champion": {
+                                "top_k": 5,
+                                "score_threshold": 0.35,
+                                "context_max_length": 4000,
+                                "reranker": None,
+                            },
+                        },
+                    },
+                ],
+            },
+        ]
+        path = tmp_path / "kb.json"
+        path.write_text(json.dumps(data))
+        return path
+
+    def test_legacy_meta_non_strict_marks_unavailable(self, tmp_path: Path):
+        """In non-strict mode, legacy _meta marks alias unavailable."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService"),
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+
+            # Simulate legacy _meta missing retrieval_strategy
+            mock_read_meta.side_effect = ValueError(
+                "build_config: 'retrieval_strategy' must be one of "
+                "'dense', 'hybrid', 'sparse' (got None)"
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc.validate_knowledge_bases()
+
+            assert "arxiv_champion" in svc._unavailable
+
+    def test_legacy_meta_strict_raises(self, tmp_path: Path):
+        """With rag_strict_startup=True, legacy _meta raises RuntimeError."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService"),
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = True
+            mock_get_settings.return_value = mock_settings
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+
+            mock_read_meta.side_effect = ValueError("retrieval_strategy")
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+
+            with pytest.raises(RuntimeError, match="Failed to read _meta"):
+                svc.validate_knowledge_bases()
+
+    def test_build_config_from_payload_rejects_missing_retrieval_strategy(self):
+        """BuildConfig.from_payload rejects payload without retrieval_strategy."""
+        from rag.ops.meta import BuildConfig
+
+        legacy_payload = {
+            "chunking_strategy": "recursive",
+            "chunk_size": 512,
+            "chunk_overlap": 64,
+            "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+        }
+
+        with pytest.raises(ValueError, match="retrieval_strategy"):
+            BuildConfig.from_payload(legacy_payload)
+
+    def test_dimension_mismatch_non_strict_marks_unavailable(self, tmp_path: Path):
+        """In non-strict mode, embedding dimension mismatch marks alias unavailable."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 1536,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            mock_read_meta.return_value = MagicMock(
+                build_config=BuildConfig(
+                    chunking_strategy="recursive",
+                    chunk_size=512,
+                    chunk_overlap=64,
+                    embedding_model="other-model",
+                    sparse_encoder=None,
+                    retrieval_strategy="dense",
+                )
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc.validate_knowledge_bases()
+
+            assert "arxiv_champion" in svc._unavailable
+
+    def test_dimension_mismatch_strict_raises(self, tmp_path: Path):
+        """With rag_strict_startup=True, dimension mismatch raises RuntimeError."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = True
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 1536,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            mock_read_meta.return_value = MagicMock(
+                build_config=BuildConfig(
+                    chunking_strategy="recursive",
+                    chunk_size=512,
+                    chunk_overlap=64,
+                    embedding_model="other-model",
+                    sparse_encoder=None,
+                    retrieval_strategy="dense",
+                )
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+
+            with pytest.raises(RuntimeError, match="Embedding dimension mismatch"):
+                svc.validate_knowledge_bases()
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/admin/reload-config tests
+# ---------------------------------------------------------------------------
+
+
+class TestReloadConfigEndpoint:
+    """Tests for the reload-config admin endpoint."""
+
+    def test_reload_requires_auth(self):
+        """Endpoint returns 503 when auth is disabled (session_manager is None)."""
+        from gateway.api.v1 import knowledge_bases
+
+        app = FastAPI()
+        app.include_router(knowledge_bases.router, prefix="/v1")
+        app.state.session_manager = None
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/v1/admin/reload-config")
+        assert resp.status_code == 503
+        assert "unavailable" in resp.json()["detail"].lower()
+
+    def test_reload_clears_caches(self, kb_json_file: Path):
+        """Authenticated reload clears KB caches."""
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        from gateway.api.v1 import knowledge_bases
+
+        app = FastAPI()
+        app.include_router(knowledge_bases.router, prefix="/v1")
+        app.state.session_manager = MagicMock()  # auth enabled
+
+        @app.middleware("http")
+        async def fake_auth(request, call_next):
+            request.state.user_id = "test-user"
+            request.state.session_id = "session-123"
+            return await call_next(request)
+
+        client = TestClient(app)
+        resp = client.post("/v1/admin/reload-config")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "reloaded"
+        # Caches should be cleared
+        assert cfg._KB_REGISTRY is None
+        assert cfg._KB_INDEX is None
+
+    def test_reload_rejects_non_session_auth(self):
+        """Internal API-key style auth must not be allowed to reload config."""
+        from gateway.api.v1 import knowledge_bases
+
+        app = FastAPI()
+        app.include_router(knowledge_bases.router, prefix="/v1")
+        app.state.session_manager = MagicMock()
+
+        @app.middleware("http")
+        async def fake_service_auth(request, call_next):
+            request.state.user_id = "__service__"
+            request.state.session_id = None
+            return await call_next(request)
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/v1/admin/reload-config")
+        assert resp.status_code == 403
+        assert "user session" in resp.json()["detail"].lower()
+
+
+class TestGatewayStartupValidation:
+    """Gateway lifespan honors rag_strict_startup for RAG validation failures."""
+
+    def test_strict_startup_raises(self):
+        import gateway.main as gateway_main
+
+        mock_settings = MagicMock()
+        mock_settings.service_name = "gateway-test"
+        mock_settings.vllm_base_url = "http://localhost:8000"
+        mock_settings.default_model = "test-model"
+        mock_settings.rag_enabled = True
+        mock_settings.qdrant_host = "localhost"
+        mock_settings.qdrant_port = 6333
+        mock_settings.embedding_model = "test-embedding"
+        mock_settings.rag_strict_startup = True
+        mock_settings.redis_url = "redis://localhost:6379/0"
+        mock_settings.async_enabled = False
+        mock_settings.google_client_id = ""
+        mock_settings.agent042_db_url = None
+        mock_settings.cors_allow_origins = []
+
+        with (
+            patch("gateway.main.get_settings", return_value=mock_settings),
+            patch.object(
+                gateway_main.process_chat,
+                "ensure_rag_service",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch("gateway.main.RedisStreamService"),
+        ):
+            app = gateway_main.create_app()
+
+            with pytest.raises(RuntimeError, match="boom"):
+                with TestClient(app):
+                    pass

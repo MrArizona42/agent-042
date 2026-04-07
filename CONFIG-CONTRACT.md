@@ -118,6 +118,10 @@ These are no longer part of the active runtime contract:
 - `GATEWAY_EMBEDDINGS_URL`
 - `GATEWAY_QDRANT_HOST`
 - `GATEWAY_QDRANT_PORT`
+- `GATEWAY_TOP_K` — now alias-owned in `knowledge_bases.json`
+- `GATEWAY_SCORE_THRESHOLD` — now alias-owned in `knowledge_bases.json`
+- `GATEWAY_CONTEXT_MAX_LENGTH` — now alias-owned in `knowledge_bases.json`
+- `GATEWAY_DEFAULT_ALIAS` — now `default_alias` field in `knowledge_bases.json` per KB
 - `REGISTRY_VLLM_BASE_URL`
 - `REGISTRY_MLFLOW_TRACKING_URI`
 - `experiments/.env`

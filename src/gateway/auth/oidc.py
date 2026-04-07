@@ -78,9 +78,7 @@ class OIDCClient:
     # Token exchange
     # ------------------------------------------------------------------
 
-    async def exchange_code(
-        self, code: str, code_verifier: str
-    ) -> dict:
+    async def exchange_code(self, code: str, code_verifier: str) -> dict:
         """Exchange an authorization code for tokens.
 
         Returns:

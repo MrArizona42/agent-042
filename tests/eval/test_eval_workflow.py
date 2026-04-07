@@ -27,14 +27,12 @@ def _reset_settings_caches():
     cfg.get_settings.cache_clear()
     cfg.get_eval_settings.cache_clear()
     cfg._KB_REGISTRY = None
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
+    cfg._KB_INDEX = None
     yield
     cfg.get_settings.cache_clear()
     cfg.get_eval_settings.cache_clear()
     cfg._KB_REGISTRY = None
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
+    cfg._KB_INDEX = None
 
 
 # ---------------------------------------------------------------------------
@@ -398,14 +396,14 @@ class TestRunnerConfig:
         """_load_dataset_samples returns [] for an unknown dataset."""
         from experiments.eval.eval_scripts.runner import _load_dataset_samples
 
-        assert _load_dataset_samples("chat", "nonexistent_dataset", limit=10) == []
+        assert _load_dataset_samples("chat", "nonexistent_dataset") == []
 
     def test_load_dataset_samples_missing_dir_returns_empty(self):
         """_load_dataset_samples returns [] when dataset dir does not exist."""
         from experiments.eval.eval_scripts.runner import _load_dataset_samples
 
         # hotpotqa is valid but its directory won't exist in test env
-        result = _load_dataset_samples("chat", "hotpotqa", limit=10)
+        result = _load_dataset_samples("chat", "hotpotqa")
         assert result == []
 
     def test_build_common_fields(self):

@@ -715,21 +715,22 @@ DAG `rag_collection_cleanup` (расписание: `@daily`) удаляет orp
 * На production **всегда должен существовать alias `champion`**.
 * На production **могут существовать дополнительные alias-ы** (`challenger` и др.) для тестов и
   валидации.
-* Параметры `top_k`, `score_threshold`, `reranking` считаются конфигурацией
-  всей RAG-системы и применяются ко всем collection-ам, которые участвуют в inference.
-* Эксперименты с этими параметрами выполняются через деплой новой production-конфигурации.
+* Параметры `top_k`, `score_threshold`, `context_max_length`, `reranker` являются
+  alias-owned конфигурацией в `knowledge_bases.json`. Каждый alias несёт свои
+  параметры — champion и challenger могут различаться без рестарта сервиса.
+* Изменение query-config: редактирование `knowledge_bases.json` +
+  `POST /v1/admin/reload-config` (authenticated).
+* Build-time параметры (`chunking_strategy`, `embedding_model`, `sparse_encoder`,
+  `retrieval_strategy`) хранятся в Qdrant `_meta.build_config` и меняются только
+  через rebuild коллекции.
 
 #### Политика маршрутизации трафика
 
-* Production inference по умолчанию использует `rag_alias="champion"` (хардкод/дефолт).
+* Production inference по умолчанию использует `default_alias` из `knowledge_bases.json`
+  (обычно `"champion"`).
 * Непродовые alias-ы (`challenger` и др.) используются для eval/тестов/ручных проверок.
 * Создание новых challenger-коллекций и alias promotion выполняются через
   `experiments/rag/rag_ops.ipynb`, а не отдельным CLI.
-
-> **Примечание**: UI и discovery API для KB ещё не сведены к одному источнику — UI читает
-> локальный registry через `_KBProxy`, а `/v1/knowledge-bases` возвращает flat list, теряя
-> task-grouped структуру. Internal helpers (`TaskConfig`, `KBConfig`, `get_kb_config()`) готовы,
-> но API contract не обновлен (см. `REMAINING-CHANGES.md` §1.1, §2.2).
 
 ## Архитектура оценки
 
