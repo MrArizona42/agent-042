@@ -35,6 +35,12 @@ class RAGService:
         self.settings = settings
         self.enabled = settings.rag_enabled
 
+        # Always initialise caches so invalidate_caches() is safe even
+        # when RAG is disabled.
+        self._retrievers: dict[str, Retriever] = {}
+        self._build_configs: dict[str, BuildConfig] = {}
+        self._unavailable: set[str] = set()
+
         if not self.enabled:
             logger.info("RAG is disabled")
             return
@@ -47,12 +53,6 @@ class RAGService:
             device=settings.embedding_device,
             batch_size=settings.embedding_batch_size,
         )
-
-        # Retrievers are created lazily on first request for each (kb, alias).
-        # This avoids a startup race when Qdrant is not yet ready.
-        self._retrievers: dict[str, Retriever] = {}
-        self._build_configs: dict[str, BuildConfig] = {}
-        self._unavailable: set[str] = set()
 
         logger.info("RAG service initialized (retrievers will be created lazily)")
 

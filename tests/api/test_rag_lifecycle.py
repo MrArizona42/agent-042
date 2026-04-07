@@ -2,7 +2,8 @@
 
 Tests the knowledge-base config loader, RAGSource schema,
 ChatCompletionRequest with rag_sources, metadata exclusion filter,
-admin endpoint, and error handling for missing KB/aliases.
+admin endpoint, error handling for missing KB/aliases, config
+propagation to Retriever, legacy metadata handling, and reload-config.
 """
 
 from __future__ import annotations
@@ -403,3 +404,243 @@ class TestRAGServiceResolution:
         assert "arxiv" in result
         assert "pytorch_docs" in result
         assert result["arxiv"]["update_strategy"] == "incremental"
+
+
+# ---------------------------------------------------------------------------
+# RAGService.retrieve_documents config propagation tests
+# ---------------------------------------------------------------------------
+
+
+class TestRetrieveDocumentsConfig:
+    """RAGService.retrieve_documents passes alias/build config to Retriever."""
+
+    def test_passes_alias_and_build_config(self, kb_json_file: Path):
+        """retrieve_documents passes top_k, score_threshold, and strategy."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService"),
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+
+            from rag.ops.meta import BuildConfig
+
+            build_cfg = BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="test-model",
+                sparse_encoder=None,
+                retrieval_strategy="dense",
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            # Pre-populate build config cache
+            svc._build_configs["arxiv_champion"] = build_cfg
+
+            # Mock the retriever to capture the call
+            mock_retriever = MagicMock()
+            mock_retriever.retrieve.return_value = []
+            svc._retrievers["arxiv_champion"] = mock_retriever
+
+            svc.retrieve_documents(
+                query="test query",
+                knowledge_base="arxiv",
+                alias="champion",
+            )
+
+            mock_retriever.retrieve.assert_called_once_with(
+                query="test query",
+                top_k=5,
+                score_threshold=0.35,
+                strategy="dense",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Legacy metadata handling tests
+# ---------------------------------------------------------------------------
+
+
+class TestLegacyMetadataHandling:
+    """Legacy collections missing sparse_encoder/retrieval_strategy are rejected."""
+
+    def _make_kb_json(self, tmp_path: Path) -> Path:
+        data = [
+            {
+                "task": "chat",
+                "knowledge_bases": [
+                    {
+                        "name": "arxiv",
+                        "default_alias": "champion",
+                        "aliases": {
+                            "champion": {
+                                "top_k": 5,
+                                "score_threshold": 0.35,
+                                "context_max_length": 4000,
+                                "reranker": None,
+                            },
+                        },
+                    },
+                ],
+            },
+        ]
+        path = tmp_path / "kb.json"
+        path.write_text(json.dumps(data))
+        return path
+
+    def test_legacy_meta_non_strict_marks_unavailable(self, tmp_path: Path):
+        """In non-strict mode, legacy _meta marks alias unavailable."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService"),
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+
+            # Simulate legacy _meta missing retrieval_strategy
+            mock_read_meta.side_effect = ValueError(
+                "build_config: 'retrieval_strategy' must be one of "
+                "'dense', 'hybrid', 'sparse' (got None)"
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc.validate_knowledge_bases()
+
+            assert "arxiv_champion" in svc._unavailable
+
+    def test_legacy_meta_strict_raises(self, tmp_path: Path):
+        """With rag_strict_startup=True, legacy _meta raises RuntimeError."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService"),
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = True
+            mock_get_settings.return_value = mock_settings
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+
+            mock_read_meta.side_effect = ValueError("retrieval_strategy")
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+
+            with pytest.raises(RuntimeError, match="Failed to read _meta"):
+                svc.validate_knowledge_bases()
+
+    def test_build_config_from_payload_rejects_missing_retrieval_strategy(self):
+        """BuildConfig.from_payload rejects payload without retrieval_strategy."""
+        from rag.ops.meta import BuildConfig
+
+        legacy_payload = {
+            "chunking_strategy": "recursive",
+            "chunk_size": 512,
+            "chunk_overlap": 64,
+            "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+        }
+
+        with pytest.raises(ValueError, match="retrieval_strategy"):
+            BuildConfig.from_payload(legacy_payload)
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/admin/reload-config tests
+# ---------------------------------------------------------------------------
+
+
+class TestReloadConfigEndpoint:
+    """Tests for the reload-config admin endpoint."""
+
+    def test_reload_requires_auth(self):
+        """Endpoint returns 503 when auth is disabled (session_manager is None)."""
+        from gateway.api.v1 import knowledge_bases
+
+        app = FastAPI()
+        app.include_router(knowledge_bases.router, prefix="/v1")
+        app.state.session_manager = None
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/v1/admin/reload-config")
+        assert resp.status_code == 503
+        assert "unavailable" in resp.json()["detail"].lower()
+
+    def test_reload_clears_caches(self, kb_json_file: Path):
+        """Authenticated reload clears KB caches."""
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        from gateway.api.v1 import knowledge_bases
+
+        app = FastAPI()
+        app.include_router(knowledge_bases.router, prefix="/v1")
+        app.state.session_manager = MagicMock()  # auth enabled
+
+        @app.middleware("http")
+        async def fake_auth(request, call_next):
+            request.state.user_id = "test-user"
+            return await call_next(request)
+
+        client = TestClient(app)
+        resp = client.post("/v1/admin/reload-config")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "reloaded"
+        # Caches should be cleared
+        assert cfg._KB_REGISTRY is None
+        assert cfg._KB_INDEX is None
