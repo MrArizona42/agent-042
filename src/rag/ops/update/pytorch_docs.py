@@ -13,7 +13,8 @@ from rag.ops.materialize import (
     create_collection_with_meta,
     make_collection_name,
 )
-from rag.ops.meta import build_collection_meta, read_collection_meta
+from rag.ops.meta import build_collection_meta
+from rag.ops.update.common import load_update_collection_meta
 from rag.vector_store import QdrantVectorStore
 from shared.config import get_kb_config, get_settings, validate_kb_alias
 
@@ -63,7 +64,12 @@ def update_pytorch_docs_collection(
         port=qdrant_port,
         collection_name=current_target,
     )
-    current_meta = read_collection_meta(current_store, context=current_target)
+    current_meta = load_update_collection_meta(
+        vector_store=current_store,
+        alias_name=qdrant_alias,
+        collection_name=current_target,
+        kb_name=kb,
+    )
     build_config = current_meta.build_config
 
     with open(docs_path, encoding="utf-8") as file_handle:

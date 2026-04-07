@@ -10,7 +10,7 @@ from typing import Any
 from rag.chunking import get_chunker
 from rag.embeddings import EmbeddingService
 from rag.ops.materialize import batch_embed_and_upsert
-from rag.ops.meta import read_collection_meta
+from rag.ops.update.common import load_update_collection_meta
 from rag.vector_store import QdrantVectorStore
 from shared.config import get_kb_config, get_settings, validate_kb_alias
 
@@ -54,7 +54,12 @@ def update_arxiv_collection(
         port=qdrant_port,
         collection_name=target_collection_name,
     )
-    meta = read_collection_meta(target_store, context=target_collection_name)
+    meta = load_update_collection_meta(
+        vector_store=target_store,
+        alias_name=qdrant_alias,
+        collection_name=target_collection_name,
+        kb_name=kb,
+    )
     build_config = meta.build_config
 
     with open(arxiv_path, encoding="utf-8") as file_handle:
