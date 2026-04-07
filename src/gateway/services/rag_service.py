@@ -76,6 +76,75 @@ class RAGService:
         """Construct the Qdrant alias name: ``{kb}_{alias}``."""
         return f"{kb_name}_{alias}"
 
+    def _mark_alias_unavailable(
+        self,
+        cache_key: str,
+        message: str,
+        *,
+        strict: bool,
+        exc: Exception | None = None,
+    ) -> None:
+        """Invalidate cached state for an alias and optionally raise."""
+        self._retrievers.pop(cache_key, None)
+        self._build_configs.pop(cache_key, None)
+        self._unavailable.add(cache_key)
+        if strict:
+            raise RuntimeError(message) from exc
+        logger.warning("%s — marking unavailable", message)
+
+    def _ensure_build_config(
+        self,
+        cache_key: str,
+        vector_store: QdrantVectorStore,
+        *,
+        strict: bool,
+    ) -> BuildConfig | None:
+        """Read and cache BuildConfig for an alias, enforcing runtime compatibility."""
+        cached = self._build_configs.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            meta = read_collection_meta(vector_store, context=cache_key)
+        except Exception as exc:
+            self._mark_alias_unavailable(
+                cache_key,
+                f"Failed to read _meta for collection '{cache_key}': {exc}",
+                strict=strict,
+                exc=exc,
+            )
+            return None
+
+        collection_info = vector_store.get_collection_info()
+        vector_size = (
+            collection_info.get("vector_size") if isinstance(collection_info, dict) else None
+        )
+        runtime_dimension = getattr(self.embedding_service, "dimension", None)
+        if (
+            isinstance(vector_size, int)
+            and isinstance(runtime_dimension, int)
+            and vector_size != runtime_dimension
+        ):
+            self._mark_alias_unavailable(
+                cache_key,
+                (
+                    f"Embedding dimension mismatch for collection '{cache_key}': "
+                    f"collection={vector_size}, runtime={runtime_dimension}, "
+                    f"build_embedding_model={meta.build_config.embedding_model}"
+                ),
+                strict=strict,
+            )
+            return None
+
+        self._unavailable.discard(cache_key)
+        self._build_configs[cache_key] = meta.build_config
+        logger.info(
+            "Cached build config for %s (embedding_model=%s)",
+            cache_key,
+            meta.build_config.embedding_model,
+        )
+        return meta.build_config
+
     def _get_retriever(self, kb_name: str, alias: str) -> Optional[Retriever]:
         """Return (and lazily create) a retriever for *(kb_name, alias)*.
 
@@ -110,8 +179,9 @@ class RAGService:
                 self._unavailable.add(cache_key)
             return None
 
-        # Alias resolved — create the retriever and cache it
-        self._unavailable.discard(cache_key)
+        build_cfg = self._ensure_build_config(cache_key, vector_store, strict=False)
+        if build_cfg is None:
+            return None
 
         alias_cfg = kb_cfg.aliases.get(alias)
         reranker: Reranker | None = None
@@ -180,8 +250,9 @@ class RAGService:
 
         For each resolvable alias, reads ``BuildConfig`` from the ``_meta``
         sentinel point and caches it in ``self._build_configs``.  When
-        ``rag_strict_startup`` is ``True``, missing collections or missing
-        ``_meta`` cause the startup to raise instead of just logging.
+        ``rag_strict_startup`` is ``True``, missing collections, invalid
+        ``_meta``, or embedding dimension mismatches cause startup to raise
+        instead of just logging.
         """
         if not self.enabled:
             return
@@ -204,27 +275,10 @@ class RAGService:
                             f"task={task_cfg.task} kb={kb_cfg.name} "
                             f"alias={alias} collection={cache_key}"
                         )
-                        if strict:
-                            raise RuntimeError(msg)
-                        logger.warning("%s — marking unavailable", msg)
-                        self._unavailable.add(cache_key)
+                        self._mark_alias_unavailable(cache_key, msg, strict=strict)
                         continue
 
-                    # Read and cache BuildConfig from _meta
-                    try:
-                        meta = read_collection_meta(vs, context=cache_key)
-                        self._build_configs[cache_key] = meta.build_config
-                        logger.info(
-                            "Cached build config for %s (embedding_model=%s)",
-                            cache_key,
-                            meta.build_config.embedding_model,
-                        )
-                    except Exception as exc:
-                        msg = f"Failed to read _meta for collection '{cache_key}': {exc}"
-                        if strict:
-                            raise RuntimeError(msg) from exc
-                        logger.warning("%s — marking unavailable", msg)
-                        self._unavailable.add(cache_key)
+                    self._ensure_build_config(cache_key, vs, strict=strict)
 
     def retrieve_context(
         self,
@@ -245,12 +299,26 @@ class RAGService:
         Returns:
             Formatted context string or None if RAG is disabled/unavailable
         """
-        kb_cfg = get_kb_config(knowledge_base) if knowledge_base else None
+        if not self.enabled:
+            return None
+
+        if not knowledge_base:
+            logger.info("No knowledge base selected — skipping RAG retrieval")
+            return None
+
+        kb_cfg = get_kb_config(knowledge_base)
+        if kb_cfg is None:
+            logger.warning("Unknown knowledge base: %s", knowledge_base)
+            return None
+
         if alias is None:
-            alias = kb_cfg.default_alias if kb_cfg else "champion"
-        alias_cfg = kb_cfg.aliases.get(alias) if kb_cfg else None
+            alias = kb_cfg.default_alias
+        alias_cfg = kb_cfg.aliases.get(alias)
+        if alias_cfg is None:
+            logger.warning("Invalid alias '%s' for knowledge base '%s'", alias, knowledge_base)
+            return None
         if top_k is None:
-            top_k = alias_cfg.top_k if alias_cfg else 5
+            top_k = alias_cfg.top_k
         docs = self.retrieve_documents(
             query=query,
             knowledge_base=knowledge_base,
@@ -259,8 +327,8 @@ class RAGService:
         )
         if not docs:
             return None
-        max_len = alias_cfg.context_max_length if alias_cfg else 4000
-        retriever = self._get_retriever(knowledge_base, alias) if knowledge_base else None
+        max_len = alias_cfg.context_max_length
+        retriever = self._get_retriever(knowledge_base, alias)
         if retriever is None:
             return None
         return retriever.format_context(docs, max_length=max_len)
@@ -286,17 +354,24 @@ class RAGService:
         if not self.enabled:
             return []
 
-        kb_cfg = get_kb_config(knowledge_base) if knowledge_base else None
-        if alias is None:
-            alias = kb_cfg.default_alias if kb_cfg else "champion"
-        alias_cfg = kb_cfg.aliases.get(alias) if kb_cfg else None
-        if top_k is None:
-            top_k = alias_cfg.top_k if alias_cfg else 5
-        score_threshold = alias_cfg.score_threshold if alias_cfg else 0.0
-
         if not knowledge_base:
             logger.info("No knowledge base selected — skipping RAG retrieval")
             return []
+
+        kb_cfg = get_kb_config(knowledge_base)
+        if kb_cfg is None:
+            logger.warning("Unknown knowledge base: %s", knowledge_base)
+            return []
+
+        if alias is None:
+            alias = kb_cfg.default_alias
+        alias_cfg = kb_cfg.aliases.get(alias)
+        if alias_cfg is None:
+            logger.warning("Invalid alias '%s' for knowledge base '%s'", alias, knowledge_base)
+            return []
+        if top_k is None:
+            top_k = alias_cfg.top_k
+        score_threshold = alias_cfg.score_threshold
 
         retriever = self._get_retriever(knowledge_base, alias)
         if retriever is None:
@@ -308,13 +383,19 @@ class RAGService:
         try:
             cache_key = self._qdrant_alias(knowledge_base, alias)
             build_cfg = self._build_configs.get(cache_key)
-            strategy = build_cfg.retrieval_strategy if build_cfg else "dense"
+            if build_cfg is None:
+                logger.warning(
+                    "No build config cached for knowledge base: %s alias: %s",
+                    knowledge_base,
+                    alias,
+                )
+                return []
 
             documents = retriever.retrieve(
                 query=query,
                 top_k=top_k,
                 score_threshold=score_threshold,
-                strategy=strategy,
+                strategy=build_cfg.retrieval_strategy,
             )
             logger.info(
                 f"Retrieved {len(documents)} documents (kb={knowledge_base}, alias={alias})"

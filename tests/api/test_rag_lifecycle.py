@@ -474,6 +474,73 @@ class TestRetrieveDocumentsConfig:
                 strategy="dense",
             )
 
+    def test_lazily_reads_build_config_when_cache_empty(self, kb_json_file: Path):
+        """Serving-path retrieval re-reads _meta after cache invalidation."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.Retriever") as mock_retriever_cls,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 384,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            build_cfg = BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="test-model",
+                sparse_encoder=None,
+                retrieval_strategy="dense",
+            )
+            mock_read_meta.return_value = MagicMock(build_config=build_cfg)
+
+            mock_retriever = mock_retriever_cls.return_value
+            mock_retriever.retrieve.return_value = []
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc.retrieve_documents(
+                query="test query",
+                knowledge_base="arxiv",
+                alias="champion",
+            )
+
+            mock_read_meta.assert_called_once()
+            mock_retriever.retrieve.assert_called_once_with(
+                query="test query",
+                top_k=5,
+                score_threshold=0.35,
+                strategy="dense",
+            )
+
 
 # ---------------------------------------------------------------------------
 # Legacy metadata handling tests
@@ -597,6 +664,116 @@ class TestLegacyMetadataHandling:
         with pytest.raises(ValueError, match="retrieval_strategy"):
             BuildConfig.from_payload(legacy_payload)
 
+    def test_dimension_mismatch_non_strict_marks_unavailable(self, tmp_path: Path):
+        """In non-strict mode, embedding dimension mismatch marks alias unavailable."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 1536,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            mock_read_meta.return_value = MagicMock(
+                build_config=BuildConfig(
+                    chunking_strategy="recursive",
+                    chunk_size=512,
+                    chunk_overlap=64,
+                    embedding_model="other-model",
+                    sparse_encoder=None,
+                    retrieval_strategy="dense",
+                )
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc.validate_knowledge_bases()
+
+            assert "arxiv_champion" in svc._unavailable
+
+    def test_dimension_mismatch_strict_raises(self, tmp_path: Path):
+        """With rag_strict_startup=True, dimension mismatch raises RuntimeError."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path)
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = True
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 1536,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            mock_read_meta.return_value = MagicMock(
+                build_config=BuildConfig(
+                    chunking_strategy="recursive",
+                    chunk_size=512,
+                    chunk_overlap=64,
+                    embedding_model="other-model",
+                    sparse_encoder=None,
+                    retrieval_strategy="dense",
+                )
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+
+            with pytest.raises(RuntimeError, match="Embedding dimension mismatch"):
+                svc.validate_knowledge_bases()
+
 
 # ---------------------------------------------------------------------------
 # POST /v1/admin/reload-config tests
@@ -635,6 +812,7 @@ class TestReloadConfigEndpoint:
         @app.middleware("http")
         async def fake_auth(request, call_next):
             request.state.user_id = "test-user"
+            request.state.session_id = "session-123"
             return await call_next(request)
 
         client = TestClient(app)
@@ -644,3 +822,59 @@ class TestReloadConfigEndpoint:
         # Caches should be cleared
         assert cfg._KB_REGISTRY is None
         assert cfg._KB_INDEX is None
+
+    def test_reload_rejects_non_session_auth(self):
+        """Internal API-key style auth must not be allowed to reload config."""
+        from gateway.api.v1 import knowledge_bases
+
+        app = FastAPI()
+        app.include_router(knowledge_bases.router, prefix="/v1")
+        app.state.session_manager = MagicMock()
+
+        @app.middleware("http")
+        async def fake_service_auth(request, call_next):
+            request.state.user_id = "__service__"
+            request.state.session_id = None
+            return await call_next(request)
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/v1/admin/reload-config")
+        assert resp.status_code == 403
+        assert "user session" in resp.json()["detail"].lower()
+
+
+class TestGatewayStartupValidation:
+    """Gateway lifespan honors rag_strict_startup for RAG validation failures."""
+
+    def test_strict_startup_raises(self):
+        import gateway.main as gateway_main
+
+        mock_settings = MagicMock()
+        mock_settings.service_name = "gateway-test"
+        mock_settings.vllm_base_url = "http://localhost:8000"
+        mock_settings.default_model = "test-model"
+        mock_settings.rag_enabled = True
+        mock_settings.qdrant_host = "localhost"
+        mock_settings.qdrant_port = 6333
+        mock_settings.embedding_model = "test-embedding"
+        mock_settings.rag_strict_startup = True
+        mock_settings.redis_url = "redis://localhost:6379/0"
+        mock_settings.async_enabled = False
+        mock_settings.google_client_id = ""
+        mock_settings.agent042_db_url = None
+        mock_settings.cors_allow_origins = []
+
+        with (
+            patch("gateway.main.get_settings", return_value=mock_settings),
+            patch.object(
+                gateway_main.process_chat,
+                "ensure_rag_service",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch("gateway.main.RedisStreamService"),
+        ):
+            app = gateway_main.create_app()
+
+            with pytest.raises(RuntimeError, match="boom"):
+                with TestClient(app):
+                    pass

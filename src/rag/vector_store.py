@@ -196,6 +196,25 @@ class QdrantVectorStore:
         """Check if collection exists (supports aliases)."""
         return self.client.collection_exists(self.collection_name)
 
+    @staticmethod
+    def _extract_vector_size(collection_info: Any) -> Optional[int]:
+        """Extract the dense vector size from a Qdrant collection info object."""
+        params = getattr(
+            getattr(getattr(collection_info, "config", None), "params", None), "vectors", None
+        )
+        if params is None:
+            return None
+
+        if isinstance(params, dict):
+            for vector_params in params.values():
+                size = getattr(vector_params, "size", None)
+                if isinstance(size, int):
+                    return size
+            return None
+
+        size = getattr(params, "size", None)
+        return size if isinstance(size, int) else None
+
     def get_collection_info(self) -> Dict[str, Any]:
         """Get information about the collection."""
         if not self.collection_exists():
@@ -205,6 +224,7 @@ class QdrantVectorStore:
         return {
             "exists": True,
             "points_count": info.points_count,
+            "vector_size": self._extract_vector_size(info),
             # vectors_count doesn't exist in newer Qdrant versions
             # points_count is the number of vectors/documents
         }

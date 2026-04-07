@@ -53,7 +53,13 @@ async def reload_config(request: Request) -> dict[str, str]:
             detail="Config reload is unavailable when auth is disabled",
         )
 
-    # Auth middleware guarantees user_id on request.state for authed routes
+    if getattr(request.state, "session_id", None) is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Config reload requires an authenticated user session",
+        )
+
+    # Auth middleware guarantees user_id on request.state for session-authenticated routes
     _ = request.state.user_id
 
     clear_knowledge_base_caches()

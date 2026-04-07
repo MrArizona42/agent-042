@@ -52,13 +52,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info(f"Qdrant: {settings.qdrant_host}:{settings.qdrant_port}")
         logger.info(f"Embedding model: {settings.embedding_model}")
         # Validate knowledge base aliases at startup
-        from gateway.services.rag_service import RAGService
-
         try:
-            rag_service = RAGService(settings)
-            rag_service.validate_knowledge_bases()
+            process_chat.ensure_rag_service(settings=settings, validate=True)
             logger.info("Knowledge base startup validation complete")
         except Exception:
+            if settings.rag_strict_startup:
+                raise
             logger.warning("Knowledge base startup validation failed", exc_info=True)
 
     # --- Create managed connections ---
