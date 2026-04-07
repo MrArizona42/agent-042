@@ -412,6 +412,7 @@ is `null` in all JSON entries so this branch is never reached.
 
 ## Phase 5 — Tests and contract cleanup
 
+
 **`tests/api/test_rag_lifecycle.py`**
 
 Update `kb_json_file` fixture to the new alias dict format with all fields
