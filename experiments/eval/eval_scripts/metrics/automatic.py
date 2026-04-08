@@ -78,16 +78,19 @@ def compute_bertscore(
 
     threading.excepthook = _suppress_safetensors_conversion_error
 
-    scorer = BERTScorer(model_type=model_name, use_fast_tokenizer=False)
-
-    # Workaround: some models (e.g. DeBERTa) report a huge model_max_length
-    # (~10^30) that overflows the Rust tokenizer's usize in
-    # enable_truncation().  Cap it to the model's actual positional limit.
-    max_pos = getattr(scorer._model.config, "max_position_embeddings", None)
-    if max_pos and scorer._tokenizer.model_max_length > max_pos:
-        scorer._tokenizer.model_max_length = max_pos
-
+    scorer = None
     try:
+        # DeBERTa-v3 requires the fast tokenizer path here; the slow
+        # DebertaV2Tokenizer crashes inside bert-score on special-token setup.
+        scorer = BERTScorer(model_type=model_name, use_fast_tokenizer=True)
+
+        # Workaround: some models (e.g. DeBERTa) report a huge model_max_length
+        # (~10^30) that overflows the Rust tokenizer's usize in
+        # enable_truncation().  Cap it to the model's actual positional limit.
+        max_pos = getattr(scorer._model.config, "max_position_embeddings", None)
+        if max_pos and scorer._tokenizer.model_max_length > max_pos:
+            scorer._tokenizer.model_max_length = max_pos
+
         with torch.no_grad():
             P, R, F1 = scorer.score(predictions, references)
         return {
@@ -97,7 +100,8 @@ def compute_bertscore(
         }
     finally:
         threading.excepthook = _original_excepthook
-        del scorer
+        if scorer is not None:
+            del scorer
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 

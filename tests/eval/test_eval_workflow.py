@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import types
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -145,6 +147,72 @@ class TestEvalSettings:
 
 class TestAutomaticMetrics:
     """Tests for automatic evaluation metrics."""
+
+    def test_compute_bertscore_uses_fast_tokenizer(self, monkeypatch):
+        from experiments.eval.eval_scripts.metrics import automatic
+
+        calls = {}
+
+        class FakeTensor:
+            def __init__(self, value):
+                self._value = value
+
+            def mean(self):
+                return self
+
+            def item(self):
+                return self._value
+
+        class FakeNoGrad:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeScorer:
+            def __init__(self, *, model_type, use_fast_tokenizer):
+                calls["model_type"] = model_type
+                calls["use_fast_tokenizer"] = use_fast_tokenizer
+                self._model = types.SimpleNamespace(
+                    config=types.SimpleNamespace(max_position_embeddings=512)
+                )
+                self._tokenizer = types.SimpleNamespace(model_max_length=10**30)
+
+            def score(self, predictions, references):
+                calls["predictions"] = predictions
+                calls["references"] = references
+                calls["model_max_length_after_cap"] = self._tokenizer.model_max_length
+                return FakeTensor(0.1), FakeTensor(0.2), FakeTensor(0.3)
+
+        fake_bert_score = types.ModuleType("bert_score")
+        fake_bert_score.BERTScorer = FakeScorer
+        fake_torch = types.ModuleType("torch")
+        fake_torch.no_grad = FakeNoGrad
+        fake_torch.cuda = types.SimpleNamespace(
+            is_available=lambda: False,
+            empty_cache=lambda: None,
+        )
+
+        monkeypatch.setitem(sys.modules, "bert_score", fake_bert_score)
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+        result = automatic.compute_bertscore(
+            predictions=["predicted answer"],
+            references=["reference answer"],
+            model_name="microsoft/deberta-v3-base",
+        )
+
+        assert calls["model_type"] == "microsoft/deberta-v3-base"
+        assert calls["use_fast_tokenizer"] is True
+        assert calls["predictions"] == ["predicted answer"]
+        assert calls["references"] == ["reference answer"]
+        assert calls["model_max_length_after_cap"] == 512
+        assert result == {
+            "bertscore_precision": pytest.approx(0.1),
+            "bertscore_recall": pytest.approx(0.2),
+            "bertscore_f1": pytest.approx(0.3),
+        }
 
     def test_rouge_l_identical(self):
         from experiments.eval.eval_scripts.metrics.automatic import compute_rouge_l
