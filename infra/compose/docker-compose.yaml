@@ -3,8 +3,8 @@
 # =====================
 
 # Canonical shared endpoint vars injected into services.
-# Python settings still accept older prefixed aliases temporarily, but the
-# Compose contract now uses the deployment-neutral names below.
+# Active settings code reads the canonical names below; keep deployment
+# wiring on these deployment-neutral names.
 x-shared-endpoints: &shared-endpoints
   VLLM_BASE_URL: ${VLLM_BASE_URL:-http://vllm:8000}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
