@@ -49,6 +49,7 @@ airflow-worker = [
     # Eval metrics (bert-score, rouge, torch CPU)
     "bert-score>=0.3.13",
     "rouge-score>=0.1.2",
+    "sentencepiece>=0.2.0",
     "datasets>=4.4.2",
     "numpy>=1.26",
     "mlflow-skinny>=3.8.1,<4",
@@ -74,6 +75,7 @@ airflow-worker-gpu = [
     # --- Airflow worker base (keep in sync with airflow-worker) ---
     "bert-score>=0.3.13",
     "rouge-score>=0.1.2",
+    "sentencepiece>=0.2.0",
     "datasets>=4.4.2",
     "numpy>=1.26",
     "mlflow-skinny>=3.8.1,<4",
