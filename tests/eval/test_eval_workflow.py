@@ -126,7 +126,7 @@ class TestEvalSettings:
         assert s.temperature == 0.0
         assert s.code_exec_timeout == 30
         assert s.code_exec_mem_limit == "512m"
-        assert s.bert_score_model == "microsoft/deberta-base-mnli"
+        assert s.bert_score_model == "microsoft/deberta-v3-base"
 
     def test_env_override(self, monkeypatch):
         from shared.config import EvalSettings

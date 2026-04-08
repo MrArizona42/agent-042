@@ -534,7 +534,7 @@ class EvalSettings(BaseSettings):
         description="Google AI Studio API key for Gemini judge",
     )
     bert_score_model: str = Field(
-        default="microsoft/deberta-base-mnli",
+        default="microsoft/deberta-v3-base",
         description="Model for BERTScore computation",
     )
     temperature: float = Field(
