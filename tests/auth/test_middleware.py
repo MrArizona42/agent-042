@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from gateway.auth.middleware import AuthMiddleware, _SERVICE_USER_ID
+from gateway.auth.middleware import _SERVICE_USER_ID, AuthMiddleware
 
 
 def _make_app(session_data=None):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class WorkerSettings(BaseSettings):
@@ -38,8 +38,7 @@ class WorkerSettings(BaseSettings):
         description="Delay between retries in seconds",
     )
 
-    class Config:
-        extra = "ignore"
+    model_config = SettingsConfigDict(extra="ignore")
 
 
 @lru_cache

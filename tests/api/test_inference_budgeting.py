@@ -13,6 +13,7 @@ from gateway.services.prompt_builder import PromptBuilder
 from shared.vllm_payloads import (
     ResponseBudgetExceededError,
     apply_response_token_budget,
+    canonicalize_assistant_content,
     extract_tokenize_payload,
 )
 
@@ -136,7 +137,11 @@ def test_prompt_builder_trims_history_and_rag_into_messages() -> None:
 
 def test_worker_and_sync_share_same_final_budget_helper() -> None:
     payload, final_max_tokens = apply_response_token_budget(
-        {"model": "test", "messages": [{"role": "user", "content": "hi"}]},
+        {
+            "model": "test",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream_options": {"other_flag": True},
+        },
         prompt_tokens=20,
         budget_meta={
             "model_max_tokens": 64,
@@ -144,11 +149,13 @@ def test_worker_and_sync_share_same_final_budget_helper() -> None:
             "min_response_budget": 4,
         },
         stream=True,
+        include_usage=True,
     )
 
     assert final_max_tokens == 36
     assert payload["max_tokens"] == 36
     assert payload["stream"] is True
+    assert payload["stream_options"] == {"other_flag": True, "include_usage": True}
 
 
 def test_budget_helper_rejects_when_response_budget_too_small() -> None:
@@ -182,3 +189,8 @@ def test_tokenize_payload_keeps_only_chat_affecting_fields() -> None:
         "messages": [{"role": "user", "content": "hello"}],
         "tools": [{"type": "function"}],
     }
+
+
+def test_canonicalize_assistant_content_wraps_thinking_block() -> None:
+    assert canonicalize_assistant_content("plan", "answer") == "<think>plan</think>\n\nanswer"
+    assert canonicalize_assistant_content("", "answer") == "answer"

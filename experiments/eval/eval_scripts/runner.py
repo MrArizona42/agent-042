@@ -30,11 +30,12 @@ Usage::
 from __future__ import annotations
 
 import itertools
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import fire
 import httpx
@@ -158,11 +159,13 @@ def _call_gateway(
     rag_sources: list[dict[str, str]] | None = None,
     temperature: float,
     internal_api_key: str,
+    expect_rag_context: bool = False,
 ) -> dict[str, Any]:
-    """Call the gateway chat completions API."""
+    """Call the gateway chat completions API via standard SSE and rebuild the response shape."""
     payload: dict[str, Any] = {
         "messages": messages,
         "temperature": temperature,
+        "stream": True,
     }
     if model:
         payload["model"] = model
@@ -173,14 +176,117 @@ def _call_gateway(
     if internal_api_key:
         headers["X-API-Key"] = internal_api_key
 
-    resp = httpx.post(
+    with httpx.stream(
+        "POST",
         f"{gateway_url}/v1/chat/completions",
         json=payload,
         headers=headers,
         timeout=120,
+    ) as resp:
+        resp.raise_for_status()
+
+        request_id = resp.headers.get("X-Request-Id")
+        response_id = f"chatcmpl-{request_id}" if request_id else None
+        assistant_fragments: list[str] = []
+        finish_reason = "stop"
+        usage: dict[str, Any] = {}
+
+        for raw_payload in _iter_sse_payloads(resp.iter_lines()):
+            if raw_payload == "[DONE]":
+                break
+
+            chunk = json.loads(raw_payload)
+            error = chunk.get("error")
+            if isinstance(error, dict):
+                raise RuntimeError(error.get("message", "Gateway streaming error"))
+
+            if response_id is None and isinstance(chunk.get("id"), str):
+                response_id = chunk["id"]
+
+            choices = chunk.get("choices")
+            if isinstance(choices, list) and choices:
+                delta = choices[0].get("delta") or {}
+                content = delta.get("content", "")
+                if content:
+                    assistant_fragments.append(content)
+                finish_reason = choices[0].get("finish_reason") or finish_reason
+
+            chunk_usage = chunk.get("usage")
+            if isinstance(chunk_usage, dict):
+                usage = chunk_usage
+
+    result: dict[str, Any] = {
+        "id": response_id or "chatcmpl-eval-stream",
+        "object": "chat.completion",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "".join(assistant_fragments),
+                },
+                "finish_reason": finish_reason,
+            }
+        ],
+        "usage": usage,
+    }
+
+    if request_id:
+        result["request_id"] = request_id
+        preview = _fetch_prompt_preview(
+            gateway_url=gateway_url,
+            request_id=request_id,
+            internal_api_key=internal_api_key,
+        )
+        if preview is not None:
+            prompt_messages = preview.get("prompt_messages")
+            if isinstance(prompt_messages, list):
+                result["_prompt_messages"] = prompt_messages
+            rag_context = preview.get("rag_context")
+            if isinstance(rag_context, list):
+                result["rag_context"] = rag_context
+
+    if expect_rag_context and "rag_context" not in result:
+        raise RuntimeError("Prompt preview response did not include rag_context")
+
+    return result
+
+
+def _iter_sse_payloads(lines: Iterable[str]) -> Iterable[str]:
+    """Yield SSE payload bodies from an HTTP line iterator."""
+    data_lines: list[str] = []
+    for line in lines:
+        if line == "":
+            if data_lines:
+                yield "\n".join(data_lines)
+                data_lines = []
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line.split(":", 1)[1].lstrip())
+
+    if data_lines:
+        yield "\n".join(data_lines)
+
+
+def _fetch_prompt_preview(
+    *,
+    gateway_url: str,
+    request_id: str,
+    internal_api_key: str,
+) -> dict[str, Any] | None:
+    """Fetch prompt preview metadata for a streamed request."""
+    headers: dict[str, str] = {}
+    if internal_api_key:
+        headers["X-API-Key"] = internal_api_key
+
+    resp = httpx.get(
+        f"{gateway_url}/v1/chat/prompt-preview/{request_id}",
+        headers=headers,
+        timeout=30,
     )
     resp.raise_for_status()
-    return resp.json()
+    preview = resp.json()
+    return preview if isinstance(preview, dict) else None
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +684,7 @@ def _fetch_generation_predictions(
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
                 internal_api_key=eval_settings.internal_api_key,
+                expect_rag_context=rag_enabled,
             )
             answer = response["choices"][0]["message"]["content"]
 
@@ -667,6 +774,7 @@ def _fetch_code_predictions(
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
                 internal_api_key=eval_settings.internal_api_key,
+                expect_rag_context=rag_enabled,
             )
             generated = response["choices"][0]["message"]["content"]
         except Exception as e:

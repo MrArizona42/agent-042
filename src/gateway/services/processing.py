@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import uuid as _uuid
 from dataclasses import dataclass
@@ -17,13 +18,14 @@ from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
 from shared.config import get_kb_config
 from shared.vllm_payloads import (
-    ResponseBudgetExceededError,
-    apply_response_token_budget,
-    extract_tokenize_payload,
+    canonicalize_assistant_content,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+PROMPT_PREVIEW_TTL_SECONDS = 900
+SERVICE_USER_ID = "__service__"
 
 
 @dataclass(frozen=True)
@@ -85,7 +87,7 @@ class _ProcessChat:
         if self._celery_client is None:
             raise RuntimeError(
                 "CeleryClient is not available. "
-                "Ensure async_enabled=true and CELERY_BROKER_URL is set."
+                "Ensure gateway startup initialized the Celery client."
             )
         return self._celery_client
 
@@ -94,7 +96,7 @@ class _ProcessChat:
         if self._redis_stream is None:
             raise RuntimeError(
                 "RedisStreamService is not available. "
-                "Ensure async_enabled=true and REDIS_URL is set."
+                "Ensure gateway startup initialized Redis streaming."
             )
         return self._redis_stream
 
@@ -208,44 +210,6 @@ class _ProcessChat:
             prompt_messages=prompt.messages,
         )
 
-    async def _build_exact_generation_payload(
-        self,
-        prepared: PreparedChatRequest,
-        *,
-        stream: bool,
-    ) -> tuple[dict[str, Any], int]:
-        client = self._client()
-        tokenize_payload = extract_tokenize_payload(prepared.generation_payload)
-        tokenize_response = await client.tokenize(tokenize_payload)
-        prompt_tokens = int(tokenize_response["count"])
-        final_payload, _ = apply_response_token_budget(
-            prepared.generation_payload,
-            prompt_tokens=prompt_tokens,
-            budget_meta=prepared.budget_meta,
-            stream=stream,
-        )
-        return final_payload, prompt_tokens
-
-    @staticmethod
-    def _apply_usage(result: dict[str, Any], *, prompt_tokens: int | None) -> dict[str, Any]:
-        usage = result.get("usage")
-        if not isinstance(usage, dict):
-            usage = {}
-
-        if prompt_tokens is not None and usage.get("prompt_tokens") is None:
-            usage["prompt_tokens"] = prompt_tokens
-
-        completion_tokens = usage.get("completion_tokens")
-        if (
-            usage.get("total_tokens") is None
-            and isinstance(prompt_tokens, int)
-            and isinstance(completion_tokens, int)
-        ):
-            usage["total_tokens"] = prompt_tokens + completion_tokens
-
-        result["usage"] = usage
-        return result
-
     @staticmethod
     def _usage_int(value: Any) -> int | None:
         if isinstance(value, bool):
@@ -256,92 +220,62 @@ class _ProcessChat:
             return int(value)
         return None
 
-    async def chat(
+    async def _store_prompt_preview(
         self,
-        req: ChatCompletionRequest,
         *,
-        user_id: str | None = None,
-        chat_session_id: str | None = None,
-    ) -> Any:
-        """Process chat request (sync or async based on configuration)."""
-        settings = get_settings()
-        prepared = self._prepare_request(req)
-
-        if settings.async_enabled:
-            result = await self._chat_async(prepared)
-        else:
-            result = await self._chat_sync(prepared)
-
-        result["_prompt_messages"] = prepared.prompt_messages
-        if prepared.rag_context_chunks:
-            result["rag_context"] = prepared.rag_context_chunks
-
-        if chat_session_id and user_id:
-            await self._persist_exchange(req, result, chat_session_id)
-
-        return result
-
-    async def _chat_sync(self, prepared: PreparedChatRequest) -> Any:
-        payload, prompt_tokens = await self._build_exact_generation_payload(
-            prepared,
-            stream=False,
-        )
-        result = await self._client().chat_completions(payload)
-        return self._apply_usage(result, prompt_tokens=prompt_tokens)
-
-    async def _chat_async(self, prepared: PreparedChatRequest) -> Any:
-        settings = get_settings()
-        conversation_id = str(_uuid.uuid4())
-        celery_client = self._get_celery_client()
+        request_id: str,
+        prepared: PreparedChatRequest,
+        user_id: str | None,
+        chat_session_id: str | None,
+    ) -> None:
         redis_stream = self._get_redis_stream()
-
-        task_id = celery_client.enqueue_generate_response(
-            conversation_id=conversation_id,
-            generation_payload=prepared.generation_payload,
-            budget_meta=prepared.budget_meta,
-        )
-        logger.info("Enqueued async chat task %s for conversation %s", task_id, conversation_id)
-
-        full_content = ""
-        finish_reason = "stop"
-        usage: dict[str, Any] = {
-            "prompt_tokens": None,
-            "completion_tokens": None,
-            "total_tokens": None,
+        preview = {
+            "request_id": request_id,
+            "owner_user_id": user_id,
+            "chat_session_id": chat_session_id,
+            "model": prepared.generation_payload.get("model"),
+            "prompt_messages": prepared.prompt_messages,
+            "rag_context": prepared.rag_context_chunks,
         }
+        await redis_stream.store_prompt_preview(
+            request_id,
+            preview,
+            ttl_seconds=PROMPT_PREVIEW_TTL_SECONDS,
+        )
 
-        async for event in redis_stream.subscribe(
-            conversation_id,
-            timeout=settings.streaming_timeout,
-        ):
-            event_type = event.get("type")
+    async def get_prompt_preview(
+        self,
+        request_id: str,
+        *,
+        requester_user_id: str | None,
+    ) -> dict[str, Any] | None:
+        preview = await self._get_redis_stream().get_prompt_preview(request_id)
+        if not isinstance(preview, dict):
+            return None
 
-            if event_type == "token":
-                full_content += event.get("content", "")
-                continue
+        owner_user_id = preview.get("owner_user_id")
+        if owner_user_id and requester_user_id not in {owner_user_id, SERVICE_USER_ID}:
+            return None
 
-            if event_type == "done":
-                full_content = event.get("content", full_content)
-                finish_reason = event.get("finish_reason", "stop")
-                event_usage = event.get("usage")
-                if isinstance(event_usage, dict):
-                    usage = event_usage
-                break
+        return {key: value for key, value in preview.items() if key not in {"owner_user_id"}}
 
-            if event_type == "error":
-                if event.get("error_type") == "budget_exceeded":
-                    raise ResponseBudgetExceededError(event.get("error", "Budget exceeded"))
-                raise RuntimeError(f"Async inference error: {event.get('error')}")
-
+    @staticmethod
+    def _chat_completion_result(
+        *,
+        request_id: str,
+        assistant_content: str,
+        finish_reason: str,
+        usage: dict[str, Any],
+    ) -> dict[str, Any]:
         return {
-            "id": f"chatcmpl-{conversation_id}",
+            "id": f"chatcmpl-{request_id}",
             "object": "chat.completion",
             "choices": [
                 {
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": full_content,
+                        "content": assistant_content,
                     },
                     "finish_reason": finish_reason,
                 }
@@ -349,33 +283,127 @@ class _ProcessChat:
             "usage": usage,
         }
 
+    @staticmethod
+    def _sse_bytes(payload: dict[str, Any]) -> bytes:
+        return f"data: {json.dumps(payload)}\n\n".encode()
+
+    @staticmethod
+    def _sse_event_bytes(event: str, payload: dict[str, Any]) -> bytes:
+        return f"event: {event}\ndata: {json.dumps(payload)}\n\n".encode()
+
+    def _answer_delta_chunk(self, *, request_id: str, content: str) -> bytes:
+        return self._sse_bytes(
+            {
+                "id": f"chatcmpl-{request_id}",
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": content},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+        )
+
+    def _finish_chunk(self, *, request_id: str, finish_reason: str) -> bytes:
+        return self._sse_bytes(
+            {
+                "id": f"chatcmpl-{request_id}",
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": finish_reason,
+                    }
+                ],
+            }
+        )
+
+    def _usage_chunk(self, *, request_id: str, usage: dict[str, Any]) -> bytes:
+        return self._sse_bytes(
+            {
+                "id": f"chatcmpl-{request_id}",
+                "object": "chat.completion.chunk",
+                "choices": [],
+                "usage": usage,
+            }
+        )
+
+    def _error_chunk(self, *, error: str, error_type: str = "server_error") -> bytes:
+        return self._sse_bytes(
+            {
+                "error": {
+                    "message": error,
+                    "type": error_type,
+                }
+            }
+        )
+
+    def _rich_stream_chunk(
+        self,
+        *,
+        event: str,
+        request_id: str,
+        payload: dict[str, Any],
+    ) -> bytes:
+        return self._sse_event_bytes(
+            event,
+            {
+                "request_id": request_id,
+                **payload,
+            },
+        )
+
     async def stream_chat(
         self,
         req: ChatCompletionRequest,
         *,
         user_id: str | None = None,
         chat_session_id: str | None = None,
+        request_id: str | None = None,
+        rich_stream: bool = False,
     ) -> AsyncIterator[bytes]:
-        del user_id, chat_session_id
-
-        settings = get_settings()
         prepared = self._prepare_request(req)
-        if settings.async_enabled:
-            return await self._stream_chat_async(prepared)
-        return await self._stream_chat_sync(prepared)
+        if request_id is not None:
+            try:
+                await self._store_prompt_preview(
+                    request_id=request_id,
+                    prepared=prepared,
+                    user_id=user_id,
+                    chat_session_id=chat_session_id,
+                )
+            except Exception:
+                logger.warning("Failed to store prompt preview", exc_info=True)
+        return await self._stream_chat_async(
+            prepared,
+            req=req,
+            user_id=user_id,
+            chat_session_id=chat_session_id,
+            request_id=request_id,
+            rich_stream=rich_stream,
+        )
 
-    async def _stream_chat_sync(self, prepared: PreparedChatRequest) -> AsyncIterator[bytes]:
-        payload, _ = await self._build_exact_generation_payload(prepared, stream=True)
-        return self._client().chat_completions_stream(payload)
-
-    async def _stream_chat_async(self, prepared: PreparedChatRequest) -> AsyncIterator[bytes]:
+    async def _stream_chat_async(
+        self,
+        prepared: PreparedChatRequest,
+        *,
+        req: ChatCompletionRequest,
+        user_id: str | None = None,
+        chat_session_id: str | None = None,
+        request_id: str | None = None,
+        rich_stream: bool = False,
+    ) -> AsyncIterator[bytes]:
         settings = get_settings()
         conversation_id = str(_uuid.uuid4())
+        request_id = request_id or str(_uuid.uuid4())
         celery_client = self._get_celery_client()
         redis_stream = self._get_redis_stream()
 
         task_id = celery_client.enqueue_generate_response(
             conversation_id=conversation_id,
+            request_id=request_id,
             generation_payload=prepared.generation_payload,
             budget_meta=prepared.budget_meta,
         )
@@ -384,10 +412,113 @@ class _ProcessChat:
             task_id,
             conversation_id,
         )
-        return redis_stream.subscribe_sse(
-            conversation_id,
-            timeout=settings.streaming_timeout,
-        )
+
+        async def _event_stream() -> AsyncIterator[bytes]:
+            thinking_content = ""
+            answer_content = ""
+            finish_reason = "stop"
+            usage: dict[str, Any] = {
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "total_tokens": None,
+            }
+
+            async for event in redis_stream.subscribe(
+                conversation_id,
+                timeout=settings.streaming_timeout,
+            ):
+                event_type = event.get("type")
+
+                if event_type == "thinking_token":
+                    content = event.get("content", "")
+                    thinking_content += content
+                    if rich_stream and content:
+                        yield self._rich_stream_chunk(
+                            event="thinking_token",
+                            request_id=request_id,
+                            payload={"content": content},
+                        )
+                    continue
+
+                if event_type in {"answer_token", "token"}:
+                    content = event.get("content", "")
+                    if content:
+                        answer_content += content
+                        if rich_stream:
+                            yield self._rich_stream_chunk(
+                                event="answer_token",
+                                request_id=request_id,
+                                payload={"content": content},
+                            )
+                        else:
+                            yield self._answer_delta_chunk(request_id=request_id, content=content)
+                    continue
+
+                if event_type == "done":
+                    thinking_content = event.get("thinking_content", thinking_content)
+                    answer_content = event.get("answer_content", answer_content)
+                    finish_reason = event.get("finish_reason", "stop")
+                    event_usage = event.get("usage")
+                    if isinstance(event_usage, dict):
+                        usage = event_usage
+
+                    assistant_content = event.get(
+                        "content",
+                        canonicalize_assistant_content(thinking_content, answer_content),
+                    )
+                    result = self._chat_completion_result(
+                        request_id=request_id,
+                        assistant_content=assistant_content,
+                        finish_reason=finish_reason,
+                        usage=usage,
+                    )
+
+                    if rich_stream:
+                        yield self._rich_stream_chunk(
+                            event="usage",
+                            request_id=request_id,
+                            payload={"usage": usage},
+                        )
+                        yield self._rich_stream_chunk(
+                            event="done",
+                            request_id=request_id,
+                            payload={
+                                "thinking_content": thinking_content,
+                                "answer_content": answer_content,
+                                "content": assistant_content,
+                                "finish_reason": finish_reason,
+                            },
+                        )
+                    else:
+                        yield self._finish_chunk(request_id=request_id, finish_reason=finish_reason)
+                        yield self._usage_chunk(request_id=request_id, usage=usage)
+
+                    if chat_session_id and user_id:
+                        await self._persist_exchange(req, result, chat_session_id)
+
+                    if not rich_stream:
+                        yield b"data: [DONE]\n\n"
+                    return
+
+                if event_type == "error":
+                    error_type = event.get("error_type") or "server_error"
+                    if rich_stream:
+                        yield self._rich_stream_chunk(
+                            event="error",
+                            request_id=request_id,
+                            payload={
+                                "error": event.get("error", "Unknown error"),
+                                "error_type": error_type,
+                            },
+                        )
+                    else:
+                        yield self._error_chunk(
+                            error=event.get("error", "Unknown error"),
+                            error_type=error_type,
+                        )
+                    return
+
+        return _event_stream()
 
     async def _persist_exchange(
         self,

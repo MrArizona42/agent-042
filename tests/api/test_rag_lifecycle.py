@@ -855,7 +855,8 @@ class TestGatewayStartupValidation:
         mock_settings.embedding_model = "test-embedding"
         mock_settings.rag_strict_startup = True
         mock_settings.redis_url = "redis://localhost:6379/0"
-        mock_settings.async_enabled = False
+        mock_settings.async_enabled = True
+        mock_settings.celery_broker_url = "amqp://guest:guest@localhost//"
         mock_settings.google_client_id = ""
         mock_settings.agent042_db_url = None
         mock_settings.cors_allow_origins = []
@@ -872,5 +873,31 @@ class TestGatewayStartupValidation:
             app = gateway_main.create_app()
 
             with pytest.raises(RuntimeError, match="boom"):
+                with TestClient(app):
+                    pass
+
+    def test_async_disabled_raises(self):
+        import gateway.main as gateway_main
+
+        mock_settings = MagicMock()
+        mock_settings.service_name = "gateway-test"
+        mock_settings.vllm_base_url = "http://localhost:8000"
+        mock_settings.default_model = "test-model"
+        mock_settings.rag_enabled = False
+        mock_settings.rag_strict_startup = False
+        mock_settings.redis_url = "redis://localhost:6379/0"
+        mock_settings.async_enabled = False
+        mock_settings.celery_broker_url = None
+        mock_settings.google_client_id = ""
+        mock_settings.agent042_db_url = None
+        mock_settings.cors_allow_origins = []
+
+        with (
+            patch("gateway.main.get_settings", return_value=mock_settings),
+            patch("gateway.main.RedisStreamService"),
+        ):
+            app = gateway_main.create_app()
+
+            with pytest.raises(RuntimeError, match="GATEWAY_ASYNC_ENABLED=false"):
                 with TestClient(app):
                     pass

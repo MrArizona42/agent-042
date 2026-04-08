@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -529,6 +530,191 @@ class TestRunnerConfig:
         assert rows[0]["max_tokens"] == 128
         assert rows[0]["extra"] == {"evaluation_backend": "local_peft_generation"}
         mock_log_to_db.assert_called_once()
+
+
+class _FakeStreamResponse:
+    def __init__(self, *, lines, headers=None):
+        self._lines = list(lines)
+        self.headers = headers or {}
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def iter_lines(self):
+        yield from self._lines
+
+
+class _FakeStreamContext:
+    def __init__(self, response: _FakeStreamResponse):
+        self._response = response
+
+    def __enter__(self) -> _FakeStreamResponse:
+        return self._response
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        del exc_type, exc, tb
+        return False
+
+
+class _FakeJSONResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def _sse_data(payload: dict[str, object]) -> str:
+    return f"data: {json.dumps(payload, separators=(',', ':'))}"
+
+
+class TestRunnerGatewayTransport:
+    def test_call_gateway_reconstructs_chat_response_from_standard_sse(self):
+        from experiments.eval.eval_scripts.runner import _call_gateway
+
+        stream_response = _FakeStreamResponse(
+            headers={"X-Request-Id": "req-123"},
+            lines=[
+                _sse_data(
+                    {
+                        "id": "chatcmpl-req-123",
+                        "object": "chat.completion.chunk",
+                        "choices": [
+                            {"index": 0, "delta": {"content": "hello"}, "finish_reason": None}
+                        ],
+                    }
+                ),
+                "",
+                _sse_data(
+                    {
+                        "id": "chatcmpl-req-123",
+                        "object": "chat.completion.chunk",
+                        "choices": [
+                            {"index": 0, "delta": {"content": " world"}, "finish_reason": None}
+                        ],
+                    }
+                ),
+                "",
+                _sse_data(
+                    {
+                        "id": "chatcmpl-req-123",
+                        "object": "chat.completion.chunk",
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    }
+                ),
+                "",
+                _sse_data(
+                    {
+                        "id": "chatcmpl-req-123",
+                        "object": "chat.completion.chunk",
+                        "choices": [],
+                        "usage": {
+                            "prompt_tokens": 11,
+                            "completion_tokens": 5,
+                            "total_tokens": 16,
+                        },
+                    }
+                ),
+                "",
+                "data: [DONE]",
+                "",
+            ],
+        )
+        prompt_preview = _FakeJSONResponse(
+            {
+                "request_id": "req-123",
+                "prompt_messages": [{"role": "system", "content": "prompt"}],
+                "rag_context": [{"content": "doc-1"}],
+            }
+        )
+
+        with (
+            patch(
+                "experiments.eval.eval_scripts.runner.httpx.stream",
+                return_value=_FakeStreamContext(stream_response),
+            ) as mock_stream,
+            patch(
+                "experiments.eval.eval_scripts.runner.httpx.get",
+                return_value=prompt_preview,
+            ) as mock_get,
+        ):
+            response = _call_gateway(
+                messages=[{"role": "user", "content": "hello"}],
+                gateway_url="http://gateway:9000",
+                rag_sources=[{"knowledge_base": "arxiv", "alias": "champion"}],
+                temperature=0.0,
+                internal_api_key="secret",
+                expect_rag_context=True,
+            )
+
+        assert response["id"] == "chatcmpl-req-123"
+        assert response["choices"][0]["message"]["content"] == "hello world"
+        assert response["choices"][0]["finish_reason"] == "stop"
+        assert response["usage"] == {
+            "prompt_tokens": 11,
+            "completion_tokens": 5,
+            "total_tokens": 16,
+        }
+        assert response["rag_context"] == [{"content": "doc-1"}]
+        assert response["_prompt_messages"] == [{"role": "system", "content": "prompt"}]
+        mock_stream.assert_called_once()
+        mock_get.assert_called_once_with(
+            "http://gateway:9000/v1/chat/prompt-preview/req-123",
+            headers={"X-API-Key": "secret"},
+            timeout=30,
+        )
+
+    def test_call_gateway_requires_prompt_preview_for_rag_requests(self):
+        from experiments.eval.eval_scripts.runner import _call_gateway
+
+        stream_response = _FakeStreamResponse(
+            headers={"X-Request-Id": "req-123"},
+            lines=[
+                _sse_data(
+                    {
+                        "id": "chatcmpl-req-123",
+                        "object": "chat.completion.chunk",
+                        "choices": [
+                            {"index": 0, "delta": {"content": "hello"}, "finish_reason": None}
+                        ],
+                    }
+                ),
+                "",
+                _sse_data(
+                    {
+                        "id": "chatcmpl-req-123",
+                        "object": "chat.completion.chunk",
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    }
+                ),
+                "",
+                "data: [DONE]",
+                "",
+            ],
+        )
+
+        with (
+            patch(
+                "experiments.eval.eval_scripts.runner.httpx.stream",
+                return_value=_FakeStreamContext(stream_response),
+            ),
+            patch(
+                "experiments.eval.eval_scripts.runner.httpx.get",
+                return_value=_FakeJSONResponse({"request_id": "req-123"}),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="rag_context"):
+                _call_gateway(
+                    messages=[{"role": "user", "content": "hello"}],
+                    gateway_url="http://gateway:9000",
+                    rag_sources=[{"knowledge_base": "arxiv", "alias": "champion"}],
+                    temperature=0.0,
+                    internal_api_key="secret",
+                    expect_rag_context=True,
+                )
 
 
 # ---------------------------------------------------------------------------

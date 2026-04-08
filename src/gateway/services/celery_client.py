@@ -49,6 +49,7 @@ class CeleryClient:
     def enqueue_generate_response(
         self,
         conversation_id: str,
+        request_id: str,
         generation_payload: dict[str, Any],
         budget_meta: dict[str, Any],
     ) -> str:
@@ -56,6 +57,7 @@ class CeleryClient:
 
         Args:
             conversation_id: Unique conversation identifier
+            request_id: Gateway-generated request identifier
             generation_payload: Chat completion payload without final max_tokens
             budget_meta: Exact-budget metadata for worker-side preflight
 
@@ -69,6 +71,7 @@ class CeleryClient:
             "worker.tasks.generate_response",
             kwargs={
                 "conversation_id": conversation_id,
+                "request_id": request_id,
                 "generation_payload": generation_payload,
                 "budget_meta": budget_meta,
             },

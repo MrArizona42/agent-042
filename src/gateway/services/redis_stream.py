@@ -16,7 +16,8 @@ import redis.asyncio as aioredis
 logger = logging.getLogger(__name__)
 
 # Event types (must match worker/tasks.py)
-EVENT_TOKEN = "token"
+EVENT_THINKING_TOKEN = "thinking_token"
+EVENT_ANSWER_TOKEN = "answer_token"
 EVENT_DONE = "done"
 EVENT_ERROR = "error"
 
@@ -48,6 +49,32 @@ class RedisStreamService:
         if self._redis is not None:
             await self._redis.close()
             self._redis = None
+
+    async def store_prompt_preview(
+        self,
+        request_id: str,
+        preview: dict[str, Any],
+        *,
+        ttl_seconds: int = 900,
+    ) -> None:
+        redis = await self._get_redis()
+        await redis.setex(
+            f"prompt_preview:{request_id}",
+            ttl_seconds,
+            json.dumps(preview),
+        )
+
+    async def get_prompt_preview(self, request_id: str) -> dict[str, Any] | None:
+        redis = await self._get_redis()
+        raw = await redis.get(f"prompt_preview:{request_id}")
+        if raw is None:
+            return None
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("Failed to decode prompt preview for request_id=%s", request_id)
+            return None
+        return value if isinstance(value, dict) else None
 
     async def subscribe(
         self,
@@ -115,68 +142,3 @@ class RedisStreamService:
             await pubsub.unsubscribe(channel_name)
             await pubsub.close()
             logger.info(f"Unsubscribed from channel: {channel_name}")
-
-    async def subscribe_sse(
-        self,
-        conversation_id: str,
-        timeout: float = 300.0,
-    ) -> AsyncIterator[bytes]:
-        """Subscribe and yield SSE-formatted events.
-
-        This is a convenience method that formats events as Server-Sent Events
-        for direct streaming to HTTP clients.
-
-        Args:
-            conversation_id: Conversation ID to subscribe to
-            timeout: Maximum time to wait for events in seconds
-
-        Yields:
-            SSE-formatted bytes
-        """
-        full_content = ""
-
-        async for event in self.subscribe(conversation_id, timeout):
-            event_type = event.get("type")
-
-            if event_type == EVENT_TOKEN:
-                content = event.get("content", "")
-                full_content += content
-                # Format as OpenAI-compatible SSE chunk
-                chunk = {
-                    "id": f"chatcmpl-{conversation_id}",
-                    "object": "chat.completion.chunk",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": content},
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk)}\n\n".encode()
-
-            elif event_type == EVENT_DONE:
-                # Final chunk with finish_reason
-                chunk = {
-                    "id": f"chatcmpl-{conversation_id}",
-                    "object": "chat.completion.chunk",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {},
-                            "finish_reason": event.get("finish_reason", "stop"),
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk)}\n\n".encode()
-                yield b"data: [DONE]\n\n"
-
-            elif event_type == EVENT_ERROR:
-                error_msg = event.get("error", "Unknown error")
-                error_chunk = {
-                    "error": {
-                        "message": error_msg,
-                        "type": "server_error",
-                    }
-                }
-                yield f"data: {json.dumps(error_chunk)}\n\n".encode()

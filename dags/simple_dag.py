@@ -1,11 +1,8 @@
-"""DAG: Simple DAG
-"""
+"""DAG: Simple DAG"""
 
 from __future__ import annotations
 
-import os
-import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -26,8 +23,10 @@ default_args = {
 # DAG definition
 # ---------------------------------------------------------------------------
 
+
 def print_hello():
     print("Hello world!")
+
 
 with DAG(
     dag_id="simple_dag",

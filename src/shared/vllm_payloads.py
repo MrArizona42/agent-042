@@ -19,6 +19,17 @@ class ResponseBudgetExceededError(ValueError):
     """Raised when the exact prompt leaves too little room for generation."""
 
 
+def canonicalize_assistant_content(
+    thinking_content: str | None,
+    answer_content: str | None,
+) -> str:
+    thinking = thinking_content or ""
+    answer = answer_content or ""
+    if thinking:
+        return f"<think>{thinking}</think>\n\n{answer}"
+    return answer
+
+
 def extract_tokenize_payload(generation_payload: Mapping[str, Any]) -> dict[str, Any]:
     """Copy only chat-affecting fields for vLLM /tokenize parity."""
     return {
@@ -50,10 +61,15 @@ def apply_response_token_budget(
     prompt_tokens: int,
     budget_meta: Mapping[str, Any],
     stream: bool | None = None,
+    include_usage: bool = False,
 ) -> tuple[dict[str, Any], int]:
     final_max_tokens = compute_response_token_budget(prompt_tokens, budget_meta)
     payload = dict(generation_payload)
     payload["max_tokens"] = final_max_tokens
     if stream is not None:
         payload["stream"] = stream
+    if include_usage:
+        stream_options = dict(payload.get("stream_options") or {})
+        stream_options["include_usage"] = True
+        payload["stream_options"] = stream_options
     return payload, final_max_tokens
