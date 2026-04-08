@@ -273,10 +273,15 @@ class TestKnowledgeBasesEndpoint:
         assert isinstance(data, list)
         assert len(data) == 2
 
-        names = {kb["knowledge_base"] for kb in data}
-        assert names == {"arxiv", "pytorch_docs"}
+        tasks = {entry["task"] for entry in data}
+        assert tasks == {"chat", "code"}
 
-        arxiv_entry = next(kb for kb in data if kb["knowledge_base"] == "arxiv")
+        chat_entry = next(entry for entry in data if entry["task"] == "chat")
+        assert chat_entry["label"] == "General knowledge"
+        assert len(chat_entry["knowledge_bases"]) == 1
+
+        arxiv_entry = chat_entry["knowledge_bases"][0]
+        assert arxiv_entry["knowledge_base"] == "arxiv"
         assert arxiv_entry["update_strategy"] == "incremental"
         assert "champion" in arxiv_entry["aliases"]
 
@@ -400,7 +405,21 @@ class TestRAGServiceResolution:
         result = RAGService.available_knowledge_bases()
         assert "arxiv" in result
         assert "pytorch_docs" in result
+        assert result["arxiv"]["task"] == "chat"
+        assert result["pytorch_docs"]["task_label"] == "Coding assistance"
         assert result["arxiv"]["update_strategy"] == "incremental"
+
+    def test_available_knowledge_bases_by_task(self, kb_json_file: Path):
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        from gateway.services.rag_service import RAGService
+
+        result = RAGService.available_knowledge_bases_by_task()
+        assert [entry["task"] for entry in result] == ["chat", "code"]
+        assert result[0]["knowledge_bases"][0]["knowledge_base"] == "arxiv"
 
 
 # ---------------------------------------------------------------------------

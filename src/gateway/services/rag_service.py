@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from gateway.config import get_settings
 from rag.embeddings import EmbeddingService
@@ -205,16 +205,19 @@ class RAGService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def available_knowledge_bases() -> dict[str, dict]:
+    def available_knowledge_bases() -> dict[str, dict[str, Any]]:
         """Return the registry of available knowledge bases.
 
-        Returns a dict keyed by KB name with ``label``, ``description``,
-        ``aliases`` (full config), ``default_alias``, and ``update_strategy``.
+        Returns a dict keyed by KB name with task metadata plus ``label``,
+        ``description``, ``aliases`` (full config), ``default_alias``,
+        and ``update_strategy``.
         """
-        result: dict[str, dict] = {}
+        result: dict[str, dict[str, Any]] = {}
         for task_cfg in get_knowledge_bases().values():
             for kb_cfg in task_cfg.knowledge_bases:
                 result[kb_cfg.name] = {
+                    "task": task_cfg.task,
+                    "task_label": task_cfg.label,
                     "label": kb_cfg.label,
                     "description": kb_cfg.description,
                     "aliases": {
@@ -223,6 +226,33 @@ class RAGService:
                     "default_alias": kb_cfg.default_alias,
                     "update_strategy": kb_cfg.update_strategy,
                 }
+        return result
+
+    @staticmethod
+    def available_knowledge_bases_by_task() -> list[dict[str, Any]]:
+        """Return the registry grouped by task for discovery endpoints."""
+        result: list[dict[str, Any]] = []
+        for task_cfg in get_knowledge_bases().values():
+            result.append(
+                {
+                    "task": task_cfg.task,
+                    "label": task_cfg.label,
+                    "knowledge_bases": [
+                        {
+                            "knowledge_base": kb_cfg.name,
+                            "label": kb_cfg.label,
+                            "description": kb_cfg.description,
+                            "aliases": {
+                                name: alias_cfg.model_dump()
+                                for name, alias_cfg in kb_cfg.aliases.items()
+                            },
+                            "default_alias": kb_cfg.default_alias,
+                            "update_strategy": kb_cfg.update_strategy,
+                        }
+                        for kb_cfg in task_cfg.knowledge_bases
+                    ],
+                }
+            )
         return result
 
     def validate_knowledge_bases(self) -> None:
