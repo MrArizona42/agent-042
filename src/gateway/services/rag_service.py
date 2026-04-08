@@ -204,26 +204,6 @@ class RAGService:
     # Public API
     # ------------------------------------------------------------------
 
-    def format_context_for_docs(
-        self,
-        documents: list,
-        *,
-        knowledge_base: str,
-        alias: str,
-        max_length: int = 4000,
-    ) -> Optional[str]:
-        """Format documents using the retriever's boundary-respecting formatter.
-
-        Returns None when no retriever is available or documents are empty.
-        """
-        if not documents:
-            return None
-        retriever = self._get_retriever(knowledge_base, alias)
-        if retriever is None:
-            return None
-        result = retriever.format_context(documents, max_length=max_length)
-        return result or None
-
     @staticmethod
     def available_knowledge_bases() -> dict[str, dict]:
         """Return the registry of available knowledge bases.
@@ -279,59 +259,6 @@ class RAGService:
                         continue
 
                     self._ensure_build_config(cache_key, vs, strict=strict)
-
-    def retrieve_context(
-        self,
-        query: str,
-        knowledge_base: Optional[str] = None,
-        alias: Optional[str] = None,
-        top_k: Optional[int] = None,
-    ) -> Optional[str]:
-        """Retrieve relevant context for a query.
-
-        Args:
-            query: User query
-            knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
-                If None the retrieval is skipped.
-            alias: Alias role (uses KB's default_alias if None).
-            top_k: Number of documents to retrieve (uses alias config if None)
-
-        Returns:
-            Formatted context string or None if RAG is disabled/unavailable
-        """
-        if not self.enabled:
-            return None
-
-        if not knowledge_base:
-            logger.info("No knowledge base selected — skipping RAG retrieval")
-            return None
-
-        kb_cfg = get_kb_config(knowledge_base)
-        if kb_cfg is None:
-            logger.warning("Unknown knowledge base: %s", knowledge_base)
-            return None
-
-        if alias is None:
-            alias = kb_cfg.default_alias
-        alias_cfg = kb_cfg.aliases.get(alias)
-        if alias_cfg is None:
-            logger.warning("Invalid alias '%s' for knowledge base '%s'", alias, knowledge_base)
-            return None
-        if top_k is None:
-            top_k = alias_cfg.top_k
-        docs = self.retrieve_documents(
-            query=query,
-            knowledge_base=knowledge_base,
-            alias=alias,
-            top_k=top_k,
-        )
-        if not docs:
-            return None
-        max_len = alias_cfg.context_max_length
-        retriever = self._get_retriever(knowledge_base, alias)
-        if retriever is None:
-            return None
-        return retriever.format_context(docs, max_length=max_len)
 
     def retrieve_documents(
         self,

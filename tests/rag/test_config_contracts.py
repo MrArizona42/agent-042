@@ -40,7 +40,6 @@ class TestAliasConfigValidation:
         with pytest.raises(ValidationError, match="top_k"):
             AliasConfig(
                 score_threshold=0.35,
-                context_max_length=4000,
                 reranker=None,
             )
 
@@ -50,15 +49,7 @@ class TestAliasConfigValidation:
         from shared.config import AliasConfig
 
         with pytest.raises(ValidationError, match="score_threshold"):
-            AliasConfig(top_k=5, context_max_length=4000, reranker=None)
-
-    def test_missing_context_max_length_raises(self):
-        from pydantic import ValidationError
-
-        from shared.config import AliasConfig
-
-        with pytest.raises(ValidationError, match="context_max_length"):
-            AliasConfig(top_k=5, score_threshold=0.35, reranker=None)
+            AliasConfig(top_k=5, reranker=None)
 
     def test_missing_reranker_raises(self):
         from pydantic import ValidationError
@@ -66,7 +57,7 @@ class TestAliasConfigValidation:
         from shared.config import AliasConfig
 
         with pytest.raises(ValidationError, match="reranker"):
-            AliasConfig(top_k=5, score_threshold=0.35, context_max_length=4000)
+            AliasConfig(top_k=5, score_threshold=0.35)
 
     def test_complete_alias_config_ok(self):
         from shared.config import AliasConfig
@@ -74,7 +65,6 @@ class TestAliasConfigValidation:
         cfg = AliasConfig(
             top_k=5,
             score_threshold=0.35,
-            context_max_length=4000,
             reranker=None,
         )
         assert cfg.top_k == 5
@@ -100,7 +90,6 @@ class TestKBConfigDefaultAlias:
                     "champion": {
                         "top_k": 5,
                         "score_threshold": 0.35,
-                        "context_max_length": 4000,
                         "reranker": None,
                     },
                 },
@@ -117,7 +106,6 @@ class TestKBConfigDefaultAlias:
                 "champion": {
                     "top_k": 5,
                     "score_threshold": 0.35,
-                    "context_max_length": 4000,
                     "reranker": None,
                 },
             },
@@ -147,7 +135,6 @@ class TestDuplicateKBNames:
                             "champion": {
                                 "top_k": 5,
                                 "score_threshold": 0.35,
-                                "context_max_length": 4000,
                                 "reranker": None,
                             },
                         },
@@ -165,7 +152,6 @@ class TestDuplicateKBNames:
                             "champion": {
                                 "top_k": 5,
                                 "score_threshold": 0.35,
-                                "context_max_length": 4000,
                                 "reranker": None,
                             },
                         },
@@ -202,7 +188,6 @@ class TestValidateKbAlias:
                             "champion": {
                                 "top_k": 5,
                                 "score_threshold": 0.35,
-                                "context_max_length": 4000,
                                 "reranker": None,
                             },
                         },

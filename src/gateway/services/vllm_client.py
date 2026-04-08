@@ -55,6 +55,18 @@ class VllmOpenAIClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def tokenize(self, payload: Dict[str, Any]) -> Any:
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/tokenize",
+                headers=self._headers(),
+                json=payload,
+            )
+            if resp.status_code >= 400:
+                logger.error(f"vLLM tokenize error response: {resp.text}")
+            resp.raise_for_status()
+            return resp.json()
+
     async def chat_completions_stream(self, payload: Dict[str, Any]) -> AsyncIterator[bytes]:
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(

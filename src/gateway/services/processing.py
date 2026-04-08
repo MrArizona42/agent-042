@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 import uuid as _uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator
 
 from gateway.config import get_settings
 from gateway.schemas.openai_chat import ChatCompletionRequest
+from gateway.services.budget import build_budget_meta
 from gateway.services.celery_client import CeleryClient
 from gateway.services.prompt_builder import PromptBuilder
 from gateway.services.rag_service import RAGService
@@ -14,9 +16,22 @@ from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
 from shared.config import get_kb_config
+from shared.vllm_payloads import (
+    ResponseBudgetExceededError,
+    apply_response_token_budget,
+    extract_tokenize_payload,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PreparedChatRequest:
+    generation_payload: dict[str, Any]
+    budget_meta: dict[str, int]
+    rag_context_chunks: list[dict[str, Any]]
+    prompt_messages: list[dict[str, Any]]
 
 
 class _ProcessChat:
@@ -62,8 +77,8 @@ class _ProcessChat:
         return self._rag_service
 
     def _client(self) -> VllmOpenAIClient:
-        s = get_settings()
-        return VllmOpenAIClient(base_url=s.vllm_base_url, api_key=None)
+        settings = get_settings()
+        return VllmOpenAIClient(base_url=settings.vllm_base_url, api_key=settings.api_key)
 
     def _get_celery_client(self) -> CeleryClient:
         """Return the Celery client injected during lifespan startup."""
@@ -86,105 +101,160 @@ class _ProcessChat:
     async def list_models(self) -> Any:
         return await self._client().list_models()
 
-    def _build_payload(self, req: ChatCompletionRequest) -> Dict[str, Any]:
-        # Decide task based on last user message (or fallback).
+    def _passthrough_fields(self, req: ChatCompletionRequest) -> dict[str, Any]:
+        disallowed = {
+            "messages",
+            "model",
+            "temperature",
+            "top_p",
+            "stream",
+            "chat_session_id",
+            "rag_sources",
+            "max_tokens",
+            "max_completion_tokens",
+        }
+        extra_fields = dict(req.model_extra or {})
+        return {
+            key: value
+            for key, value in extra_fields.items()
+            if key not in disallowed and value is not None
+        }
+
+    def _retrieve_rag_chunks(
+        self,
+        req: ChatCompletionRequest,
+        *,
+        last_user: str,
+    ) -> dict[str, list[dict[str, Any]]]:
+        rag_chunks_by_source: dict[str, list[dict[str, Any]]] = {}
+
+        if not req.rag_sources:
+            return rag_chunks_by_source
+
+        try:
+            rag_service = self.ensure_rag_service()
+        except Exception as exc:
+            logger.error("Failed to initialize RAG service: %s", exc)
+            return rag_chunks_by_source
+
+        if rag_service is None or not rag_service.enabled:
+            return rag_chunks_by_source
+
+        try:
+            for src in req.rag_sources:
+                kb_cfg = get_kb_config(src.knowledge_base)
+                effective_alias = src.alias or (kb_cfg.default_alias if kb_cfg else "champion")
+                logger.info(
+                    "RAG — retrieving from kb=%s alias=%s",
+                    src.knowledge_base,
+                    effective_alias,
+                )
+                docs = rag_service.retrieve_documents(
+                    query=last_user,
+                    knowledge_base=src.knowledge_base,
+                    alias=effective_alias,
+                )
+                if not docs:
+                    continue
+
+                source_key = f"{src.knowledge_base}:{effective_alias}"
+                rag_chunks_by_source[source_key] = [
+                    {
+                        "content": doc.content,
+                        "score": doc.score if doc.score is not None else 0.0,
+                        "source": f"{src.knowledge_base}_{effective_alias}",
+                        "knowledge_base": src.knowledge_base,
+                        "alias": effective_alias,
+                        "metadata": dict(doc.metadata),
+                    }
+                    for doc in docs
+                ]
+        except Exception as exc:
+            logger.error("Error retrieving RAG context: %s", exc)
+
+        return rag_chunks_by_source
+
+    def _prepare_request(self, req: ChatCompletionRequest) -> PreparedChatRequest:
+        settings = get_settings()
         last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
         decision = self._router.decide(last_user)
 
-        # Try to retrieve RAG context using rag_sources (multi-KB + alias)
-        retrieved_context = None
-        rag_mode = "off"
-        rag_context_chunks: list[Dict[str, Any]] = []
-
-        rag_service: RAGService | None = None
-        if req.rag_sources:
-            try:
-                rag_service = self.ensure_rag_service()
-            except Exception as e:
-                logger.error(f"Failed to initialize RAG service: {e}")
-                rag_service = None
-
-        if rag_service and rag_service.enabled and req.rag_sources:
-            try:
-                context_parts: list[str] = []
-                for src in req.rag_sources:
-                    kb_cfg = get_kb_config(src.knowledge_base)
-                    effective_alias = src.alias or (kb_cfg.default_alias if kb_cfg else "champion")
-                    logger.info(
-                        f"RAG — retrieving from kb={src.knowledge_base} alias={effective_alias}"
-                    )
-                    docs = rag_service.retrieve_documents(
-                        query=last_user,
-                        knowledge_base=src.knowledge_base,
-                        alias=effective_alias,
-                    )
-                    if docs:
-                        source_label = f"{src.knowledge_base}_{effective_alias}"
-                        for doc in docs:
-                            rag_context_chunks.append(
-                                {
-                                    "content": doc.content,
-                                    "score": doc.score if doc.score is not None else 0.0,
-                                    "source": source_label,
-                                }
-                            )
-                        alias_cfg = kb_cfg.aliases.get(effective_alias) if kb_cfg else None
-                        max_len = alias_cfg.context_max_length if alias_cfg else 4000
-                        ctx = rag_service.format_context_for_docs(
-                            docs,
-                            knowledge_base=src.knowledge_base,
-                            alias=effective_alias,
-                            max_length=max_len,
-                        )
-                        if ctx:
-                            context_parts.append(ctx)
-                if context_parts:
-                    retrieved_context = "\n\n".join(context_parts)
-                    rag_mode = "on"
-                    logger.info(f"RAG context retrieved from {len(context_parts)} source(s)")
-                else:
-                    logger.info("No RAG context found from any source")
-            except Exception as e:
-                logger.error(f"Error retrieving RAG context: {e}")
-
-        prompt = self._prompt_builder.build_system_prompt(
+        rag_chunks_by_source = self._retrieve_rag_chunks(req, last_user=last_user)
+        prompt = self._prompt_builder.build_budgeted_messages(
             task=decision.task,
-            rag_mode=rag_mode,
-            retrieved_context=retrieved_context,
+            request_messages=[m.model_dump(exclude_none=True) for m in req.messages],
+            rag_chunks_by_source=rag_chunks_by_source,
+            rag_requested=bool(req.rag_sources),
+            settings=settings,
         )
-        logger.info(f"RAG built system prompt: {prompt.system_prompt}")
 
-        messages = list(req.messages)
-        if not any(m.role == "system" for m in messages):
-            messages = [
-                {"role": "system", "content": prompt.system_prompt},
-                *[m.model_dump(exclude_none=True) for m in messages],
-            ]
-        else:
-            messages = [m.model_dump(exclude_none=True) for m in messages]
+        logger.info("Built budgeted prompt with %s message(s)", len(prompt.messages))
 
-        # Use the default model from settings if none is provided.
-        model = req.model if req.model else get_settings().default_model
-
-        payload: Dict[str, Any] = {
-            "model": model,
-            "messages": messages,
+        generation_payload: dict[str, Any] = {
+            "model": req.model if req.model else settings.default_model,
+            "messages": prompt.messages,
             "temperature": req.temperature,
             "top_p": req.top_p,
-            "max_tokens": req.max_tokens,
-            "stream": req.stream,
         }
+        generation_payload = {
+            key: value for key, value in generation_payload.items() if value is not None
+        }
+        generation_payload.update(self._passthrough_fields(req))
 
-        # Drop None fields (vLLM is generally tolerant, but keep it clean).
-        payload = {k: v for k, v in payload.items() if v is not None}
+        return PreparedChatRequest(
+            generation_payload=generation_payload,
+            budget_meta=build_budget_meta(settings),
+            rag_context_chunks=prompt.rag_context_chunks,
+            prompt_messages=prompt.messages,
+        )
 
-        # Include any extra openai-like fields.
-        payload.update(req.extra)
+    async def _build_exact_generation_payload(
+        self,
+        prepared: PreparedChatRequest,
+        *,
+        stream: bool,
+    ) -> tuple[dict[str, Any], int]:
+        client = self._client()
+        tokenize_payload = extract_tokenize_payload(prepared.generation_payload)
+        tokenize_response = await client.tokenize(tokenize_payload)
+        prompt_tokens = int(tokenize_response["count"])
+        final_payload, _ = apply_response_token_budget(
+            prepared.generation_payload,
+            prompt_tokens=prompt_tokens,
+            budget_meta=prepared.budget_meta,
+            stream=stream,
+        )
+        return final_payload, prompt_tokens
 
-        # Attach RAG context chunks for eval groundedness scoring
-        payload["_rag_context_chunks"] = rag_context_chunks
+    @staticmethod
+    def _apply_usage(result: dict[str, Any], *, prompt_tokens: int | None) -> dict[str, Any]:
+        usage = result.get("usage")
+        if not isinstance(usage, dict):
+            usage = {}
 
-        return payload
+        if prompt_tokens is not None and usage.get("prompt_tokens") is None:
+            usage["prompt_tokens"] = prompt_tokens
+
+        completion_tokens = usage.get("completion_tokens")
+        if (
+            usage.get("total_tokens") is None
+            and isinstance(prompt_tokens, int)
+            and isinstance(completion_tokens, int)
+        ):
+            usage["total_tokens"] = prompt_tokens + completion_tokens
+
+        result["usage"] = usage
+        return result
+
+    @staticmethod
+    def _usage_int(value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        return None
 
     async def chat(
         self,
@@ -195,81 +265,74 @@ class _ProcessChat:
     ) -> Any:
         """Process chat request (sync or async based on configuration)."""
         settings = get_settings()
-
-        payload = self._build_payload(req)
-
-        # Extract RAG context chunks before forwarding to inference
-        rag_context_chunks = payload.pop("_rag_context_chunks", [])
+        prepared = self._prepare_request(req)
 
         if settings.async_enabled:
-            result = await self._chat_async(req, payload)
+            result = await self._chat_async(prepared)
         else:
-            result = await self._chat_sync(req, payload)
+            result = await self._chat_sync(prepared)
 
-        # Attach the full prompt messages for UI debugging display
-        result["_prompt_messages"] = payload.get("messages", [])
+        result["_prompt_messages"] = prepared.prompt_messages
+        if prepared.rag_context_chunks:
+            result["rag_context"] = prepared.rag_context_chunks
 
-        # Include RAG context in response when RAG was used
-        if rag_context_chunks:
-            result["rag_context"] = rag_context_chunks
-
-        # Persist messages if a chat session is associated
         if chat_session_id and user_id:
             await self._persist_exchange(req, result, chat_session_id)
 
         return result
 
-    async def _chat_sync(
-        self, req: ChatCompletionRequest, payload: Dict[str, Any] | None = None
-    ) -> Any:
-        """Synchronous chat: direct call to vLLM."""
-        if payload is None:
-            payload = self._build_payload(req)
-        return await self._client().chat_completions(payload)
+    async def _chat_sync(self, prepared: PreparedChatRequest) -> Any:
+        payload, prompt_tokens = await self._build_exact_generation_payload(
+            prepared,
+            stream=False,
+        )
+        result = await self._client().chat_completions(payload)
+        return self._apply_usage(result, prompt_tokens=prompt_tokens)
 
-    async def _chat_async(
-        self, req: ChatCompletionRequest, payload: Dict[str, Any] | None = None
-    ) -> Any:
-        """Asynchronous chat: enqueue task and wait for result via Redis."""
+    async def _chat_async(self, prepared: PreparedChatRequest) -> Any:
         settings = get_settings()
-        if payload is None:
-            payload = self._build_payload(req)
-
         conversation_id = str(_uuid.uuid4())
         celery_client = self._get_celery_client()
         redis_stream = self._get_redis_stream()
 
-        # Enqueue the task
         task_id = celery_client.enqueue_generate_response(
             conversation_id=conversation_id,
-            messages=payload.get("messages", []),
-            model=payload.get("model"),
-            temperature=payload.get("temperature"),
-            top_p=payload.get("top_p"),
-            max_tokens=payload.get("max_tokens"),
+            generation_payload=prepared.generation_payload,
+            budget_meta=prepared.budget_meta,
         )
+        logger.info("Enqueued async chat task %s for conversation %s", task_id, conversation_id)
 
-        logger.info(f"Enqueued async chat task {task_id} for conversation {conversation_id}")
-
-        # Wait for completion via Redis
         full_content = ""
         finish_reason = "stop"
+        usage: dict[str, Any] = {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+        }
 
         async for event in redis_stream.subscribe(
-            conversation_id, timeout=settings.streaming_timeout
+            conversation_id,
+            timeout=settings.streaming_timeout,
         ):
             event_type = event.get("type")
 
             if event_type == "token":
                 full_content += event.get("content", "")
-            elif event_type == "done":
+                continue
+
+            if event_type == "done":
                 full_content = event.get("content", full_content)
                 finish_reason = event.get("finish_reason", "stop")
+                event_usage = event.get("usage")
+                if isinstance(event_usage, dict):
+                    usage = event_usage
                 break
-            elif event_type == "error":
+
+            if event_type == "error":
+                if event.get("error_type") == "budget_exceeded":
+                    raise ResponseBudgetExceededError(event.get("error", "Budget exceeded"))
                 raise RuntimeError(f"Async inference error: {event.get('error')}")
 
-        # Return OpenAI-compatible response
         return {
             "id": f"chatcmpl-{conversation_id}",
             "object": "chat.completion",
@@ -283,11 +346,7 @@ class _ProcessChat:
                     "finish_reason": finish_reason,
                 }
             ],
-            "usage": {
-                "prompt_tokens": 0,  # Not tracked in async mode
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            },
+            "usage": usage,
         }
 
     async def stream_chat(
@@ -297,56 +356,38 @@ class _ProcessChat:
         user_id: str | None = None,
         chat_session_id: str | None = None,
     ) -> AsyncIterator[bytes]:
-        """Stream chat response (sync or async based on configuration)."""
-        settings = get_settings()
+        del user_id, chat_session_id
 
+        settings = get_settings()
+        prepared = self._prepare_request(req)
         if settings.async_enabled:
-            async for chunk in self._stream_chat_async(req):
-                yield chunk
-        else:
-            async for chunk in self._stream_chat_sync(req):
-                yield chunk
+            return await self._stream_chat_async(prepared)
+        return await self._stream_chat_sync(prepared)
 
-    async def _stream_chat_sync(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
-        """Synchronous streaming: direct call to vLLM."""
-        payload = self._build_payload(req)
-        payload.pop("_rag_context_chunks", None)
-        # Ensure stream true.
-        payload["stream"] = True
-        async for chunk in self._client().chat_completions_stream(payload):
-            yield chunk
+    async def _stream_chat_sync(self, prepared: PreparedChatRequest) -> AsyncIterator[bytes]:
+        payload, _ = await self._build_exact_generation_payload(prepared, stream=True)
+        return self._client().chat_completions_stream(payload)
 
-    async def _stream_chat_async(self, req: ChatCompletionRequest) -> AsyncIterator[bytes]:
-        """Asynchronous streaming: enqueue task and stream via Redis."""
+    async def _stream_chat_async(self, prepared: PreparedChatRequest) -> AsyncIterator[bytes]:
         settings = get_settings()
-        payload = self._build_payload(req)
-        payload.pop("_rag_context_chunks", None)
-
         conversation_id = str(_uuid.uuid4())
         celery_client = self._get_celery_client()
         redis_stream = self._get_redis_stream()
 
-        # Enqueue the task
         task_id = celery_client.enqueue_generate_response(
             conversation_id=conversation_id,
-            messages=payload.get("messages", []),
-            model=payload.get("model"),
-            temperature=payload.get("temperature"),
-            top_p=payload.get("top_p"),
-            max_tokens=payload.get("max_tokens"),
+            generation_payload=prepared.generation_payload,
+            budget_meta=prepared.budget_meta,
         )
-
-        logger.info(f"Enqueued async stream task {task_id} for conversation {conversation_id}")
-
-        # Stream from Redis
-        async for chunk in redis_stream.subscribe_sse(
-            conversation_id, timeout=settings.streaming_timeout
-        ):
-            yield chunk
-
-    # ------------------------------------------------------------------
-    # Persistence helpers
-    # ------------------------------------------------------------------
+        logger.info(
+            "Enqueued async stream task %s for conversation %s",
+            task_id,
+            conversation_id,
+        )
+        return redis_stream.subscribe_sse(
+            conversation_id,
+            timeout=settings.streaming_timeout,
+        )
 
     async def _persist_exchange(
         self,
@@ -356,20 +397,21 @@ class _ProcessChat:
     ) -> None:
         """Persist the user message and assistant response to PostgreSQL."""
         try:
+            from sqlalchemy import select
+
             from shared.db.engine import get_session_factory
             from shared.db.models import ChatMessage, ChatSession
 
             last_user_msg = next(
-                (m.content for m in reversed(req.messages) if m.role == "user"), None
+                (m.content for m in reversed(req.messages) if m.role == "user"),
+                None,
             )
             assistant_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
 
             session_uuid = _uuid.UUID(chat_session_id)
 
             async with get_session_factory()() as db:
-                # Update session title if empty (first message)
-                from sqlalchemy import select
-
                 sess_result = await db.execute(
                     select(ChatSession).where(ChatSession.id == session_uuid)
                 )
@@ -386,12 +428,15 @@ class _ProcessChat:
                             content=last_user_msg,
                         )
                     )
+
                 if assistant_content:
                     db.add(
                         ChatMessage(
                             session_id=session_uuid,
                             role="assistant",
                             content=assistant_content,
+                            prompt_tokens=self._usage_int(usage.get("prompt_tokens")),
+                            completion_tokens=self._usage_int(usage.get("completion_tokens")),
                         )
                     )
 

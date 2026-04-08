@@ -123,7 +123,6 @@ class TestEvalSettings:
         s = get_eval_settings()
         assert s.judge_model == "gemini-2.0-flash"
         assert s.temperature == 0.0
-        assert s.max_tokens == 512
         assert s.code_exec_timeout == 30
         assert s.code_exec_mem_limit == "512m"
         assert s.bert_score_model == "microsoft/deberta-base-mnli"
@@ -413,7 +412,6 @@ class TestRunnerConfig:
         settings.judge_model = "gemini-2.0-flash"
         settings.bert_score_model = "deberta"
         settings.temperature = 0.0
-        settings.max_tokens = 512
 
         fields = _build_common_fields(
             task="chat",
@@ -450,7 +448,6 @@ class TestRunnerConfig:
         settings.judge_model = "gemini-2.0-flash"
         settings.bert_score_model = "deberta"
         settings.temperature = 0.0
-        settings.max_tokens = 512
 
         fields = _build_common_fields(
             task="chat",
@@ -579,3 +576,26 @@ class TestMigrationSQL:
         assert "idx_eval_runs_rag_alias" in sql
         assert "idx_eval_runs_lora_alias" in sql
         assert "idx_eval_runs_extra" in sql
+
+    def test_chat_messages_usage_migration_exists(self):
+        path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "src"
+            / "shared"
+            / "db"
+            / "chat_messages_add_usage_columns.sql"
+        )
+        assert path.exists()
+
+    def test_chat_messages_usage_migration_adds_columns(self):
+        path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "src"
+            / "shared"
+            / "db"
+            / "chat_messages_add_usage_columns.sql"
+        )
+        sql = path.read_text()
+        assert "ALTER TABLE chat_messages" in sql
+        assert "prompt_tokens" in sql
+        assert "completion_tokens" in sql

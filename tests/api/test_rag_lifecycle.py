@@ -52,13 +52,11 @@ def kb_json_file(tmp_path: Path):
                         "champion": {
                             "top_k": 5,
                             "score_threshold": 0.35,
-                            "context_max_length": 4000,
                             "reranker": None,
                         },
                         "challenger": {
                             "top_k": 5,
                             "score_threshold": 0.35,
-                            "context_max_length": 4000,
                             "reranker": None,
                         },
                     },
@@ -79,7 +77,6 @@ def kb_json_file(tmp_path: Path):
                         "champion": {
                             "top_k": 5,
                             "score_threshold": 0.35,
-                            "context_max_length": 4000,
                             "reranker": None,
                         },
                     },
@@ -562,7 +559,6 @@ class TestLegacyMetadataHandling:
                             "champion": {
                                 "top_k": 5,
                                 "score_threshold": 0.35,
-                                "context_max_length": 4000,
                                 "reranker": None,
                             },
                         },

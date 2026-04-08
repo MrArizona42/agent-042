@@ -7,8 +7,8 @@
                 "name": "arxiv",
                 "default_alias": "champion",
                 "aliases": {
-                    "champion":   { "top_k": 5,  "score_threshold": 0.35, "context_max_length": 4000, "reranker": null },
-                    "challenger": { "top_k": 10, "score_threshold": 0.25, "context_max_length": 4000, "reranker": null }
+                    "champion":   { "top_k": 5,  "score_threshold": 0.35, "reranker": null },
+                    "challenger": { "top_k": 10, "score_threshold": 0.25, "reranker": null }
                 },
                 "update_strategy": "incremental",
                 "label": "ArXiv papers (ML / AI theory)",
@@ -24,8 +24,8 @@
                 "name": "pytorch_docs",
                 "default_alias": "champion",
                 "aliases": {
-                    "champion":   { "top_k": 5,  "score_threshold": 0.35, "context_max_length": 4000, "reranker": null },
-                    "challenger": { "top_k": 5,  "score_threshold": 0.35, "context_max_length": 4000, "reranker": null }
+                    "champion":   { "top_k": 5,  "score_threshold": 0.35, "reranker": null },
+                    "challenger": { "top_k": 5,  "score_threshold": 0.35, "reranker": null }
                 },
                 "update_strategy": "replace",
                 "label": "PyTorch docs",

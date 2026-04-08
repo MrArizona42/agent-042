@@ -181,7 +181,6 @@ if prompt:
     payload = {
         # "model": None,
         "messages": st.session_state.messages,
-        "max_completion_tokens": settings.max_completion_tokens,
         "stream": False,
     }
     if selected_kb:

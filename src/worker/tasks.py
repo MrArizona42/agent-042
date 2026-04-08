@@ -10,8 +10,12 @@ import httpx
 import redis
 
 from shared.config import get_settings
+from shared.vllm_payloads import (
+    ResponseBudgetExceededError,
+    apply_response_token_budget,
+    extract_tokenize_payload,
+)
 from worker.celery_app import celery_app
-from worker.config import get_worker_settings
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +23,13 @@ logger = logging.getLogger(__name__)
 EVENT_TOKEN = "token"
 EVENT_DONE = "done"
 EVENT_ERROR = "error"
+
+
+def _headers(api_key: str | None) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
 
 
 def get_redis_client() -> redis.Redis:
@@ -49,11 +60,8 @@ def publish_event(
 def generate_response(
     self,
     conversation_id: str,
-    messages: list[dict[str, Any]],
-    model: str | None = None,
-    temperature: float | None = None,
-    top_p: float | None = None,
-    max_tokens: int | None = None,
+    generation_payload: dict[str, Any],
+    budget_meta: dict[str, Any],
 ) -> dict[str, Any]:
     """
     Generate LLM response asynchronously.
@@ -62,45 +70,55 @@ def generate_response(
 
     Args:
         conversation_id: Unique conversation identifier for the Redis channel
-        messages: List of chat messages in OpenAI format
-        model: Model to use (defaults to worker config)
-        temperature: Sampling temperature
-        top_p: Top-p sampling parameter
-        max_tokens: Maximum tokens to generate
+        generation_payload: Chat completion payload without final max_tokens
+        budget_meta: Exact-budget metadata for worker-side preflight
 
     Returns:
         Dict with full response content and metadata
     """
-    settings = get_worker_settings()
     shared = get_settings()
     redis_client = get_redis_client()
-
-    # Build request payload
-    payload: dict[str, Any] = {
-        "model": model or shared.default_model,
-        "messages": messages,
-        "stream": True,  # Always stream from vLLM
-    }
-
-    if temperature is not None:
-        payload["temperature"] = temperature
-    if top_p is not None:
-        payload["top_p"] = top_p
-    if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
 
     logger.info(f"Task {self.request.id}: Starting generation for conversation {conversation_id}")
 
     full_content = ""
     finish_reason = None
+    usage: dict[str, Any] = {
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "total_tokens": None,
+    }
 
     try:
+        headers = _headers(shared.api_key)
         with httpx.Client(timeout=None) as client:
+            tokenize_payload = extract_tokenize_payload(generation_payload)
+            tokenize_response = client.post(
+                f"{shared.vllm_base_url}/tokenize",
+                json=tokenize_payload,
+                headers=headers,
+            )
+            tokenize_response.raise_for_status()
+            usage["prompt_tokens"] = int(tokenize_response.json()["count"])
+
+            payload, final_max_tokens = apply_response_token_budget(
+                generation_payload,
+                prompt_tokens=usage["prompt_tokens"],
+                budget_meta=budget_meta,
+                stream=True,
+            )
+            logger.info(
+                "Task %s: exact prompt_tokens=%s final_max_tokens=%s",
+                self.request.id,
+                usage["prompt_tokens"],
+                final_max_tokens,
+            )
+
             with client.stream(
                 "POST",
                 f"{shared.vllm_base_url}/v1/chat/completions",
                 json=payload,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
             ) as response:
                 response.raise_for_status()
 
@@ -117,6 +135,15 @@ def generate_response(
 
                         try:
                             chunk = json.loads(data_str)
+                            chunk_usage = chunk.get("usage")
+                            if isinstance(chunk_usage, dict):
+                                usage = {
+                                    "prompt_tokens": chunk_usage.get(
+                                        "prompt_tokens", usage.get("prompt_tokens")
+                                    ),
+                                    "completion_tokens": chunk_usage.get("completion_tokens"),
+                                    "total_tokens": chunk_usage.get("total_tokens"),
+                                }
                             choices = chunk.get("choices", [])
 
                             if choices:
@@ -147,6 +174,7 @@ def generate_response(
                 "content": full_content,
                 "finish_reason": finish_reason or "stop",
                 "task_id": self.request.id,
+                "usage": usage,
             },
         )
 
@@ -159,7 +187,24 @@ def generate_response(
             "content": full_content,
             "finish_reason": finish_reason or "stop",
             "task_id": self.request.id,
+            "usage": usage,
         }
+
+    except ResponseBudgetExceededError as e:
+        logger.error(f"Task {self.request.id}: Exact budget rejected: {e}")
+
+        publish_event(
+            redis_client,
+            conversation_id,
+            EVENT_ERROR,
+            {
+                "error": str(e),
+                "error_type": "budget_exceeded",
+                "task_id": self.request.id,
+            },
+        )
+
+        raise
 
     except Exception as e:
         logger.error(f"Task {self.request.id}: Error during generation: {e}")

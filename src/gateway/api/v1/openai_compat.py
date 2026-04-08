@@ -7,8 +7,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from gateway.schemas.openai_chat import ChatCompletionRequest
+from gateway.services.budget import BudgetValidationError
 from gateway.services.processing import process_chat
 from shared.config import get_kb_config
+from shared.vllm_payloads import ResponseBudgetExceededError
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +48,13 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request) -> 
     user_id: str | None = getattr(request.state, "user_id", None)
     chat_session_id = payload.chat_session_id or request.headers.get("x-chat-session-id")
 
-    if payload.stream:
-        generator = process_chat.stream_chat(
-            payload, user_id=user_id, chat_session_id=chat_session_id
-        )
-        return StreamingResponse(generator, media_type="text/event-stream")
+    try:
+        if payload.stream:
+            generator = await process_chat.stream_chat(
+                payload, user_id=user_id, chat_session_id=chat_session_id
+            )
+            return StreamingResponse(generator, media_type="text/event-stream")
 
-    return await process_chat.chat(payload, user_id=user_id, chat_session_id=chat_session_id)
+        return await process_chat.chat(payload, user_id=user_id, chat_session_id=chat_session_id)
+    except (BudgetValidationError, ResponseBudgetExceededError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

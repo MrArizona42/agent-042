@@ -157,14 +157,12 @@ def _call_gateway(
     model: str | None = None,
     rag_sources: list[dict[str, str]] | None = None,
     temperature: float,
-    max_tokens: int,
     internal_api_key: str,
 ) -> dict[str, Any]:
     """Call the gateway chat completions API."""
     payload: dict[str, Any] = {
         "messages": messages,
         "temperature": temperature,
-        "max_completion_tokens": max_tokens,
     }
     if model:
         payload["model"] = model
@@ -376,7 +374,7 @@ def _build_common_fields(
             eval_settings.bert_score_model,
         ),
         "temperature": eval_context.get("temperature", eval_settings.temperature),
-        "max_tokens": eval_context.get("max_tokens", eval_settings.max_tokens),
+        "max_tokens": eval_context.get("max_tokens"),
         "extra": dict(eval_context.get("extra", {})),
     }
 
@@ -531,7 +529,6 @@ def fetch_predictions(
         "kb_name": kb_name,
         "base_model": base_model,
         "temperature": eval_settings.temperature,
-        "max_tokens": eval_settings.max_tokens,
         "judge_model": eval_settings.judge_model,
         "bert_score_model": eval_settings.bert_score_model,
         "k": k,
@@ -580,7 +577,6 @@ def _fetch_generation_predictions(
                 model=model_name,
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
-                max_tokens=eval_settings.max_tokens,
                 internal_api_key=eval_settings.internal_api_key,
             )
             answer = response["choices"][0]["message"]["content"]
@@ -670,7 +666,6 @@ def _fetch_code_predictions(
                 model=model_name,
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
-                max_tokens=eval_settings.max_tokens,
                 internal_api_key=eval_settings.internal_api_key,
             )
             generated = response["choices"][0]["message"]["content"]

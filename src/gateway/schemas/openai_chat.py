@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatMessage(BaseModel):
@@ -23,13 +23,14 @@ class RAGSource(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
     # Keep request compatible with OpenAI-like clients.
     model: str | None = None
     messages: list[ChatMessage]
 
     temperature: float | None = None
     top_p: float | None = None
-    max_tokens: int | None = Field(default=None, alias="max_completion_tokens")
 
     stream: bool = False
 
@@ -44,13 +45,6 @@ class ChatCompletionRequest(BaseModel):
         default=None,
         description="Knowledge bases for RAG retrieval. None = RAG disabled.",
     )
-
-    # passthrough for additional openai-ish fields (frequency_penalty, etc.)
-    extra: dict[str, Any] = Field(default_factory=dict)
-
-    class Config:
-        populate_by_name = True
-        extra = "allow"
 
 
 class ModelListResponse(BaseModel):

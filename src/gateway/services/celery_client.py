@@ -49,21 +49,15 @@ class CeleryClient:
     def enqueue_generate_response(
         self,
         conversation_id: str,
-        messages: list[dict[str, Any]],
-        model: str | None = None,
-        temperature: float | None = None,
-        top_p: float | None = None,
-        max_tokens: int | None = None,
+        generation_payload: dict[str, Any],
+        budget_meta: dict[str, Any],
     ) -> str:
         """Enqueue a generate_response task.
 
         Args:
             conversation_id: Unique conversation identifier
-            messages: List of chat messages in OpenAI format
-            model: Model to use (optional)
-            temperature: Sampling temperature (optional)
-            top_p: Top-p sampling (optional)
-            max_tokens: Maximum tokens (optional)
+            generation_payload: Chat completion payload without final max_tokens
+            budget_meta: Exact-budget metadata for worker-side preflight
 
         Returns:
             Task ID
@@ -75,11 +69,8 @@ class CeleryClient:
             "worker.tasks.generate_response",
             kwargs={
                 "conversation_id": conversation_id,
-                "messages": messages,
-                "model": model,
-                "temperature": temperature,
-                "top_p": top_p,
-                "max_tokens": max_tokens,
+                "generation_payload": generation_payload,
+                "budget_meta": budget_meta,
             },
         )
 
