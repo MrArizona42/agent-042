@@ -20,7 +20,11 @@ else
 fi
 
 # ── Service definitions ──────────────────────────────────────────────
-# Format:  name|extras|python_version|output_file|extra_flags
+# Format:  name|selectors|python_version|output_file|extra_flags
+#
+# selectors may contain any mix of:
+#   --extra <name>
+#   --group <name>
 #
 # extra_flags may contain:
 #   --constraint <file>
@@ -36,7 +40,7 @@ SERVICES=(
   "mlflow|--extra mlflow|3.12|infra/docker/mlflow/requirements-mlflow.lock|"
   "adapter-sync|--extra mlflow|3.12|infra/docker/adapter-sync/requirements-adapter-sync.lock|"
   "embeddings|--extra embeddings|3.12|infra/docker/embeddings/requirements-embeddings.lock|"
-  "jupyter|--extra training --extra rag --extra dev --extra mlflow|3.12|infra/docker/jupyter/requirements-jupyter.lock|"
+  "jupyter|--extra training --extra rag --group dev --extra mlflow|3.13|infra/docker/jupyter/requirements-jupyter.lock|"
   "airflow|--extra airflow|3.12|infra/docker/airflow/requirements.lock|--constraint ${AIRFLOW_CONSTRAINTS}"
   "airflow-worker|--extra airflow-worker|3.12|infra/docker/airflow-worker/requirements-airflow-worker.lock|--constraint ${AIRFLOW_CONSTRAINTS} ${TORCH_CPU}"
   "airflow-worker-gpu|--extra airflow-worker-gpu|3.12|infra/docker/airflow-worker-gpu/requirements-airflow-worker-gpu.lock|--constraint ${AIRFLOW_CONSTRAINTS}"
@@ -46,7 +50,7 @@ SERVICES=(
 list_services() {
   printf "\nAvailable services:\n"
   for entry in "${SERVICES[@]}"; do
-    IFS='|' read -r name extras pyver outfile flags <<< "$entry"
+    IFS='|' read -r name selectors pyver outfile flags <<< "$entry"
     printf "  %-16s → %s\n" "$name" "$outfile"
   done
   echo
@@ -57,9 +61,9 @@ usage() {
 }
 
 compile_service() {
-  local name="$1" extras="$2" pyver="$3" outfile="$4" flags="$5"
+  local name="$1" selectors="$2" pyver="$3" outfile="$4" flags="$5"
 
-  local cmd="uv --no-config pip compile pyproject.toml ${extras} --python-version ${pyver} --python-platform linux"
+  local cmd="uv --no-config pip compile pyproject.toml ${selectors} --python-version ${pyver} --python-platform linux"
   [[ -n "$flags" ]] && cmd+=" ${flags}"
   cmd+=" -o ${outfile}"
 
@@ -131,7 +135,7 @@ fi
 # ── Step 2: compile Docker-service lock files ───────────────────────
 failed=0
 for entry in "${SERVICES[@]}"; do
-  IFS='|' read -r name extras pyver outfile flags <<< "$entry"
+  IFS='|' read -r name selectors pyver outfile flags <<< "$entry"
 
   # Skip if specific services were requested and this isn't one of them
   if [[ ${#REQUESTED[@]} -gt 0 ]]; then
@@ -142,7 +146,7 @@ for entry in "${SERVICES[@]}"; do
     [[ $skip -eq 1 ]] && continue
   fi
 
-  if ! compile_service "$name" "$extras" "$pyver" "$outfile" "$flags"; then
+  if ! compile_service "$name" "$selectors" "$pyver" "$outfile" "$flags"; then
     echo "${RED}  ✗ Failed: $name${RESET}" >&2
     failed=$((failed + 1))
   fi
