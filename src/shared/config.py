@@ -255,6 +255,11 @@ class GatewayBehaviorSettings(BaseModel):
         description="Timeout for vLLM requests in seconds",
         ge=1.0,
     )
+    repetition_penalty: float = Field(
+        default=1.1,
+        description="Repetition penalty applied to all generation requests to prevent token loops",
+        ge=1.0,
+    )
     streaming_timeout: float = Field(
         default=300.0,
         description="Timeout for Redis Pub/Sub streaming in seconds",

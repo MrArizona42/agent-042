@@ -197,6 +197,7 @@ class _ProcessChat:
             "messages": prompt.messages,
             "temperature": req.temperature,
             "top_p": req.top_p,
+            "repetition_penalty": settings.repetition_penalty,
         }
         generation_payload = {
             key: value for key, value in generation_payload.items() if value is not None

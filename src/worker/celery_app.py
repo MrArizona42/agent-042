@@ -40,4 +40,9 @@ celery_app.conf.update(
     # Timeouts
     task_soft_time_limit=settings.task_default_timeout - 10,
     task_time_limit=settings.task_default_timeout,
+    # Keep the broker connection alive for the full task duration.
+    # The default RabbitMQ heartbeat (60 s) is shorter than a long generation
+    # task, causing connection loss → failed ACK → infinite redelivery loop.
+    broker_heartbeat=settings.task_default_timeout,
+    broker_transport_options={"heartbeat": settings.task_default_timeout},
 )
