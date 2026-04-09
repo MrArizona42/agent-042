@@ -58,6 +58,31 @@ def compute_bertscore(
         Dict with keys ``bertscore_precision``, ``bertscore_recall``,
         ``bertscore_f1``.
     """
+    total_pairs = min(len(predictions), len(references))
+    if total_pairs == 0:
+        return {
+            "bertscore_precision": 0.0,
+            "bertscore_recall": 0.0,
+            "bertscore_f1": 0.0,
+        }
+
+    valid_predictions: list[str] = []
+    valid_references: list[str] = []
+    for prediction, reference in zip(predictions, references):
+        # Natural Questions can legitimately have no short answer. Treat any
+        # blank prediction/reference pair as a zero-score example instead of
+        # sending an empty string through bert-score's tokenizer path.
+        if prediction.strip() and reference.strip():
+            valid_predictions.append(prediction)
+            valid_references.append(reference)
+
+    if not valid_predictions:
+        return {
+            "bertscore_precision": 0.0,
+            "bertscore_recall": 0.0,
+            "bertscore_f1": 0.0,
+        }
+
     import threading
 
     import torch
@@ -92,11 +117,12 @@ def compute_bertscore(
             scorer._tokenizer.model_max_length = max_pos
 
         with torch.no_grad():
-            P, R, F1 = scorer.score(predictions, references)
+            P, R, F1 = scorer.score(valid_predictions, valid_references)
+        valid_fraction = len(valid_predictions) / total_pairs
         return {
-            "bertscore_precision": P.mean().item(),
-            "bertscore_recall": R.mean().item(),
-            "bertscore_f1": F1.mean().item(),
+            "bertscore_precision": P.mean().item() * valid_fraction,
+            "bertscore_recall": R.mean().item() * valid_fraction,
+            "bertscore_f1": F1.mean().item() * valid_fraction,
         }
     finally:
         threading.excepthook = _original_excepthook
