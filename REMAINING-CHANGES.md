@@ -4,13 +4,8 @@
 доработок. Документ разделён на два раздела: конкретные bugfix-ы и улучшения существующего кода,
 а также крупные системные изменения и расширения функционала.
 
-> **Ревизия**: документ актуализирован по результатам сверки каждого пункта с кодовой базой.
-> Ранее фиксированные пункты (training pipeline: sequence budget, best-checkpoint export,
-> run-scoped artifacts, QLoRA setup, precision, Hydra override examples, MLflow logging,
-> notebook drift, Airflow log streaming, minor runtime issues, config duplication,
-> Compose defaults, gateway startup validation, Hydra restructuring, LoRA hot-swap,
-> chunking factory docstring/code mismatch) удалены.
-> Оставлены только подтверждённо нерешенные задачи.
+> **Ревизия**: документ актуализирован по текущему состоянию кодовой базы.
+> Оставлены только подтверждённо нерешённые задачи.
 
 ---
 
@@ -18,25 +13,7 @@
 
 Конкретные, скоупированные задачи по исправлению или улучшению уже реализованных компонентов.
 
-### 1.1 KB discovery: flat API loses task grouping
-
-**Проблема**: `knowledge_bases.json` организован по task-ам, но `GET /v1/knowledge-bases`
-возвращает flat list, а UI читает `KNOWLEDGE_BASES` как flat dict через `_KBProxy`. Ни один
-consumer не отражает task-grouped структуру; информация о принадлежности KB к task-у теряется
-на уровне API.
-
-**Решение**: обновить discovery endpoint для возврата task-grouped структуры (или добавить
-поле `task` в каждый элемент flat list). Обновить UI при необходимости.
-
-### 1.2 Chat history: streaming persistence gap
-
-**Проблема**: `stream_chat()` в `src/gateway/services/processing.py` принимает параметры
-`user_id` и `chat_session_id`, но нигде их не использует. Streaming-токены не накапливаются
-и не сохраняются — большинство conversation history теряется. Non-streaming `chat()` корректно
-вызывает `_persist_exchange()`.
-
-**Решение**: собирать streaming-токены в буфер на gateway-стороне и вызывать
-`_persist_exchange()` по завершении stream-а.
+На момент текущей сверки подтверждённых незакрытых bugfix-пунктов в этом разделе не осталось.
 
 ---
 
@@ -45,31 +22,7 @@ consumer не отражает task-grouped структуру; информац
 Крупные многофайловые изменения и новый функционал, требующий планирования и поэтапной
 реализации.
 
-### 2.1 Training → Eval pipeline integration
-
-**Текущее состояние**: `train -> inspect/promote` (eval выполняется вручную).
-
-**Целевое**: `train -> evaluate -> human decision (inspect/promote)`. Promotion остаётся ручной,
-но оценка должна запускаться автоматически после тренировки. DAG `train_lora` должен запускать
-eval DAG-и после успешного завершения тренировки, передавая `run_id` и `lora_alias="challenger"`.
-
-**Затрагиваемые файлы**: `dags/train_lora.py`, eval DAGs, `lora_ops.ipynb`.
-
-### 2.2 Knowledge bases: task-first API contract
-
-**Текущее состояние**: `knowledge_bases.json` уже организован по tasks; internal helpers
-(`TaskConfig`, `KBConfig`, `get_kb_config()`, `_KBProxy`) полностью адаптированы. Однако
-discovery API и UI по-прежнему работают с flat-представлением (см. §1.2).
-
-**Целевое**: полный переход на task-first contract в API:
-- `GET /v1/knowledge-bases` возвращает task-grouped структуру
-- Обновить `openai_compat.py`, `rag_service.py`, `knowledge_bases.py` endpoint
-- Обновить daily RAG DAGs для итерации task config
-
-**Затрагиваемые файлы**: `src/gateway/api/v1/knowledge_bases.py`,
-`src/gateway/services/rag_service.py`, DAGs.
-
-### 2.3 RAG: reranking
+### 2.1 RAG: reranking
 
 **Текущее состояние**: RAG система не имеет reranking-стадии. Multi-KB results сливаются и
 все передаются в промпт. `EvalRun` модель содержит поле `reranking_strategy`, но реализации нет.
@@ -82,7 +35,7 @@ champion vs champion+reranker используя существующую eval-�
 **Новые файлы**: `src/rag/rerankers.py`.
 **Затрагиваемые файлы**: `src/rag/retriever.py`, `src/gateway/services/rag_service.py`.
 
-### 2.4 RAG: hybrid search
+### 2.2 RAG: hybrid search
 
 **Текущее состояние**: только dense retrieval (`VectorParams` с `Distance.COSINE`).
 
@@ -93,7 +46,7 @@ champion vs champion+reranker используя существующую eval-�
 **Затрагиваемые файлы**: `src/rag/vector_store.py`, `src/rag/ops/materialize.py`,
 `src/rag/retriever.py`.
 
-### 2.5 Observability: Prometheus + Grafana
+### 2.3 Observability: Prometheus + Grafana
 
 **Текущее состояние**: нет метрик, нет alerting. Мониторинг ограничен UI dashboards
 (Flower, RedisInsight, Airflow) и health checks.
@@ -107,7 +60,7 @@ champion vs champion+reranker используя существующую eval-�
 **Новые файлы**: Compose service definitions, Grafana dashboard JSONs, Prometheus config.
 **Затрагиваемые файлы**: gateway main.py (metrics middleware).
 
-### 2.6 Observability: LLM-specific tracing
+### 2.4 Observability: LLM-specific tracing
 
 **Текущее состояние**: нет prompt/response logging, нет latency per step, нет cost tracking.
 
@@ -120,7 +73,7 @@ champion vs champion+reranker используя существующую eval-�
 **Альтернатива**: OpenTelemetry auto-instrumentation (FastAPI + Celery + httpx) для distributed
 tracing через Jaeger/Tempo.
 
-### 2.7 CI/CD: hosted workflows
+### 2.5 CI/CD: hosted workflows
 
 **Текущее состояние**: quality gates только через локальные pre-commit hooks, ruff, pytest.
 Нет hosted CI/CD.
@@ -133,7 +86,7 @@ tracing через Jaeger/Tempo.
 
 **Новые файлы**: `.github/workflows/ci.yml` (или GitLab CI equivalent).
 
-### 2.8 Database: Alembic migrations
+### 2.6 Database: Alembic migrations
 
 **Текущее состояние**: schema bootstrap через ORM `Base.metadata.create_all` в gateway startup.
 Нет version-controlled migrations.
@@ -144,21 +97,23 @@ tracing через Jaeger/Tempo.
 **Новые файлы**: `alembic.ini`, `alembic/` directory, initial migration.
 **Затрагиваемые файлы**: gateway startup (run migrations on boot).
 
-### 2.9 Token / cost tracking
+### 2.7 Token / cost tracking
 
-**Текущее состояние**: нет track-инга token usage. В production LLM системе это критично для
-cost control, capacity planning и abuse prevention. Модель `chat_messages` не имеет полей
-`prompt_tokens` / `completion_tokens`.
+**Текущее состояние**: online inference stores prompt/completion usage in the
+ORM model and threads prompt token counts through the sync/async gateway paths.
+Существующие `agent042` БД применяют
+`src/shared/db/chat_messages_add_usage_columns.sql`, чтобы схема
+`chat_messages` включала эти колонки.
 
 **Целевое**:
-- Добавить `token_count` поля в `chat_messages` (prompt_tokens, completion_tokens)
-- Парсить usage из vLLM response (OpenAI-compatible API возвращает `usage` в ответе)
+- Применить `src/shared/db/chat_messages_add_usage_columns.sql` на все
+    существующие `agent042` БД
 - Агрегация per-user / per-session
 - Grafana dashboard для token throughput и cost estimation
 
 **Затрагиваемые файлы**: `src/shared/db/`, gateway processing, `chat_messages` schema.
 
-### 2.10 Security: rate limiting and input validation
+### 2.8 Security: rate limiting and input validation
 
 **Текущее состояние**: нет rate limiting, нет ограничений на длину input.
 
@@ -169,7 +124,7 @@ cost control, capacity planning и abuse prevention. Модель `chat_messages
 
 **Затрагиваемые файлы**: gateway middleware, `src/gateway/services/processing.py`.
 
-### 2.11 Data validation in Airflow DAGs
+### 2.9 Data validation in Airflow DAGs
 
 **Текущее состояние**: RAG DAGs (download → dvc_version → build_index) скачивают данные и
 индексируют без проверки качества. Eval datasets не проходят schema validation.
@@ -183,7 +138,7 @@ cost control, capacity planning и abuse prevention. Модель `chat_messages
 **Затрагиваемые файлы**: `dags/arxiv_rag_update.py`, `dags/pytorch_docs_rag_update.py`,
 eval DAGs.
 
-### 2.12 Agent layer: dynamic tool selection (Stage 4)
+### 2.10 Agent layer: dynamic tool selection (Stage 4)
 
 **Текущее состояние**: task routing — rule-based по keywords
 (`RuleBasedTaskRouter.decide()` проверяет `any(k in t for k in [...])`).
@@ -199,7 +154,7 @@ eval DAGs.
 **Затрагиваемые файлы**: `src/gateway/services/task_router.py`,
 `src/gateway/services/processing.py`, новые tool registry modules.
 
-### 2.13 Kubernetes / Helm / Terraform (deferred)
+### 2.11 Kubernetes / Helm / Terraform (deferred)
 
 **Статус**: отложено. Docker Compose + Nginx TLS — достаточный production-grade deployment для
 single-node setup. Kubernetes оправдан при потребности в horizontal scaling или multi-node HA,
