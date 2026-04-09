@@ -31,6 +31,16 @@ class ChatCompletionRequest(BaseModel):
 
     temperature: float | None = None
     top_p: float | None = None
+    max_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        description="Legacy OpenAI-style completion cap used as an upper bound only.",
+    )
+    max_completion_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        description="Requested completion cap used as an upper bound only.",
+    )
 
     stream: bool = False
 

@@ -29,8 +29,15 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     # Worker settings
-    worker_prefetch_multiplier=1,  # One task at a time for GPU workloads
-    worker_concurrency=1,  # Single worker process (GPU bound)
+    worker_prefetch_multiplier=1,  # Keep queue fairness when eval and UI share one broker queue
+    worker_concurrency=settings.worker_concurrency,
+    worker_pool=settings.worker_pool,
+    worker_send_task_events=settings.worker_send_task_events,
+    task_track_started=True,
+    task_send_sent_event=True,
+    worker_cancel_long_running_tasks_on_connection_loss=(
+        settings.worker_cancel_long_running_tasks_on_connection_loss
+    ),
     # Task acknowledgment
     task_acks_late=True,  # Ack after completion (allows retry on crash)
     task_reject_on_worker_lost=True,
@@ -41,8 +48,6 @@ celery_app.conf.update(
     task_soft_time_limit=settings.task_default_timeout - 10,
     task_time_limit=settings.task_default_timeout,
     # Keep the broker connection alive for the full task duration.
-    # The default RabbitMQ heartbeat (60 s) is shorter than a long generation
-    # task, causing connection loss → failed ACK → infinite redelivery loop.
     broker_heartbeat=settings.task_default_timeout,
     broker_transport_options={"heartbeat": settings.task_default_timeout},
 )

@@ -199,6 +199,11 @@ class _ProcessChat:
             "top_p": req.top_p,
             "repetition_penalty": settings.repetition_penalty,
         }
+        requested_max_tokens = req.max_completion_tokens
+        if requested_max_tokens is None:
+            requested_max_tokens = req.max_tokens
+        if requested_max_tokens is not None:
+            generation_payload["max_completion_tokens"] = requested_max_tokens
         generation_payload = {
             key: value for key, value in generation_payload.items() if value is not None
         }

@@ -722,6 +722,7 @@ class TestRunnerProgress:
             gateway_url="http://gateway:9001",
             temperature=0.0,
             internal_api_key="",
+            max_completion_tokens=256,
         )
 
         with (
@@ -746,7 +747,7 @@ class TestRunnerProgress:
                     {"choices": [{"message": {"content": "pred-1"}}]},
                     RuntimeError("timed out"),
                 ],
-            ),
+            ) as mock_call_gateway,
             patch("experiments.eval.eval_scripts.runner._log_fetch_progress") as mock_progress,
         ):
             bundle = _fetch_generation_predictions(
@@ -761,6 +762,9 @@ class TestRunnerProgress:
         assert bundle["predictions"] == ["pred-1", ""]
         assert [call.kwargs["completed"] for call in mock_progress.call_args_list] == [0, 1, 2]
         assert mock_progress.call_args_list[-1].kwargs["gateway_failures"] == 1
+        assert all(
+            call.kwargs["max_completion_tokens"] == 256 for call in mock_call_gateway.call_args_list
+        )
 
 
 class _FakeStreamResponse:
@@ -823,12 +827,14 @@ class TestRunnerGatewayTransport:
                 gateway_url="http://gateway:9000",
                 temperature=0.0,
                 internal_api_key="",
+                max_completion_tokens=512,
             )
 
         timeout = mock_stream.call_args.kwargs["timeout"]
         assert isinstance(timeout, httpx.Timeout)
         assert timeout.read is None
         assert timeout.connect == 30.0
+        assert mock_stream.call_args.kwargs["json"]["max_completion_tokens"] == 512
 
     def test_call_gateway_reconstructs_chat_response_from_standard_sse(self):
         from experiments.eval.eval_scripts.runner import _call_gateway

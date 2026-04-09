@@ -158,6 +158,27 @@ def test_worker_and_sync_share_same_final_budget_helper() -> None:
     assert payload["stream_options"] == {"other_flag": True, "include_usage": True}
 
 
+def test_budget_helper_respects_requested_completion_cap() -> None:
+    payload, final_max_tokens = apply_response_token_budget(
+        {
+            "model": "test",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_completion_tokens": 12,
+        },
+        prompt_tokens=20,
+        budget_meta={
+            "model_max_tokens": 64,
+            "budget_guard": 8,
+            "min_response_budget": 4,
+        },
+        stream=False,
+    )
+
+    assert final_max_tokens == 12
+    assert payload["max_tokens"] == 12
+    assert "max_completion_tokens" not in payload
+
+
 def test_budget_helper_rejects_when_response_budget_too_small() -> None:
     with pytest.raises(ResponseBudgetExceededError):
         apply_response_token_budget(

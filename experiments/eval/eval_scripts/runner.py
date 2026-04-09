@@ -224,6 +224,7 @@ def _call_gateway(
     rag_sources: list[dict[str, str]] | None = None,
     temperature: float,
     internal_api_key: str,
+    max_completion_tokens: int | None = None,
     expect_rag_context: bool = False,
 ) -> dict[str, Any]:
     """Call the gateway SSE chat API and rebuild the final response shape.
@@ -241,6 +242,8 @@ def _call_gateway(
         payload["model"] = model
     if rag_sources:
         payload["rag_sources"] = rag_sources
+    if max_completion_tokens is not None:
+        payload["max_completion_tokens"] = max_completion_tokens
 
     headers: dict[str, str] = {}
     if internal_api_key:
@@ -707,6 +710,12 @@ def fetch_predictions(
         "temperature": eval_settings.temperature,
         "judge_model": eval_settings.judge_model,
         "bert_score_model": eval_settings.bert_score_model,
+        "eval_context": {
+            "temperature": eval_settings.temperature,
+            "judge_model": eval_settings.judge_model,
+            "bert_score_model": eval_settings.bert_score_model,
+            "max_tokens": eval_settings.max_completion_tokens,
+        },
         "k": k,
         "bundles": bundles,
     }
@@ -767,6 +776,7 @@ def _fetch_generation_predictions(
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
                 internal_api_key=eval_settings.internal_api_key,
+                max_completion_tokens=eval_settings.max_completion_tokens,
                 expect_rag_context=rag_enabled,
             )
             answer = response["choices"][0]["message"]["content"]
@@ -883,6 +893,7 @@ def _fetch_code_predictions(
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
                 internal_api_key=eval_settings.internal_api_key,
+                max_completion_tokens=eval_settings.max_completion_tokens,
                 expect_rag_context=rag_enabled,
             )
             generated = response["choices"][0]["message"]["content"]

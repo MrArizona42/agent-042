@@ -542,6 +542,14 @@ class EvalSettings(BaseSettings):
         description="Temperature for generation requests",
         ge=0.0,
     )
+    max_completion_tokens: int = Field(
+        default=2048,
+        description=(
+            "Upper bound for one eval prediction. Prevents eval requests from "
+            "claiming the full model window for generation."
+        ),
+        ge=1,
+    )
     code_exec_timeout: int = Field(
         default=30,
         description="Timeout in seconds for sandboxed code execution",

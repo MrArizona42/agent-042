@@ -36,6 +36,7 @@ class CeleryClient:
             self._app.conf.update(
                 task_serializer="json",
                 accept_content=["json"],
+                task_send_sent_event=True,
             )
         return self._app
 

@@ -63,8 +63,15 @@ def apply_response_token_budget(
     stream: bool | None = None,
     include_usage: bool = False,
 ) -> tuple[dict[str, Any], int]:
-    final_max_tokens = compute_response_token_budget(prompt_tokens, budget_meta)
     payload = dict(generation_payload)
+    requested_max_tokens = payload.pop("max_completion_tokens", None)
+    if requested_max_tokens is None:
+        requested_max_tokens = payload.pop("max_tokens", None)
+
+    final_max_tokens = compute_response_token_budget(prompt_tokens, budget_meta)
+    if requested_max_tokens is not None:
+        final_max_tokens = min(final_max_tokens, int(requested_max_tokens))
+
     payload["max_tokens"] = final_max_tokens
     if stream is not None:
         payload["stream"] = stream
