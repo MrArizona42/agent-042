@@ -1,10 +1,25 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterator
+import json
+from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import Any, Dict
 
 import requests
 
 from ui.config import get_ui_settings
+
+
+@dataclass(frozen=True)
+class GatewayStreamEvent:
+    event: str
+    data: Any
+
+
+@dataclass(frozen=True)
+class GatewayStreamResponse:
+    request_id: str | None
+    events: Iterator[GatewayStreamEvent]
 
 
 class GatewayClient:
@@ -104,25 +119,82 @@ class GatewayClient:
         r.raise_for_status()
         return r.json()
 
-    def chat(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        r = self._session.post(
-            f"{self.base_url}/v1/chat/completions",
-            json=payload,
+    def get_prompt_preview(self, request_id: str) -> Dict[str, Any]:
+        r = self._session.get(
+            f"{self.base_url}/v1/chat/prompt-preview/{request_id}",
             timeout=self._ui_settings.chat_timeout,
         )
         r.raise_for_status()
         return r.json()
 
-    def chat_stream(self, payload: Dict[str, Any]) -> Iterator[str]:
+    def _iter_sse_events(self, response: requests.Response) -> Iterator[GatewayStreamEvent]:
+        event_name = "message"
+        data_lines: list[str] = []
+
+        try:
+            for line in response.iter_lines(decode_unicode=True):
+                if line is None:
+                    continue
+
+                if line == "":
+                    if not data_lines:
+                        event_name = "message"
+                        continue
+
+                    payload = "\n".join(data_lines)
+                    if payload == "[DONE]":
+                        yield GatewayStreamEvent(event="done_marker", data=payload)
+                    else:
+                        try:
+                            parsed = json.loads(payload)
+                        except json.JSONDecodeError:
+                            parsed = payload
+                        yield GatewayStreamEvent(event=event_name, data=parsed)
+
+                    event_name = "message"
+                    data_lines = []
+                    continue
+
+                if line.startswith("event:"):
+                    event_name = line.split(":", 1)[1].strip() or "message"
+                    continue
+
+                if line.startswith("data:"):
+                    data_lines.append(line.split(":", 1)[1].lstrip())
+
+            if data_lines:
+                payload = "\n".join(data_lines)
+                if payload == "[DONE]":
+                    yield GatewayStreamEvent(event="done_marker", data=payload)
+                else:
+                    try:
+                        parsed = json.loads(payload)
+                    except json.JSONDecodeError:
+                        parsed = payload
+                    yield GatewayStreamEvent(event=event_name, data=parsed)
+        finally:
+            response.close()
+
+    def chat_stream(
+        self,
+        payload: Dict[str, Any],
+        *,
+        rich_stream: bool = False,
+    ) -> GatewayStreamResponse:
         payload = {**payload, "stream": True}
-        with self._session.post(
+        headers: Dict[str, str] = {}
+        if rich_stream:
+            headers["X-UI-Rich-Stream"] = "1"
+
+        response = self._session.post(
             f"{self.base_url}/v1/chat/completions",
             json=payload,
             stream=True,
+            headers=headers or None,
             timeout=self._ui_settings.chat_timeout,
-        ) as r:
-            r.raise_for_status()
-            for line in r.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
-                yield line
+        )
+        response.raise_for_status()
+        return GatewayStreamResponse(
+            request_id=response.headers.get("X-Request-Id"),
+            events=self._iter_sse_events(response),
+        )

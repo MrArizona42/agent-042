@@ -2,136 +2,40 @@
 
 Short operator/developer reference for the active configuration contract.
 
-For historical context and migration notes, see `CONFIG-AUDIT.md`.
+## Big Picture
 
-## Scope
+Each active config source appears once below.
 
-This document describes the current source-of-truth split for configuration:
+1. `src/shared/config.py` is the canonical shared Python settings schema and defaults layer for gateway, registry, eval, UI, embeddings, and shared runtime code.
+2. `src/worker/config.py` holds worker-only Python settings that should not leak into the shared runtime contract.
+3. `src/gateway/config.py` and `src/ui/config.py` are compatibility shims that re-export shared settings for existing imports.
+4. Repo-root `.env.example` is the canonical operator template for values that change per machine or deployment.
+5. Repo-root `.env` is the actual local or deployment-specific value set used by Compose interpolation and host-side Python entrypoints.
+6. `infra/compose/docker-compose.yaml` owns deployment topology, container env injection, internal URLs, public port bindings, networks, volumes, and health checks.
+7. `infra/docker/**/Dockerfile` owns image build instructions and image-local process defaults.
+8. `src/shared/knowledge_bases.json` owns the RAG query registry: tasks, knowledge bases, aliases, and per-alias retrieval parameters.
+9. `src/ui/.streamlit/config.toml` owns Streamlit-native runtime behavior for the UI process.
+10. `infra/docker/rabbitmq/rabbitmq.conf` owns RabbitMQ-native broker configuration.
+11. `infra/nginx/agent.antonlab.ru.conf` owns public routing, TLS termination, and reverse-proxy behavior.
+12. `experiments/training/conf/**` and `experiments/training/train_adapter/config.py` own training-only Hydra and typed experiment configuration.
+13. `pyproject.toml` and `.pre-commit-config.yaml` own packaging, dependency groups, linting, and developer tooling configuration.
+14. `infra/helm/` and `infra/terraform/` are reserved deployment surfaces and are currently inactive.
 
-- where validated application defaults live
-- where deployment topology lives
-- where deploy-time/operator-edited values live
-- which env names are canonical now
-- which old names and files are retired
+## Source Reference
 
-## Ownership
-
-### Application defaults and validation
-
-- Shared cross-service config schema lives in `src/shared/config.py`.
-- Canonical shared endpoint settings are defined by `PlatformSettings`.
-- Gateway-facing behavior is grouped by `GatewayBehaviorSettings`, `RagSettings`, `AuthSettings`, and aggregated by `GatewaySettings`.
-- Registry, eval, and UI-specific settings live in `RegistrySettings`, `EvalSettings`, and `UISettings` in the same file.
-- Service-local settings that are not shared stay in service-local config files, for example `src/worker/config.py` for Celery-only behavior.
-
-Defaults rule:
-
-- If a value is an application default or validation rule, it belongs in a settings class.
-- If a value describes container-to-container wiring, it does not belong in Python defaults.
-
-### Local dotenv loading
-
-- Canonical local env file is repo-root `.env`.
-- Canonical local template is repo-root `.env.example`.
-- Local dotenv loading helpers live in `src/shared/local_env.py`.
-- Local Python entrypoints and notebooks explicitly load repo-root `.env`; containerized deployments should inject env vars directly.
-
-### Deployment topology
-
-- Docker Compose topology lives in `infra/compose/docker-compose.yaml`.
-- Internal Docker-network addresses, container-only URLs, and stable service wiring belong in Compose.
-- Future Helm or k8s manifests should inject the same application env contract, not redefine it.
-
-### Operator-edited deploy-time values
-
-- Human-edited local/deploy-time values live in repo-root `.env`.
-- The template in `.env.example` is intentionally limited to values operators are expected to change:
-  - secrets
-  - public ports
-  - model choice and runtime tuning
-  - feature flags
-  - external credentials and selected URLs
-
-## Canonical env names
-
-### Shared cross-service endpoint names
-
-Use these names for shared platform connectivity:
-
-- `VLLM_BASE_URL`
-- `EMBEDDINGS_URL`
-- `QDRANT_HOST`
-- `QDRANT_PORT`
-- `MLFLOW_TRACKING_URI`
-- `REDIS_URL`
-- `CELERY_BROKER_URL`
-
-`EVAL_GATEWAY_URL` remains eval-specific rather than platform-wide.
-
-### Service-specific env families
-
-Use service prefixes for behavior that is local to one service:
-
-- `GATEWAY_*`
-- `EVAL_*`
-- `UI_*`
-- `REGISTRY_*`
-- `AIRFLOW_*`
-- `RABBITMQ_*`
-- `REDIS_*`
-- `VLLM_*`
-
-Important exception:
-
-- `GATEWAY_URL` is still a UI-facing variable, but the UI container's internal value is owned by Compose (`http://gateway:9000`). It is intentionally omitted from repo-root `.env.example` so host-side overrides do not leak into container topology.
-
-## Where values should live
-
-### Put it in `src/shared/config.py` when
-
-- multiple services need the same validated value
-- the value is part of the application contract
-- the value should have a Python default for local host-side runs
-
-### Put it in a service-local config file when
-
-- the value is only relevant to one service
-- it is operational behavior, not a shared platform contract
-- example: Celery worker retry/timeouts in `src/worker/config.py`
-
-### Put it in `.env.example` and `.env` when
-
-- an operator is expected to supply or override it per machine/deployment
-- it is a secret, public port, model selection, or credential
-
-### Put it in Compose or Helm when
-
-- the value describes service discovery or in-cluster/container networking
-- the value should stay stable for a given deployment topology
-- example: Docker-network URLs such as `http://gateway:9000` or `http://embeddings:8100`
-
-## Retired names and files
-
-These are no longer part of the active runtime contract:
-
-- `GATEWAY_VLLM_BASE_URL`
-- `GATEWAY_EMBEDDINGS_URL`
-- `GATEWAY_QDRANT_HOST`
-- `GATEWAY_QDRANT_PORT`
-- `REGISTRY_VLLM_BASE_URL`
-- `REGISTRY_MLFLOW_TRACKING_URI`
-- `experiments/.env`
-- `infra/compose/.env.example`
-- `experiments/.env.example`
-
-Do not add new runtime logic that depends on these names or files.
-
-## Change Checklist
-
-When adding or changing config:
-
-1. Decide whether the value is shared contract, service-local behavior, operator input, or deployment topology.
-2. If it is a shared endpoint, use the canonical env names in this document.
-3. If an operator must edit it, expose it through repo-root `.env.example`.
-4. If it is container/service wiring, keep it in Compose or future Helm defaults.
-5. Update the closest service README if the change affects local run instructions.
+| Source | Owner / primary reader | What it controls | Change it when | Notes |
+| --- | --- | --- | --- | --- |
+| `src/shared/config.py` | Application runtime code; read by gateway, UI, worker, embeddings, eval, and registry helpers | Shared Python settings schema, validation, and defaults: `PlatformSettings`, `GatewayBehaviorSettings`, `BudgetSettings`, `RagSettings`, `AuthSettings`, `RegistrySettings`, `EvalSettings`, `UISettings` | A Python service needs a new validated setting, a default must exist outside Compose, or a shared env contract changes | Canonical shared endpoint env names are `VLLM_BASE_URL`, `EMBEDDINGS_URL`, `QDRANT_HOST`, `QDRANT_PORT`, `MLFLOW_TRACKING_URI`, `REDIS_URL`, and `CELERY_BROKER_URL`; gateway-local behavior uses `GATEWAY_*`; `EMBEDDINGS_*` aliases are compatibility-only |
+| `src/worker/config.py` | Worker runtime | Worker-only operational behavior such as broker URL, task timeout, retry count, and retry delay | The Celery worker needs a setting that is not part of the shared cross-service contract | Keep shared endpoints and gateway/runtime defaults in `src/shared/config.py`, not here |
+| `src/gateway/config.py`, `src/ui/config.py` | Import compatibility layer for service code | Re-export shared settings and helpers; they do not define an independent config contract | Import paths or public compatibility shims need to change | Do not add new defaults, env parsing, or source-of-truth values here |
+| Repo-root `.env.example` | Repo maintainers and operators | Template for secrets, public ports, credentials, model choices, feature toggles, and other operator-edited values | An operator is expected to supply or override a value per machine or deployment | Intentionally omits internal container URLs such as `GATEWAY_URL`; container wiring belongs in Compose |
+| Repo-root `.env` | Operators on the target machine or deployment | Actual values used for local development, Compose interpolation, and host-side Python runs | A machine-specific or deployment-specific value changes | Local Python entrypoints load repo-root `.env` through `src/shared/local_env.py`; containers should rely on injected env vars, not implicit dotenv discovery |
+| `infra/compose/docker-compose.yaml` | Deployment topology | Services, networks, volumes, health checks, public port bindings, internal service discovery, and per-container env injection | Service wiring, internal URLs, dependency graph, or public port exposure changes | `x-shared-endpoints` injects canonical shared endpoint env vars; the UI container's `GATEWAY_URL=http://gateway:9000` belongs here |
+| `infra/docker/**/Dockerfile` | Image build and image runtime | Image dependencies, build steps, working directories, startup commands, and image-local defaults | A service image needs different system packages, Python extras, or startup behavior | Not the place for operator secrets, public ports, or deployment-specific URLs |
+| `src/shared/knowledge_bases.json` | RAG query contract | Task grouping, KB registry, `default_alias`, alias-level `top_k`, `score_threshold`, `reranker`, plus labels and descriptions | Query-time RAG behavior or the visible KB registry changes | This is declarative app data, not a dotenv surface; build-time collection facts such as `retrieval_strategy` live in Qdrant `_meta.build_config`, not here |
+| `src/ui/.streamlit/config.toml` | Streamlit UI runtime | Streamlit-native server settings such as bind address, port, browser address, WebSocket behavior, and upload/message limits | Streamlit itself needs a native runtime change | Do not put gateway business logic, auth policy, or shared env contracts here |
+| `infra/docker/rabbitmq/rabbitmq.conf` | RabbitMQ server runtime | Broker-native configuration that RabbitMQ reads directly | RabbitMQ server behavior or management-path behavior changes | Not a substitute for app-level env vars such as `CELERY_BROKER_URL` |
+| `infra/nginx/agent.antonlab.ru.conf` | Edge deployment / reverse proxy | TLS termination, upstream routing, path prefixes, and external publication of services | Public routes, hostnames, TLS, or proxy behavior changes | Must stay aligned with the public ports exposed by repo-root `.env` and Compose |
+| `experiments/training/conf/**`, `experiments/training/train_adapter/config.py` | Training pipeline and operator workflows | Hydra composition, experiment hyperparameters, training paths, model/data locations, and tracking behavior | Training behavior changes | This is intentionally separate from online serving runtime config; do not treat it as an override layer for gateway, UI, or worker behavior |
+| `pyproject.toml`, `.pre-commit-config.yaml` | Packaging and developer tooling | Project metadata, optional dependency groups, lint settings, and developer hooks | Dependencies, extras, lint rules, or local developer workflow change | These files are project/tooling config, not serving runtime config |
+| `infra/helm/`, `infra/terraform/` | Future deployment work | Nothing active today | The repo adopts Helm or Terraform as a real deployment layer | Until then, do not split active runtime config across these directories |

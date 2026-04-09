@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class WorkerSettings(BaseSettings):
@@ -38,8 +38,28 @@ class WorkerSettings(BaseSettings):
         description="Delay between retries in seconds",
     )
 
-    class Config:
-        extra = "ignore"
+    worker_pool: str = Field(
+        default="prefork",
+        description="Celery execution pool for gateway inference tasks",
+    )
+
+    worker_concurrency: int = Field(
+        default=2,
+        description="Concurrent worker slots for gateway inference tasks",
+        ge=1,
+    )
+
+    worker_send_task_events: bool = Field(
+        default=True,
+        description="Emit Celery task events so Flower can observe queued/running tasks",
+    )
+
+    worker_cancel_long_running_tasks_on_connection_loss: bool = Field(
+        default=True,
+        description="Cancel in-flight tasks if the broker connection is lost",
+    )
+
+    model_config = SettingsConfigDict(extra="ignore")
 
 
 @lru_cache

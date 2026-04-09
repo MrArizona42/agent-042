@@ -30,11 +30,12 @@ Usage::
 from __future__ import annotations
 
 import itertools
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import fire
 import httpx
@@ -60,6 +61,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from experiments.eval.eval_scripts.datasets import DATASET_LOCAL, load_dataset_samples
 from experiments.eval.eval_scripts.metrics.automatic import (
     compute_bertscore,
+    compute_mrr_at_k,
     compute_ndcg_at_k,
     compute_recall_at_k,
     compute_rouge_l,
@@ -86,6 +88,13 @@ from shared.model_registry import AdapterRegistry
 
 logger = logging.getLogger(__name__)
 
+_GATEWAY_STREAM_TIMEOUT = httpx.Timeout(
+    connect=30.0,
+    read=None,
+    write=30.0,
+    pool=30.0,
+)
+
 bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[3])
 
 # ---------------------------------------------------------------------------
@@ -107,14 +116,14 @@ _TASK_METRICS: dict[str, list[str]] = {
     "chat": ["relevance", "correctness", "bertscore_f1", "rouge_l"],
     "summarize": ["faithfulness", "coverage", "bertscore_f1", "rouge_l"],
     "code": ["pass_at_1", "executable_rate"],
-    "retrieval": ["recall_at_10", "ndcg_at_10"],
+    "retrieval": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
 }
 
 # LLM-judge metrics (need Gemini API)
 _JUDGE_METRICS = {"relevance", "correctness", "faithfulness", "coverage", "groundedness"}
 
 # Automatic metrics (computed locally, no external API needed)
-_AUTOMATIC_METRICS = {"bertscore_f1", "rouge_l", "recall_at_10", "ndcg_at_10"}
+_AUTOMATIC_METRICS = {"bertscore_f1", "rouge_l", "recall_at_k", "ndcg_at_k", "mrr_at_k"}
 
 # Code-execution metrics (sandboxed Docker execution)
 _CODE_EXEC_METRICS = {"pass_at_1", "executable_rate"}
@@ -144,6 +153,64 @@ def _build_code_eval_messages(prompt: str) -> list[dict[str, str]]:
     ]
 
 
+def _progress_log_stride(total: int, *, target_updates: int = 20) -> int:
+    """Return a log stride that keeps progress output bounded."""
+    if total <= 0:
+        return 1
+    if target_updates <= 1:
+        return total
+    return max(1, (total + target_updates - 1) // target_updates)
+
+
+def _render_progress_bar(completed: int, total: int, *, width: int = 20) -> str:
+    """Render a compact ASCII progress bar for task logs."""
+    if total <= 0:
+        return f"[{'-' * width}]"
+
+    ratio = min(1.0, max(0.0, completed / total))
+    filled = min(width, int(ratio * width))
+    if completed >= total:
+        filled = width
+    return f"[{'#' * filled}{'-' * (width - filled)}]"
+
+
+def _log_fetch_progress(
+    *,
+    phase: str,
+    task: str,
+    dataset_name: str,
+    rag_alias: str,
+    lora_alias: str,
+    completed: int,
+    total: int,
+    every: int,
+    unit: str = "samples",
+    gateway_failures: int = 0,
+) -> None:
+    """Log bounded per-bundle progress into the Airflow task log."""
+    if total <= 0:
+        return
+    if completed not in (0, total) and completed % every != 0:
+        return
+
+    percent = (completed / total) * 100.0
+    failure_suffix = f" gateway_failures={gateway_failures}" if gateway_failures else ""
+    logger.info(
+        "%s progress: task=%s dataset=%s rag=%s lora=%s %s %d/%d %s (%.1f%%)%s",
+        phase,
+        task,
+        dataset_name,
+        rag_alias,
+        lora_alias,
+        _render_progress_bar(completed, total),
+        completed,
+        total,
+        unit,
+        percent,
+        failure_suffix,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Gateway API helpers
 # ---------------------------------------------------------------------------
@@ -156,32 +223,143 @@ def _call_gateway(
     model: str | None = None,
     rag_sources: list[dict[str, str]] | None = None,
     temperature: float,
-    max_tokens: int,
     internal_api_key: str,
+    max_completion_tokens: int | None = None,
+    expect_rag_context: bool = False,
 ) -> dict[str, Any]:
-    """Call the gateway chat completions API."""
+    """Call the gateway SSE chat API and rebuild the final response shape.
+
+    The gateway owns idle-timeout enforcement for async streams, so the eval
+    client disables the HTTP read timeout and only keeps connection/write/pool
+    timeouts bounded.
+    """
     payload: dict[str, Any] = {
         "messages": messages,
         "temperature": temperature,
-        "max_completion_tokens": max_tokens,
+        "stream": True,
     }
     if model:
         payload["model"] = model
     if rag_sources:
         payload["rag_sources"] = rag_sources
+    if max_completion_tokens is not None:
+        payload["max_completion_tokens"] = max_completion_tokens
 
     headers: dict[str, str] = {}
     if internal_api_key:
         headers["X-API-Key"] = internal_api_key
 
-    resp = httpx.post(
+    with httpx.stream(
+        "POST",
         f"{gateway_url}/v1/chat/completions",
         json=payload,
         headers=headers,
-        timeout=120,
+        timeout=_GATEWAY_STREAM_TIMEOUT,
+    ) as resp:
+        resp.raise_for_status()
+
+        request_id = resp.headers.get("X-Request-Id")
+        response_id = f"chatcmpl-{request_id}" if request_id else None
+        assistant_fragments: list[str] = []
+        finish_reason = "stop"
+        usage: dict[str, Any] = {}
+
+        for raw_payload in _iter_sse_payloads(resp.iter_lines()):
+            if raw_payload == "[DONE]":
+                break
+
+            chunk = json.loads(raw_payload)
+            error = chunk.get("error")
+            if isinstance(error, dict):
+                raise RuntimeError(error.get("message", "Gateway streaming error"))
+
+            if response_id is None and isinstance(chunk.get("id"), str):
+                response_id = chunk["id"]
+
+            choices = chunk.get("choices")
+            if isinstance(choices, list) and choices:
+                delta = choices[0].get("delta") or {}
+                content = delta.get("content", "")
+                if content:
+                    assistant_fragments.append(content)
+                finish_reason = choices[0].get("finish_reason") or finish_reason
+
+            chunk_usage = chunk.get("usage")
+            if isinstance(chunk_usage, dict):
+                usage = chunk_usage
+
+    result: dict[str, Any] = {
+        "id": response_id or "chatcmpl-eval-stream",
+        "object": "chat.completion",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "".join(assistant_fragments),
+                },
+                "finish_reason": finish_reason,
+            }
+        ],
+        "usage": usage,
+    }
+
+    if request_id:
+        result["request_id"] = request_id
+        preview = _fetch_prompt_preview(
+            gateway_url=gateway_url,
+            request_id=request_id,
+            internal_api_key=internal_api_key,
+        )
+        if preview is not None:
+            prompt_messages = preview.get("prompt_messages")
+            if isinstance(prompt_messages, list):
+                result["_prompt_messages"] = prompt_messages
+            rag_context = preview.get("rag_context")
+            if isinstance(rag_context, list):
+                result["rag_context"] = rag_context
+
+    if expect_rag_context and "rag_context" not in result:
+        raise RuntimeError("Prompt preview response did not include rag_context")
+
+    return result
+
+
+def _iter_sse_payloads(lines: Iterable[str]) -> Iterable[str]:
+    """Yield SSE payload bodies from an HTTP line iterator."""
+    data_lines: list[str] = []
+    for line in lines:
+        if line == "":
+            if data_lines:
+                yield "\n".join(data_lines)
+                data_lines = []
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line.split(":", 1)[1].lstrip())
+
+    if data_lines:
+        yield "\n".join(data_lines)
+
+
+def _fetch_prompt_preview(
+    *,
+    gateway_url: str,
+    request_id: str,
+    internal_api_key: str,
+) -> dict[str, Any] | None:
+    """Fetch prompt preview metadata for a streamed request."""
+    headers: dict[str, str] = {}
+    if internal_api_key:
+        headers["X-API-Key"] = internal_api_key
+
+    resp = httpx.get(
+        f"{gateway_url}/v1/chat/prompt-preview/{request_id}",
+        headers=headers,
+        timeout=30,
     )
     resp.raise_for_status()
-    return resp.json()
+    preview = resp.json()
+    return preview if isinstance(preview, dict) else None
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +553,7 @@ def _build_common_fields(
             eval_settings.bert_score_model,
         ),
         "temperature": eval_context.get("temperature", eval_settings.temperature),
-        "max_tokens": eval_context.get("max_tokens", eval_settings.max_tokens),
+        "max_tokens": eval_context.get("max_tokens"),
         "extra": dict(eval_context.get("extra", {})),
     }
 
@@ -403,6 +581,7 @@ def run_eval(
     kb_name: str | None = None,
     rag_aliases: list[str],
     lora_aliases: list[str],
+    k: int = 10,
 ) -> list[dict[str, Any]]:
     """Run evaluation for a single metric across all (rag_alias, lora_alias) combinations.
 
@@ -426,6 +605,7 @@ def run_eval(
         kb_name=kb_name,
         rag_aliases=rag_aliases,
         lora_aliases=lora_aliases,
+        k=k,
     )
 
     return calculate_metrics(
@@ -445,6 +625,7 @@ def fetch_predictions(
     kb_name: str | None = None,
     rag_aliases: list[str],
     lora_aliases: list[str],
+    k: int = 10,
 ) -> dict[str, Any]:
     """Phase 1: Generate predictions for all (rag, lora) combinations.
 
@@ -485,6 +666,7 @@ def fetch_predictions(
                     rag_alias=rag_alias,
                     kb_name=kb_name,
                     eval_settings=eval_settings,
+                    k=k,
                 )
             elif task == "code":
                 bundle = _fetch_code_predictions(
@@ -526,9 +708,15 @@ def fetch_predictions(
         "kb_name": kb_name,
         "base_model": base_model,
         "temperature": eval_settings.temperature,
-        "max_tokens": eval_settings.max_tokens,
         "judge_model": eval_settings.judge_model,
         "bert_score_model": eval_settings.bert_score_model,
+        "eval_context": {
+            "temperature": eval_settings.temperature,
+            "judge_model": eval_settings.judge_model,
+            "bert_score_model": eval_settings.bert_score_model,
+            "max_tokens": eval_settings.max_completion_tokens,
+        },
+        "k": k,
         "bundles": bundles,
     }
 
@@ -552,15 +740,28 @@ def _fetch_generation_predictions(
         rag_sources = [{"knowledge_base": kb_name, "alias": rag_alias}]
         rag_enabled = True
 
-    samples = _load_dataset_samples(task, dataset_name, limit=eval_settings.sample_limit)
+    samples = _load_dataset_samples(task, dataset_name)
     if not samples:
         raise RuntimeError(f"No samples loaded for {task}/{dataset_name}")
+    total_samples = len(samples)
+    progress_every = _progress_log_stride(total_samples)
 
     predictions: list[str] = []
     references: list[str] = []
     judge_samples: list[dict[str, str]] = []
     sample_details: list[dict[str, Any]] = []
     gateway_failures = 0
+
+    _log_fetch_progress(
+        phase="generation",
+        task=task,
+        dataset_name=dataset_name,
+        rag_alias=rag_alias,
+        lora_alias=lora_alias,
+        completed=0,
+        total=total_samples,
+        every=progress_every,
+    )
 
     for idx, sample in enumerate(samples):
         question = sample["question"]
@@ -574,8 +775,9 @@ def _fetch_generation_predictions(
                 model=model_name,
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
-                max_tokens=eval_settings.max_tokens,
                 internal_api_key=eval_settings.internal_api_key,
+                max_completion_tokens=eval_settings.max_completion_tokens,
+                expect_rag_context=rag_enabled,
             )
             answer = response["choices"][0]["message"]["content"]
 
@@ -608,6 +810,17 @@ def _fetch_generation_predictions(
                 "reference": reference,
                 "detail": {"rag_context": rag_context} if rag_context else {},
             }
+        )
+        _log_fetch_progress(
+            phase="generation",
+            task=task,
+            dataset_name=dataset_name,
+            rag_alias=rag_alias,
+            lora_alias=lora_alias,
+            completed=idx + 1,
+            total=total_samples,
+            every=progress_every,
+            gateway_failures=gateway_failures,
         )
 
     if gateway_failures == len(samples):
@@ -646,12 +859,27 @@ def _fetch_code_predictions(
         rag_sources = [{"knowledge_base": kb_name, "alias": rag_alias}]
         rag_enabled = True
 
-    samples = _load_dataset_samples("code", dataset_name, limit=eval_settings.sample_limit)
+    samples = _load_dataset_samples("code", dataset_name)
     if not samples:
         raise RuntimeError(f"No samples loaded for code/{dataset_name}")
+    total_samples = len(samples)
+    progress_every = _progress_log_stride(total_samples)
 
     exec_results: list[dict[str, Any]] = []
     sample_details: list[dict[str, Any]] = []
+    gateway_failures = 0
+
+    _log_fetch_progress(
+        phase="code",
+        task="code",
+        dataset_name=dataset_name,
+        rag_alias=rag_alias,
+        lora_alias=lora_alias,
+        completed=0,
+        total=total_samples,
+        every=progress_every,
+    )
+
     for idx, sample in enumerate(samples):
         prompt = sample["prompt"]
         test_code = sample.get("test", "")
@@ -664,18 +892,21 @@ def _fetch_code_predictions(
                 model=model_name,
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
-                max_tokens=eval_settings.max_tokens,
                 internal_api_key=eval_settings.internal_api_key,
+                max_completion_tokens=eval_settings.max_completion_tokens,
+                expect_rag_context=rag_enabled,
             )
             generated = response["choices"][0]["message"]["content"]
         except Exception as e:
             logger.error("Gateway call failed: %s", e)
             generated = ""
+            gateway_failures += 1
 
         result = evaluate_humaneval_sample(
             prompt=prompt,
             generated_code=generated,
             test_code=test_code,
+            entry_point=sample.get("entry_point"),
             timeout=eval_settings.code_exec_timeout,
             mem_limit=eval_settings.code_exec_mem_limit,
             cpus=eval_settings.code_exec_cpus,
@@ -695,6 +926,17 @@ def _fetch_code_predictions(
                 },
             }
         )
+        _log_fetch_progress(
+            phase="code",
+            task="code",
+            dataset_name=dataset_name,
+            rag_alias=rag_alias,
+            lora_alias=lora_alias,
+            completed=idx + 1,
+            total=total_samples,
+            every=progress_every,
+            gateway_failures=gateway_failures,
+        )
 
     return {
         "rag_alias": rag_alias,
@@ -712,6 +954,7 @@ def _fetch_retrieval_predictions(
     rag_alias: str,
     kb_name: str | None,
     eval_settings: Any,
+    k: int,
 ) -> dict[str, Any]:
     """Fetch retrieval query results for a single rag_alias."""
     if not kb_name:
@@ -730,7 +973,7 @@ def _fetch_retrieval_predictions(
     if build_config is None:
         raise RuntimeError(f"Cannot read build config for {kb_name}_{rag_alias}")
 
-    samples = _load_dataset_samples("retrieval", dataset_name, limit=eval_settings.sample_limit)
+    samples = _load_dataset_samples("retrieval", dataset_name)
     if not samples:
         raise RuntimeError(f"No samples loaded for retrieval/{dataset_name}")
 
@@ -771,12 +1014,26 @@ def _fetch_retrieval_predictions(
         vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
 
         queries = [s for s in samples if s.get("query")]
+        total_queries = len(queries)
+        progress_every = _progress_log_stride(total_queries)
         query_results: list[dict[str, Any]] = []
         sample_details: list[dict[str, Any]] = []
 
+        _log_fetch_progress(
+            phase="retrieval",
+            task="retrieval",
+            dataset_name=dataset_name,
+            rag_alias=rag_alias,
+            lora_alias="none",
+            completed=0,
+            total=total_queries,
+            every=progress_every,
+            unit="queries",
+        )
+
         for idx, q in enumerate(queries):
             query_emb = emb_service.embed_query(q["query"])
-            results = vs.search(query_embedding=query_emb, top_k=10, score_threshold=0.0)
+            results = vs.search(query_embedding=query_emb, top_k=k, score_threshold=0.0)
             retrieved_ids = [doc.metadata.get("source", "") for doc in results]
             relevance = q.get("relevance", {})
             query_results.append(
@@ -797,6 +1054,17 @@ def _fetch_retrieval_predictions(
                         "relevance": relevance,
                     },
                 }
+            )
+            _log_fetch_progress(
+                phase="retrieval",
+                task="retrieval",
+                dataset_name=dataset_name,
+                rag_alias=rag_alias,
+                lora_alias="none",
+                completed=idx + 1,
+                total=total_queries,
+                every=progress_every,
+                unit="queries",
             )
     finally:
         try:
@@ -878,6 +1146,7 @@ def calculate_metrics(
                     kb_name=kb_name,
                     eval_settings=eval_settings,
                     eval_context=eval_context,
+                    k=prediction_data["k"],
                 )
             elif task == "code":
                 rows = _compute_code_metric(
@@ -1066,25 +1335,29 @@ def _compute_retrieval_metric(
     kb_name: str | None,
     eval_settings: Any,
     eval_context: dict[str, Any] | None = None,
+    k: int,
 ) -> list[dict[str, Any]]:
     """Compute a single retrieval metric on pre-fetched query results."""
     query_results = bundle["query_results"]
     recall_scores: list[float] = []
     ndcg_scores: list[float] = []
+    mrr_scores: list[float] = []
 
     for qr in query_results:
         retrieved_ids = qr["retrieved_ids"]
         relevance = qr["relevance"]
         relevant_ids = {doc_id for doc_id, rel in relevance.items() if rel > 0}
 
-        recall_scores.append(compute_recall_at_k(retrieved_ids, relevant_ids, k=10))
-        ndcg_scores.append(compute_ndcg_at_k(retrieved_ids, relevance, k=10))
+        recall_scores.append(compute_recall_at_k(retrieved_ids, relevant_ids, k=k))
+        ndcg_scores.append(compute_ndcg_at_k(retrieved_ids, relevance, k=k))
+        mrr_scores.append(compute_mrr_at_k(retrieved_ids, relevant_ids, k=k))
 
     if not recall_scores:
         raise RuntimeError(f"No query results for retrieval/{dataset_name}")
 
     avg_recall = sum(recall_scores) / len(recall_scores)
     avg_ndcg = sum(ndcg_scores) / len(ndcg_scores)
+    avg_mrr = sum(mrr_scores) / len(mrr_scores)
 
     now = datetime.now(timezone.utc)
     common = _build_common_fields(
@@ -1117,22 +1390,32 @@ def _compute_retrieval_metric(
     )
 
     rows = []
-    if metric == "recall_at_10":
+    if metric == "recall_at_k":
         rows.append(
             {
                 **common,
-                "metric_name": "recall_at_10",
+                "metric_name": f"recall_at_{k}",
                 "metric_value": avg_recall,
                 "finished_at": now,
                 "status": "completed",
             }
         )
-    elif metric == "ndcg_at_10":
+    elif metric == "ndcg_at_k":
         rows.append(
             {
                 **common,
-                "metric_name": "ndcg_at_10",
+                "metric_name": f"ndcg_at_{k}",
                 "metric_value": avg_ndcg,
+                "finished_at": now,
+                "status": "completed",
+            }
+        )
+    elif metric == "mrr_at_k":
+        rows.append(
+            {
+                **common,
+                "metric_name": f"mrr_at_{k}",
+                "metric_value": avg_mrr,
                 "finished_at": now,
                 "status": "completed",
             }
@@ -1152,16 +1435,18 @@ def main(
     kb: str | None = None,
     rag_aliases: str = "none",
     lora_aliases: str = "none",
+    k: int = 10,
 ) -> None:
     """Run evaluation for a single metric.
 
     Args:
         task: One of chat, summarize, code, retrieval.
         dataset: Dataset name (e.g. hotpotqa, humaneval).
-        metric: Metric to compute (e.g. rouge_l, relevance, pass_at_1, recall_at_10).
+        metric: Metric to compute (e.g. rouge_l, relevance, pass_at_1, recall_at_k).
         kb: Knowledge base name (required for retrieval evals).
         rag_aliases: Comma-separated RAG alias roles.
         lora_aliases: Comma-separated LoRA alias roles.
+        k: Top-K cutoff for retrieval metrics (default: 10).
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -1182,6 +1467,7 @@ def main(
         kb_name=kb,
         rag_aliases=rag_list,
         lora_aliases=lora_list,
+        k=k,
     )
 
     # Print summary

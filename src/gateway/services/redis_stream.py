@@ -16,9 +16,15 @@ import redis.asyncio as aioredis
 logger = logging.getLogger(__name__)
 
 # Event types (must match worker/tasks.py)
-EVENT_TOKEN = "token"
+EVENT_THINKING_TOKEN = "thinking_token"
+EVENT_ANSWER_TOKEN = "answer_token"
 EVENT_DONE = "done"
 EVENT_ERROR = "error"
+
+
+def _monotonic_time() -> float:
+    """Return the event loop monotonic clock for timeout bookkeeping."""
+    return asyncio.get_running_loop().time()
 
 
 class RedisStreamService:
@@ -49,6 +55,32 @@ class RedisStreamService:
             await self._redis.close()
             self._redis = None
 
+    async def store_prompt_preview(
+        self,
+        request_id: str,
+        preview: dict[str, Any],
+        *,
+        ttl_seconds: int = 900,
+    ) -> None:
+        redis = await self._get_redis()
+        await redis.setex(
+            f"prompt_preview:{request_id}",
+            ttl_seconds,
+            json.dumps(preview),
+        )
+
+    async def get_prompt_preview(self, request_id: str) -> dict[str, Any] | None:
+        redis = await self._get_redis()
+        raw = await redis.get(f"prompt_preview:{request_id}")
+        if raw is None:
+            return None
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("Failed to decode prompt preview for request_id=%s", request_id)
+            return None
+        return value if isinstance(value, dict) else None
+
     async def subscribe(
         self,
         conversation_id: str,
@@ -57,11 +89,11 @@ class RedisStreamService:
         """Subscribe to token events for a conversation.
 
         Yields events until a 'done' or 'error' event is received,
-        or the timeout is reached.
+        or the idle timeout is reached.
 
         Args:
             conversation_id: Conversation ID to subscribe to
-            timeout: Maximum time to wait for events in seconds
+            timeout: Maximum idle time to wait for the next event in seconds
 
         Yields:
             Event dictionaries with 'type' and additional data
@@ -74,20 +106,24 @@ class RedisStreamService:
             await pubsub.subscribe(channel_name)
             logger.info(f"Subscribed to channel: {channel_name}")
 
-            start_time = asyncio.get_event_loop().time()
+            last_event_at = _monotonic_time()
 
             while True:
-                # Check timeout
-                elapsed = asyncio.get_event_loop().time() - start_time
-                if elapsed >= timeout:
-                    logger.warning(f"Timeout waiting for events on {channel_name}")
-                    yield {"type": EVENT_ERROR, "error": "Timeout waiting for response"}
+                # Treat timeout as idle time between events, not total stream duration.
+                idle_elapsed = _monotonic_time() - last_event_at
+                if idle_elapsed >= timeout:
+                    logger.warning(f"Idle timeout waiting for events on {channel_name}")
+                    yield {
+                        "type": EVENT_ERROR,
+                        "error": "Timeout waiting for response",
+                        "error_type": "timeout",
+                    }
                     break
 
                 # Get message with timeout
                 message = await pubsub.get_message(
                     ignore_subscribe_messages=True,
-                    timeout=1.0,
+                    timeout=min(1.0, max(0.05, timeout - idle_elapsed)),
                 )
 
                 if message is None:
@@ -99,6 +135,7 @@ class RedisStreamService:
                     try:
                         data = json.loads(message["data"])
                         event_type = data.get("type")
+                        last_event_at = _monotonic_time()
 
                         yield data
 
@@ -115,68 +152,3 @@ class RedisStreamService:
             await pubsub.unsubscribe(channel_name)
             await pubsub.close()
             logger.info(f"Unsubscribed from channel: {channel_name}")
-
-    async def subscribe_sse(
-        self,
-        conversation_id: str,
-        timeout: float = 300.0,
-    ) -> AsyncIterator[bytes]:
-        """Subscribe and yield SSE-formatted events.
-
-        This is a convenience method that formats events as Server-Sent Events
-        for direct streaming to HTTP clients.
-
-        Args:
-            conversation_id: Conversation ID to subscribe to
-            timeout: Maximum time to wait for events in seconds
-
-        Yields:
-            SSE-formatted bytes
-        """
-        full_content = ""
-
-        async for event in self.subscribe(conversation_id, timeout):
-            event_type = event.get("type")
-
-            if event_type == EVENT_TOKEN:
-                content = event.get("content", "")
-                full_content += content
-                # Format as OpenAI-compatible SSE chunk
-                chunk = {
-                    "id": f"chatcmpl-{conversation_id}",
-                    "object": "chat.completion.chunk",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": content},
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk)}\n\n".encode()
-
-            elif event_type == EVENT_DONE:
-                # Final chunk with finish_reason
-                chunk = {
-                    "id": f"chatcmpl-{conversation_id}",
-                    "object": "chat.completion.chunk",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {},
-                            "finish_reason": event.get("finish_reason", "stop"),
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk)}\n\n".encode()
-                yield b"data: [DONE]\n\n"
-
-            elif event_type == EVENT_ERROR:
-                error_msg = event.get("error", "Unknown error")
-                error_chunk = {
-                    "error": {
-                        "message": error_msg,
-                        "type": "server_error",
-                    }
-                }
-                yield f"data: {json.dumps(error_chunk)}\n\n".encode()

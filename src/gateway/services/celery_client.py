@@ -36,6 +36,7 @@ class CeleryClient:
             self._app.conf.update(
                 task_serializer="json",
                 accept_content=["json"],
+                task_send_sent_event=True,
             )
         return self._app
 
@@ -49,21 +50,17 @@ class CeleryClient:
     def enqueue_generate_response(
         self,
         conversation_id: str,
-        messages: list[dict[str, Any]],
-        model: str | None = None,
-        temperature: float | None = None,
-        top_p: float | None = None,
-        max_tokens: int | None = None,
+        request_id: str,
+        generation_payload: dict[str, Any],
+        budget_meta: dict[str, Any],
     ) -> str:
         """Enqueue a generate_response task.
 
         Args:
             conversation_id: Unique conversation identifier
-            messages: List of chat messages in OpenAI format
-            model: Model to use (optional)
-            temperature: Sampling temperature (optional)
-            top_p: Top-p sampling (optional)
-            max_tokens: Maximum tokens (optional)
+            request_id: Gateway-generated request identifier
+            generation_payload: Chat completion payload without final max_tokens
+            budget_meta: Exact-budget metadata for worker-side preflight
 
         Returns:
             Task ID
@@ -75,11 +72,9 @@ class CeleryClient:
             "worker.tasks.generate_response",
             kwargs={
                 "conversation_id": conversation_id,
-                "messages": messages,
-                "model": model,
-                "temperature": temperature,
-                "top_p": top_p,
-                "max_tokens": max_tokens,
+                "request_id": request_id,
+                "generation_payload": generation_payload,
+                "budget_meta": budget_meta,
             },
         )
 
@@ -106,3 +101,26 @@ class CeleryClient:
             "successful": result.successful() if result.ready() else None,
             "result": result.result if result.ready() else None,
         }
+
+    def revoke_task(
+        self,
+        task_id: str,
+        *,
+        terminate: bool = True,
+        signal: str = "SIGTERM",
+    ) -> None:
+        """Revoke a queued/running task.
+
+        Args:
+            task_id: Task identifier returned by Celery.
+            terminate: Also terminate the worker child if the task is already running.
+            signal: Signal name used when terminating an active task.
+        """
+        app = self._get_app()
+        app.control.revoke(task_id, terminate=terminate, signal=signal)
+        logger.warning(
+            "Revoked task %s (terminate=%s signal=%s)",
+            task_id,
+            terminate,
+            signal,
+        )

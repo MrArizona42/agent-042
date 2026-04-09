@@ -15,22 +15,7 @@ from rag.ops.materialize import (
     make_collection_name,
 )
 from rag.ops.meta import BuildConfig, ImplementationInfo, build_collection_meta
-from shared.config import get_kb_config, get_knowledge_bases, get_settings
-
-
-def _available_kbs() -> list[str]:
-    registry = get_knowledge_bases()
-    return [kb.name for task_cfg in registry.values() for kb in task_cfg.knowledge_bases]
-
-
-def _validate_kb_alias(kb: str, alias: str | None) -> None:
-    kb_cfg = get_kb_config(kb)
-    if kb_cfg is None:
-        raise ValueError(
-            f"Knowledge base '{kb}' not found. Available: {', '.join(_available_kbs()) or '(none)'}"
-        )
-    if alias is not None and alias not in kb_cfg.aliases:
-        raise ValueError(f"Alias '{alias}' is not allowed for knowledge base '{kb}'")
+from shared.config import get_settings, validate_kb_alias
 
 
 def create_pytorch_docs_collection(
@@ -46,7 +31,7 @@ def create_pytorch_docs_collection(
     embeddings_url: str | None = None,
 ) -> dict[str, Any]:
     """Create a fresh PyTorch docs collection and optionally attach an alias."""
-    _validate_kb_alias(kb, alias)
+    validate_kb_alias(kb, alias)
     settings = get_settings()
     qdrant_host = qdrant_host or settings.qdrant_host
     qdrant_port = qdrant_port or settings.qdrant_port

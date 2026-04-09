@@ -13,12 +13,10 @@ def _reset_kb_registry():
     import shared.config as cfg
 
     cfg._KB_REGISTRY = None
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
+    cfg._KB_INDEX = None
     yield
     cfg._KB_REGISTRY = None
-    cfg.KNOWLEDGE_BASES._loaded = False
-    cfg.KNOWLEDGE_BASES.clear()
+    cfg._KB_INDEX = None
 
 
 @pytest.fixture()
@@ -30,7 +28,19 @@ def kb_json_file(tmp_path: Path) -> Path:
             "knowledge_bases": [
                 {
                     "name": "arxiv",
-                    "aliases": ["champion", "challenger"],
+                    "default_alias": "champion",
+                    "aliases": {
+                        "champion": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "reranker": None,
+                        },
+                        "challenger": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "reranker": None,
+                        },
+                    },
                     "update_strategy": "incremental",
                     "label": "ArXiv papers",
                     "description": "ML papers",
@@ -43,7 +53,14 @@ def kb_json_file(tmp_path: Path) -> Path:
             "knowledge_bases": [
                 {
                     "name": "pytorch_docs",
-                    "aliases": ["champion"],
+                    "default_alias": "champion",
+                    "aliases": {
+                        "champion": {
+                            "top_k": 5,
+                            "score_threshold": 0.35,
+                            "reranker": None,
+                        },
+                    },
                     "update_strategy": "replace",
                     "label": "PyTorch docs",
                     "description": "Coding docs",
@@ -61,7 +78,7 @@ def loaded_kb_registry(kb_json_file: Path):
     import shared.config as cfg
     from shared.config import _load_knowledge_bases
 
-    cfg._KB_REGISTRY = _load_knowledge_bases(kb_json_file)
+    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
     return cfg._KB_REGISTRY
 
 
@@ -74,22 +91,24 @@ def _collection_meta_payload(kb_name: str = "arxiv") -> dict[str, object]:
             "chunk_size": 512,
             "chunk_overlap": 64,
             "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "sparse_encoder": None,
+            "retrieval_strategy": "dense",
         },
     }
 
 
 class TestValidateKbAlias:
     def test_rejects_unknown_knowledge_base(self, loaded_kb_registry):
-        from rag.ops.aliases import _validate_kb_alias
+        from shared.config import validate_kb_alias
 
-        with pytest.raises(ValueError, match="Knowledge base 'missing' not found"):
-            _validate_kb_alias("missing", "champion")
+        with pytest.raises(ValueError, match="KB 'missing' not found"):
+            validate_kb_alias("missing", "champion")
 
     def test_rejects_disallowed_alias(self, loaded_kb_registry):
-        from rag.ops.aliases import _validate_kb_alias
+        from shared.config import validate_kb_alias
 
-        with pytest.raises(ValueError, match="Alias 'production' is not allowed"):
-            _validate_kb_alias("arxiv", "production")
+        with pytest.raises(ValueError, match="Alias 'production' not valid"):
+            validate_kb_alias("arxiv", "production")
 
 
 class TestAssignAliasToCollection:

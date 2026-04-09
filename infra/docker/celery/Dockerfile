@@ -18,7 +18,6 @@ COPY src /app/src
 ENV PYTHONPATH=/app/src
 
 # Run Celery worker
-# -Q default: listen to default queue
-# -c 1: single worker (GPU bound)
-# -P solo: solo pool (simpler, no fork issues with GPU)
-CMD ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info", "-Q", "celery", "-c", "1", "-P", "solo"]
+# The worker only brokers requests to vLLM and streams events back to Redis,
+# so it can use the configured Celery pool instead of a blocking solo worker.
+CMD ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info", "-Q", "celery", "-E"]

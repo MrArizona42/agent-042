@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import logging
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, Optional
 
 import httpx
 
 from gateway.config import get_settings
-
-logger = logging.getLogger(__name__)
 
 
 class VllmOpenAIClient:
@@ -42,27 +39,3 @@ class VllmOpenAIClient:
             resp = await client.get(f"{self._base_url}/v1/models", headers=self._headers())
             resp.raise_for_status()
             return resp.json()
-
-    async def chat_completions(self, payload: Dict[str, Any]) -> Any:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/v1/chat/completions",
-                headers=self._headers(),
-                json=payload,
-            )
-            if resp.status_code >= 400:
-                logger.error(f"vLLM error response: {resp.text}")
-            resp.raise_for_status()
-            return resp.json()
-
-    async def chat_completions_stream(self, payload: Dict[str, Any]) -> AsyncIterator[bytes]:
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream(
-                "POST",
-                f"{self._base_url}/v1/chat/completions",
-                headers=self._headers(),
-                json=payload,
-            ) as resp:
-                resp.raise_for_status()
-                async for chunk in resp.aiter_bytes():
-                    yield chunk

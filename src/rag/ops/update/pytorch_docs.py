@@ -13,24 +13,10 @@ from rag.ops.materialize import (
     create_collection_with_meta,
     make_collection_name,
 )
-from rag.ops.meta import build_collection_meta, read_collection_meta
+from rag.ops.meta import build_collection_meta
+from rag.ops.update.common import load_update_collection_meta
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_kb_config, get_knowledge_bases, get_settings
-
-
-def _available_kbs() -> list[str]:
-    registry = get_knowledge_bases()
-    return [kb.name for task_cfg in registry.values() for kb in task_cfg.knowledge_bases]
-
-
-def _validate_kb_alias(kb: str, alias: str) -> None:
-    kb_cfg = get_kb_config(kb)
-    if kb_cfg is None:
-        raise ValueError(
-            f"Knowledge base '{kb}' not found. Available: {', '.join(_available_kbs()) or '(none)'}"
-        )
-    if alias not in kb_cfg.aliases:
-        raise ValueError(f"Alias '{alias}' is not allowed for knowledge base '{kb}'")
+from shared.config import get_kb_config, get_settings, validate_kb_alias
 
 
 def update_pytorch_docs_collection(
@@ -44,8 +30,8 @@ def update_pytorch_docs_collection(
 ) -> dict[str, Any]:
     """Refresh PyTorch docs production collection from `_meta`."""
     settings = get_settings()
-    alias = alias or settings.default_alias
-    _validate_kb_alias(kb, alias)
+    alias = alias or get_kb_config(kb).default_alias
+    validate_kb_alias(kb, alias)
     qdrant_host = qdrant_host or settings.qdrant_host
     qdrant_port = qdrant_port or settings.qdrant_port
 
@@ -78,7 +64,12 @@ def update_pytorch_docs_collection(
         port=qdrant_port,
         collection_name=current_target,
     )
-    current_meta = read_collection_meta(current_store, context=current_target)
+    current_meta = load_update_collection_meta(
+        vector_store=current_store,
+        alias_name=qdrant_alias,
+        collection_name=current_target,
+        kb_name=kb,
+    )
     build_config = current_meta.build_config
 
     with open(docs_path, encoding="utf-8") as file_handle:

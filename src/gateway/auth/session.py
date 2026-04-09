@@ -61,9 +61,7 @@ class SessionManager:
         ttl = await self._redis.ttl(f"{_SESSION_PREFIX}{session_id}")
         if ttl < 0:
             ttl = self._ttl
-        await self._redis.set(
-            f"{_SESSION_PREFIX}{session_id}", json.dumps(data), ex=ttl
-        )
+        await self._redis.set(f"{_SESSION_PREFIX}{session_id}", json.dumps(data), ex=ttl)
 
     async def delete_session(self, session_id: str) -> None:
         """Delete a session from Redis."""

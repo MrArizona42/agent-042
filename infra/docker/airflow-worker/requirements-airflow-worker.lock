@@ -499,6 +499,8 @@ scmrepo==3.6.1
     #   gto
 semver==3.0.4
     # via gto
+sentencepiece==0.2.0
+    # via agent-042 (pyproject.toml)
 setuptools==81.0.0
     # via
     #   torch

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 from rag.vector_store import QdrantVectorStore
 
@@ -29,6 +29,8 @@ class BuildConfig:
     chunk_size: int
     chunk_overlap: int
     embedding_model: str
+    sparse_encoder: str | None
+    retrieval_strategy: Literal["dense", "hybrid", "sparse"]
 
     def __post_init__(self) -> None:
         if not self.chunking_strategy.strip():
@@ -46,6 +48,8 @@ class BuildConfig:
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
             "embedding_model": self.embedding_model,
+            "sparse_encoder": self.sparse_encoder,
+            "retrieval_strategy": self.retrieval_strategy,
         }
 
     @classmethod
@@ -55,6 +59,13 @@ class BuildConfig:
         *,
         context: str = "build_config",
     ) -> "BuildConfig":
+        retrieval_strategy = payload.get("retrieval_strategy")
+        if retrieval_strategy not in ("dense", "hybrid", "sparse"):
+            raise ValueError(
+                f"{context}: 'retrieval_strategy' must be one of "
+                f"'dense', 'hybrid', 'sparse' (got {retrieval_strategy!r})"
+            )
+
         return cls(
             chunking_strategy=_require_non_empty_str(
                 payload.get("chunking_strategy"),
@@ -76,6 +87,8 @@ class BuildConfig:
                 field_name="embedding_model",
                 context=context,
             ),
+            sparse_encoder=payload.get("sparse_encoder"),
+            retrieval_strategy=retrieval_strategy,
         )
 
 

@@ -17,6 +17,7 @@ from gateway.auth.oidc import OIDCClient
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_settings(**overrides):
     """Return a minimal Settings-like object for OIDCClient."""
     defaults = {

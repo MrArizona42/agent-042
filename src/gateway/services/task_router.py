@@ -21,4 +21,3 @@ class RuleBasedTaskRouter:
         if any(k in t for k in ["code", "python", "bug", "traceback", "refactor"]):
             return RouteDecision(task="code")
         return RouteDecision(task="chat")
-

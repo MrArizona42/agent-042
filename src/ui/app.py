@@ -5,7 +5,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from shared.config import KNOWLEDGE_BASES, bootstrap_local_settings_env
+from shared.config import bootstrap_local_settings_env, get_knowledge_bases
+from shared.vllm_payloads import canonicalize_assistant_content
 from ui.client import GatewayClient
 from ui.config import get_settings
 
@@ -43,6 +44,15 @@ def render_message_with_thinking(content: str) -> None:
             text = part_content.strip()
             if text:
                 st.markdown(text)
+
+
+def format_prompt_messages(prompt_messages: list[dict]) -> str:
+    parts = []
+    for pm in prompt_messages:
+        role = pm.get("role", "unknown").upper()
+        body = pm.get("content", "")
+        parts.append(f"**[{role}]**\n\n{body}\n\n---\n\n")
+    return "".join(parts).rstrip() or "_Prompt preview unavailable._"
 
 
 st.title("agent-042")
@@ -129,10 +139,13 @@ with st.sidebar:
 
     st.subheader("Knowledge Base")
 
-    # Build options from the KNOWLEDGE_BASES registry
+    # Build options from the knowledge base registry
     kb_options: dict[str, str | None] = {"Disabled": None}
-    for kb_key, kb_info in KNOWLEDGE_BASES.items():
-        kb_options[kb_info["label"]] = kb_key
+    _kb_meta: dict[str, dict] = {}
+    for task_cfg in get_knowledge_bases().values():
+        for kb_cfg in task_cfg.knowledge_bases:
+            kb_options[kb_cfg.label] = kb_cfg.name
+            _kb_meta[kb_cfg.name] = {"description": kb_cfg.description}
 
     selected_kb_label = st.radio(
         "Select knowledge base for RAG retrieval",
@@ -142,7 +155,7 @@ with st.sidebar:
     selected_kb = kb_options[selected_kb_label]
 
     if selected_kb:
-        st.caption(KNOWLEDGE_BASES[selected_kb]["description"])
+        st.caption(_kb_meta[selected_kb]["description"])
 
 
 # ------------------------------------------------------------------
@@ -178,8 +191,6 @@ if prompt:
     payload = {
         # "model": None,
         "messages": st.session_state.messages,
-        "max_completion_tokens": settings.max_completion_tokens,
-        "stream": False,
     }
     if selected_kb:
         payload["rag_sources"] = [{"knowledge_base": selected_kb}]
@@ -187,23 +198,99 @@ if prompt:
         payload["chat_session_id"] = st.session_state.chat_session_id
 
     with st.chat_message("assistant"):
-        try:
-            resp = client.chat(payload)
-            content = resp["choices"][0]["message"]["content"]
+        with st.expander("💭 Thinking...", expanded=False):
+            thinking_placeholder = st.empty()
+        answer_placeholder = st.empty()
+        with st.expander("📋 Full prompt", expanded=False):
+            prompt_placeholder = st.empty()
 
-            # Show the full prompt sent to the LLM (system prompt + RAG context)
-            prompt_messages = resp.get("_prompt_messages")
-            if prompt_messages:
-                parts = []
-                for pm in prompt_messages:
-                    role = pm.get("role", "unknown").upper()
-                    body = pm.get("content", "")
-                    parts.append(f"**[{role}]**\n\n{body}\n\n---\n\n")
-                with st.expander("📋 Full prompt", expanded=False):
-                    st.markdown("".join(parts))
+        prompt_placeholder.caption("Loading prompt preview...")
+
+        try:
+            stream = client.chat_stream(payload, rich_stream=True)
+
+            if stream.request_id:
+                try:
+                    preview = client.get_prompt_preview(stream.request_id)
+                    prompt_messages = preview.get("prompt_messages")
+                    if prompt_messages:
+                        prompt_placeholder.markdown(format_prompt_messages(prompt_messages))
+                    else:
+                        prompt_placeholder.caption("Prompt preview unavailable.")
+                except Exception:
+                    prompt_placeholder.caption("Prompt preview unavailable.")
+            else:
+                prompt_placeholder.caption("Prompt preview unavailable.")
+
+            thinking_content = ""
+            answer_content = ""
+            content = ""
+
+            for event in stream.events:
+                if event.event == "thinking_token":
+                    event_data = event.data if isinstance(event.data, dict) else {}
+                    fragment = event_data.get("content", "")
+                    if fragment:
+                        thinking_content += fragment
+                        thinking_placeholder.markdown(thinking_content)
+                    continue
+
+                if event.event == "answer_token":
+                    event_data = event.data if isinstance(event.data, dict) else {}
+                    fragment = event_data.get("content", "")
+                    if fragment:
+                        answer_content += fragment
+                        answer_placeholder.markdown(answer_content)
+                    continue
+
+                if event.event == "usage":
+                    continue
+
+                if event.event == "done":
+                    event_data = event.data if isinstance(event.data, dict) else {}
+                    content = event_data.get("content") or canonicalize_assistant_content(
+                        thinking_content,
+                        answer_content,
+                    )
+                    if thinking_content:
+                        thinking_placeholder.markdown(thinking_content)
+                    if answer_content:
+                        answer_placeholder.markdown(answer_content)
+                    continue
+
+                if event.event == "error":
+                    event_data = event.data if isinstance(event.data, dict) else {}
+                    raise RuntimeError(event_data.get("error", "Unknown error"))
+
+                if event.event == "message":
+                    event_data = event.data if isinstance(event.data, dict) else {}
+                    error_payload = (
+                        event_data.get("error") if isinstance(event_data, dict) else None
+                    )
+                    if isinstance(error_payload, dict):
+                        raise RuntimeError(error_payload.get("message", "Unknown error"))
+
+                    choices = event_data.get("choices", []) if isinstance(event_data, dict) else []
+                    if choices:
+                        fragment = choices[0].get("delta", {}).get("content", "")
+                        if fragment:
+                            answer_content += fragment
+                            answer_placeholder.markdown(answer_content)
+                        continue
+
+                    if isinstance(event_data.get("usage"), dict):
+                        continue
+
+                if event.event == "done_marker":
+                    continue
+
+            if not content:
+                content = canonicalize_assistant_content(thinking_content, answer_content)
+            if content and not answer_content and not thinking_content:
+                answer_placeholder.markdown(content)
 
         except Exception as e:
             content = f"Error: {e}"
-        render_message_with_thinking(content)
+            answer_placeholder.markdown(content)
 
     st.session_state.messages.append({"role": "assistant", "content": content})

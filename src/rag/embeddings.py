@@ -52,6 +52,11 @@ class EmbeddingService:
         self.dimension: int = data["dimension"]
         logger.info(f"Embedding dimension: {self.dimension} (model: {data.get('model')})")
 
+    # Maximum number of texts sent per HTTP request.  Large inputs (e.g.
+    # eval corpora with 5 000+ docs) are split into chunks of this size so
+    # individual requests stay well within the configured timeout.
+    _EMBED_BATCH = 512
+
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed a list of documents.
 
@@ -64,10 +69,15 @@ class EmbeddingService:
         if not texts:
             return []
 
-        resp = self._client.post("/v1/embeddings", json={"input": texts})
-        resp.raise_for_status()
-        data = resp.json()
-        return [item["embedding"] for item in data["data"]]
+        results: List[List[float]] = []
+        for start in range(0, len(texts), self._EMBED_BATCH):
+            batch = texts[start : start + self._EMBED_BATCH]
+            resp = self._client.post("/v1/embeddings", json={"input": batch})
+            resp.raise_for_status()
+            data = resp.json()
+            results.extend(item["embedding"] for item in data["data"])
+            logger.debug(f"Embedded batch {start} to {start + len(batch)} / {len(texts)}")
+        return results
 
     def embed_query(self, text: str) -> List[float]:
         """Embed a single query text.

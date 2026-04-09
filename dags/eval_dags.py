@@ -1,12 +1,13 @@
 """Airflow DAGs for evaluation workflows.
 
 Each DAG represents a unique ``(task, dataset)`` evaluation suite.
-The **metric** to compute and the **alias** configuration are selected
-at trigger time via Airflow ``Params`` (rendered as dropdowns in the UI).
+The **metrics** to compute and the **alias** configuration are selected
+at trigger time via Airflow ``Params`` (rendered as multi-select lists
+in the UI).
 
 Two-step execution:
     1. ``fetch_predictions`` — calls the gateway / retrieval system.
-    2. ``calculate_metrics`` — computes the selected metric on the
+    2. ``calculate_metrics`` — computes every selected metric on the
        pre-fetched predictions and logs results to the database.
 
 Predictions are handed between tasks via a temporary JSON file to avoid
@@ -19,7 +20,7 @@ For custom parameter values that are not in the dropdown lists, put
 a JSON string into the ``custom_params`` field when triggering the DAG.
 Example::
 
-    {"metric": "my_custom_metric", "rag_aliases": ["my_alias"]}
+    {"metrics": ["my_custom_metric"], "knowledge_base_aliases": ["my_alias"]}
 
 Zero retries.  No silent fallback to default values — if any required
 parameter is missing or invalid the DAG fails immediately.
@@ -56,6 +57,20 @@ default_args = {
     "retries": 0,
 }
 
+
+def _list_knowledge_base_names() -> list[str]:
+    """Load KB options from the shared task-grouped registry."""
+    from shared.config import get_knowledge_bases
+
+    return sorted(
+        {
+            kb_cfg.name
+            for task_cfg in get_knowledge_bases().values()
+            for kb_cfg in task_cfg.knowledge_bases
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Eval suite definitions — one DAG per (task, dataset) combo
 # ---------------------------------------------------------------------------
@@ -66,7 +81,6 @@ _EVAL_SUITES: list[dict] = [
         "task": "chat",
         "dataset": "hotpotqa",
         "metrics": ["relevance", "correctness", "bertscore_f1", "rouge_l"],
-        "kb": None,
         "description": "Eval: chat on HotpotQA",
         "tags": ["eval", "chat"],
     },
@@ -75,7 +89,6 @@ _EVAL_SUITES: list[dict] = [
         "task": "chat",
         "dataset": "nq",
         "metrics": ["relevance", "correctness", "bertscore_f1", "rouge_l"],
-        "kb": None,
         "description": "Eval: chat on Natural Questions",
         "tags": ["eval", "chat"],
     },
@@ -84,7 +97,6 @@ _EVAL_SUITES: list[dict] = [
         "task": "summarize",
         "dataset": "arxiv_summarization",
         "metrics": ["faithfulness", "coverage", "bertscore_f1", "rouge_l"],
-        "kb": None,
         "description": "Eval: summarization on ArXiv",
         "tags": ["eval", "summarize"],
     },
@@ -93,35 +105,31 @@ _EVAL_SUITES: list[dict] = [
         "task": "code",
         "dataset": "humaneval",
         "metrics": ["pass_at_1", "executable_rate"],
-        "kb": None,
         "description": "Eval: code generation on HumanEval",
         "tags": ["eval", "code"],
     },
     {
-        "dag_id": "eval_retrieval_arxiv_beir_scifact",
+        "dag_id": "eval_retrieval_beir_scifact",
         "task": "retrieval",
         "dataset": "beir_scifact",
-        "metrics": ["recall_at_10", "ndcg_at_10"],
-        "kb": "arxiv",
-        "description": "Eval: retrieval on BEIR-SciFact (arxiv KB)",
+        "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
+        "description": "Eval: retrieval on BEIR-SciFact",
         "tags": ["eval", "retrieval"],
     },
     {
-        "dag_id": "eval_retrieval_arxiv_beir_nfcorpus",
+        "dag_id": "eval_retrieval_beir_nfcorpus",
         "task": "retrieval",
         "dataset": "beir_nfcorpus",
-        "metrics": ["recall_at_10", "ndcg_at_10"],
-        "kb": "arxiv",
-        "description": "Eval: retrieval on BEIR-NFCorpus (arxiv KB)",
+        "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
+        "description": "Eval: retrieval on BEIR-NFCorpus",
         "tags": ["eval", "retrieval"],
     },
     {
-        "dag_id": "eval_retrieval_pytorch_msmarco",
+        "dag_id": "eval_retrieval_msmarco",
         "task": "retrieval",
         "dataset": "msmarco",
-        "metrics": ["recall_at_10", "ndcg_at_10"],
-        "kb": "pytorch_docs",
-        "description": "Eval: retrieval on MS MARCO (pytorch_docs KB)",
+        "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
+        "description": "Eval: retrieval on MS MARCO",
         "tags": ["eval", "retrieval"],
     },
 ]
@@ -144,27 +152,41 @@ def _resolve_params(context: dict) -> dict:
     custom_raw = params["custom_params"]
     custom: dict = json.loads(custom_raw) if custom_raw else {}
 
-    metric = custom["metric"] if "metric" in custom else params["metric"]
-    rag_aliases = custom["rag_aliases"] if "rag_aliases" in custom else params["rag_aliases"]
-    lora_aliases = custom["lora_aliases"] if "lora_aliases" in custom else params["lora_aliases"]
+    knowledge_base = (
+        custom["knowledge_base"] if "knowledge_base" in custom else params.get("knowledge_base")
+    )
+    metrics = custom["metrics"] if "metrics" in custom else params["metrics"]
+    metric_k = int(custom["metric_k"]) if "metric_k" in custom else int(params.get("metric_k", 10))
+    kb_aliases = (
+        custom["knowledge_base_aliases"]
+        if "knowledge_base_aliases" in custom
+        else params["knowledge_base_aliases"]
+    )
+    lora_aliases = (
+        custom["lora_aliases"] if "lora_aliases" in custom else params.get("lora_aliases", ["none"])
+    )
 
-    # Normalise aliases to list[str]
-    if isinstance(rag_aliases, str):
-        rag_aliases = [a.strip() for a in rag_aliases.split(",") if a.strip()]
+    # Normalise to list[str] (handles both array params and custom_params strings)
+    if isinstance(metrics, str):
+        metrics = [m.strip() for m in metrics.split(",") if m.strip()]
+    if isinstance(kb_aliases, str):
+        kb_aliases = [a.strip() for a in kb_aliases.split(",") if a.strip()]
     if isinstance(lora_aliases, str):
         lora_aliases = [a.strip() for a in lora_aliases.split(",") if a.strip()]
 
     # Strict validation — fail if anything is absent
-    if not metric:
-        raise ValueError("Required parameter 'metric' is empty")
-    if not rag_aliases:
-        raise ValueError("Required parameter 'rag_aliases' is empty")
+    if not metrics:
+        raise ValueError("Required parameter 'metrics' is empty")
+    if not kb_aliases:
+        raise ValueError("Required parameter 'knowledge_base_aliases' is empty")
     if not lora_aliases:
         raise ValueError("Required parameter 'lora_aliases' is empty")
 
     return {
-        "metric": metric,
-        "rag_aliases": rag_aliases,
+        "knowledge_base": knowledge_base,
+        "metrics": metrics,
+        "metric_k": metric_k,
+        "knowledge_base_aliases": kb_aliases,
         "lora_aliases": lora_aliases,
     }
 
@@ -177,7 +199,6 @@ def _resolve_params(context: dict) -> dict:
 def _fetch_predictions_task(
     eval_task: str,
     dataset: str,
-    kb: str | None,
     **context: object,
 ) -> str:
     """Airflow task: call the model/retrieval system and save predictions."""
@@ -190,10 +211,11 @@ def _fetch_predictions_task(
     resolved = _resolve_params(context)
 
     log.info(
-        "fetch_predictions: task=%s dataset=%s rag=%s lora=%s",
+        "fetch_predictions: task=%s dataset=%s kb=%s kb_aliases=%s lora=%s",
         eval_task,
         dataset,
-        resolved["rag_aliases"],
+        resolved["knowledge_base"],
+        resolved["knowledge_base_aliases"],
         resolved["lora_aliases"],
     )
 
@@ -202,9 +224,10 @@ def _fetch_predictions_task(
     prediction_data = fetch_predictions(
         task=eval_task,
         dataset_name=dataset,
-        kb_name=kb,
-        rag_aliases=resolved["rag_aliases"],
+        kb_name=resolved["knowledge_base"],
+        rag_aliases=resolved["knowledge_base_aliases"],
         lora_aliases=resolved["lora_aliases"],
+        k=resolved["metric_k"],
     )
 
     # Persist to file (avoids XCom size limits)
@@ -244,16 +267,19 @@ def _calculate_metrics_task(
         prediction_data = json.load(f)
 
     resolved = _resolve_params(context)
-    metric = resolved["metric"]
+    metrics = resolved["metrics"]
 
-    log.info("calculate_metrics: metric=%s", metric)
+    log.info("calculate_metrics: metrics=%s", metrics)
 
     from experiments.eval.eval_scripts.runner import calculate_metrics
 
-    rows = calculate_metrics(metric=metric, prediction_data=prediction_data)
+    all_rows: list[dict] = []
+    for metric in metrics:
+        rows = calculate_metrics(metric=metric, prediction_data=prediction_data)
+        all_rows.extend(rows)
 
-    log.info("Metrics complete: %d rows", len(rows))
-    for row in rows:
+    log.info("Metrics complete: %d rows", len(all_rows))
+    for row in all_rows:
         log.info(
             "  %s/%s metric=%s rag=%s lora=%s → %.4f",
             row["task"],
@@ -277,16 +303,15 @@ def _calculate_metrics_task(
 _sync_raw = os.environ.get("REGISTRY_SYNC_ALIASES", "champion,challenger")
 _sync_aliases = [a.strip() for a in _sync_raw.split(",") if a.strip()]
 _alias_options = ["none"] + _sync_aliases
-# Add combined option for convenience when multiple aliases are configured
-if len(_sync_aliases) > 1:
-    _alias_options.append(",".join(_sync_aliases))
+
+# Build knowledge-base dropdown options from the shared registry.
+_kb_options = _list_knowledge_base_names()
 
 for _suite in _EVAL_SUITES:
     _dag_id = _suite["dag_id"]
     _task = _suite["task"]
     _dataset = _suite["dataset"]
     _metrics = _suite["metrics"]
-    _kb = _suite["kb"]
 
     _dag = DAG(
         dag_id=_dag_id,
@@ -297,36 +322,72 @@ for _suite in _EVAL_SUITES:
         catchup=False,
         tags=_suite["tags"],
         params={
-            "metric": Param(
-                type="string",
-                enum=_metrics,
+            **(
+                {
+                    "knowledge_base": Param(
+                        type="string",
+                        enum=_kb_options,
+                        description=(
+                            "Target knowledge base for retrieval evaluation. "
+                            f"Valid: {', '.join(_kb_options)}."
+                        ),
+                    ),
+                }
+                if _task == "retrieval"
+                else {}
+            ),
+            "knowledge_base_aliases": Param(
+                [],
+                type="array",
+                examples=_alias_options,
                 description=(
-                    f"Metric to compute. Valid: {', '.join(_metrics)}. "
+                    "Knowledge-base aliases to evaluate (multi-select). "
+                    "For custom aliases, use custom_params."
+                ),
+            ),
+            "metrics": Param(
+                [],
+                type="array",
+                examples=_metrics,
+                description=(
+                    f"Metrics to compute (multi-select). Valid: {', '.join(_metrics)}. "
                     "For values outside this list, use custom_params."
                 ),
             ),
-            "rag_aliases": Param(
-                type="string",
-                enum=_alias_options,
-                description=(
-                    "RAG aliases to evaluate (comma-separated). "
-                    "For custom aliases, use custom_params."
-                ),
+            **(
+                {
+                    "metric_k": Param(
+                        5,
+                        type="integer",
+                        enum=[1, 3, 5, 10, 20],
+                        description="Top-K cutoff for Recall@K, nDCG@K, MRR@K.",
+                    ),
+                }
+                if _task == "retrieval"
+                else {}
             ),
-            "lora_aliases": Param(
-                type="string",
-                enum=_alias_options,
-                description=(
-                    "LoRA aliases to evaluate (comma-separated). "
-                    "For custom aliases, use custom_params."
-                ),
+            # noqa: PIE800
+            **(
+                {
+                    "lora_aliases": Param(
+                        [],
+                        type="array",
+                        examples=_alias_options,
+                        description=(
+                            "LoRA aliases to evaluate (multi-select). "
+                            "For custom aliases, use custom_params."
+                        ),
+                    ),
+                }
+                if _task != "retrieval"
+                else {}
             ),
             "custom_params": Param(
                 default="",
                 type=["string", "null"],
                 description=(
-                    'Optional JSON overrides. Example: '
-                    '{"metric": "my_metric", "rag_aliases": ["a1", "a2"]}'
+                    "Optional JSON overrides. Example: "
+                    '{"metrics": ["my_metric"], "knowledge_base_aliases": ["a1", "a2"]}'
                 ),
             ),
         },
@@ -336,7 +397,7 @@ for _suite in _EVAL_SUITES:
         _fetch = PythonOperator(
             task_id="fetch_predictions",
             python_callable=_fetch_predictions_task,
-            op_kwargs={"eval_task": _task, "dataset": _dataset, "kb": _kb},
+            op_kwargs={"eval_task": _task, "dataset": _dataset},
         )
 
         _calc = PythonOperator(

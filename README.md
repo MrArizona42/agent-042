@@ -79,7 +79,7 @@
 **PostgreSQL (один инстанс, три базы данных):**
 - `${POSTGRES_DB}` — бэкенд MLflow: эксперименты, запуски, метрики, параметры, теги, модели и их версии/алиасы
 - `${AIRFLOW_DB}` — метаданные Airflow: DAG-runs, task instances, XComs, connections
-- `agent042` — прикладная БД: пользователи (`users`), сессии (`chat_sessions`), сообщения (`chat_messages`), результаты бенчмарков (`eval_runs`)
+- `agent042` — прикладная БД: пользователи (`users`), сессии (`chat_sessions`), сообщения (`chat_messages`, включая optional prompt/completion token usage), результаты бенчмарков (`eval_runs`)
 
 **Qdrant:**
 Векторные коллекции для RAG. Каждая база знаний (`arxiv`, `pytorch_docs`) имеет один или несколько alias: `{kb}_champion` для прод-запросов и `{kb}_challenger` для ручных экспериментов и тестов. Метаданные коллекции хранятся внутри неё же в виде sentinel-точки с `id="_meta"`. Автоматические refresh-пайплайны идут через `src/rag/ops/update`, а ручные create/promote/inspect операции — через `experiments/rag/notebook_ops.py`.

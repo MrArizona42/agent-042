@@ -168,11 +168,11 @@ ML/DL/AI/LLM, который ускоряет поиск информации, �
 
 | Сервис | Технология | Порт | Назначение |
 |--------|-----------|------|------------|
-| `gateway` | FastAPI | 9000 | API Gateway: маршрутизация задач, сборка промптов, RAG, аутентификация |
+| `gateway` | FastAPI | 9000 | API Gateway: аутентификация, сборка промптов, RAG, SSE streaming, prompt preview |
 | `vllm` | vLLM v0.16.0 | 8000 | OpenAI-compatible LLM inference с multi-LoRA и hot-reload |
 | `embeddings` | FastAPI + sentence-transformers | 8100 | Standalone embedding microservice |
-| `celery-worker` | Celery | — | Async LLM inference с token streaming через Redis Pub/Sub |
-| `ui` | Streamlit | 8501 | Чат-интерфейс с OAuth2 аутентификацией |
+| `celery-worker` | Celery | — | Async LLM inference: exact `/tokenize` preflight, generation через vLLM, streaming событий через Redis Pub/Sub |
+| `ui` | Streamlit | 8501 | First-party чат-интерфейс с OAuth2 и rich SSE рендерингом thinking / answer каналов |
 | `vllm-adapter-sync` | Python | — | Синхронизация MLflow Model Registry адаптеров в vLLM |
 | `code-sandbox` | Python 3.13 (изолированный) | 8200 | Безопасное выполнение кода для HumanEval eval |
 
@@ -194,7 +194,7 @@ ML/DL/AI/LLM, который ускоряет поиск информации, �
 |--------|-----------|------|------------|
 | `postgres` | PostgreSQL 15 | 5432 | Airflow metadata, MLflow backend, agent042 app DB |
 | `qdrant` | Qdrant v1.17.0 | 6333/6334 | Векторная БД для RAG (HTTP/gRPC) |
-| `redis` | Redis 7 | 6379 | Sessions, Pub/Sub streaming, кэш |
+| `redis` | Redis 7 | 6379 | Sessions, Pub/Sub streaming, prompt preview cache |
 | `rabbitmq` | RabbitMQ 3 + Management | 5672/15672 | Celery broker (Airflow workers и gateway worker) |
 | `flower` | Flower | 5555 | Мониторинг Celery worker-ов |
 | `redisinsight` | RedisInsight | 5540 | Мониторинг Redis |
@@ -246,8 +246,77 @@ ML/DL/AI/LLM, который ускоряет поиск информации, �
   остаётся `EVAL_GATEWAY_URL`.
 * Service-specific settings используют префиксные семейства: `GATEWAY_*`, `EVAL_*`, `UI_*`,
   `REGISTRY_*`, `AIRFLOW_*`, `VLLM_*` и т.д.
+* Query-time RAG конфигурация живёт в `src/shared/knowledge_bases.json` как `default_alias`,
+  `top_k`, `score_threshold` и `reranker`; build-time retrieval конфигурация (`embedding_model`,
+  `retrieval_strategy`, chunking facts) живёт в Qdrant `_meta.build_config`.
 * Краткий операционный reference по ownership и canonical env names живёт в
   `CONFIG-CONTRACT.md`.
+
+### Текущий контракт online-serving
+
+#### Big Picture
+
+Each active serving-contract surface appears once below.
+
+1. Successful chat serving uses one production path only: Browser or client -> Gateway SSE -> Celery -> Worker -> vLLM -> Redis -> Gateway SSE.
+2. `POST /v1/chat/completions` is an SSE-only success path; `stream=false` is rejected.
+3. Gateway owns request shaping, RAG retrieval, prompt preview creation, and budget metadata.
+4. Worker owns exact `/tokenize` preflight, final `max_tokens`, streamed usage accumulation, and terminal worker events.
+5. Gateway exposes two response contracts: standard OpenAI-style SSE for generic clients and rich SSE for the first-party UI.
+6. Prompt preview is keyed by `X-Request-Id` and fetched through `GET /v1/chat/prompt-preview/{request_id}`.
+7. Usage and persistence complete only after the terminal `done` event.
+8. RAG query config comes from `src/shared/knowledge_bases.json`, while collection build facts come from Qdrant `_meta.build_config`.
+
+#### Runtime Reference
+
+| Surface | Owner / primary reader | Active contract | Change it when | Notes |
+| --- | --- | --- | --- | --- |
+| End-to-end serving path | Browser or client, gateway, Celery worker, vLLM, Redis | Successful chat generation follows one async path only: Browser or generic client -> Gateway SSE -> Celery -> Worker -> vLLM -> Redis -> Gateway SSE | The transport model or component boundaries change | This is the live production path, not an optional mode |
+| `POST /v1/chat/completions` | Gateway route layer | Successful generation requires `stream=true`; the route validates `rag_sources`, derives `request_id`, and returns streaming responses with `X-Request-Id` | The public chat API contract changes | `stream=false` is rejected rather than falling back to a blocking success path |
+| Request payload shape | Gateway route, UI, eval runner, generic clients | Request payload stays OpenAI-compatible and adds `rag_sources`, `chat_session_id`, and extra top-level passthrough fields that survive into generation payload assembly | The public request contract or client integrations change | `rag_sources` selects KB and alias; `chat_session_id` binds the exchange to persisted history |
+| Gateway startup requirements | Gateway runtime | Startup fails if async serving is disabled or `CELERY_BROKER_URL` is missing | Serving stops depending on Celery or the async-only rule changes | Active runtime is async-only |
+| Request shaping and budget policy | Gateway prompt assembly | Gateway builds the prompt through `src/gateway/services/budget.py` and `src/gateway/services/prompt_builder.py`, shaping system prompt, current turn, history, and RAG approximately | Prompt budgeting rules or shaping heuristics change | `BudgetSettings` in `src/shared/config.py` is the policy source; field defaults listed below |
+| Exact token preflight | Worker runtime | Worker sends the chat-affecting payload to vLLM `/tokenize`, reads exact `prompt_tokens`, computes `B_resp_final = model_max_tokens - prompt_tokens - budget_guard`, and rejects if below `min_response_budget`; also injects `stream_options: {"include_usage": true}` into the upstream vLLM payload | The exact budgeting rule or vLLM integration changes | Final response budget is derived from exact prompt size, not from gateway estimates |
+| Standard SSE contract | Generic clients, eval runner, notebooks that use the public API | Gateway returns answer delta chunks, a terminal finish chunk, a final usage chunk, and `[DONE]` | Generic client compatibility changes | This is the default contract when the UI-rich header is absent |
+| Rich UI SSE contract | First-party Streamlit UI | UI sends `X-UI-Rich-Stream: 1` and receives named events `thinking_token`, `answer_token`, `usage`, `done`, and `error` | The first-party UI protocol changes | This contract exists only for the first-party UI path |
+| Prompt preview | Gateway and UI or internal clients | Gateway stores prompt preview in Redis for 15 minutes and serves it through `GET /v1/chat/prompt-preview/{request_id}` | Prompt introspection or preview TTL changes | Preview includes `prompt_messages` and `rag_context` for the streamed request |
+| Worker event contract | Worker, Redis stream layer, gateway stream assembly | Worker publishes `thinking_token`, `answer_token`, `done`, and `error` into Redis Pub/Sub under `tokens:{conversation_id}` | Internal event names or payload shape change | Gateway assembles final SSE from these events rather than proxying raw worker output |
+| Usage and persistence | Worker and gateway persistence layer | Worker is the source of truth for final usage; `prompt_tokens` comes from `/tokenize`, completion usage comes from streamed vLLM usage, and gateway persists assistant rows only after terminal `done` | Usage accounting or persistence timing changes | Assistant rows store `prompt_tokens` and `completion_tokens`; user rows do not |
+| Canonical assistant content | Worker, gateway, UI history rendering | Assistant content is canonicalized as `<think>...</think>` plus answer when thinking exists, otherwise plain answer | Thinking/answer split or stored history format changes | Persisted history uses the canonical combined content |
+| RAG query config | `src/shared/knowledge_bases.json`, gateway RAG runtime, UI discovery | User-facing query config is task -> KB -> alias with `default_alias`, `top_k`, `score_threshold`, `reranker`, labels, and descriptions | Query-time retrieval behavior or visible KB registry changes | This is query config, not collection build metadata |
+| RAG build config | Qdrant `_meta.build_config`, `RAGService` | Collection build facts such as `embedding_model` and `retrieval_strategy` are read from Qdrant metadata and validated against runtime expectations | Collection structure or compatibility checks change | Alias query config and collection build config are intentionally separate |
+| RAG cache reload | Gateway RAG runtime and authenticated operators | `POST /v1/admin/reload-config` reloads `knowledge_bases.json` and invalidates cached retrievers and build-config state without a full gateway restart | The reload workflow or auth policy changes | Endpoint is unavailable when auth is disabled |
+
+#### BudgetSettings defaults
+
+`BudgetSettings` is mixed into `GatewaySettings`. All fields accept `GATEWAY_*` env var overrides.
+
+| Field | Default | Description |
+|---|---|---|
+| `model_max_tokens` | `32768` | Configured model window used as the top of the token ledger |
+| `chars_per_token` | `4.0` | Character-to-token ratio for gateway-side approximate shaping |
+| `budget_guard` | `512` | Reserved gap that absorbs estimation error and chat-template overhead |
+| `budget_system` | `768` | Approximate budget for the system prompt |
+| `budget_turn` | `10240` | Approximate budget for the current user turn; request rejected if exceeded |
+| `min_budget_history` | `4096` | Minimum guaranteed history budget (`B_hist_eff = min_budget_history + (budget_turn - turn_est)`) |
+| `budget_rag` | `6144` | Total budget for all RAG context; split equally across KBs with no redistribution |
+| `min_response_budget` | `256` | Minimum exact response budget below which the worker rejects before generation |
+
+**Multi-KB RAG trimming rule:** when a request references *n* KBs, each KB receives a fixed base
+allocation of `floor(budget_rag / n)` tokens. Chunks are kept in retrieval-score order within
+each section until the next chunk would exceed that section's budget. Unused budget in one KB
+section is not redistributed to other sections.
+
+#### Reasoning extraction order
+
+The worker extracts thinking content in this fixed order:
+
+1. **Explicit delta fields** — checks `reasoning_content`, `reasoning`, and `thinking` on each streamed vLLM delta; the first non-empty value is used.
+2. **Compatibility `<think>` blocks** — when no explicit reasoning delta is seen, the worker parses streamed `<think>...</think>` segments in the answer content as the fallback.
+3. **Answer-only** — when neither representation is present, all content is treated as answer.
+
+`thinking_token` and `answer_token` events are emitted on separate Redis Pub/Sub channels so the
+gateway and UI can render them independently.
 
 ### Этап 1. Базовая LLM.
 
@@ -318,55 +387,6 @@ ML/DL/AI/LLM, который ускоряет поиск информации, �
 > **Примечание**: Agent layer с динамическим выбором инструментов — запланированное расширение
 > (см. `REMAINING-CHANGES.md` §2.12).
 
-### Конвейер inference запроса
-
-При поступлении запроса на `POST /v1/chat/completions` Gateway выполняет следующий pipeline:
-
-```
-Client Request   (POST /v1/chat/completions)
-      │
-      ▼
-AuthMiddleware   (X-Api-Key → service auth | session_id cookie → user auth)
-      │
-      ▼
-_ProcessChat     (основной оркестратор в services/processing.py)
-      │
-      ├── TaskRouter.decide(user_text) → "chat" | "summarize" | "code"
-      │     └── Rule-based по ключевым словам (summarize/tldr → summarize;
-      │         code/python/bug/traceback/refactor → code; default → chat)
-      │
-      ├── RAGService.retrieve_documents(query, kb, alias, top_k)
-      │     ├── EmbeddingService.embed_query(text)  →  HTTP POST embeddings:8100
-      │     └── QdrantVectorStore.search(embedding)  →  Qdrant collection через alias
-      │
-      ├── PromptBuilder.build_system_prompt(task, rag_mode, retrieved_context)
-      │     ├── Base: "You are an AI assistant for ML/DL/AI/LLM researchers."
-      │     ├── + Task-specific суффикс (chat / summarize / code)
-      │     └── + Retrieved RAG context block (if available)
-      │
-      └── Inference (два режима):
-            ├── Sync:  VllmOpenAIClient → POST vllm:8000/v1/chat/completions
-            └── Async: CeleryClient.enqueue() → Celery Worker → Redis Pub/Sub → SSE
-```
-
-**Sync-режим** (по умолчанию): Gateway напрямую вызывает vLLM через HTTP. Если `stream=true`,
-Gateway проксирует SSE-поток от vLLM к клиенту. Timeout по умолчанию: 60 секунд (стриминг —
-без таймаута).
-
-**Async-режим** (через Celery, опционально): Gateway ставит задачу `generate_response` в
-RabbitMQ. Celery worker получает задачу, стримит ответ от vLLM и публикует токены в Redis
-Pub/Sub канал `tokens:{conversation_id}`. Gateway подписывается на канал и возвращает SSE-поток
-клиенту. Async-режим включается конфигурацией `GATEWAY_ASYNC_ENABLED=true`. Worker использует
-`task_acks_late=True` для crash recovery и автоматический retry с exponential backoff.
-
-**Формат запроса** совместим с OpenAI Chat Completions API и дополнен полями:
-* `rag_sources: [{knowledge_base, alias}]` — выбор knowledge bases для RAG
-* `chat_session_id` — привязка к сессии для персистентной истории
-* `extra` — pass-through поля для OpenAI-совместимых параметров
-
-**Формат ответа** совместим с OpenAI API, но дополнен полем `rag_context` с информацией об
-использованных документах (content, score, source).
-
 ### Embeddings Microservice
 
 Embedding-сервис (`src/embeddings/main.py`) вынесен в отдельный контейнер для изоляции тяжелых
@@ -392,12 +412,14 @@ CUDA и MPS devices. Batch size настраивается через `EMBEDDING
 | `/health` | GET | Health check | нет |
 | `/config` | GET | Текущая конфигурация gateway | нет |
 | `/v1/models` | GET | Proxy к vLLM: список доступных моделей | да |
-| `/v1/chat/completions` | POST | Основной inference endpoint (sync/stream) | да |
+| `/v1/chat/completions` | POST | Основной SSE-only inference endpoint (`stream=true`) | да |
+| `/v1/chat/prompt-preview/{request_id}` | GET | Prompt preview и `rag_context` по `request_id` | да |
 | `/v1/chat/sessions` | POST | Создание новой chat session | да |
 | `/v1/chat/sessions` | GET | Список сессий пользователя | да |
 | `/v1/chat/sessions/{id}/messages` | GET | Сообщения в сессии | да |
 | `/v1/chat/sessions/{id}` | DELETE | Удаление сессии (cascade) | да |
 | `/v1/knowledge-bases` | GET | Список доступных KB + alias-ов | нет |
+| `/v1/admin/reload-config` | POST | Hot-reload `knowledge_bases.json` и invalidation RAG caches | да |
 | `/auth/login` | GET | Начало OAuth2 PKCE flow | нет |
 | `/auth/callback` | GET | Обработка OAuth2 callback | нет |
 | `/auth/logout` | GET | Завершение сессии | нет |
@@ -428,12 +450,8 @@ CUDA и MPS devices. Batch size настраивается через `EMBEDDING
 * Публичные пути без аутентификации: `/health`, `/auth/*`, `/docs`, `/openapi.json`, `/redoc`.
 * PostgreSQL database `agent042` хранит `users`, `chat_sessions`, `chat_messages`, а также
   evaluation tables `eval_runs` и `eval_samples`.
-* Streamlit UI позволяет создавать, переключать и удалять chat sessions; завершённые
-  non-streaming диалоги сохраняются gateway-ем в историю пользователя.
-
-> **Примечание**: chat history частично server-side only — gateway сохраняет завершенные
-> non-streaming exchanges, но streaming responses не персистятся (`stream_chat()` принимает
-> `user_id`/`chat_session_id`, но не использует их) (см. `REMAINING-CHANGES.md` §1.2).
+* Streamlit UI позволяет создавать, переключать и удалять chat sessions; gateway сохраняет
+  streamed assistant responses в историю пользователя по terminal `done` event.
 
 ### Streamlit UI
 
@@ -445,8 +463,8 @@ Streamlit-приложение (`src/ui/app.py`) реализует чат-ин�
   Lazy creation — сессия создаётся только при первом сообщении.
 * **Knowledge base selector**: выбор RAG knowledge bases для текущего запроса (arXiv для chat,
   PyTorch docs для code).
-* **Thinking visualization**: извлечение `<think>...</think>` блоков из ответа LLM и рендер в
-  collapsible Markdown expanders.
+* **Thinking visualization**: UI читает rich SSE-события `thinking_token` и `answer_token` и
+  рендерит их в отдельных контейнерах: thinking expander и основной assistant frame.
 * **GatewayClient** (`src/ui/client.py`) — HTTP wrapper над Gateway API с пробросом session
   cookie как Bearer token.
 
@@ -640,7 +658,9 @@ UUID (`uuid.uuid5` от фиксированного namespace и ключа `"_
     "chunking_strategy": "fixed_token",
     "chunk_size": 512,
     "chunk_overlap": 64,
-    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2"
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "sparse_encoder": null,
+    "retrieval_strategy": "dense"
   },
   "created_at": "2025-01-01T12:00:00Z",
   "implementation": {
@@ -651,6 +671,8 @@ UUID (`uuid.uuid5` от фиксированного namespace и ключа `"_
   }
 }
 ```
+
+`sparse_encoder` and `retrieval_strategy` are required fields in `BuildConfig`. Collections created before this schema was introduced (legacy collections that lack these fields) are treated as invalid: in non-strict mode `RAGService` logs a warning and marks the alias unavailable; with `GATEWAY_RAG_STRICT_STARTUP=true` gateway startup raises immediately rather than continuing with unavailable aliases.
 
 Поисковые запросы автоматически исключают `_meta` через фильтр
 `must_not: [{"key": "type", "match": {"value": "collection_meta"}}]`.
@@ -715,21 +737,24 @@ DAG `rag_collection_cleanup` (расписание: `@daily`) удаляет orp
 * На production **всегда должен существовать alias `champion`**.
 * На production **могут существовать дополнительные alias-ы** (`challenger` и др.) для тестов и
   валидации.
-* Параметры `top_k`, `score_threshold`, `reranking` считаются конфигурацией
-  всей RAG-системы и применяются ко всем collection-ам, которые участвуют в inference.
-* Эксперименты с этими параметрами выполняются через деплой новой production-конфигурации.
+* Параметры `top_k`, `score_threshold`, `reranker` являются alias-owned
+  конфигурацией в `knowledge_bases.json`. Каждый alias несёт свои параметры —
+  champion и challenger могут различаться без рестарта сервиса.
+* Gateway использует request-side budget slices, а worker
+  вычисляет финальный `max_tokens` через exact preflight к vLLM `/tokenize`.
+* Изменение query-config: редактирование `knowledge_bases.json` +
+  `POST /v1/admin/reload-config` (authenticated).
+* Build-time параметры (`chunking_strategy`, `embedding_model`, `sparse_encoder`,
+  `retrieval_strategy`) хранятся в Qdrant `_meta.build_config` и меняются только
+  через rebuild коллекции.
 
 #### Политика маршрутизации трафика
 
-* Production inference по умолчанию использует `rag_alias="champion"` (хардкод/дефолт).
+* Production inference по умолчанию использует `default_alias` из `knowledge_bases.json`
+  (обычно `"champion"`).
 * Непродовые alias-ы (`challenger` и др.) используются для eval/тестов/ручных проверок.
 * Создание новых challenger-коллекций и alias promotion выполняются через
   `experiments/rag/rag_ops.ipynb`, а не отдельным CLI.
-
-> **Примечание**: UI и discovery API для KB ещё не сведены к одному источнику — UI читает
-> локальный registry через `_KBProxy`, а `/v1/knowledge-bases` возвращает flat list, теряя
-> task-grouped структуру. Internal helpers (`TaskConfig`, `KBConfig`, `get_kb_config()`) готовы,
-> но API contract не обновлен (см. `REMAINING-CHANGES.md` §1.1, §2.2).
 
 ## Архитектура оценки
 
@@ -889,7 +914,7 @@ PostgreSQL 15 обслуживает три логических домена:
 |---------|------------|
 | `users` | Google OIDC пользователи (provider, sub, email, name, picture) |
 | `chat_sessions` | Per-user сессии чата (title, timestamps) |
-| `chat_messages` | Сообщения (role: user/assistant, content, timestamps) |
+| `chat_messages` | Сообщения (role: user/assistant, content, timestamps, prompt/completion token usage) |
 | `eval_runs` | Метрики оценки: task, dataset, metric, model/adapter info, RAG config, status |
 | `eval_samples` | Per-sample eval details: input, output, reference, JSONB detail |
 
@@ -906,11 +931,10 @@ judge model, status (running/completed/failed), timestamps и JSONB `extra` дл
 
 Хранит DAG definitions, task instances, XCom и scheduler state.
 
-Все три домена используют один PostgreSQL-инстанс. ORM table creation используется для bootstrap-а
-schema.
-
-> **Примечание**: Alembic migrations для `agent042` DB не заведены — schema bootstrap по-прежнему
-> опирается на ORM `Base.metadata.create_all` в gateway startup (см. `REMAINING-CHANGES.md` §2.8).
+Все три домена используют один PostgreSQL-инстанс. Новые схемы `agent042`
+bootstrap-ятся через ORM `Base.metadata.create_all` в gateway startup, а
+существующие БД обновляют `chat_messages` через
+`src/shared/db/chat_messages_add_usage_columns.sql`.
 
 ## Развёртывание и инфраструктура
 

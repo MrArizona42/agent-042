@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import textwrap
 import urllib.error
 import urllib.request
 from typing import Any
@@ -26,6 +27,8 @@ _SANDBOX_URL: str = os.environ.get("CODE_SANDBOX_URL", "http://code-sandbox:8200
 
 # Matches the first ```python / ```py / ``` fenced block in an LLM response.
 _FENCE_RE = re.compile(r"```(?:python3?|py)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+_ENTRY_POINT_RE = re.compile(r"^def\s+(\w+)", re.MULTILINE)
+_ASSERTION_FAILURE_EXIT_CODE = 100
 
 # Line-start tokens that strongly indicate Python code rather than prose.
 _CODE_START_TOKENS = (
@@ -122,6 +125,50 @@ def extract_code_from_response(response: str, prompt: str) -> str:
     return candidate.strip("\n")
 
 
+def _resolve_entry_point(prompt: str, entry_point: str | None) -> str | None:
+    if entry_point:
+        return entry_point
+    func_name_match = _ENTRY_POINT_RE.search(prompt)
+    if func_name_match:
+        return func_name_match.group(1)
+    return None
+
+
+def _build_humaneval_script(
+    prompt: str,
+    body: str,
+    test_code: str,
+    entry_point: str | None,
+) -> str:
+    resolved_entry_point = _resolve_entry_point(prompt, entry_point)
+    should_invoke_check = bool(
+        resolved_entry_point
+        and re.search(r"(?m)^\s*def\s+check\s*\(", test_code)
+        and not re.search(
+            rf"\bcheck\s*\(\s*{re.escape(resolved_entry_point)}\s*\)",
+            test_code,
+        )
+    )
+
+    test_block = test_code.rstrip()
+    if should_invoke_check and resolved_entry_point:
+        invocation = f"check({resolved_entry_point})"
+        test_block = f"{test_block}\n{invocation}" if test_block else invocation
+    if not test_block.strip():
+        test_block = "pass"
+
+    return (
+        f"{prompt}\n{body}\n\n"
+        "import sys\n"
+        "import traceback\n\n"
+        "try:\n"
+        f"{textwrap.indent(test_block, '    ')}\n"
+        "except AssertionError:\n"
+        "    traceback.print_exc()\n"
+        f"    sys.exit({_ASSERTION_FAILURE_EXIT_CODE})\n"
+    )
+
+
 def _run_in_sandbox(
     code: str,
     *,
@@ -160,6 +207,7 @@ def _run_in_sandbox(
     exit_code: int = result["exit_code"]
     return {
         "passed": exit_code == 0,
+        "executable": exit_code in {0, _ASSERTION_FAILURE_EXIT_CODE},
         "exit_code": exit_code,
         "stdout": result.get("stdout", ""),
         "stderr": result.get("stderr", ""),
@@ -170,6 +218,7 @@ def evaluate_humaneval_sample(
     prompt: str,
     generated_code: str,
     test_code: str,
+    entry_point: str | None = None,
     *,
     timeout: int,
     mem_limit: str,  # noqa: ARG001 – kept for call-site compatibility
@@ -189,10 +238,10 @@ def evaluate_humaneval_sample(
         cpus: Unused; kept for call-site compatibility.
 
     Returns:
-        ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
+        ``{"passed": bool, "executable": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
     body = extract_code_from_response(generated_code, prompt)
-    full_code = f"{prompt}\n{body}\n\n{test_code}\n"
+    full_code = _build_humaneval_script(prompt, body, test_code, entry_point)
     return _run_in_sandbox(full_code, timeout=timeout)
 
 
@@ -209,7 +258,7 @@ def compute_pass_at_1(results: list[dict[str, Any]]) -> dict[str, float]:
         return {"pass_at_1": 0.0, "executable_rate": 0.0}
 
     passed = sum(1 for r in results if r["passed"])
-    executable = sum(1 for r in results if r["exit_code"] == 0)
+    executable = sum(1 for r in results if bool(r.get("executable", r.get("exit_code") == 0)))
 
     return {
         "pass_at_1": passed / len(results),

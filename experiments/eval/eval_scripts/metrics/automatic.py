@@ -58,6 +58,31 @@ def compute_bertscore(
         Dict with keys ``bertscore_precision``, ``bertscore_recall``,
         ``bertscore_f1``.
     """
+    total_pairs = min(len(predictions), len(references))
+    if total_pairs == 0:
+        return {
+            "bertscore_precision": 0.0,
+            "bertscore_recall": 0.0,
+            "bertscore_f1": 0.0,
+        }
+
+    valid_predictions: list[str] = []
+    valid_references: list[str] = []
+    for prediction, reference in zip(predictions, references):
+        # Natural Questions can legitimately have no short answer. Treat any
+        # blank prediction/reference pair as a zero-score example instead of
+        # sending an empty string through bert-score's tokenizer path.
+        if prediction.strip() and reference.strip():
+            valid_predictions.append(prediction)
+            valid_references.append(reference)
+
+    if not valid_predictions:
+        return {
+            "bertscore_precision": 0.0,
+            "bertscore_recall": 0.0,
+            "bertscore_f1": 0.0,
+        }
+
     import threading
 
     import torch
@@ -78,26 +103,31 @@ def compute_bertscore(
 
     threading.excepthook = _suppress_safetensors_conversion_error
 
-    scorer = BERTScorer(model_type=model_name, use_fast_tokenizer=False)
-
-    # Workaround: some models (e.g. DeBERTa) report a huge model_max_length
-    # (~10^30) that overflows the Rust tokenizer's usize in
-    # enable_truncation().  Cap it to the model's actual positional limit.
-    max_pos = getattr(scorer._model.config, "max_position_embeddings", None)
-    if max_pos and scorer._tokenizer.model_max_length > max_pos:
-        scorer._tokenizer.model_max_length = max_pos
-
+    scorer = None
     try:
+        # DeBERTa-v3 requires the fast tokenizer path here; the slow
+        # DebertaV2Tokenizer crashes inside bert-score on special-token setup.
+        scorer = BERTScorer(model_type=model_name, use_fast_tokenizer=True)
+
+        # Workaround: some models (e.g. DeBERTa) report a huge model_max_length
+        # (~10^30) that overflows the Rust tokenizer's usize in
+        # enable_truncation().  Cap it to the model's actual positional limit.
+        max_pos = getattr(scorer._model.config, "max_position_embeddings", None)
+        if max_pos and scorer._tokenizer.model_max_length > max_pos:
+            scorer._tokenizer.model_max_length = max_pos
+
         with torch.no_grad():
-            P, R, F1 = scorer.score(predictions, references)
+            P, R, F1 = scorer.score(valid_predictions, valid_references)
+        valid_fraction = len(valid_predictions) / total_pairs
         return {
-            "bertscore_precision": P.mean().item(),
-            "bertscore_recall": R.mean().item(),
-            "bertscore_f1": F1.mean().item(),
+            "bertscore_precision": P.mean().item() * valid_fraction,
+            "bertscore_recall": R.mean().item() * valid_fraction,
+            "bertscore_f1": F1.mean().item() * valid_fraction,
         }
     finally:
         threading.excepthook = _original_excepthook
-        del scorer
+        if scorer is not None:
+            del scorer
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
@@ -122,7 +152,13 @@ def compute_ndcg_at_k(
         relevance_labels: Gold relevance dict ``{doc_id: relevance_score}``.
         k: Cutoff position.
     """
-    rels = [relevance_labels.get(doc_id, 0.0) for doc_id in retrieved_ids[:k]]
+    # Deduplicate retrieved_ids while preserving rank order so that multiple
+    # chunks from the same source document are counted only once.  Without this
+    # a single highly-relevant doc split into N chunks would inflate DCG by
+    # contributing its relevance score at N positions.
+    seen_ids: set[str] = set()
+    deduped: list[str] = [x for x in retrieved_ids if not (x in seen_ids or seen_ids.add(x))]
+    rels = [relevance_labels.get(doc_id, 0.0) for doc_id in deduped[:k]]
     dcg = _dcg(rels, k)
     ideal_rels = sorted(relevance_labels.values(), reverse=True)[:k]
     idcg = _dcg(ideal_rels, k)
@@ -145,3 +181,30 @@ def compute_recall_at_k(
         return 0.0
     retrieved_set = set(retrieved_ids[:k])
     return len(retrieved_set & relevant_ids) / len(relevant_ids)
+
+
+def compute_mrr_at_k(
+    retrieved_ids: list[str],
+    relevant_ids: set[str],
+    k: int,
+) -> float:
+    """Mean Reciprocal Rank at *k*.
+
+    Returns the reciprocal of the rank of the first relevant document
+    found in the top-*k* results, or 0.0 if none are found.  Duplicate
+    chunk IDs for the same source document are collapsed before ranking
+    (same deduplication strategy as :func:`compute_ndcg_at_k`).
+
+    Args:
+        retrieved_ids: Ordered list of returned document IDs.
+        relevant_ids: Set of gold relevant document IDs.
+        k: Cutoff position.
+    """
+    if not relevant_ids:
+        return 0.0
+    seen_ids: set[str] = set()
+    deduped: list[str] = [x for x in retrieved_ids if not (x in seen_ids or seen_ids.add(x))]
+    for rank, doc_id in enumerate(deduped[:k], start=1):
+        if doc_id in relevant_ids:
+            return 1.0 / rank
+    return 0.0

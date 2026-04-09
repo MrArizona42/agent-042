@@ -21,8 +21,7 @@ def get_engine():
         settings = get_settings()
         if not settings.agent042_db_url:
             raise RuntimeError(
-                "GATEWAY_AGENT042_DB_URL is not configured. "
-                "Set it to a postgresql+asyncpg:// URL."
+                "GATEWAY_AGENT042_DB_URL is not configured. Set it to a postgresql+asyncpg:// URL."
             )
         _engine = create_async_engine(
             settings.agent042_db_url,

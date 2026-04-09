@@ -21,9 +21,9 @@ import json
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
-from pydantic import AliasChoices, BaseModel, Field, computed_field
+from pydantic import AliasChoices, BaseModel, Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from shared.local_env import load_local_env
@@ -37,14 +37,37 @@ logger = logging.getLogger(__name__)
 _DEFAULT_KB_PATH = Path(__file__).resolve().parent / "knowledge_bases.json"
 
 
+class AliasConfig(BaseModel):
+    """Per-alias query-time RAG configuration.
+
+    No defaults — every field must be explicit in ``knowledge_bases.json``.
+    Adding a new field forces updating every alias entry; Pydantic will
+    reject incomplete entries at load time.
+    """
+
+    top_k: int
+    score_threshold: float
+    reranker: Optional[str]  # null today; model name when reranker is implemented
+
+
 class KBConfig(BaseModel):
     """Single knowledge-base entry within a task group."""
 
     name: str
-    aliases: list[str] = Field(default_factory=lambda: ["champion"])
+    default_alias: str
+    aliases: dict[str, AliasConfig]
     update_strategy: Literal["incremental", "replace"] = "replace"
     label: str = ""
     description: str = ""
+
+    @model_validator(mode="after")
+    def _default_alias_must_exist(self) -> "KBConfig":
+        if self.default_alias not in self.aliases:
+            raise ValueError(
+                f"default_alias '{self.default_alias}' is not a declared alias "
+                f"(available: {list(self.aliases.keys())})"
+            )
+        return self
 
 
 class TaskConfig(BaseModel):
@@ -55,33 +78,47 @@ class TaskConfig(BaseModel):
     knowledge_bases: list[KBConfig] = Field(default_factory=list)
 
 
-def _load_knowledge_bases(path: Path | str) -> dict[str, TaskConfig]:
+def _load_knowledge_bases(
+    path: Path | str,
+) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
     """Load the knowledge-bases registry from a JSON file.
 
     Args:
         path: Path to the ``knowledge_bases.json`` file.
 
     Returns:
-        Mapping of ``task_name`` → ``TaskConfig``.
+        Tuple of (task registry, flat KB index keyed by KB name).
+
+    Raises:
+        ValueError: If duplicate KB names are found across tasks.
     """
     path = Path(path)
 
     if not path.exists():
         logger.warning("Knowledge-bases config not found at %s — using empty registry", path)
-        return {}
+        return {}, {}
 
     with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
 
     registry: dict[str, TaskConfig] = {}
+    index: dict[str, KBConfig] = {}
     for entry in raw:
         cfg = TaskConfig(**entry)
         registry[cfg.task] = cfg
-    return registry
+        for kb_cfg in cfg.knowledge_bases:
+            if kb_cfg.name in index:
+                raise ValueError(
+                    f"Duplicate KB name '{kb_cfg.name}' found across tasks. "
+                    f"KB names must be unique."
+                )
+            index[kb_cfg.name] = kb_cfg
+    return registry, index
 
 
-# Module-level registry (populated lazily via get_knowledge_bases())
+# Module-level caches (populated lazily via get_knowledge_bases())
 _KB_REGISTRY: dict[str, TaskConfig] | None = None
+_KB_INDEX: dict[str, KBConfig] | None = None
 
 
 def get_knowledge_bases() -> dict[str, TaskConfig]:
@@ -93,99 +130,51 @@ def get_knowledge_bases() -> dict[str, TaskConfig]:
     Returns:
         Mapping of ``task_name`` → ``TaskConfig``.
     """
-    global _KB_REGISTRY  # noqa: PLW0603
+    global _KB_REGISTRY, _KB_INDEX  # noqa: PLW0603
     if _KB_REGISTRY is None:
         import os
 
         env_path = os.environ.get("GATEWAY_KNOWLEDGE_BASES_PATH", "").strip()
         path = Path(env_path) if env_path else _DEFAULT_KB_PATH
-        _KB_REGISTRY = _load_knowledge_bases(path)
+        _KB_REGISTRY, _KB_INDEX = _load_knowledge_bases(path)
     return _KB_REGISTRY
 
 
 def get_kb_config(kb_name: str) -> KBConfig | None:
-    """Look up a KB by name across all tasks.
+    """Look up a KB by name (O(1) dict lookup).
 
     Returns the ``KBConfig`` for *kb_name* or ``None`` if not found.
     """
-    for task_cfg in get_knowledge_bases().values():
-        for kb_cfg in task_cfg.knowledge_bases:
-            if kb_cfg.name == kb_name:
-                return kb_cfg
-    return None
+    # Ensure registry is loaded
+    get_knowledge_bases()
+    if _KB_INDEX is None:
+        return None
+    return _KB_INDEX.get(kb_name)
 
 
-# ---------------------------------------------------------------------------
-# Backward-compatible KNOWLEDGE_BASES dict
-# ---------------------------------------------------------------------------
-# Legacy callers that import ``KNOWLEDGE_BASES`` from this module get a
-# lazy-loading proxy that returns the same dict structure as before:
-#   { "arxiv": { "collection": ..., "label": ..., "description": ... }, ... }
-# The proxy loads the JSON config on first access.
+def get_kb_names() -> list[str]:
+    """Flat list of all KB names across all tasks."""
+    get_knowledge_bases()
+    if _KB_INDEX is None:
+        return []
+    return list(_KB_INDEX.keys())
 
 
-class _KBProxy(dict):
-    """Lazy dict that loads KB config on first access.
+def validate_kb_alias(kb: str, alias: str | None = None) -> None:
+    """Raise ValueError with a consistent message if kb or alias is unknown.
 
-    Provides backward-compatible flat ``{kb_name: info_dict}`` access.
+    When *alias* is ``None`` only the KB name is validated.
     """
-
-    _loaded: bool = False
-
-    def _ensure(self) -> None:
-        if not self._loaded:
-            for task_cfg in get_knowledge_bases().values():
-                for kb_cfg in task_cfg.knowledge_bases:
-                    super().__setitem__(
-                        kb_cfg.name,
-                        {
-                            "label": kb_cfg.label,
-                            "description": kb_cfg.description,
-                            "aliases": kb_cfg.aliases,
-                            "update_strategy": kb_cfg.update_strategy,
-                        },
-                    )
-            self._loaded = True
-
-    def __getitem__(self, key):
-        self._ensure()
-        return super().__getitem__(key)
-
-    def __contains__(self, key):
-        self._ensure()
-        return super().__contains__(key)
-
-    def __iter__(self):
-        self._ensure()
-        return super().__iter__()
-
-    def __len__(self):
-        self._ensure()
-        return super().__len__()
-
-    def keys(self):
-        self._ensure()
-        return super().keys()
-
-    def values(self):
-        self._ensure()
-        return super().values()
-
-    def items(self):
-        self._ensure()
-        return super().items()
-
-    def get(self, key, default=None):
-        self._ensure()
-        return super().get(key, default)
-
-    def reset(self) -> None:
-        super().clear()
-        self._loaded = False
+    kb_cfg = get_kb_config(kb)
+    if kb_cfg is None:
+        raise ValueError(f"KB '{kb}' not found. Available: {get_kb_names()}")
+    if alias is not None and alias not in kb_cfg.aliases:
+        raise ValueError(
+            f"Alias '{alias}' not valid for KB '{kb}'. Available: {list(kb_cfg.aliases.keys())}"
+        )
 
 
-KNOWLEDGE_BASES = _KBProxy()
-
+# ---------------------------------------------------------------------------
 PLATFORM_VLLM_BASE_URL_ENV = "VLLM_BASE_URL"
 PLATFORM_EMBEDDINGS_URL_ENV = "EMBEDDINGS_URL"
 PLATFORM_QDRANT_HOST_ENV = "QDRANT_HOST"
@@ -261,19 +250,19 @@ class GatewayBehaviorSettings(BaseModel):
         default=None,
         description="Optional API key for vLLM authentication",
     )
-    max_completion_tokens: int = Field(
-        default=512,
-        description="Maximum number of tokens the model can generate per response",
-        ge=1,
-    )
     vllm_timeout: float = Field(
         default=60.0,
         description="Timeout for vLLM requests in seconds",
         ge=1.0,
     )
+    repetition_penalty: float = Field(
+        default=1.1,
+        description="Repetition penalty applied to all generation requests to prevent token loops",
+        ge=1.0,
+    )
     streaming_timeout: float = Field(
         default=300.0,
-        description="Timeout for Redis Pub/Sub streaming in seconds",
+        description="Idle timeout for Redis Pub/Sub streaming in seconds",
         ge=1.0,
     )
     embeddings_timeout: float = Field(
@@ -305,6 +294,51 @@ class GatewayBehaviorSettings(BaseModel):
         default="http://localhost:9001",
         alias="GATEWAY_URL",
         description="Full URL to the gateway (used by UI)",
+    )
+
+
+class BudgetSettings(BaseModel):
+    """Prompt and response budgeting settings for online inference."""
+
+    model_max_tokens: int = Field(
+        default=32768,
+        description="Configured max model window used for prompt/response budgeting",
+        ge=1,
+    )
+    chars_per_token: float = Field(
+        default=4.0,
+        description="Approximate character-to-token ratio used for gateway shaping",
+        gt=0.0,
+    )
+    budget_guard: int = Field(
+        default=512,
+        description="Reserved safeguard gap for estimation and chat-template overhead",
+        ge=0,
+    )
+    budget_system: int = Field(
+        default=768,
+        description="Approximate token budget reserved for the system prompt",
+        ge=1,
+    )
+    budget_turn: int = Field(
+        default=10240,
+        description="Approximate token budget reserved for the current user turn",
+        ge=1,
+    )
+    min_budget_history: int = Field(
+        default=4096,
+        description="Minimum approximate token budget reserved for chat history",
+        ge=0,
+    )
+    budget_rag: int = Field(
+        default=6144,
+        description="Approximate token budget reserved for all retrieved RAG context",
+        ge=0,
+    )
+    min_response_budget: int = Field(
+        default=256,
+        description="Minimum exact response token budget required before generation",
+        ge=1,
     )
 
 
@@ -344,25 +378,10 @@ class RagSettings(BaseModel):
         description="Batch size for embedding generation",
         ge=1,
     )
-    top_k: int = Field(
-        default=5,
-        description="Number of documents to retrieve",
-        ge=1,
-    )
-    score_threshold: float = Field(
-        default=0.35,
-        description="Minimum similarity score for retrieval",
-        ge=0.0,
-        le=1.0,
-    )
-    context_max_length: int = Field(
-        default=4000,
-        description="Maximum character length of RAG context",
-        ge=100,
-    )
-    default_alias: str = Field(
-        default="champion",
-        description="Default alias role for RAG retrieval when none is specified",
+    rag_strict_startup: bool = Field(
+        default=False,
+        description="If True, raise on legacy / invalid Qdrant collections at startup "
+        "instead of logging and marking them unavailable",
     )
 
 
@@ -405,7 +424,13 @@ class AuthSettings(BaseModel):
     )
 
 
-class GatewaySettings(PlatformSettings, GatewayBehaviorSettings, RagSettings, AuthSettings):
+class GatewaySettings(
+    PlatformSettings,
+    GatewayBehaviorSettings,
+    BudgetSettings,
+    RagSettings,
+    AuthSettings,
+):
     """Gateway-facing settings composed from smaller concern groups.
 
     Shared platform endpoints prefer canonical names such as VLLM_BASE_URL and
@@ -489,8 +514,6 @@ class EvalSettings(BaseSettings):
         EVAL_GOOGLE_AI_API_KEY: Google AI Studio API key (Gemini).
         EVAL_BERT_SCORE_MODEL: Model for BERTScore computation.
         EVAL_TEMPERATURE: Temperature for generation requests.
-        EVAL_MAX_TOKENS: Max tokens for generation requests.
-        EVAL_SAMPLE_LIMIT: Max samples per dataset (0 = unlimited).
     """
 
     model_config = SettingsConfigDict(
@@ -511,7 +534,7 @@ class EvalSettings(BaseSettings):
         description="Google AI Studio API key for Gemini judge",
     )
     bert_score_model: str = Field(
-        default="microsoft/deberta-base-mnli",
+        default="microsoft/deberta-v3-base",
         description="Model for BERTScore computation",
     )
     temperature: float = Field(
@@ -519,15 +542,13 @@ class EvalSettings(BaseSettings):
         description="Temperature for generation requests",
         ge=0.0,
     )
-    max_tokens: int = Field(
-        default=512,
-        description="Max tokens for generation requests",
+    max_completion_tokens: int = Field(
+        default=2048,
+        description=(
+            "Upper bound for one eval prediction. Prevents eval requests from "
+            "claiming the full model window for generation."
+        ),
         ge=1,
-    )
-    sample_limit: int = Field(
-        default=100,
-        description="Max samples per dataset (0 = unlimited)",
-        ge=0,
     )
     code_exec_timeout: int = Field(
         default=30,
@@ -629,17 +650,21 @@ def get_ui_settings() -> UISettings:
     return UISettings()
 
 
+def clear_knowledge_base_caches() -> None:
+    """Reset KB registry and index so the next access re-reads from disk."""
+    global _KB_REGISTRY, _KB_INDEX  # noqa: PLW0603
+    _KB_REGISTRY = None
+    _KB_INDEX = None
+
+
 def clear_settings_caches() -> None:
     """Clear cached settings and derived config state."""
-    global _KB_REGISTRY  # noqa: PLW0603
-
     get_platform_settings.cache_clear()
     get_settings.cache_clear()
     get_registry_settings.cache_clear()
     get_eval_settings.cache_clear()
     get_ui_settings.cache_clear()
-    _KB_REGISTRY = None
-    KNOWLEDGE_BASES.reset()
+    clear_knowledge_base_caches()
 
 
 def bootstrap_local_settings_env(
