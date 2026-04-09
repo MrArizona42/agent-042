@@ -88,6 +88,13 @@ from shared.model_registry import AdapterRegistry
 
 logger = logging.getLogger(__name__)
 
+_GATEWAY_STREAM_TIMEOUT = httpx.Timeout(
+    connect=30.0,
+    read=None,
+    write=30.0,
+    pool=30.0,
+)
+
 bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[3])
 
 # ---------------------------------------------------------------------------
@@ -219,7 +226,12 @@ def _call_gateway(
     internal_api_key: str,
     expect_rag_context: bool = False,
 ) -> dict[str, Any]:
-    """Call the gateway chat completions API via standard SSE and rebuild the response shape."""
+    """Call the gateway SSE chat API and rebuild the final response shape.
+
+    The gateway owns idle-timeout enforcement for async streams, so the eval
+    client disables the HTTP read timeout and only keeps connection/write/pool
+    timeouts bounded.
+    """
     payload: dict[str, Any] = {
         "messages": messages,
         "temperature": temperature,
@@ -239,7 +251,7 @@ def _call_gateway(
         f"{gateway_url}/v1/chat/completions",
         json=payload,
         headers=headers,
-        timeout=120,
+        timeout=_GATEWAY_STREAM_TIMEOUT,
     ) as resp:
         resp.raise_for_status()
 

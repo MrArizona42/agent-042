@@ -22,6 +22,11 @@ EVENT_DONE = "done"
 EVENT_ERROR = "error"
 
 
+def _monotonic_time() -> float:
+    """Return the event loop monotonic clock for timeout bookkeeping."""
+    return asyncio.get_running_loop().time()
+
+
 class RedisStreamService:
     """Service for subscribing to Redis Pub/Sub channels for token streaming."""
 
@@ -84,11 +89,11 @@ class RedisStreamService:
         """Subscribe to token events for a conversation.
 
         Yields events until a 'done' or 'error' event is received,
-        or the timeout is reached.
+        or the idle timeout is reached.
 
         Args:
             conversation_id: Conversation ID to subscribe to
-            timeout: Maximum time to wait for events in seconds
+            timeout: Maximum idle time to wait for the next event in seconds
 
         Yields:
             Event dictionaries with 'type' and additional data
@@ -101,20 +106,20 @@ class RedisStreamService:
             await pubsub.subscribe(channel_name)
             logger.info(f"Subscribed to channel: {channel_name}")
 
-            start_time = asyncio.get_event_loop().time()
+            last_event_at = _monotonic_time()
 
             while True:
-                # Check timeout
-                elapsed = asyncio.get_event_loop().time() - start_time
-                if elapsed >= timeout:
-                    logger.warning(f"Timeout waiting for events on {channel_name}")
+                # Treat timeout as idle time between events, not total stream duration.
+                idle_elapsed = _monotonic_time() - last_event_at
+                if idle_elapsed >= timeout:
+                    logger.warning(f"Idle timeout waiting for events on {channel_name}")
                     yield {"type": EVENT_ERROR, "error": "Timeout waiting for response"}
                     break
 
                 # Get message with timeout
                 message = await pubsub.get_message(
                     ignore_subscribe_messages=True,
-                    timeout=1.0,
+                    timeout=min(1.0, max(0.05, timeout - idle_elapsed)),
                 )
 
                 if message is None:
@@ -126,6 +131,7 @@ class RedisStreamService:
                     try:
                         data = json.loads(message["data"])
                         event_type = data.get("type")
+                        last_event_at = _monotonic_time()
 
                         yield data
 

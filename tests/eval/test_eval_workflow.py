@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 # Ensure settings don't require live services
@@ -802,6 +803,33 @@ def _sse_data(payload: dict[str, object]) -> str:
 
 
 class TestRunnerGatewayTransport:
+    def test_call_gateway_uses_unbounded_read_timeout(self):
+        from experiments.eval.eval_scripts.runner import _call_gateway
+
+        stream_response = _FakeStreamResponse(headers={}, lines=["data: [DONE]", ""])
+
+        with (
+            patch(
+                "experiments.eval.eval_scripts.runner.httpx.stream",
+                return_value=_FakeStreamContext(stream_response),
+            ) as mock_stream,
+            patch(
+                "experiments.eval.eval_scripts.runner.httpx.get",
+                return_value=_FakeJSONResponse({}),
+            ),
+        ):
+            _call_gateway(
+                messages=[{"role": "user", "content": "hello"}],
+                gateway_url="http://gateway:9000",
+                temperature=0.0,
+                internal_api_key="",
+            )
+
+        timeout = mock_stream.call_args.kwargs["timeout"]
+        assert isinstance(timeout, httpx.Timeout)
+        assert timeout.read is None
+        assert timeout.connect == 30.0
+
     def test_call_gateway_reconstructs_chat_response_from_standard_sse(self):
         from experiments.eval.eval_scripts.runner import _call_gateway
 
@@ -891,6 +919,9 @@ class TestRunnerGatewayTransport:
         assert response["rag_context"] == [{"content": "doc-1"}]
         assert response["_prompt_messages"] == [{"role": "system", "content": "prompt"}]
         mock_stream.assert_called_once()
+        timeout = mock_stream.call_args.kwargs["timeout"]
+        assert isinstance(timeout, httpx.Timeout)
+        assert timeout.read is None
         mock_get.assert_called_once_with(
             "http://gateway:9000/v1/chat/prompt-preview/req-123",
             headers={"X-API-Key": "secret"},

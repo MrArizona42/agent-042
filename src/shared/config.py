@@ -262,7 +262,7 @@ class GatewayBehaviorSettings(BaseModel):
     )
     streaming_timeout: float = Field(
         default=300.0,
-        description="Timeout for Redis Pub/Sub streaming in seconds",
+        description="Idle timeout for Redis Pub/Sub streaming in seconds",
         ge=1.0,
     )
     embeddings_timeout: float = Field(

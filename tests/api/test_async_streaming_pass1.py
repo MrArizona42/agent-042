@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -118,3 +119,67 @@ def test_async_chat_threads_request_id_and_new_event_types() -> None:
     assert celery_client.last_kwargs is not None
     assert celery_client.last_kwargs["request_id"] == "req-from-route"
     assert chunks[-1] == b"data: [DONE]\n\n"
+
+
+def test_redis_stream_timeout_tracks_idle_time_not_total_runtime() -> None:
+    from gateway.services.redis_stream import RedisStreamService
+
+    class _FakeLoop:
+        def __init__(self) -> None:
+            self.now = 0.0
+
+        def time(self) -> float:
+            return self.now
+
+    class _FakePubSub:
+        def __init__(self, loop: _FakeLoop) -> None:
+            self._loop = loop
+            self._steps = [
+                (0.9, {"type": "message", "data": json.dumps({"type": "thinking_token"})}),
+                (0.2, None),
+                (0.7, {"type": "message", "data": json.dumps({"type": "done"})}),
+            ]
+
+        async def subscribe(self, channel_name: str) -> None:
+            del channel_name
+
+        async def get_message(self, ignore_subscribe_messages: bool, timeout: float):
+            del ignore_subscribe_messages, timeout
+            delta, message = self._steps.pop(0)
+            self._loop.now += delta
+            return message
+
+        async def unsubscribe(self, channel_name: str) -> None:
+            del channel_name
+
+        async def close(self) -> None:
+            return None
+
+    class _FakeRedis:
+        def __init__(self, pubsub: _FakePubSub) -> None:
+            self._pubsub = pubsub
+
+        def pubsub(self) -> _FakePubSub:
+            return self._pubsub
+
+    async def _no_sleep(_: float) -> None:
+        return None
+
+    async def _run() -> list[dict[str, object]]:
+        loop = _FakeLoop()
+        pubsub = _FakePubSub(loop)
+        service = RedisStreamService("redis://test")
+
+        with (
+            patch(
+                "gateway.services.redis_stream.aioredis.from_url",
+                return_value=_FakeRedis(pubsub),
+            ),
+            patch("gateway.services.redis_stream._monotonic_time", side_effect=loop.time),
+            patch("gateway.services.redis_stream.asyncio.sleep", new=_no_sleep),
+        ):
+            return [event async for event in service.subscribe("conv-1", timeout=1.0)]
+
+    events = asyncio.run(_run())
+
+    assert [event["type"] for event in events] == ["thinking_token", "done"]
