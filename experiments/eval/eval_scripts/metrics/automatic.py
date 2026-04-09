@@ -58,6 +58,31 @@ def compute_bertscore(
         Dict with keys ``bertscore_precision``, ``bertscore_recall``,
         ``bertscore_f1``.
     """
+    total_pairs = min(len(predictions), len(references))
+    if total_pairs == 0:
+        return {
+            "bertscore_precision": 0.0,
+            "bertscore_recall": 0.0,
+            "bertscore_f1": 0.0,
+        }
+
+    valid_predictions: list[str] = []
+    valid_references: list[str] = []
+    for prediction, reference in zip(predictions, references):
+        # Natural Questions can legitimately have no short answer. Treat any
+        # blank prediction/reference pair as a zero-score example instead of
+        # sending an empty string through bert-score's tokenizer path.
+        if prediction.strip() and reference.strip():
+            valid_predictions.append(prediction)
+            valid_references.append(reference)
+
+    if not valid_predictions:
+        return {
+            "bertscore_precision": 0.0,
+            "bertscore_recall": 0.0,
+            "bertscore_f1": 0.0,
+        }
+
     import threading
 
     import torch
@@ -78,26 +103,31 @@ def compute_bertscore(
 
     threading.excepthook = _suppress_safetensors_conversion_error
 
-    scorer = BERTScorer(model_type=model_name, use_fast_tokenizer=False)
-
-    # Workaround: some models (e.g. DeBERTa) report a huge model_max_length
-    # (~10^30) that overflows the Rust tokenizer's usize in
-    # enable_truncation().  Cap it to the model's actual positional limit.
-    max_pos = getattr(scorer._model.config, "max_position_embeddings", None)
-    if max_pos and scorer._tokenizer.model_max_length > max_pos:
-        scorer._tokenizer.model_max_length = max_pos
-
+    scorer = None
     try:
+        # DeBERTa-v3 requires the fast tokenizer path here; the slow
+        # DebertaV2Tokenizer crashes inside bert-score on special-token setup.
+        scorer = BERTScorer(model_type=model_name, use_fast_tokenizer=True)
+
+        # Workaround: some models (e.g. DeBERTa) report a huge model_max_length
+        # (~10^30) that overflows the Rust tokenizer's usize in
+        # enable_truncation().  Cap it to the model's actual positional limit.
+        max_pos = getattr(scorer._model.config, "max_position_embeddings", None)
+        if max_pos and scorer._tokenizer.model_max_length > max_pos:
+            scorer._tokenizer.model_max_length = max_pos
+
         with torch.no_grad():
-            P, R, F1 = scorer.score(predictions, references)
+            P, R, F1 = scorer.score(valid_predictions, valid_references)
+        valid_fraction = len(valid_predictions) / total_pairs
         return {
-            "bertscore_precision": P.mean().item(),
-            "bertscore_recall": R.mean().item(),
-            "bertscore_f1": F1.mean().item(),
+            "bertscore_precision": P.mean().item() * valid_fraction,
+            "bertscore_recall": R.mean().item() * valid_fraction,
+            "bertscore_f1": F1.mean().item() * valid_fraction,
         }
     finally:
         threading.excepthook = _original_excepthook
-        del scorer
+        if scorer is not None:
+            del scorer
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 

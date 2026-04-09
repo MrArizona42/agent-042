@@ -42,7 +42,9 @@ click-plugins==1.1.1.2
 click-repl==0.3.0
     # via celery
 cryptography==46.0.5
-    # via authlib
+    # via
+    #   authlib
+    #   pyjwt
 fastapi==0.134.0
     # via agent-042 (pyproject.toml)
 fire==0.7.1

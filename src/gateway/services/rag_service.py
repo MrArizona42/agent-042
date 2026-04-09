@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from gateway.config import get_settings
 from rag.embeddings import EmbeddingService
@@ -204,37 +204,20 @@ class RAGService:
     # Public API
     # ------------------------------------------------------------------
 
-    def format_context_for_docs(
-        self,
-        documents: list,
-        *,
-        knowledge_base: str,
-        alias: str,
-        max_length: int = 4000,
-    ) -> Optional[str]:
-        """Format documents using the retriever's boundary-respecting formatter.
-
-        Returns None when no retriever is available or documents are empty.
-        """
-        if not documents:
-            return None
-        retriever = self._get_retriever(knowledge_base, alias)
-        if retriever is None:
-            return None
-        result = retriever.format_context(documents, max_length=max_length)
-        return result or None
-
     @staticmethod
-    def available_knowledge_bases() -> dict[str, dict]:
+    def available_knowledge_bases() -> dict[str, dict[str, Any]]:
         """Return the registry of available knowledge bases.
 
-        Returns a dict keyed by KB name with ``label``, ``description``,
-        ``aliases`` (full config), ``default_alias``, and ``update_strategy``.
+        Returns a dict keyed by KB name with task metadata plus ``label``,
+        ``description``, ``aliases`` (full config), ``default_alias``,
+        and ``update_strategy``.
         """
-        result: dict[str, dict] = {}
+        result: dict[str, dict[str, Any]] = {}
         for task_cfg in get_knowledge_bases().values():
             for kb_cfg in task_cfg.knowledge_bases:
                 result[kb_cfg.name] = {
+                    "task": task_cfg.task,
+                    "task_label": task_cfg.label,
                     "label": kb_cfg.label,
                     "description": kb_cfg.description,
                     "aliases": {
@@ -243,6 +226,33 @@ class RAGService:
                     "default_alias": kb_cfg.default_alias,
                     "update_strategy": kb_cfg.update_strategy,
                 }
+        return result
+
+    @staticmethod
+    def available_knowledge_bases_by_task() -> list[dict[str, Any]]:
+        """Return the registry grouped by task for discovery endpoints."""
+        result: list[dict[str, Any]] = []
+        for task_cfg in get_knowledge_bases().values():
+            result.append(
+                {
+                    "task": task_cfg.task,
+                    "label": task_cfg.label,
+                    "knowledge_bases": [
+                        {
+                            "knowledge_base": kb_cfg.name,
+                            "label": kb_cfg.label,
+                            "description": kb_cfg.description,
+                            "aliases": {
+                                name: alias_cfg.model_dump()
+                                for name, alias_cfg in kb_cfg.aliases.items()
+                            },
+                            "default_alias": kb_cfg.default_alias,
+                            "update_strategy": kb_cfg.update_strategy,
+                        }
+                        for kb_cfg in task_cfg.knowledge_bases
+                    ],
+                }
+            )
         return result
 
     def validate_knowledge_bases(self) -> None:
@@ -279,59 +289,6 @@ class RAGService:
                         continue
 
                     self._ensure_build_config(cache_key, vs, strict=strict)
-
-    def retrieve_context(
-        self,
-        query: str,
-        knowledge_base: Optional[str] = None,
-        alias: Optional[str] = None,
-        top_k: Optional[int] = None,
-    ) -> Optional[str]:
-        """Retrieve relevant context for a query.
-
-        Args:
-            query: User query
-            knowledge_base: Knowledge base key (e.g. "arxiv", "pytorch_docs").
-                If None the retrieval is skipped.
-            alias: Alias role (uses KB's default_alias if None).
-            top_k: Number of documents to retrieve (uses alias config if None)
-
-        Returns:
-            Formatted context string or None if RAG is disabled/unavailable
-        """
-        if not self.enabled:
-            return None
-
-        if not knowledge_base:
-            logger.info("No knowledge base selected — skipping RAG retrieval")
-            return None
-
-        kb_cfg = get_kb_config(knowledge_base)
-        if kb_cfg is None:
-            logger.warning("Unknown knowledge base: %s", knowledge_base)
-            return None
-
-        if alias is None:
-            alias = kb_cfg.default_alias
-        alias_cfg = kb_cfg.aliases.get(alias)
-        if alias_cfg is None:
-            logger.warning("Invalid alias '%s' for knowledge base '%s'", alias, knowledge_base)
-            return None
-        if top_k is None:
-            top_k = alias_cfg.top_k
-        docs = self.retrieve_documents(
-            query=query,
-            knowledge_base=knowledge_base,
-            alias=alias,
-            top_k=top_k,
-        )
-        if not docs:
-            return None
-        max_len = alias_cfg.context_max_length
-        retriever = self._get_retriever(knowledge_base, alias)
-        if retriever is None:
-            return None
-        return retriever.format_context(docs, max_length=max_len)
 
     def retrieve_documents(
         self,

@@ -4,12 +4,21 @@ Simple chat UI that talks to the FastAPI gateway.
 
 ## Features
 
-- Chat interface with thinking-block rendering
+- Chat interface with two-channel streaming: thinking expander + live answer body
+- Full prompt expander populated from gateway prompt preview
 - **Knowledge Base selector** — choose which RAG collection to query:
   - *Disabled* — no retrieval
   - *ArXiv papers (ML / AI theory)* — latest ML/AI research
   - *PyTorch docs (coding)* — PyTorch API documentation
-- Max tokens setting
+
+## Gateway Contract
+
+The UI uses the gateway's rich first-party stream:
+
+- sends `X-UI-Rich-Stream: 1` on `POST /v1/chat/completions`
+- reads `X-Request-Id` from the streaming response
+- fetches `GET /v1/chat/prompt-preview/{request_id}` to show the full prompt and RAG context
+- renders `thinking_token` and `answer_token` events in separate UI containers
 
 ## Environment
 
@@ -36,7 +45,8 @@ The UI is deployed behind nginx at `https://agent.antonlab.ru:8443`.
 | `/` | Streamlit UI | Main chat interface |
 | `/_stcore/stream` | Streamlit UI | WebSocket for real-time updates |
 | `/api/*` | Gateway | REST API (stripped to `/` when forwarded) |
-| `/api/v1/chat/completions` | Gateway | OpenAI-compatible chat endpoint |
+| `/api/v1/chat/completions` | Gateway | SSE chat endpoint used with `X-UI-Rich-Stream: 1` |
+| `/api/v1/chat/prompt-preview/{request_id}` | Gateway | Prompt preview for the active streamed request |
 | `/docs` | Gateway | Swagger/OpenAPI documentation |
 | `/openapi.json` | Gateway | OpenAPI schema |
 | `/health` | Gateway | Health check endpoint |

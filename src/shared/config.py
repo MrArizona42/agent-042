@@ -47,7 +47,6 @@ class AliasConfig(BaseModel):
 
     top_k: int
     score_threshold: float
-    context_max_length: int
     reranker: Optional[str]  # null today; model name when reranker is implemented
 
 
@@ -251,19 +250,19 @@ class GatewayBehaviorSettings(BaseModel):
         default=None,
         description="Optional API key for vLLM authentication",
     )
-    max_completion_tokens: int = Field(
-        default=512,
-        description="Maximum number of tokens the model can generate per response",
-        ge=1,
-    )
     vllm_timeout: float = Field(
         default=60.0,
         description="Timeout for vLLM requests in seconds",
         ge=1.0,
     )
+    repetition_penalty: float = Field(
+        default=1.1,
+        description="Repetition penalty applied to all generation requests to prevent token loops",
+        ge=1.0,
+    )
     streaming_timeout: float = Field(
         default=300.0,
-        description="Timeout for Redis Pub/Sub streaming in seconds",
+        description="Idle timeout for Redis Pub/Sub streaming in seconds",
         ge=1.0,
     )
     embeddings_timeout: float = Field(
@@ -295,6 +294,51 @@ class GatewayBehaviorSettings(BaseModel):
         default="http://localhost:9001",
         alias="GATEWAY_URL",
         description="Full URL to the gateway (used by UI)",
+    )
+
+
+class BudgetSettings(BaseModel):
+    """Prompt and response budgeting settings for online inference."""
+
+    model_max_tokens: int = Field(
+        default=32768,
+        description="Configured max model window used for prompt/response budgeting",
+        ge=1,
+    )
+    chars_per_token: float = Field(
+        default=4.0,
+        description="Approximate character-to-token ratio used for gateway shaping",
+        gt=0.0,
+    )
+    budget_guard: int = Field(
+        default=512,
+        description="Reserved safeguard gap for estimation and chat-template overhead",
+        ge=0,
+    )
+    budget_system: int = Field(
+        default=768,
+        description="Approximate token budget reserved for the system prompt",
+        ge=1,
+    )
+    budget_turn: int = Field(
+        default=10240,
+        description="Approximate token budget reserved for the current user turn",
+        ge=1,
+    )
+    min_budget_history: int = Field(
+        default=4096,
+        description="Minimum approximate token budget reserved for chat history",
+        ge=0,
+    )
+    budget_rag: int = Field(
+        default=6144,
+        description="Approximate token budget reserved for all retrieved RAG context",
+        ge=0,
+    )
+    min_response_budget: int = Field(
+        default=256,
+        description="Minimum exact response token budget required before generation",
+        ge=1,
     )
 
 
@@ -380,7 +424,13 @@ class AuthSettings(BaseModel):
     )
 
 
-class GatewaySettings(PlatformSettings, GatewayBehaviorSettings, RagSettings, AuthSettings):
+class GatewaySettings(
+    PlatformSettings,
+    GatewayBehaviorSettings,
+    BudgetSettings,
+    RagSettings,
+    AuthSettings,
+):
     """Gateway-facing settings composed from smaller concern groups.
 
     Shared platform endpoints prefer canonical names such as VLLM_BASE_URL and
@@ -464,7 +514,6 @@ class EvalSettings(BaseSettings):
         EVAL_GOOGLE_AI_API_KEY: Google AI Studio API key (Gemini).
         EVAL_BERT_SCORE_MODEL: Model for BERTScore computation.
         EVAL_TEMPERATURE: Temperature for generation requests.
-        EVAL_MAX_TOKENS: Max tokens for generation requests.
     """
 
     model_config = SettingsConfigDict(
@@ -485,7 +534,7 @@ class EvalSettings(BaseSettings):
         description="Google AI Studio API key for Gemini judge",
     )
     bert_score_model: str = Field(
-        default="microsoft/deberta-base-mnli",
+        default="microsoft/deberta-v3-base",
         description="Model for BERTScore computation",
     )
     temperature: float = Field(
@@ -493,9 +542,12 @@ class EvalSettings(BaseSettings):
         description="Temperature for generation requests",
         ge=0.0,
     )
-    max_tokens: int = Field(
-        default=512,
-        description="Max tokens for generation requests",
+    max_completion_tokens: int = Field(
+        default=2048,
+        description=(
+            "Upper bound for one eval prediction. Prevents eval requests from "
+            "claiming the full model window for generation."
+        ),
         ge=1,
     )
     code_exec_timeout: int = Field(

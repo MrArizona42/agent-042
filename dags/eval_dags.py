@@ -57,6 +57,20 @@ default_args = {
     "retries": 0,
 }
 
+
+def _list_knowledge_base_names() -> list[str]:
+    """Load KB options from the shared task-grouped registry."""
+    from shared.config import get_knowledge_bases
+
+    return sorted(
+        {
+            kb_cfg.name
+            for task_cfg in get_knowledge_bases().values()
+            for kb_cfg in task_cfg.knowledge_bases
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Eval suite definitions — one DAG per (task, dataset) combo
 # ---------------------------------------------------------------------------
@@ -290,15 +304,8 @@ _sync_raw = os.environ.get("REGISTRY_SYNC_ALIASES", "champion,challenger")
 _sync_aliases = [a.strip() for a in _sync_raw.split(",") if a.strip()]
 _alias_options = ["none"] + _sync_aliases
 
-# Build knowledge-base dropdown options from knowledge_bases.json.
-_kb_config_path = PROJECT_ROOT / "src" / "shared" / "knowledge_bases.json"
-if _kb_config_path.exists():
-    with open(_kb_config_path, encoding="utf-8") as _fh:
-        _kb_options = sorted(
-            {kb["name"] for entry in json.load(_fh) for kb in entry.get("knowledge_bases", [])}
-        )
-else:
-    _kb_options = ["arxiv", "pytorch_docs"]
+# Build knowledge-base dropdown options from the shared registry.
+_kb_options = _list_knowledge_base_names()
 
 for _suite in _EVAL_SUITES:
     _dag_id = _suite["dag_id"]

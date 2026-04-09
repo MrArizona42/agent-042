@@ -60,19 +60,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 raise
             logger.warning("Knowledge base startup validation failed", exc_info=True)
 
+    if not settings.async_enabled:
+        raise RuntimeError("GATEWAY_ASYNC_ENABLED=false is no longer supported.")
+    if not settings.celery_broker_url:
+        raise RuntimeError(
+            "CELERY_BROKER_URL must be set because async inference is required. "
+            "Example: amqp://user:password@rabbitmq:5672//"
+        )
+
     # --- Create managed connections ---
     redis_stream = RedisStreamService(settings.redis_url)
     logger.info(f"Redis stream service initialized (url={settings.redis_url})")
 
-    celery_client: CeleryClient | None = None
-    if settings.async_enabled:
-        if not settings.celery_broker_url:
-            raise RuntimeError(
-                "CELERY_BROKER_URL must be set when async_enabled=true. "
-                "Example: amqp://user:password@rabbitmq:5672//"
-            )
-        celery_client = CeleryClient(settings.celery_broker_url)
-        logger.info("Celery client initialized")
+    celery_client = CeleryClient(settings.celery_broker_url)
+    logger.info("Celery client initialized")
 
     # Inject services into the shared process_chat instance
     process_chat.init_services(
@@ -108,8 +109,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # --- Cleanup on shutdown ---
     logger.info("Shutting down — closing managed connections")
     await redis_stream.close()
-    if celery_client is not None:
-        celery_client.close()
+    celery_client.close()
     if auth_redis is not None:
         await auth_redis.close()
     if settings.agent042_db_url:

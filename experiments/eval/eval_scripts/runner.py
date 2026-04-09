@@ -30,11 +30,12 @@ Usage::
 from __future__ import annotations
 
 import itertools
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import fire
 import httpx
@@ -86,6 +87,13 @@ from shared.config import (
 from shared.model_registry import AdapterRegistry
 
 logger = logging.getLogger(__name__)
+
+_GATEWAY_STREAM_TIMEOUT = httpx.Timeout(
+    connect=30.0,
+    read=None,
+    write=30.0,
+    pool=30.0,
+)
 
 bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[3])
 
@@ -145,6 +153,64 @@ def _build_code_eval_messages(prompt: str) -> list[dict[str, str]]:
     ]
 
 
+def _progress_log_stride(total: int, *, target_updates: int = 20) -> int:
+    """Return a log stride that keeps progress output bounded."""
+    if total <= 0:
+        return 1
+    if target_updates <= 1:
+        return total
+    return max(1, (total + target_updates - 1) // target_updates)
+
+
+def _render_progress_bar(completed: int, total: int, *, width: int = 20) -> str:
+    """Render a compact ASCII progress bar for task logs."""
+    if total <= 0:
+        return f"[{'-' * width}]"
+
+    ratio = min(1.0, max(0.0, completed / total))
+    filled = min(width, int(ratio * width))
+    if completed >= total:
+        filled = width
+    return f"[{'#' * filled}{'-' * (width - filled)}]"
+
+
+def _log_fetch_progress(
+    *,
+    phase: str,
+    task: str,
+    dataset_name: str,
+    rag_alias: str,
+    lora_alias: str,
+    completed: int,
+    total: int,
+    every: int,
+    unit: str = "samples",
+    gateway_failures: int = 0,
+) -> None:
+    """Log bounded per-bundle progress into the Airflow task log."""
+    if total <= 0:
+        return
+    if completed not in (0, total) and completed % every != 0:
+        return
+
+    percent = (completed / total) * 100.0
+    failure_suffix = f" gateway_failures={gateway_failures}" if gateway_failures else ""
+    logger.info(
+        "%s progress: task=%s dataset=%s rag=%s lora=%s %s %d/%d %s (%.1f%%)%s",
+        phase,
+        task,
+        dataset_name,
+        rag_alias,
+        lora_alias,
+        _render_progress_bar(completed, total),
+        completed,
+        total,
+        unit,
+        percent,
+        failure_suffix,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Gateway API helpers
 # ---------------------------------------------------------------------------
@@ -157,32 +223,143 @@ def _call_gateway(
     model: str | None = None,
     rag_sources: list[dict[str, str]] | None = None,
     temperature: float,
-    max_tokens: int,
     internal_api_key: str,
+    max_completion_tokens: int | None = None,
+    expect_rag_context: bool = False,
 ) -> dict[str, Any]:
-    """Call the gateway chat completions API."""
+    """Call the gateway SSE chat API and rebuild the final response shape.
+
+    The gateway owns idle-timeout enforcement for async streams, so the eval
+    client disables the HTTP read timeout and only keeps connection/write/pool
+    timeouts bounded.
+    """
     payload: dict[str, Any] = {
         "messages": messages,
         "temperature": temperature,
-        "max_completion_tokens": max_tokens,
+        "stream": True,
     }
     if model:
         payload["model"] = model
     if rag_sources:
         payload["rag_sources"] = rag_sources
+    if max_completion_tokens is not None:
+        payload["max_completion_tokens"] = max_completion_tokens
 
     headers: dict[str, str] = {}
     if internal_api_key:
         headers["X-API-Key"] = internal_api_key
 
-    resp = httpx.post(
+    with httpx.stream(
+        "POST",
         f"{gateway_url}/v1/chat/completions",
         json=payload,
         headers=headers,
-        timeout=120,
+        timeout=_GATEWAY_STREAM_TIMEOUT,
+    ) as resp:
+        resp.raise_for_status()
+
+        request_id = resp.headers.get("X-Request-Id")
+        response_id = f"chatcmpl-{request_id}" if request_id else None
+        assistant_fragments: list[str] = []
+        finish_reason = "stop"
+        usage: dict[str, Any] = {}
+
+        for raw_payload in _iter_sse_payloads(resp.iter_lines()):
+            if raw_payload == "[DONE]":
+                break
+
+            chunk = json.loads(raw_payload)
+            error = chunk.get("error")
+            if isinstance(error, dict):
+                raise RuntimeError(error.get("message", "Gateway streaming error"))
+
+            if response_id is None and isinstance(chunk.get("id"), str):
+                response_id = chunk["id"]
+
+            choices = chunk.get("choices")
+            if isinstance(choices, list) and choices:
+                delta = choices[0].get("delta") or {}
+                content = delta.get("content", "")
+                if content:
+                    assistant_fragments.append(content)
+                finish_reason = choices[0].get("finish_reason") or finish_reason
+
+            chunk_usage = chunk.get("usage")
+            if isinstance(chunk_usage, dict):
+                usage = chunk_usage
+
+    result: dict[str, Any] = {
+        "id": response_id or "chatcmpl-eval-stream",
+        "object": "chat.completion",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "".join(assistant_fragments),
+                },
+                "finish_reason": finish_reason,
+            }
+        ],
+        "usage": usage,
+    }
+
+    if request_id:
+        result["request_id"] = request_id
+        preview = _fetch_prompt_preview(
+            gateway_url=gateway_url,
+            request_id=request_id,
+            internal_api_key=internal_api_key,
+        )
+        if preview is not None:
+            prompt_messages = preview.get("prompt_messages")
+            if isinstance(prompt_messages, list):
+                result["_prompt_messages"] = prompt_messages
+            rag_context = preview.get("rag_context")
+            if isinstance(rag_context, list):
+                result["rag_context"] = rag_context
+
+    if expect_rag_context and "rag_context" not in result:
+        raise RuntimeError("Prompt preview response did not include rag_context")
+
+    return result
+
+
+def _iter_sse_payloads(lines: Iterable[str]) -> Iterable[str]:
+    """Yield SSE payload bodies from an HTTP line iterator."""
+    data_lines: list[str] = []
+    for line in lines:
+        if line == "":
+            if data_lines:
+                yield "\n".join(data_lines)
+                data_lines = []
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line.split(":", 1)[1].lstrip())
+
+    if data_lines:
+        yield "\n".join(data_lines)
+
+
+def _fetch_prompt_preview(
+    *,
+    gateway_url: str,
+    request_id: str,
+    internal_api_key: str,
+) -> dict[str, Any] | None:
+    """Fetch prompt preview metadata for a streamed request."""
+    headers: dict[str, str] = {}
+    if internal_api_key:
+        headers["X-API-Key"] = internal_api_key
+
+    resp = httpx.get(
+        f"{gateway_url}/v1/chat/prompt-preview/{request_id}",
+        headers=headers,
+        timeout=30,
     )
     resp.raise_for_status()
-    return resp.json()
+    preview = resp.json()
+    return preview if isinstance(preview, dict) else None
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +553,7 @@ def _build_common_fields(
             eval_settings.bert_score_model,
         ),
         "temperature": eval_context.get("temperature", eval_settings.temperature),
-        "max_tokens": eval_context.get("max_tokens", eval_settings.max_tokens),
+        "max_tokens": eval_context.get("max_tokens"),
         "extra": dict(eval_context.get("extra", {})),
     }
 
@@ -531,9 +708,14 @@ def fetch_predictions(
         "kb_name": kb_name,
         "base_model": base_model,
         "temperature": eval_settings.temperature,
-        "max_tokens": eval_settings.max_tokens,
         "judge_model": eval_settings.judge_model,
         "bert_score_model": eval_settings.bert_score_model,
+        "eval_context": {
+            "temperature": eval_settings.temperature,
+            "judge_model": eval_settings.judge_model,
+            "bert_score_model": eval_settings.bert_score_model,
+            "max_tokens": eval_settings.max_completion_tokens,
+        },
         "k": k,
         "bundles": bundles,
     }
@@ -561,12 +743,25 @@ def _fetch_generation_predictions(
     samples = _load_dataset_samples(task, dataset_name)
     if not samples:
         raise RuntimeError(f"No samples loaded for {task}/{dataset_name}")
+    total_samples = len(samples)
+    progress_every = _progress_log_stride(total_samples)
 
     predictions: list[str] = []
     references: list[str] = []
     judge_samples: list[dict[str, str]] = []
     sample_details: list[dict[str, Any]] = []
     gateway_failures = 0
+
+    _log_fetch_progress(
+        phase="generation",
+        task=task,
+        dataset_name=dataset_name,
+        rag_alias=rag_alias,
+        lora_alias=lora_alias,
+        completed=0,
+        total=total_samples,
+        every=progress_every,
+    )
 
     for idx, sample in enumerate(samples):
         question = sample["question"]
@@ -580,8 +775,9 @@ def _fetch_generation_predictions(
                 model=model_name,
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
-                max_tokens=eval_settings.max_tokens,
                 internal_api_key=eval_settings.internal_api_key,
+                max_completion_tokens=eval_settings.max_completion_tokens,
+                expect_rag_context=rag_enabled,
             )
             answer = response["choices"][0]["message"]["content"]
 
@@ -614,6 +810,17 @@ def _fetch_generation_predictions(
                 "reference": reference,
                 "detail": {"rag_context": rag_context} if rag_context else {},
             }
+        )
+        _log_fetch_progress(
+            phase="generation",
+            task=task,
+            dataset_name=dataset_name,
+            rag_alias=rag_alias,
+            lora_alias=lora_alias,
+            completed=idx + 1,
+            total=total_samples,
+            every=progress_every,
+            gateway_failures=gateway_failures,
         )
 
     if gateway_failures == len(samples):
@@ -655,9 +862,24 @@ def _fetch_code_predictions(
     samples = _load_dataset_samples("code", dataset_name)
     if not samples:
         raise RuntimeError(f"No samples loaded for code/{dataset_name}")
+    total_samples = len(samples)
+    progress_every = _progress_log_stride(total_samples)
 
     exec_results: list[dict[str, Any]] = []
     sample_details: list[dict[str, Any]] = []
+    gateway_failures = 0
+
+    _log_fetch_progress(
+        phase="code",
+        task="code",
+        dataset_name=dataset_name,
+        rag_alias=rag_alias,
+        lora_alias=lora_alias,
+        completed=0,
+        total=total_samples,
+        every=progress_every,
+    )
+
     for idx, sample in enumerate(samples):
         prompt = sample["prompt"]
         test_code = sample.get("test", "")
@@ -670,18 +892,21 @@ def _fetch_code_predictions(
                 model=model_name,
                 rag_sources=rag_sources,
                 temperature=eval_settings.temperature,
-                max_tokens=eval_settings.max_tokens,
                 internal_api_key=eval_settings.internal_api_key,
+                max_completion_tokens=eval_settings.max_completion_tokens,
+                expect_rag_context=rag_enabled,
             )
             generated = response["choices"][0]["message"]["content"]
         except Exception as e:
             logger.error("Gateway call failed: %s", e)
             generated = ""
+            gateway_failures += 1
 
         result = evaluate_humaneval_sample(
             prompt=prompt,
             generated_code=generated,
             test_code=test_code,
+            entry_point=sample.get("entry_point"),
             timeout=eval_settings.code_exec_timeout,
             mem_limit=eval_settings.code_exec_mem_limit,
             cpus=eval_settings.code_exec_cpus,
@@ -700,6 +925,17 @@ def _fetch_code_predictions(
                     "stderr": result.get("stderr", ""),
                 },
             }
+        )
+        _log_fetch_progress(
+            phase="code",
+            task="code",
+            dataset_name=dataset_name,
+            rag_alias=rag_alias,
+            lora_alias=lora_alias,
+            completed=idx + 1,
+            total=total_samples,
+            every=progress_every,
+            gateway_failures=gateway_failures,
         )
 
     return {
@@ -778,8 +1014,22 @@ def _fetch_retrieval_predictions(
         vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
 
         queries = [s for s in samples if s.get("query")]
+        total_queries = len(queries)
+        progress_every = _progress_log_stride(total_queries)
         query_results: list[dict[str, Any]] = []
         sample_details: list[dict[str, Any]] = []
+
+        _log_fetch_progress(
+            phase="retrieval",
+            task="retrieval",
+            dataset_name=dataset_name,
+            rag_alias=rag_alias,
+            lora_alias="none",
+            completed=0,
+            total=total_queries,
+            every=progress_every,
+            unit="queries",
+        )
 
         for idx, q in enumerate(queries):
             query_emb = emb_service.embed_query(q["query"])
@@ -804,6 +1054,17 @@ def _fetch_retrieval_predictions(
                         "relevance": relevance,
                     },
                 }
+            )
+            _log_fetch_progress(
+                phase="retrieval",
+                task="retrieval",
+                dataset_name=dataset_name,
+                rag_alias=rag_alias,
+                lora_alias="none",
+                completed=idx + 1,
+                total=total_queries,
+                every=progress_every,
+                unit="queries",
             )
     finally:
         try:
