@@ -238,7 +238,7 @@ def evaluate_humaneval_sample(
         cpus: Unused; kept for call-site compatibility.
 
     Returns:
-        ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
+        ``{"passed": bool, "executable": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
     body = extract_code_from_response(generated_code, prompt)
     full_code = _build_humaneval_script(prompt, body, test_code, entry_point)
