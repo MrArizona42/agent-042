@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("CELERY_BROKER_URL", "amqp://guest:guest@localhost//")
 
@@ -23,15 +23,24 @@ from worker.tasks import (
 class _DummyCeleryClient:
     def __init__(self) -> None:
         self.last_kwargs: dict[str, object] | None = None
+        self.revoke_calls: list[dict[str, object]] = []
 
     def enqueue_generate_response(self, **kwargs):
         self.last_kwargs = kwargs
         return "task-1"
 
+    def revoke_task(self, task_id: str, **kwargs) -> None:
+        self.revoke_calls.append({"task_id": task_id, **kwargs})
+
 
 class _DummyRedisStream:
     def __init__(self, celery_client: _DummyCeleryClient) -> None:
         self._celery_client = celery_client
+
+    async def store_prompt_preview(
+        self, request_id: str, preview: dict, *, ttl_seconds: int
+    ) -> None:
+        del request_id, preview, ttl_seconds
 
     async def subscribe(self, conversation_id: str, timeout: float):
         del conversation_id, timeout
@@ -47,6 +56,42 @@ class _DummyRedisStream:
             "finish_reason": "stop",
             "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
         }
+
+
+class _TimeoutRedisStream:
+    async def store_prompt_preview(
+        self, request_id: str, preview: dict, *, ttl_seconds: int
+    ) -> None:
+        del request_id, preview, ttl_seconds
+
+    async def subscribe(self, conversation_id: str, timeout: float):
+        del conversation_id, timeout
+        yield {
+            "type": "error",
+            "error": "Timeout waiting for response",
+            "error_type": "timeout",
+        }
+
+
+class _OneTokenRedisStream:
+    async def store_prompt_preview(
+        self, request_id: str, preview: dict, *, ttl_seconds: int
+    ) -> None:
+        del request_id, preview, ttl_seconds
+
+    async def subscribe(self, conversation_id: str, timeout: float):
+        del conversation_id, timeout
+        yield {"type": EVENT_ANSWER_TOKEN, "content": "partial"}
+        await asyncio.sleep(3600)
+
+
+def _decode_sse_payload(chunk: bytes) -> object:
+    text = chunk.decode()
+    assert text.startswith("data: ")
+    payload = text[6:].strip()
+    if payload == "[DONE]":
+        return payload
+    return json.loads(payload)
 
 
 def test_merge_usage_preserves_non_null_values() -> None:
@@ -119,6 +164,86 @@ def test_async_chat_threads_request_id_and_new_event_types() -> None:
     assert celery_client.last_kwargs is not None
     assert celery_client.last_kwargs["request_id"] == "req-from-route"
     assert chunks[-1] == b"data: [DONE]\n\n"
+    assert celery_client.revoke_calls == []
+
+
+def test_async_stream_timeout_revokes_stalled_task() -> None:
+    async def _run():
+        process = _ProcessChat()
+        celery_client = _DummyCeleryClient()
+        process.init_services(
+            celery_client=celery_client,
+            redis_stream=_TimeoutRedisStream(),
+        )
+        process._persist_exchange = AsyncMock()
+
+        prepared = PreparedChatRequest(
+            generation_payload={"model": "test-model", "messages": []},
+            budget_meta={"model_max_tokens": 64, "budget_guard": 8, "min_response_budget": 4},
+            rag_context_chunks=[],
+            prompt_messages=[],
+        )
+        req = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}], stream=True)
+
+        with patch(
+            "gateway.services.processing.get_settings",
+            return_value=SimpleNamespace(streaming_timeout=1.0),
+        ):
+            with patch.object(process, "_prepare_request", return_value=prepared):
+                generator = await process.stream_chat(req, request_id="req-timeout")
+                chunks = [chunk async for chunk in generator]
+
+        return celery_client, chunks, process
+
+    celery_client, chunks, process = asyncio.run(_run())
+
+    assert [_decode_sse_payload(chunk) for chunk in chunks] == [
+        {"error": {"message": "Timeout waiting for response", "type": "timeout"}}
+    ]
+    assert celery_client.revoke_calls == [
+        {"task_id": "task-1", "terminate": True, "signal": "SIGTERM"}
+    ]
+    process._persist_exchange.assert_not_awaited()
+
+
+def test_async_stream_close_revokes_inflight_task() -> None:
+    async def _run():
+        process = _ProcessChat()
+        celery_client = _DummyCeleryClient()
+        process.init_services(
+            celery_client=celery_client,
+            redis_stream=_OneTokenRedisStream(),
+        )
+
+        prepared = PreparedChatRequest(
+            generation_payload={"model": "test-model", "messages": []},
+            budget_meta={"model_max_tokens": 64, "budget_guard": 8, "min_response_budget": 4},
+            rag_context_chunks=[],
+            prompt_messages=[],
+        )
+        req = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}], stream=True)
+
+        with patch(
+            "gateway.services.processing.get_settings",
+            return_value=SimpleNamespace(streaming_timeout=1.0),
+        ):
+            with patch.object(process, "_prepare_request", return_value=prepared):
+                generator = await process.stream_chat(req, request_id="req-close")
+                first_chunk = await anext(generator)
+                await generator.aclose()
+
+        return celery_client, first_chunk
+
+    celery_client, first_chunk = asyncio.run(_run())
+
+    assert _decode_sse_payload(first_chunk) == {
+        "id": "chatcmpl-req-close",
+        "object": "chat.completion.chunk",
+        "choices": [{"index": 0, "delta": {"content": "partial"}, "finish_reason": None}],
+    }
+    assert celery_client.revoke_calls == [
+        {"task_id": "task-1", "terminate": True, "signal": "SIGTERM"}
+    ]
 
 
 def test_redis_stream_timeout_tracks_idle_time_not_total_runtime() -> None:

@@ -113,7 +113,11 @@ class RedisStreamService:
                 idle_elapsed = _monotonic_time() - last_event_at
                 if idle_elapsed >= timeout:
                     logger.warning(f"Idle timeout waiting for events on {channel_name}")
-                    yield {"type": EVENT_ERROR, "error": "Timeout waiting for response"}
+                    yield {
+                        "type": EVENT_ERROR,
+                        "error": "Timeout waiting for response",
+                        "error_type": "timeout",
+                    }
                     break
 
                 # Get message with timeout

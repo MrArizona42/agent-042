@@ -414,6 +414,27 @@ class _ProcessChat:
             conversation_id,
         )
 
+        def _revoke_generation(*, reason: str) -> None:
+            try:
+                celery_client.revoke_task(task_id, terminate=True, signal="SIGTERM")
+            except Exception:
+                logger.warning(
+                    "Failed to revoke async stream task %s for request %s: %s",
+                    task_id,
+                    request_id,
+                    reason,
+                    exc_info=True,
+                )
+                return
+
+            logger.warning(
+                "Revoked async stream task %s for request %s conversation %s: %s",
+                task_id,
+                request_id,
+                conversation_id,
+                reason,
+            )
+
         async def _event_stream() -> AsyncIterator[bytes]:
             thinking_content = ""
             answer_content = ""
@@ -423,101 +444,123 @@ class _ProcessChat:
                 "completion_tokens": None,
                 "total_tokens": None,
             }
+            terminal_event_seen = False
+            revocation_requested = False
 
-            async for event in redis_stream.subscribe(
-                conversation_id,
-                timeout=settings.streaming_timeout,
-            ):
-                event_type = event.get("type")
+            try:
+                async for event in redis_stream.subscribe(
+                    conversation_id,
+                    timeout=settings.streaming_timeout,
+                ):
+                    event_type = event.get("type")
 
-                if event_type == "thinking_token":
-                    content = event.get("content", "")
-                    thinking_content += content
-                    if rich_stream and content:
-                        yield self._rich_stream_chunk(
-                            event="thinking_token",
-                            request_id=request_id,
-                            payload={"content": content},
-                        )
-                    continue
-
-                if event_type in {"answer_token", "token"}:
-                    content = event.get("content", "")
-                    if content:
-                        answer_content += content
-                        if rich_stream:
+                    if event_type == "thinking_token":
+                        content = event.get("content", "")
+                        thinking_content += content
+                        if rich_stream and content:
                             yield self._rich_stream_chunk(
-                                event="answer_token",
+                                event="thinking_token",
                                 request_id=request_id,
                                 payload={"content": content},
                             )
+                        continue
+
+                    if event_type in {"answer_token", "token"}:
+                        content = event.get("content", "")
+                        if content:
+                            answer_content += content
+                            if rich_stream:
+                                yield self._rich_stream_chunk(
+                                    event="answer_token",
+                                    request_id=request_id,
+                                    payload={"content": content},
+                                )
+                            else:
+                                yield self._answer_delta_chunk(
+                                    request_id=request_id,
+                                    content=content,
+                                )
+                        continue
+
+                    if event_type == "done":
+                        terminal_event_seen = True
+                        thinking_content = event.get("thinking_content", thinking_content)
+                        answer_content = event.get("answer_content", answer_content)
+                        finish_reason = event.get("finish_reason", "stop")
+                        event_usage = event.get("usage")
+                        if isinstance(event_usage, dict):
+                            usage = event_usage
+
+                        assistant_content = event.get(
+                            "content",
+                            canonicalize_assistant_content(thinking_content, answer_content),
+                        )
+                        result = self._chat_completion_result(
+                            request_id=request_id,
+                            assistant_content=assistant_content,
+                            finish_reason=finish_reason,
+                            usage=usage,
+                        )
+
+                        if rich_stream:
+                            yield self._rich_stream_chunk(
+                                event="usage",
+                                request_id=request_id,
+                                payload={"usage": usage},
+                            )
+                            yield self._rich_stream_chunk(
+                                event="done",
+                                request_id=request_id,
+                                payload={
+                                    "thinking_content": thinking_content,
+                                    "answer_content": answer_content,
+                                    "content": assistant_content,
+                                    "finish_reason": finish_reason,
+                                },
+                            )
                         else:
-                            yield self._answer_delta_chunk(request_id=request_id, content=content)
-                    continue
+                            yield self._finish_chunk(
+                                request_id=request_id, finish_reason=finish_reason
+                            )
+                            yield self._usage_chunk(request_id=request_id, usage=usage)
 
-                if event_type == "done":
-                    thinking_content = event.get("thinking_content", thinking_content)
-                    answer_content = event.get("answer_content", answer_content)
-                    finish_reason = event.get("finish_reason", "stop")
-                    event_usage = event.get("usage")
-                    if isinstance(event_usage, dict):
-                        usage = event_usage
+                        if chat_session_id and user_id:
+                            await self._persist_exchange(req, result, chat_session_id)
 
-                    assistant_content = event.get(
-                        "content",
-                        canonicalize_assistant_content(thinking_content, answer_content),
+                        if not rich_stream:
+                            yield b"data: [DONE]\n\n"
+                        return
+
+                    if event_type == "error":
+                        error_type = event.get("error_type") or "server_error"
+                        if error_type != "timeout":
+                            terminal_event_seen = True
+                        elif not revocation_requested:
+                            _revoke_generation(
+                                reason=("idle timeout while waiting for worker stream events")
+                            )
+                            revocation_requested = True
+
+                        if rich_stream:
+                            yield self._rich_stream_chunk(
+                                event="error",
+                                request_id=request_id,
+                                payload={
+                                    "error": event.get("error", "Unknown error"),
+                                    "error_type": error_type,
+                                },
+                            )
+                        else:
+                            yield self._error_chunk(
+                                error=event.get("error", "Unknown error"),
+                                error_type=error_type,
+                            )
+                        return
+            finally:
+                if not terminal_event_seen and not revocation_requested:
+                    _revoke_generation(
+                        reason="stream closed before worker reported completion",
                     )
-                    result = self._chat_completion_result(
-                        request_id=request_id,
-                        assistant_content=assistant_content,
-                        finish_reason=finish_reason,
-                        usage=usage,
-                    )
-
-                    if rich_stream:
-                        yield self._rich_stream_chunk(
-                            event="usage",
-                            request_id=request_id,
-                            payload={"usage": usage},
-                        )
-                        yield self._rich_stream_chunk(
-                            event="done",
-                            request_id=request_id,
-                            payload={
-                                "thinking_content": thinking_content,
-                                "answer_content": answer_content,
-                                "content": assistant_content,
-                                "finish_reason": finish_reason,
-                            },
-                        )
-                    else:
-                        yield self._finish_chunk(request_id=request_id, finish_reason=finish_reason)
-                        yield self._usage_chunk(request_id=request_id, usage=usage)
-
-                    if chat_session_id and user_id:
-                        await self._persist_exchange(req, result, chat_session_id)
-
-                    if not rich_stream:
-                        yield b"data: [DONE]\n\n"
-                    return
-
-                if event_type == "error":
-                    error_type = event.get("error_type") or "server_error"
-                    if rich_stream:
-                        yield self._rich_stream_chunk(
-                            event="error",
-                            request_id=request_id,
-                            payload={
-                                "error": event.get("error", "Unknown error"),
-                                "error_type": error_type,
-                            },
-                        )
-                    else:
-                        yield self._error_chunk(
-                            error=event.get("error", "Unknown error"),
-                            error_type=error_type,
-                        )
-                    return
 
         return _event_stream()
 

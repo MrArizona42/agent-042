@@ -100,3 +100,26 @@ class CeleryClient:
             "successful": result.successful() if result.ready() else None,
             "result": result.result if result.ready() else None,
         }
+
+    def revoke_task(
+        self,
+        task_id: str,
+        *,
+        terminate: bool = True,
+        signal: str = "SIGTERM",
+    ) -> None:
+        """Revoke a queued/running task.
+
+        Args:
+            task_id: Task identifier returned by Celery.
+            terminate: Also terminate the worker child if the task is already running.
+            signal: Signal name used when terminating an active task.
+        """
+        app = self._get_app()
+        app.control.revoke(task_id, terminate=terminate, signal=signal)
+        logger.warning(
+            "Revoked task %s (terminate=%s signal=%s)",
+            task_id,
+            terminate,
+            signal,
+        )
