@@ -127,6 +127,7 @@ class TestEvalSettings:
         s = get_eval_settings()
         assert s.judge_model == "gemini-2.0-flash"
         assert s.temperature == 0.0
+        assert s.max_completion_tokens == 2048
         assert s.code_exec_timeout == 30
         assert s.code_exec_mem_limit == "512m"
         assert s.bert_score_model == "microsoft/deberta-v3-base"
@@ -440,12 +441,39 @@ class TestLLMJudge:
 class TestCodeExec:
     """Tests for sandboxed code execution metrics."""
 
+    def test_evaluate_humaneval_sample_invokes_entry_point_check(self):
+        from experiments.eval.eval_scripts.metrics.code_exec import evaluate_humaneval_sample
+
+        with patch(
+            "experiments.eval.eval_scripts.metrics.code_exec._run_in_sandbox",
+            return_value={
+                "passed": True,
+                "executable": True,
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "",
+            },
+        ) as mock_run:
+            evaluate_humaneval_sample(
+                prompt='def add(a, b):\n    """Return the sum."""',
+                generated_code="    return a + b",
+                test_code="def check(candidate):\n    assert candidate(1, 2) == 3",
+                entry_point="add",
+                timeout=30,
+                mem_limit="512m",
+                cpus=1.0,
+            )
+
+        full_code = mock_run.call_args.args[0]
+        assert "check(add)" in full_code
+        assert "sys.exit(100)" in full_code
+
     def test_pass_at_1_all_pass(self):
         from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         results = [
-            {"passed": True, "exit_code": 0},
-            {"passed": True, "exit_code": 0},
+            {"passed": True, "executable": True, "exit_code": 0},
+            {"passed": True, "executable": True, "exit_code": 0},
         ]
         metrics = compute_pass_at_1(results)
         assert metrics["pass_at_1"] == 1.0
@@ -455,11 +483,12 @@ class TestCodeExec:
         from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         results = [
-            {"passed": False, "exit_code": 1},
-            {"passed": False, "exit_code": -1},
+            {"passed": False, "executable": False, "exit_code": 1},
+            {"passed": False, "executable": False, "exit_code": -1},
         ]
         metrics = compute_pass_at_1(results)
         assert metrics["pass_at_1"] == 0.0
+        assert metrics["executable_rate"] == 0.0
 
     def test_pass_at_1_empty(self):
         from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
@@ -472,14 +501,14 @@ class TestCodeExec:
         from experiments.eval.eval_scripts.metrics.code_exec import compute_pass_at_1
 
         results = [
-            {"passed": True, "exit_code": 0},
-            {"passed": False, "exit_code": 1},
-            {"passed": True, "exit_code": 0},
-            {"passed": False, "exit_code": -1},
+            {"passed": True, "executable": True, "exit_code": 0},
+            {"passed": False, "executable": True, "exit_code": 100},
+            {"passed": True, "executable": True, "exit_code": 0},
+            {"passed": False, "executable": False, "exit_code": -1},
         ]
         metrics = compute_pass_at_1(results)
         assert metrics["pass_at_1"] == 0.5
-        assert metrics["executable_rate"] == 0.5
+        assert metrics["executable_rate"] == 0.75
 
 
 # ---------------------------------------------------------------------------

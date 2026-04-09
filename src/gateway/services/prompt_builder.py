@@ -35,7 +35,9 @@ class PromptBuilder:
             return (
                 base
                 + " Help with writing, debugging, and refactoring code. "
-                + "Prefer correct, runnable solutions and explain key steps."
+                + "Prefer correct, runnable solutions and explain key steps. "
+                + "Do not fabricate large binary or bytecode dumps, and stop "
+                + "instead of emitting repetitive filler."
             )
         return base + " Answer concisely, but include important caveats."
 

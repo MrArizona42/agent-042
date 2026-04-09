@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -28,6 +29,8 @@ EVENT_ERROR = "error"
 
 _THINK_OPEN_TAG = "<think>"
 _THINK_CLOSE_TAG = "</think>"
+_REPETITIVE_CHAR_RUN_RE = re.compile(r"([^\s])\1{255,}")
+_REPETITION_NOTICE = "\n\n[Response truncated because the model entered a repetitive output loop.]"
 
 
 def _coerce_text_fragment(value: Any) -> str:
@@ -51,6 +54,13 @@ def _extract_explicit_thinking_delta(delta: dict[str, Any]) -> str:
         if text:
             return text
     return ""
+
+
+def _detect_repetitive_answer_run(answer_content: str) -> str | None:
+    match = _REPETITIVE_CHAR_RUN_RE.search(answer_content[-1024:])
+    if match:
+        return match.group(1)
+    return None
 
 
 def _usage_int(value: Any) -> int | None:
@@ -165,6 +175,36 @@ def publish_event(
     redis_client.publish(channel, message)
 
 
+def _maybe_truncate_repetitive_output(
+    *,
+    redis_client: redis.Redis,
+    conversation_id: str,
+    request_id: str,
+    answer_content: str,
+    task_id: str,
+) -> tuple[bool, str]:
+    repeated_char = _detect_repetitive_answer_run(answer_content)
+    if repeated_char is None:
+        return False, answer_content
+
+    if not answer_content.endswith(_REPETITION_NOTICE):
+        answer_content += _REPETITION_NOTICE
+        publish_event(
+            redis_client,
+            conversation_id,
+            EVENT_ANSWER_TOKEN,
+            {"request_id": request_id, "content": _REPETITION_NOTICE},
+        )
+
+    logger.warning(
+        "Task %s: Truncated repetitive output for conversation %s after repeated character %r",
+        task_id,
+        conversation_id,
+        repeated_char,
+    )
+    return True, answer_content
+
+
 @celery_app.task(
     bind=True,
     autoretry_for=(httpx.HTTPStatusError, httpx.ConnectError),
@@ -208,6 +248,7 @@ def generate_response(
     }
     saw_explicit_thinking = False
     think_tag_parser = _ThinkTagStreamParser()
+    repetition_guard_triggered = False
 
     try:
         headers = _headers(shared.api_key)
@@ -297,6 +338,18 @@ def generate_response(
                                             EVENT_ANSWER_TOKEN,
                                             {"request_id": request_id, "content": content},
                                         )
+                                        repetition_guard_triggered, answer_content = (
+                                            _maybe_truncate_repetitive_output(
+                                                redis_client=redis_client,
+                                                conversation_id=conversation_id,
+                                                request_id=request_id,
+                                                answer_content=answer_content,
+                                                task_id=self.request.id,
+                                            )
+                                        )
+                                        if repetition_guard_triggered:
+                                            finish_reason = "stop"
+                                            break
                                     continue
 
                                 if content:
@@ -311,12 +364,27 @@ def generate_response(
                                             event_type,
                                             {"request_id": request_id, "content": fragment},
                                         )
+                                        if event_type == EVENT_ANSWER_TOKEN:
+                                            repetition_guard_triggered, answer_content = (
+                                                _maybe_truncate_repetitive_output(
+                                                    redis_client=redis_client,
+                                                    conversation_id=conversation_id,
+                                                    request_id=request_id,
+                                                    answer_content=answer_content,
+                                                    task_id=self.request.id,
+                                                )
+                                            )
+                                            if repetition_guard_triggered:
+                                                finish_reason = "stop"
+                                                break
+                                    if repetition_guard_triggered:
+                                        break
 
                         except json.JSONDecodeError:
                             logger.warning(f"Failed to parse SSE chunk: {data_str}")
                             continue
 
-        if not saw_explicit_thinking:
+        if not saw_explicit_thinking and not repetition_guard_triggered:
             for event_type, fragment in think_tag_parser.flush():
                 if event_type == EVENT_THINKING_TOKEN:
                     thinking_content += fragment

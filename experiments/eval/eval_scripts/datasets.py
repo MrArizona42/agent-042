@@ -203,6 +203,8 @@ def load_dataset_samples(task: str, dataset_name: str) -> list[dict[str, str]]:
                     "prompt": item.get("prompt", ""),
                     "test": item.get("test", ""),
                     "answer": item.get("canonical_solution", ""),
+                    "entry_point": item.get("entry_point", ""),
+                    "task_id": item.get("task_id", ""),
                 }
             )
         elif task == "summarize":

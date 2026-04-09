@@ -15,6 +15,7 @@ from worker.tasks import (
     EVENT_ANSWER_TOKEN,
     EVENT_THINKING_TOKEN,
     _build_done_event,
+    _detect_repetitive_answer_run,
     _merge_usage,
     _ThinkTagStreamParser,
 )
@@ -132,6 +133,11 @@ def test_done_event_includes_request_id_and_canonical_content() -> None:
     assert event["request_id"] == "req-123"
     assert event["content"] == "<think>plan</think>\n\nanswer"
     assert event["usage"] == {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18}
+
+
+def test_repetitive_answer_guard_detects_long_single_character_runs() -> None:
+    assert _detect_repetitive_answer_run("0x" + ("0" * 300)) == "0"
+    assert _detect_repetitive_answer_run("abc123") is None
 
 
 def test_async_chat_threads_request_id_and_new_event_types() -> None:

@@ -906,6 +906,7 @@ def _fetch_code_predictions(
             prompt=prompt,
             generated_code=generated,
             test_code=test_code,
+            entry_point=sample.get("entry_point"),
             timeout=eval_settings.code_exec_timeout,
             mem_limit=eval_settings.code_exec_mem_limit,
             cpus=eval_settings.code_exec_cpus,
