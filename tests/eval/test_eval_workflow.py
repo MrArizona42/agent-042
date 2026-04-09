@@ -664,6 +664,104 @@ class TestRunnerConfig:
         mock_log_to_db.assert_called_once()
 
 
+class TestRunnerProgress:
+    def test_log_fetch_progress_logs_only_boundaries_and_stride(self):
+        from experiments.eval.eval_scripts.runner import _log_fetch_progress
+
+        with patch("experiments.eval.eval_scripts.runner.logger.info") as mock_info:
+            _log_fetch_progress(
+                phase="generation",
+                task="chat",
+                dataset_name="hotpotqa",
+                rag_alias="none",
+                lora_alias="none",
+                completed=0,
+                total=10,
+                every=5,
+            )
+            _log_fetch_progress(
+                phase="generation",
+                task="chat",
+                dataset_name="hotpotqa",
+                rag_alias="none",
+                lora_alias="none",
+                completed=1,
+                total=10,
+                every=5,
+            )
+            _log_fetch_progress(
+                phase="generation",
+                task="chat",
+                dataset_name="hotpotqa",
+                rag_alias="none",
+                lora_alias="none",
+                completed=5,
+                total=10,
+                every=5,
+            )
+            _log_fetch_progress(
+                phase="generation",
+                task="chat",
+                dataset_name="hotpotqa",
+                rag_alias="none",
+                lora_alias="none",
+                completed=10,
+                total=10,
+                every=5,
+                gateway_failures=2,
+            )
+
+        assert mock_info.call_count == 3
+        assert mock_info.call_args_list[-1].args[-1] == " gateway_failures=2"
+
+    def test_fetch_generation_predictions_emits_progress_updates(self):
+        from experiments.eval.eval_scripts.runner import _fetch_generation_predictions
+
+        eval_settings = types.SimpleNamespace(
+            gateway_url="http://gateway:9001",
+            temperature=0.0,
+            internal_api_key="",
+        )
+
+        with (
+            patch(
+                "experiments.eval.eval_scripts.runner._resolve_lora_alias",
+                return_value={
+                    "adapter_name": None,
+                    "adapter_version": None,
+                    "adapter_mlflow_run_id": None,
+                },
+            ),
+            patch(
+                "experiments.eval.eval_scripts.runner._load_dataset_samples",
+                return_value=[
+                    {"question": "q1", "answer": "a1", "id": "s1"},
+                    {"question": "q2", "answer": "a2", "id": "s2"},
+                ],
+            ),
+            patch(
+                "experiments.eval.eval_scripts.runner._call_gateway",
+                side_effect=[
+                    {"choices": [{"message": {"content": "pred-1"}}]},
+                    RuntimeError("timed out"),
+                ],
+            ),
+            patch("experiments.eval.eval_scripts.runner._log_fetch_progress") as mock_progress,
+        ):
+            bundle = _fetch_generation_predictions(
+                task="chat",
+                dataset_name="hotpotqa",
+                rag_alias="none",
+                lora_alias="none",
+                kb_name=None,
+                eval_settings=eval_settings,
+            )
+
+        assert bundle["predictions"] == ["pred-1", ""]
+        assert [call.kwargs["completed"] for call in mock_progress.call_args_list] == [0, 1, 2]
+        assert mock_progress.call_args_list[-1].kwargs["gateway_failures"] == 1
+
+
 class _FakeStreamResponse:
     def __init__(self, *, lines, headers=None):
         self._lines = list(lines)

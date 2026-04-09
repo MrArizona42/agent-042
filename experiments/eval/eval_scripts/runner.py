@@ -146,6 +146,64 @@ def _build_code_eval_messages(prompt: str) -> list[dict[str, str]]:
     ]
 
 
+def _progress_log_stride(total: int, *, target_updates: int = 20) -> int:
+    """Return a log stride that keeps progress output bounded."""
+    if total <= 0:
+        return 1
+    if target_updates <= 1:
+        return total
+    return max(1, (total + target_updates - 1) // target_updates)
+
+
+def _render_progress_bar(completed: int, total: int, *, width: int = 20) -> str:
+    """Render a compact ASCII progress bar for task logs."""
+    if total <= 0:
+        return f"[{'-' * width}]"
+
+    ratio = min(1.0, max(0.0, completed / total))
+    filled = min(width, int(ratio * width))
+    if completed >= total:
+        filled = width
+    return f"[{'#' * filled}{'-' * (width - filled)}]"
+
+
+def _log_fetch_progress(
+    *,
+    phase: str,
+    task: str,
+    dataset_name: str,
+    rag_alias: str,
+    lora_alias: str,
+    completed: int,
+    total: int,
+    every: int,
+    unit: str = "samples",
+    gateway_failures: int = 0,
+) -> None:
+    """Log bounded per-bundle progress into the Airflow task log."""
+    if total <= 0:
+        return
+    if completed not in (0, total) and completed % every != 0:
+        return
+
+    percent = (completed / total) * 100.0
+    failure_suffix = f" gateway_failures={gateway_failures}" if gateway_failures else ""
+    logger.info(
+        "%s progress: task=%s dataset=%s rag=%s lora=%s %s %d/%d %s (%.1f%%)%s",
+        phase,
+        task,
+        dataset_name,
+        rag_alias,
+        lora_alias,
+        _render_progress_bar(completed, total),
+        completed,
+        total,
+        unit,
+        percent,
+        failure_suffix,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Gateway API helpers
 # ---------------------------------------------------------------------------
@@ -664,12 +722,25 @@ def _fetch_generation_predictions(
     samples = _load_dataset_samples(task, dataset_name)
     if not samples:
         raise RuntimeError(f"No samples loaded for {task}/{dataset_name}")
+    total_samples = len(samples)
+    progress_every = _progress_log_stride(total_samples)
 
     predictions: list[str] = []
     references: list[str] = []
     judge_samples: list[dict[str, str]] = []
     sample_details: list[dict[str, Any]] = []
     gateway_failures = 0
+
+    _log_fetch_progress(
+        phase="generation",
+        task=task,
+        dataset_name=dataset_name,
+        rag_alias=rag_alias,
+        lora_alias=lora_alias,
+        completed=0,
+        total=total_samples,
+        every=progress_every,
+    )
 
     for idx, sample in enumerate(samples):
         question = sample["question"]
@@ -718,6 +789,17 @@ def _fetch_generation_predictions(
                 "detail": {"rag_context": rag_context} if rag_context else {},
             }
         )
+        _log_fetch_progress(
+            phase="generation",
+            task=task,
+            dataset_name=dataset_name,
+            rag_alias=rag_alias,
+            lora_alias=lora_alias,
+            completed=idx + 1,
+            total=total_samples,
+            every=progress_every,
+            gateway_failures=gateway_failures,
+        )
 
     if gateway_failures == len(samples):
         raise RuntimeError(
@@ -758,9 +840,24 @@ def _fetch_code_predictions(
     samples = _load_dataset_samples("code", dataset_name)
     if not samples:
         raise RuntimeError(f"No samples loaded for code/{dataset_name}")
+    total_samples = len(samples)
+    progress_every = _progress_log_stride(total_samples)
 
     exec_results: list[dict[str, Any]] = []
     sample_details: list[dict[str, Any]] = []
+    gateway_failures = 0
+
+    _log_fetch_progress(
+        phase="code",
+        task="code",
+        dataset_name=dataset_name,
+        rag_alias=rag_alias,
+        lora_alias=lora_alias,
+        completed=0,
+        total=total_samples,
+        every=progress_every,
+    )
+
     for idx, sample in enumerate(samples):
         prompt = sample["prompt"]
         test_code = sample.get("test", "")
@@ -780,6 +877,7 @@ def _fetch_code_predictions(
         except Exception as e:
             logger.error("Gateway call failed: %s", e)
             generated = ""
+            gateway_failures += 1
 
         result = evaluate_humaneval_sample(
             prompt=prompt,
@@ -803,6 +901,17 @@ def _fetch_code_predictions(
                     "stderr": result.get("stderr", ""),
                 },
             }
+        )
+        _log_fetch_progress(
+            phase="code",
+            task="code",
+            dataset_name=dataset_name,
+            rag_alias=rag_alias,
+            lora_alias=lora_alias,
+            completed=idx + 1,
+            total=total_samples,
+            every=progress_every,
+            gateway_failures=gateway_failures,
         )
 
     return {
@@ -881,8 +990,22 @@ def _fetch_retrieval_predictions(
         vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
 
         queries = [s for s in samples if s.get("query")]
+        total_queries = len(queries)
+        progress_every = _progress_log_stride(total_queries)
         query_results: list[dict[str, Any]] = []
         sample_details: list[dict[str, Any]] = []
+
+        _log_fetch_progress(
+            phase="retrieval",
+            task="retrieval",
+            dataset_name=dataset_name,
+            rag_alias=rag_alias,
+            lora_alias="none",
+            completed=0,
+            total=total_queries,
+            every=progress_every,
+            unit="queries",
+        )
 
         for idx, q in enumerate(queries):
             query_emb = emb_service.embed_query(q["query"])
@@ -907,6 +1030,17 @@ def _fetch_retrieval_predictions(
                         "relevance": relevance,
                     },
                 }
+            )
+            _log_fetch_progress(
+                phase="retrieval",
+                task="retrieval",
+                dataset_name=dataset_name,
+                rag_alias=rag_alias,
+                lora_alias="none",
+                completed=idx + 1,
+                total=total_queries,
+                every=progress_every,
+                unit="queries",
             )
     finally:
         try:
