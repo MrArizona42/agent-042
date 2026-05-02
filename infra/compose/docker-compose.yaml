@@ -661,6 +661,37 @@ services:
       - backend_net
 
   # =====================
+  # Prometheus (metrics collection)
+  # =====================
+  prometheus:
+    image: prom/prometheus:v3.4.0
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT}:9090"
+
+    networks:
+      - backend_net
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
   # Grafana (Analytics & Observability UI)
   # =====================
   grafana:
@@ -684,6 +715,8 @@ services:
 
     depends_on:
       postgres:
+        condition: service_healthy
+      prometheus:
         condition: service_healthy
 
     healthcheck:
@@ -966,6 +999,7 @@ volumes:
   redis_data:
   redisinsight_data:
   grafana_data:
+  prometheus_data:
   airflow_logs:
 
 # =====================
