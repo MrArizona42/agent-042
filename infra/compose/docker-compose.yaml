@@ -312,6 +312,7 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ${PROJECT_ROOT}/infra/docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-path-prefix.conf:ro
+      - ${PROJECT_ROOT}/infra/docker/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
 
     networks:
       - backend_net
@@ -660,6 +661,78 @@ services:
     networks:
       - backend_net
 
+  # =====================
+  # Prometheus (metrics collection)
+  # =====================
+  prometheus:
+    image: prom/prometheus:v3.4.0
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT}:9090"
+
+    networks:
+      - backend_net
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # Grafana (Analytics & Observability UI)
+  # =====================
+  grafana:
+    image: grafana/grafana-oss:13.0.1
+
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: https://agent.antonlab.ru:8443/grafana
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Passed through for provisioning interpolation in datasources.yml
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ${PROJECT_ROOT}/infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT}:3000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+    networks:
+      - backend_net
+      - mlflow_db_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
   # Airflow – ensure DAG output directories are writable (one-shot)
   # The project root is bind-mounted from the host, so files keep the
   # host UID.  The airflow user inside the container (UID 50000) cannot
@@ -926,6 +999,8 @@ volumes:
   rabbitmq_data:
   redis_data:
   redisinsight_data:
+  grafana_data:
+  prometheus_data:
   airflow_logs:
 
 # =====================
