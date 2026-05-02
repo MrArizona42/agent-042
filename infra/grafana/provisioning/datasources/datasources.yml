@@ -4,11 +4,11 @@ datasources:
     type: postgres
     uid: postgres
     url: postgres:5432
-    database: agent042
     user: ${POSTGRES_USER}
     secureJsonData:
       password: ${POSTGRES_PASSWORD}
     jsonData:
+      database: agent042
       sslmode: disable
       postgresVersion: 1500
       timescaledb: false
