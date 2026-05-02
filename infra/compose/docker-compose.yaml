@@ -312,6 +312,7 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ${PROJECT_ROOT}/infra/docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-path-prefix.conf:ro
+      - ${PROJECT_ROOT}/infra/docker/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
 
     networks:
       - backend_net
