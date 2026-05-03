@@ -393,6 +393,22 @@ class RagSettings(BaseModel):
         ),
         description="fastembed model name for sparse (BM25) vector encoding",
     )
+    reranker_url: str = Field(
+        default="http://reranker:8101",
+        validation_alias=AliasChoices(
+            "RERANKER_URL",
+            "reranker_url",
+        ),
+        description="URL of the reranker microservice",
+    )
+    reranker_model: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        validation_alias=AliasChoices(
+            "RERANKER_MODEL",
+            "reranker_model",
+        ),
+        description="Cross-encoder model loaded by the reranker service",
+    )
 
 
 class AuthSettings(BaseModel):
