@@ -385,6 +385,14 @@ class RagSettings(BaseModel):
         description="If True, raise on legacy / invalid Qdrant collections at startup "
         "instead of logging and marking them unavailable",
     )
+    sparse_encoder_model: str = Field(
+        default="Qdrant/bm25",
+        validation_alias=AliasChoices(
+            "SPARSE_ENCODER_MODEL",
+            "sparse_encoder_model",
+        ),
+        description="fastembed model name for sparse (BM25) vector encoding",
+    )
 
 
 class AuthSettings(BaseModel):

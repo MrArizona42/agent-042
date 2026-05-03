@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import AsyncIterator, List
 
 from fastapi import FastAPI, HTTPException
+from fastembed.sparse import SparseTextEmbedding
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
@@ -56,17 +57,33 @@ class DimensionResponse(BaseModel):
     model: str
 
 
+class SparseEmbeddingItem(BaseModel):
+    """Single sparse embedding entry in the response."""
+
+    indices: List[int]
+    values: List[float]
+    index: int
+
+
+class SparseEmbeddingsResponse(BaseModel):
+    """Response body for the /v1/sparse-embeddings endpoint."""
+
+    data: List[SparseEmbeddingItem]
+    model: str
+
+
 # ---------------------------------------------------------------------------
 # Application
 # ---------------------------------------------------------------------------
 
 _model: SentenceTransformer | None = None
+_sparse_model: SparseTextEmbedding | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load the embedding model on startup."""
-    global _model
+    global _model, _sparse_model
     settings = get_settings()
     logger.info(
         f"Loading embedding model: {settings.embedding_model} on device: "
@@ -75,8 +92,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _model = SentenceTransformer(settings.embedding_model, device=settings.embedding_device)
     dimension = _model.get_sentence_embedding_dimension()
     logger.info(f"Embedding model loaded — dimension: {dimension}")
+    logger.info(f"Loading sparse encoder model: {settings.sparse_encoder_model}")
+    _sparse_model = SparseTextEmbedding(settings.sparse_encoder_model)
+    logger.info("Sparse encoder model loaded")
     yield
     _model = None
+    _sparse_model = None
 
 
 app = FastAPI(title="Embeddings Service", lifespan=lifespan)
@@ -128,3 +149,25 @@ def embed(request: EmbeddingsRequest) -> EmbeddingsResponse:
         model=settings.embedding_model,
         dimension=_model.get_sentence_embedding_dimension(),
     )
+
+
+@app.post("/v1/sparse-embeddings", response_model=SparseEmbeddingsResponse)
+def sparse_embed(request: EmbeddingsRequest) -> SparseEmbeddingsResponse:
+    """Generate sparse (BM25) embeddings for a list of texts."""
+    if _sparse_model is None:
+        raise HTTPException(status_code=503, detail="Sparse model not loaded")
+    settings = get_settings()
+
+    if not request.input:
+        return SparseEmbeddingsResponse(data=[], model=settings.sparse_encoder_model)
+
+    sparse_vecs = list(_sparse_model.embed(request.input))
+    data = [
+        SparseEmbeddingItem(
+            indices=vec.indices.tolist(),
+            values=vec.values.tolist(),
+            index=i,
+        )
+        for i, vec in enumerate(sparse_vecs)
+    ]
+    return SparseEmbeddingsResponse(data=data, model=settings.sparse_encoder_model)
