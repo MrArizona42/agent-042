@@ -16,8 +16,15 @@ from qdrant_client.models import (
     Distance,
     FieldCondition,
     Filter,
+    Fusion,
+    FusionQuery,
     MatchValue,
+    NamedSparseVector,
     PointStruct,
+    Prefetch,
+    SparseIndexParams,
+    SparseVector,
+    SparseVectorParams,
     VectorParams,
 )
 
@@ -53,11 +60,18 @@ class QdrantVectorStore:
         self.collection_name = collection_name
         logger.info(f"Connected to Qdrant at {host}:{port}")
 
-    def create_collection(self, dimension: int, force_recreate: bool = False):
+    def create_collection(
+        self,
+        dimension: int,
+        retrieval_capability: str = "dense",
+        force_recreate: bool = False,
+    ):
         """Create a collection for storing vectors.
 
         Args:
             dimension: Dimension of embedding vectors
+            retrieval_capability: ``"dense"`` or ``"hybrid"``; controls whether
+                a sparse vector index is added alongside the dense index.
             force_recreate: If True, delete existing collection and create new one
         """
         # Use collection_exists() which correctly handles aliases
@@ -70,12 +84,13 @@ class QdrantVectorStore:
 
         if not exists:
             logger.info(f"Creating collection: {self.collection_name} with dimension: {dimension}")
+            sparse_vectors_config = None
+            if retrieval_capability == "hybrid":
+                sparse_vectors_config = {"sparse": SparseVectorParams(index=SparseIndexParams())}
             self.client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    size=dimension,
-                    distance=Distance.COSINE,
-                ),
+                vectors_config={"dense": VectorParams(size=dimension, distance=Distance.COSINE)},
+                sparse_vectors_config=sparse_vectors_config,
             )
         else:
             logger.info(f"Collection already exists: {self.collection_name}")
@@ -86,6 +101,7 @@ class QdrantVectorStore:
         embeddings: List[List[float]],
         metadatas: Optional[List[Dict[str, Any]]] = None,
         ids: Optional[List[str]] = None,
+        sparse_vectors: Optional[List[SparseVector]] = None,
     ):
         """Add documents with their embeddings to the collection.
 
@@ -94,6 +110,7 @@ class QdrantVectorStore:
             embeddings: List of embedding vectors
             metadatas: Optional list of metadata dicts for each document
             ids: Optional list of IDs for each document (auto-generated if None)
+            sparse_vectors: Optional sparse vectors for hybrid collections.
         """
         if not documents:
             return
@@ -110,15 +127,20 @@ class QdrantVectorStore:
             ids = [start_id + i + 1 for i in range(len(documents))]
 
         points = []
-        for doc_id, doc, embedding, metadata in zip(ids, documents, embeddings, metadatas):
+        for i, (doc_id, doc, embedding, metadata) in enumerate(
+            zip(ids, documents, embeddings, metadatas)
+        ):
             payload = {
                 "content": doc,
                 **metadata,
             }
+            vec: Any = {"dense": embedding}
+            if sparse_vectors is not None:
+                vec["sparse"] = sparse_vectors[i]
             points.append(
                 PointStruct(
                     id=doc_id,  # Must be int > 0 or UUID string
-                    vector=embedding,
+                    vector=vec,
                     payload=payload,
                 )
             )
@@ -138,6 +160,8 @@ class QdrantVectorStore:
         top_k: int,
         score_threshold: float,
         filter_dict: Optional[Dict[str, Any]] = None,
+        strategy: str = "dense",
+        sparse_query: Optional[SparseVector] = None,
     ) -> List[Document]:
         """Search for similar documents.
 
@@ -145,10 +169,12 @@ class QdrantVectorStore:
         (``type=collection_meta``).
 
         Args:
-            query_embedding: Query vector
-            top_k: Number of results to return
-            score_threshold: Minimum similarity score
-            filter_dict: Optional metadata filters
+            query_embedding: Dense query vector.
+            top_k: Number of results to return.
+            score_threshold: Minimum similarity score.
+            filter_dict: Optional metadata filters.
+            strategy: ``"dense"`` (default) or ``"hybrid"``.
+            sparse_query: Sparse query vector; required when ``strategy="hybrid"``.
 
         Returns:
             List of Document objects with content, metadata, and similarity scores
@@ -168,14 +194,36 @@ class QdrantVectorStore:
         else:
             qf = Filter(must_not=[meta_exclusion])
 
-        search_result = self.client.query_points(
-            collection_name=self.collection_name,
-            query=query_embedding,
-            limit=top_k,
-            score_threshold=score_threshold,
-            with_payload=True,
-            query_filter=qf,
-        )
+        if strategy == "hybrid":
+            search_result = self.client.query_points(
+                collection_name=self.collection_name,
+                prefetch=[
+                    Prefetch(query=query_embedding, using="dense", limit=top_k),
+                    Prefetch(
+                        query=NamedSparseVector(
+                            name="sparse",
+                            vector=sparse_query,  # type: ignore[arg-type]
+                        ),
+                        using="sparse",
+                        limit=top_k,
+                    ),
+                ],
+                query=FusionQuery(fusion=Fusion.DBSF),
+                limit=top_k,
+                score_threshold=score_threshold,
+                with_payload=True,
+                query_filter=qf,
+            )
+        else:
+            search_result = self.client.query_points(
+                collection_name=self.collection_name,
+                query=query_embedding,
+                using="dense",
+                limit=top_k,
+                score_threshold=score_threshold,
+                with_payload=True,
+                query_filter=qf,
+            )
 
         documents = []
         for hit in search_result.points:
@@ -210,10 +258,7 @@ class QdrantVectorStore:
                 size = getattr(vector_params, "size", None)
                 if isinstance(size, int):
                     return size
-            return None
-
-        size = getattr(params, "size", None)
-        return size if isinstance(size, int) else None
+        return None
 
     def get_collection_info(self) -> Dict[str, Any]:
         """Get information about the collection."""
