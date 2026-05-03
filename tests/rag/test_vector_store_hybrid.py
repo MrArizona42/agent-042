@@ -5,11 +5,15 @@ Uses qdrant_client's in-memory client so no running Qdrant server is needed.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
 from qdrant_client import QdrantClient as RealQdrantClient
 from qdrant_client.models import SparseVector
+
+from rag.ops.materialize import create_collection_with_meta
+from rag.ops.meta import BuildConfig, CollectionMeta, read_collection_meta
 
 
 @pytest.fixture()
@@ -46,6 +50,62 @@ class TestCreateCollection:
         info = hybrid_store.client.get_collection("test_hybrid")
         assert "dense" in info.config.params.vectors
         assert "sparse" in info.config.params.sparse_vectors
+
+    def test_write_and_read_meta_on_dense_collection(self, dense_store):
+        dense_store.create_collection(dimension=4, retrieval_capability="dense")
+
+        dense_store.write_meta(
+            payload={"kb_name": "arxiv", "build_config": {"retrieval_capability": "dense"}},
+            dimension=4,
+        )
+
+        payload = dense_store.read_meta()
+
+        assert payload is not None
+        assert payload["type"] == "collection_meta"
+        assert payload["kb_name"] == "arxiv"
+
+    def test_write_and_read_meta_on_hybrid_collection(self, hybrid_store):
+        hybrid_store.create_collection(dimension=4, retrieval_capability="hybrid")
+
+        hybrid_store.write_meta(
+            payload={"kb_name": "arxiv", "build_config": {"retrieval_capability": "hybrid"}},
+            dimension=4,
+        )
+
+        payload = hybrid_store.read_meta()
+
+        assert payload is not None
+        assert payload["type"] == "collection_meta"
+        assert payload["kb_name"] == "arxiv"
+
+    def test_create_collection_with_meta_writes_round_trippable_meta(self):
+        in_memory = RealQdrantClient(":memory:")
+        meta = CollectionMeta(
+            kb_name="arxiv",
+            build_config=BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+                sparse_encoder="Qdrant/bm25",
+                retrieval_capability="hybrid",
+            ),
+            created_at=datetime(2026, 4, 1, tzinfo=timezone.utc).isoformat(),
+        )
+
+        with patch("rag.vector_store.QdrantClient", return_value=in_memory):
+            vector_store = create_collection_with_meta(
+                qdrant_host="localhost",
+                qdrant_port=6333,
+                collection_name="test_materialized",
+                dimension=4,
+                meta=meta,
+            )
+
+        stored_meta = read_collection_meta(vector_store, context="test_materialized")
+
+        assert stored_meta == meta
 
 
 class TestAddDocuments:

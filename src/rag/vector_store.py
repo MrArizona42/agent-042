@@ -359,7 +359,7 @@ class QdrantVectorStore:
             points=[
                 PointStruct(
                     id=self._META_ID,
-                    vector=[0.0] * dimension,
+                    vector={"dense": [0.0] * dimension},
                     payload=meta_payload,
                 )
             ],
