@@ -44,10 +44,14 @@ def create_pytorch_docs_collection(
     with open(docs_path, encoding="utf-8") as file_handle:
         docs = json.load(file_handle)
 
-    embedding_service = EmbeddingService(
-        model_name=build_config.embedding_model,
-        embeddings_url=embeddings_url,
-    )
+    embedding_service: EmbeddingService | None = None
+    dimension = 0
+    if build_config.retrieval_capability != "sparse":
+        embedding_service = EmbeddingService(
+            model_name=build_config.embedding_model,
+            embeddings_url=embeddings_url,
+        )
+        dimension = embedding_service.dimension
     chunker = get_chunker(
         strategy=build_config.chunking_strategy,
         chunk_size=build_config.chunk_size,
@@ -65,7 +69,7 @@ def create_pytorch_docs_collection(
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
         collection_name=collection_name,
-        dimension=embedding_service.dimension,
+        dimension=dimension,
         meta=meta,
     )
 
@@ -87,7 +91,7 @@ def create_pytorch_docs_collection(
 
     sparse_encoder_service = (
         SparseEncoderService(embeddings_url=embeddings_url)
-        if build_config.retrieval_capability == "hybrid"
+        if build_config.retrieval_capability in {"hybrid", "sparse"}
         else None
     )
     batch_embed_and_upsert(

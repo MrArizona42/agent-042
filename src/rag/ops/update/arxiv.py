@@ -66,10 +66,12 @@ def update_arxiv_collection(
     with open(arxiv_path, encoding="utf-8") as file_handle:
         papers = json.load(file_handle)
 
-    embedding_service = EmbeddingService(
-        model_name=build_config.embedding_model,
-        embeddings_url=embeddings_url,
-    )
+    embedding_service: EmbeddingService | None = None
+    if build_config.retrieval_capability != "sparse":
+        embedding_service = EmbeddingService(
+            model_name=build_config.embedding_model,
+            embeddings_url=embeddings_url,
+        )
     chunker = get_chunker(
         strategy=build_config.chunking_strategy,
         chunk_size=build_config.chunk_size,
@@ -98,7 +100,7 @@ def update_arxiv_collection(
 
     sparse_encoder_service = (
         SparseEncoderService(embeddings_url=embeddings_url)
-        if build_config.retrieval_capability == "hybrid"
+        if build_config.retrieval_capability in {"hybrid", "sparse"}
         else None
     )
     batch_embed_and_upsert(

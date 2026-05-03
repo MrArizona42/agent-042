@@ -6,13 +6,13 @@ Uses qdrant_client's in-memory client so no running Qdrant server is needed.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from qdrant_client import QdrantClient as RealQdrantClient
 from qdrant_client.models import SparseVector
 
-from rag.ops.materialize import create_collection_with_meta
+from rag.ops.materialize import batch_embed_and_upsert, create_collection_with_meta
 from rag.ops.meta import BuildConfig, CollectionMeta, read_collection_meta
 
 
@@ -36,6 +36,16 @@ def hybrid_store():
     return store
 
 
+@pytest.fixture()
+def sparse_store():
+    from rag.vector_store import QdrantVectorStore
+
+    in_memory = RealQdrantClient(":memory:")
+    with patch("rag.vector_store.QdrantClient", return_value=in_memory):
+        store = QdrantVectorStore(host="localhost", port=6333, collection_name="test_sparse")
+    return store
+
+
 class TestCreateCollection:
     def test_dense_collection_has_named_dense_vector(self, dense_store):
         dense_store.create_collection(dimension=4, retrieval_capability="dense")
@@ -49,6 +59,13 @@ class TestCreateCollection:
 
         info = hybrid_store.client.get_collection("test_hybrid")
         assert "dense" in info.config.params.vectors
+        assert "sparse" in info.config.params.sparse_vectors
+
+    def test_sparse_collection_has_only_sparse_vector(self, sparse_store):
+        sparse_store.create_collection(dimension=4, retrieval_capability="sparse")
+
+        info = sparse_store.client.get_collection("test_sparse")
+        assert info.config.params.vectors == {}
         assert "sparse" in info.config.params.sparse_vectors
 
     def test_write_and_read_meta_on_dense_collection(self, dense_store):
@@ -74,6 +91,20 @@ class TestCreateCollection:
         )
 
         payload = hybrid_store.read_meta()
+
+        assert payload is not None
+        assert payload["type"] == "collection_meta"
+        assert payload["kb_name"] == "arxiv"
+
+    def test_write_and_read_meta_on_sparse_collection(self, sparse_store):
+        sparse_store.create_collection(dimension=4, retrieval_capability="sparse")
+
+        sparse_store.write_meta(
+            payload={"kb_name": "arxiv", "build_config": {"retrieval_capability": "sparse"}},
+            dimension=4,
+        )
+
+        payload = sparse_store.read_meta()
 
         assert payload is not None
         assert payload["type"] == "collection_meta"
@@ -107,6 +138,34 @@ class TestCreateCollection:
 
         assert stored_meta == meta
 
+    def test_create_collection_with_meta_sparse_only_writes_round_trippable_meta(self):
+        in_memory = RealQdrantClient(":memory:")
+        meta = CollectionMeta(
+            kb_name="arxiv",
+            build_config=BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+                sparse_encoder="Qdrant/bm25",
+                retrieval_capability="sparse",
+            ),
+            created_at=datetime(2026, 4, 1, tzinfo=timezone.utc).isoformat(),
+        )
+
+        with patch("rag.vector_store.QdrantClient", return_value=in_memory):
+            vector_store = create_collection_with_meta(
+                qdrant_host="localhost",
+                qdrant_port=6333,
+                collection_name="test_sparse_materialized",
+                dimension=4,
+                meta=meta,
+            )
+
+        stored_meta = read_collection_meta(vector_store, context="test_sparse_materialized")
+
+        assert stored_meta == meta
+
 
 class TestAddDocuments:
     def test_add_dense_documents(self, dense_store):
@@ -130,6 +189,37 @@ class TestAddDocuments:
         )
 
         info = hybrid_store.client.get_collection("test_hybrid")
+        assert info.points_count == 1
+
+    def test_add_sparse_documents_without_dense_embeddings(self, sparse_store):
+        sparse_store.create_collection(dimension=4, retrieval_capability="sparse")
+        sparse_store.add_documents(
+            documents=["keyword search only"],
+            metadatas=[{"source": "test"}],
+            sparse_vectors=[SparseVector(indices=[0, 3], values=[0.6, 0.4])],
+        )
+
+        info = sparse_store.client.get_collection("test_sparse")
+        assert info.points_count == 1
+
+    def test_batch_embed_and_upsert_supports_sparse_only_without_embedding_service(
+        self, sparse_store
+    ):
+        sparse_store.create_collection(dimension=4, retrieval_capability="sparse")
+        sparse_encoder_service = MagicMock()
+        sparse_encoder_service.encode_documents.return_value = [
+            SparseVector(indices=[0, 3], values=[0.6, 0.4])
+        ]
+
+        batch_embed_and_upsert(
+            vector_store=sparse_store,
+            embedding_service=None,
+            documents=["keyword search only"],
+            metadatas=[{"source": "test"}],
+            sparse_encoder_service=sparse_encoder_service,
+        )
+
+        info = sparse_store.client.get_collection("test_sparse")
         assert info.points_count == 1
 
 
@@ -205,3 +295,22 @@ class TestSearch:
 
         assert len(results) == 1
         assert results[0].content == "gradient descent optimisation"
+
+    def test_sparse_search_on_sparse_collection(self, sparse_store):
+        sparse_store.create_collection(dimension=4, retrieval_capability="sparse")
+        sparse_store.add_documents(
+            documents=["keyword match"],
+            metadatas=[{"source": "lexical"}],
+            sparse_vectors=[SparseVector(indices=[2, 7], values=[0.7, 0.3])],
+        )
+
+        results = sparse_store.search(
+            query_embedding=None,
+            top_k=5,
+            score_threshold=0.0,
+            strategy="sparse",
+            sparse_query=SparseVector(indices=[2, 7], values=[0.7, 0.3]),
+        )
+
+        assert len(results) == 1
+        assert results[0].content == "keyword match"

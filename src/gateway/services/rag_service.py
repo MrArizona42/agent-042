@@ -214,7 +214,7 @@ class RAGService:
             reranker = get_reranker(alias_cfg.reranker)
 
         sparse_encoder_service: SparseEncoderService | None = None
-        if alias_cfg and alias_cfg.retrieval_strategy == "hybrid":
+        if alias_cfg and alias_cfg.retrieval_strategy in {"hybrid", "sparse"}:
             sparse_encoder_service = SparseEncoderService(
                 embeddings_url=self.settings.embeddings_url
             )

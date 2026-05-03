@@ -66,10 +66,6 @@ class Retriever:
         fetch_k = top_k * self.reranker_multiplier if self.reranker is not None else top_k
         first_stage_threshold = None if self.reranker is not None else score_threshold
 
-        # Embed query
-        logger.info(f"Embedding query: {query[:100]}...")
-        query_embedding = self.embedding_service.embed_query(query)
-
         # Build filter if task specified
         filter_dict = None
         if task:
@@ -78,6 +74,10 @@ class Retriever:
         # Search vector store
         logger.info(f"Searching for top {fetch_k} documents (strategy={strategy})")
         if strategy == "hybrid":
+            if self.sparse_encoder_service is None:
+                raise RuntimeError("Sparse encoder service is required for hybrid retrieval")
+            logger.info(f"Embedding query: {query[:100]}...")
+            query_embedding = self.embedding_service.embed_query(query)
             sparse_query = self.sparse_encoder_service.encode_query(query)
             candidates = self.vector_store.search(
                 query_embedding=query_embedding,
@@ -87,7 +87,21 @@ class Retriever:
                 strategy="hybrid",
                 sparse_query=sparse_query,
             )
+        elif strategy == "sparse":
+            if self.sparse_encoder_service is None:
+                raise RuntimeError("Sparse encoder service is required for sparse retrieval")
+            sparse_query = self.sparse_encoder_service.encode_query(query)
+            candidates = self.vector_store.search(
+                query_embedding=None,
+                top_k=fetch_k,
+                score_threshold=first_stage_threshold,
+                filter_dict=filter_dict,
+                strategy="sparse",
+                sparse_query=sparse_query,
+            )
         else:
+            logger.info(f"Embedding query: {query[:100]}...")
+            query_embedding = self.embedding_service.embed_query(query)
             candidates = self.vector_store.search(
                 query_embedding=query_embedding,
                 top_k=fetch_k,

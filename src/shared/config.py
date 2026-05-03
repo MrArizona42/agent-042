@@ -48,7 +48,7 @@ class AliasConfig(BaseModel):
     top_k: int
     score_threshold: float
     reranker: Optional[str]  # null today; model name when reranker is implemented
-    retrieval_strategy: Literal["dense", "hybrid"]
+    retrieval_strategy: Literal["dense", "hybrid", "sparse"]
     reranker_multiplier: int
 
 

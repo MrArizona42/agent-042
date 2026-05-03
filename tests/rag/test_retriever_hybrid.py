@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from qdrant_client.models import SparseVector
 
 from rag.vector_store import Document
@@ -73,6 +74,32 @@ class TestRetrieverHybridPath:
         result = retriever.retrieve(query="q", top_k=2, score_threshold=0.0)
 
         assert len(result) == 2
+
+    def test_sparse_path_uses_sparse_query_without_dense_embedding(self):
+        retriever, mock_vs, mock_sparse, _ = _make_retriever()
+
+        retriever.retrieve(query="test query", top_k=2, score_threshold=0.0, strategy="sparse")
+
+        retriever.embedding_service.embed_query.assert_not_called()
+        mock_sparse.encode_query.assert_called_once_with("test query")
+        kwargs = mock_vs.search.call_args.kwargs
+        assert kwargs["strategy"] == "sparse"
+        assert kwargs["query_embedding"] is None
+        assert isinstance(kwargs["sparse_query"], SparseVector)
+
+    def test_sparse_path_requires_sparse_encoder_service(self):
+        from rag.retriever import Retriever
+
+        mock_embedding_svc = MagicMock()
+        mock_vs = MagicMock()
+        retriever = Retriever(
+            embedding_service=mock_embedding_svc,
+            vector_store=mock_vs,
+            sparse_encoder_service=None,
+        )
+
+        with pytest.raises(RuntimeError, match="Sparse encoder service is required"):
+            retriever.retrieve(query="q", top_k=2, score_threshold=0.0, strategy="sparse")
 
     def test_empty_query_returns_empty_without_search(self):
         retriever, mock_vs, mock_sparse, _ = _make_retriever()

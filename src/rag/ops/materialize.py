@@ -45,7 +45,7 @@ def create_collection_with_meta(
 def batch_embed_and_upsert(
     *,
     vector_store: QdrantVectorStore,
-    embedding_service: EmbeddingService,
+    embedding_service: EmbeddingService | None,
     documents: Sequence[str],
     metadatas: Sequence[dict[str, Any]],
     ids: Sequence[str] | None = None,
@@ -62,12 +62,19 @@ def batch_embed_and_upsert(
         logger.info("No documents to materialize into '%s'", vector_store.collection_name)
         return
 
+    if embedding_service is None and sparse_encoder_service is None:
+        raise ValueError("At least one of embedding_service or sparse_encoder_service is required")
+
     for start in range(0, len(documents), batch_size):
         end = start + batch_size
         batch_documents = list(documents[start:end])
         batch_metadatas = list(metadatas[start:end])
         batch_ids = list(ids[start:end]) if ids is not None else None
-        embeddings = embedding_service.embed_documents(batch_documents)
+        embeddings = (
+            embedding_service.embed_documents(batch_documents)
+            if embedding_service is not None
+            else None
+        )
         sparse_vectors = (
             sparse_encoder_service.encode_documents(batch_documents)
             if sparse_encoder_service is not None

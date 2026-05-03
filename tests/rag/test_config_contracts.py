@@ -72,6 +72,19 @@ class TestAliasConfigValidation:
         assert cfg.top_k == 5
         assert cfg.reranker is None
 
+    def test_sparse_alias_config_ok(self):
+        from shared.config import AliasConfig
+
+        cfg = AliasConfig(
+            top_k=5,
+            score_threshold=0.35,
+            reranker=None,
+            retrieval_strategy="sparse",
+            reranker_multiplier=4,
+        )
+
+        assert cfg.retrieval_strategy == "sparse"
+
 
 # ---------------------------------------------------------------------------
 # KBConfig.default_alias must point to declared alias
