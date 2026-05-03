@@ -19,7 +19,6 @@ from qdrant_client.models import (
     Fusion,
     FusionQuery,
     MatchValue,
-    NamedSparseVector,
     PointStruct,
     Prefetch,
     SparseIndexParams,
@@ -158,7 +157,7 @@ class QdrantVectorStore:
         self,
         query_embedding: List[float],
         top_k: int,
-        score_threshold: float,
+        score_threshold: Optional[float],
         filter_dict: Optional[Dict[str, Any]] = None,
         strategy: str = "dense",
         sparse_query: Optional[SparseVector] = None,
@@ -200,10 +199,7 @@ class QdrantVectorStore:
                 prefetch=[
                     Prefetch(query=query_embedding, using="dense", limit=top_k),
                     Prefetch(
-                        query=NamedSparseVector(
-                            name="sparse",
-                            vector=sparse_query,  # type: ignore[arg-type]
-                        ),
+                        query=sparse_query,
                         using="sparse",
                         limit=top_k,
                     ),

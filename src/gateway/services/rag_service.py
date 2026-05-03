@@ -10,6 +10,7 @@ from rag.embeddings import EmbeddingService
 from rag.ops.meta import BuildConfig, read_collection_meta
 from rag.reranker import Reranker, get_reranker
 from rag.retriever import Retriever
+from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
 from shared.config import Settings, get_kb_config, get_knowledge_bases
 
@@ -188,10 +189,18 @@ class RAGService:
         if alias_cfg and alias_cfg.reranker:
             reranker = get_reranker(alias_cfg.reranker)
 
+        sparse_encoder_service: SparseEncoderService | None = None
+        if alias_cfg and alias_cfg.retrieval_strategy == "hybrid":
+            sparse_encoder_service = SparseEncoderService(
+                embeddings_url=self.settings.embeddings_url
+            )
+
         retriever = Retriever(
             embedding_service=self.embedding_service,
             vector_store=vector_store,
             reranker=reranker,
+            sparse_encoder_service=sparse_encoder_service,
+            reranker_multiplier=alias_cfg.reranker_multiplier if alias_cfg else 1,
         )
         self._retrievers[cache_key] = retriever
         logger.info(
@@ -352,7 +361,7 @@ class RAGService:
                 query=query,
                 top_k=top_k,
                 score_threshold=score_threshold,
-                strategy=build_cfg.retrieval_capability,
+                strategy=alias_cfg.retrieval_strategy,
             )
             logger.info(
                 f"Retrieved {len(documents)} documents (kb={knowledge_base}, alias={alias})"
