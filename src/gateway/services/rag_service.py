@@ -315,7 +315,7 @@ class RAGService:
             top_k: Number of documents to retrieve (uses alias config if None)
 
         Returns:
-            List of Document objects, or empty list if unavailable.
+            List of Document objects. Empty results only mean "no matches".
         """
         if not self.enabled:
             return []
@@ -338,24 +338,20 @@ class RAGService:
         if top_k is None:
             top_k = alias_cfg.top_k
         score_threshold = alias_cfg.score_threshold
+        cache_key = self._qdrant_alias(knowledge_base, alias)
 
         retriever = self._get_retriever(knowledge_base, alias)
         if retriever is None:
-            logger.warning(
-                f"No retriever available for knowledge base: {knowledge_base} alias: {alias}"
+            raise RuntimeError(
+                f"RAG retriever unavailable for knowledge base '{knowledge_base}' alias '{alias}'"
             )
-            return []
 
         try:
-            cache_key = self._qdrant_alias(knowledge_base, alias)
-            build_cfg = self._build_configs.get(cache_key)
-            if build_cfg is None:
-                logger.warning(
-                    "No build config cached for knowledge base: %s alias: %s",
-                    knowledge_base,
-                    alias,
+            if cache_key not in self._build_configs:
+                raise RuntimeError(
+                    "RAG build config unavailable for "
+                    f"knowledge base '{knowledge_base}' alias '{alias}'"
                 )
-                return []
 
             documents = retriever.retrieve(
                 query=query,
@@ -367,6 +363,9 @@ class RAGService:
                 f"Retrieved {len(documents)} documents (kb={knowledge_base}, alias={alias})"
             )
             return documents
-        except Exception as e:
-            logger.error(f"Error retrieving documents: {e}", exc_info=True)
-            return []
+        except Exception as exc:
+            logger.error("Error retrieving documents", exc_info=True)
+            raise RuntimeError(
+                "Failed to retrieve RAG documents for "
+                f"knowledge base '{knowledge_base}' alias '{alias}'"
+            ) from exc

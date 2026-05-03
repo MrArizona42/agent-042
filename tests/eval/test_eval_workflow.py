@@ -808,6 +808,20 @@ class _FakeStreamResponse:
         yield from self._lines
 
 
+class _FailingStreamResponse(_FakeStreamResponse):
+    def __init__(self, *, status_code: int, url: str):
+        super().__init__(lines=[], headers={})
+        self._request = httpx.Request("POST", url)
+        self._response = httpx.Response(status_code, request=self._request)
+
+    def raise_for_status(self) -> None:
+        raise httpx.HTTPStatusError(
+            f"Server error '{self._response.status_code}' for url '{self._request.url}'",
+            request=self._request,
+            response=self._response,
+        )
+
+
 class _FakeStreamContext:
     def __init__(self, response: _FakeStreamResponse):
         self._response = response
@@ -864,6 +878,28 @@ class TestRunnerGatewayTransport:
         assert timeout.read is None
         assert timeout.connect == 30.0
         assert mock_stream.call_args.kwargs["json"]["max_completion_tokens"] == 512
+
+    def test_call_gateway_propagates_gateway_http_failure_for_rag_requests(self):
+        from experiments.eval.eval_scripts.runner import _call_gateway
+
+        stream_response = _FailingStreamResponse(
+            status_code=500,
+            url="http://gateway:9000/v1/chat/completions",
+        )
+
+        with patch(
+            "experiments.eval.eval_scripts.runner.httpx.stream",
+            return_value=_FakeStreamContext(stream_response),
+        ):
+            with pytest.raises(httpx.HTTPStatusError, match="500"):
+                _call_gateway(
+                    messages=[{"role": "user", "content": "hello"}],
+                    gateway_url="http://gateway:9000",
+                    rag_sources=[{"knowledge_base": "arxiv", "alias": "champion"}],
+                    temperature=0.0,
+                    internal_api_key="secret",
+                    expect_rag_context=True,
+                )
 
     def test_call_gateway_reconstructs_chat_response_from_standard_sse(self):
         from experiments.eval.eval_scripts.runner import _call_gateway

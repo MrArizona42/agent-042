@@ -133,46 +133,48 @@ class _ProcessChat:
         if not req.rag_sources:
             return rag_chunks_by_source
 
-        try:
-            rag_service = self.ensure_rag_service()
-        except Exception as exc:
-            logger.error("Failed to initialize RAG service: %s", exc)
-            return rag_chunks_by_source
+        rag_service = self.ensure_rag_service()
 
         if rag_service is None or not rag_service.enabled:
-            return rag_chunks_by_source
+            raise RuntimeError(
+                "RAG sources were requested, but the RAG service is disabled or unavailable"
+            )
 
-        try:
-            for src in req.rag_sources:
-                kb_cfg = get_kb_config(src.knowledge_base)
-                effective_alias = src.alias or (kb_cfg.default_alias if kb_cfg else "champion")
-                logger.info(
-                    "RAG — retrieving from kb=%s alias=%s",
-                    src.knowledge_base,
-                    effective_alias,
-                )
+        for src in req.rag_sources:
+            kb_cfg = get_kb_config(src.knowledge_base)
+            effective_alias = src.alias or (kb_cfg.default_alias if kb_cfg else "champion")
+            logger.info(
+                "RAG — retrieving from kb=%s alias=%s",
+                src.knowledge_base,
+                effective_alias,
+            )
+            try:
                 docs = rag_service.retrieve_documents(
                     query=last_user,
                     knowledge_base=src.knowledge_base,
                     alias=effective_alias,
                 )
-                if not docs:
-                    continue
+            except Exception as exc:
+                raise RuntimeError(
+                    "Failed to retrieve RAG context for "
+                    f"knowledge base '{src.knowledge_base}' alias '{effective_alias}'"
+                ) from exc
 
-                source_key = f"{src.knowledge_base}:{effective_alias}"
-                rag_chunks_by_source[source_key] = [
-                    {
-                        "content": doc.content,
-                        "score": doc.score if doc.score is not None else 0.0,
-                        "source": f"{src.knowledge_base}_{effective_alias}",
-                        "knowledge_base": src.knowledge_base,
-                        "alias": effective_alias,
-                        "metadata": dict(doc.metadata),
-                    }
-                    for doc in docs
-                ]
-        except Exception as exc:
-            logger.error("Error retrieving RAG context: %s", exc)
+            if not docs:
+                continue
+
+            source_key = f"{src.knowledge_base}:{effective_alias}"
+            rag_chunks_by_source[source_key] = [
+                {
+                    "content": doc.content,
+                    "score": doc.score if doc.score is not None else 0.0,
+                    "source": f"{src.knowledge_base}_{effective_alias}",
+                    "knowledge_base": src.knowledge_base,
+                    "alias": effective_alias,
+                    "metadata": dict(doc.metadata),
+                }
+                for doc in docs
+            ]
 
         return rag_chunks_by_source
 

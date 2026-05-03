@@ -563,6 +563,123 @@ class TestRetrieveDocumentsConfig:
                 strategy="dense",
             )
 
+    def test_retriever_failure_raises_instead_of_returning_empty(self, kb_json_file: Path):
+        """Pipeline failures must propagate so requests fail closed."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService"),
+            patch("gateway.services.rag_service.QdrantVectorStore"),
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            from rag.ops.meta import BuildConfig
+
+            build_cfg = BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="test-model",
+                sparse_encoder=None,
+                retrieval_capability="dense",
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc._build_configs["arxiv_champion"] = build_cfg
+
+            mock_retriever = MagicMock()
+            mock_retriever.retrieve.side_effect = RuntimeError("reranker down")
+            svc._retrievers["arxiv_champion"] = mock_retriever
+
+            with pytest.raises(RuntimeError, match="Failed to retrieve RAG documents"):
+                svc.retrieve_documents(
+                    query="test query",
+                    knowledge_base="arxiv",
+                    alias="champion",
+                )
+
+
+class TestRequestPathFailureMode:
+    """Request handling distinguishes zero-hit retrieval from pipeline failure."""
+
+    def test_chat_request_returns_500_when_rag_pipeline_fails(self, kb_json_file: Path):
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        from gateway.api.v1 import openai_compat
+
+        app = _make_test_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        rag_service = MagicMock()
+        rag_service.enabled = True
+        rag_service.retrieve_documents.side_effect = RuntimeError("sparse encoder down")
+
+        with patch.object(
+            openai_compat.process_chat,
+            "ensure_rag_service",
+            return_value=rag_service,
+        ):
+            response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": True,
+                    "rag_sources": [{"knowledge_base": "arxiv", "alias": "champion"}],
+                },
+            )
+
+        assert response.status_code == 500
+        rag_service.retrieve_documents.assert_called_once_with(
+            query="hi",
+            knowledge_base="arxiv",
+            alias="champion",
+        )
+
+    def test_retrieve_rag_chunks_keeps_zero_hit_results_non_error(self, kb_json_file: Path):
+        import shared.config as cfg
+        from gateway.schemas.openai_chat import ChatCompletionRequest
+        from gateway.services.processing import _ProcessChat
+        from shared.config import _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        processor = _ProcessChat()
+        rag_service = MagicMock()
+        rag_service.enabled = True
+        rag_service.retrieve_documents.return_value = []
+        request = ChatCompletionRequest(
+            messages=[{"role": "user", "content": "hi"}],
+            stream=True,
+            rag_sources=[{"knowledge_base": "arxiv", "alias": "champion"}],
+        )
+
+        with patch.object(processor, "ensure_rag_service", return_value=rag_service):
+            rag_chunks = processor._retrieve_rag_chunks(request, last_user="hi")
+
+        assert rag_chunks == {}
+        rag_service.retrieve_documents.assert_called_once_with(
+            query="hi",
+            knowledge_base="arxiv",
+            alias="champion",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Legacy metadata handling tests
