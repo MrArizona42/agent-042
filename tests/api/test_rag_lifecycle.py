@@ -53,11 +53,15 @@ def kb_json_file(tmp_path: Path):
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         },
                         "challenger": {
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         },
                     },
                     "update_strategy": "incremental",
@@ -78,6 +82,8 @@ def kb_json_file(tmp_path: Path):
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         },
                     },
                     "update_strategy": "replace",
@@ -463,7 +469,7 @@ class TestRetrieveDocumentsConfig:
                 chunk_overlap=64,
                 embedding_model="test-model",
                 sparse_encoder=None,
-                retrieval_strategy="dense",
+                retrieval_capability="dense",
             )
 
             from gateway.services.rag_service import RAGService
@@ -533,7 +539,7 @@ class TestRetrieveDocumentsConfig:
                 chunk_overlap=64,
                 embedding_model="test-model",
                 sparse_encoder=None,
-                retrieval_strategy="dense",
+                retrieval_capability="dense",
             )
             mock_read_meta.return_value = MagicMock(build_config=build_cfg)
 
@@ -579,6 +585,8 @@ class TestLegacyMetadataHandling:
                                 "top_k": 5,
                                 "score_threshold": 0.35,
                                 "reranker": None,
+                                "retrieval_strategy": "dense",
+                                "reranker_multiplier": 4,
                             },
                         },
                     },
@@ -676,7 +684,7 @@ class TestLegacyMetadataHandling:
             "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
         }
 
-        with pytest.raises(ValueError, match="retrieval_strategy"):
+        with pytest.raises(ValueError, match="retrieval_capability"):
             BuildConfig.from_payload(legacy_payload)
 
     def test_dimension_mismatch_non_strict_marks_unavailable(self, tmp_path: Path):
@@ -723,7 +731,7 @@ class TestLegacyMetadataHandling:
                     chunk_overlap=64,
                     embedding_model="other-model",
                     sparse_encoder=None,
-                    retrieval_strategy="dense",
+                    retrieval_capability="dense",
                 )
             )
 
@@ -778,7 +786,7 @@ class TestLegacyMetadataHandling:
                     chunk_overlap=64,
                     embedding_model="other-model",
                     sparse_encoder=None,
-                    retrieval_strategy="dense",
+                    retrieval_capability="dense",
                 )
             )
 

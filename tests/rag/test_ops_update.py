@@ -14,7 +14,7 @@ class TestLoadUpdateCollectionMeta:
         with patch(
             "rag.ops.update.common.read_collection_meta",
             side_effect=ValueError(
-                "arxiv_20260402_074822.build_config: 'retrieval_strategy' must be one of "
+                "arxiv_20260402_074822.build_config: 'retrieval_capability' must be one of "
                 "'dense', 'hybrid', 'sparse' (got None)"
             ),
         ):

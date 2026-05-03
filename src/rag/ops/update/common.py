@@ -24,11 +24,12 @@ def load_update_collection_meta(
         ) from exc
     except ValueError as exc:
         message = str(exc)
-        if "retrieval_strategy" in message or "sparse_encoder" in message:
+        if "retrieval_capability" in message or "sparse_encoder" in message:
             raise RuntimeError(
                 f"Alias '{alias_name}' points to legacy collection '{collection_name}' "
                 "with incompatible _meta.build_config. "
-                "Collections created before the sparse_encoder/retrieval_strategy contract change "
+                "Collections created before the sparse_encoder/retrieval_capability "
+                "contract change "
                 "cannot be refreshed in place. "
                 f"Rebuild the '{kb_name}' collection for alias '{alias_name}' "
                 "and rerun the update."

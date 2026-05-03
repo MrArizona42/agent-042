@@ -352,7 +352,7 @@ class RAGService:
                 query=query,
                 top_k=top_k,
                 score_threshold=score_threshold,
-                strategy=build_cfg.retrieval_strategy,
+                strategy=build_cfg.retrieval_capability,
             )
             logger.info(
                 f"Retrieved {len(documents)} documents (kb={knowledge_base}, alias={alias})"
