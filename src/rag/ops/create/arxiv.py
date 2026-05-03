@@ -16,6 +16,7 @@ from rag.ops.materialize import (
     make_collection_name,
 )
 from rag.ops.meta import BuildConfig, ImplementationInfo, build_collection_meta
+from rag.sparse_encoder import SparseEncoderService
 from shared.config import get_settings, validate_kb_alias
 
 _POINT_ID_NS = uuid.UUID("b8c9d0e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e")
@@ -91,12 +92,18 @@ def create_arxiv_collection(
             )
             ids.append(str(uuid.uuid5(_POINT_ID_NS, f"arxiv:{paper['arxiv_id']}:{chunk_idx}")))
 
+    sparse_encoder_service = (
+        SparseEncoderService(embeddings_url=embeddings_url)
+        if build_config.retrieval_capability == "hybrid"
+        else None
+    )
     batch_embed_and_upsert(
         vector_store=vector_store,
         embedding_service=embedding_service,
         documents=documents,
         metadatas=metadatas,
         ids=ids,
+        sparse_encoder_service=sparse_encoder_service,
     )
 
     alias_result = None

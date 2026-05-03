@@ -15,6 +15,7 @@ from rag.ops.materialize import (
     make_collection_name,
 )
 from rag.ops.meta import BuildConfig, ImplementationInfo, build_collection_meta
+from rag.sparse_encoder import SparseEncoderService
 from shared.config import get_settings, validate_kb_alias
 
 
@@ -84,11 +85,17 @@ def create_pytorch_docs_collection(
                 }
             )
 
+    sparse_encoder_service = (
+        SparseEncoderService(embeddings_url=embeddings_url)
+        if build_config.retrieval_capability == "hybrid"
+        else None
+    )
     batch_embed_and_upsert(
         vector_store=vector_store,
         embedding_service=embedding_service,
         documents=documents,
         metadatas=metadatas,
+        sparse_encoder_service=sparse_encoder_service,
     )
 
     alias_result = None

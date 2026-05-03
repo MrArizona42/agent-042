@@ -15,6 +15,7 @@ from rag.ops.materialize import (
 )
 from rag.ops.meta import build_collection_meta
 from rag.ops.update.common import load_update_collection_meta
+from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
 from shared.config import get_kb_config, get_settings, validate_kb_alias
 
@@ -116,11 +117,17 @@ def update_pytorch_docs_collection(
                 }
             )
 
+    sparse_encoder_service = (
+        SparseEncoderService(embeddings_url=embeddings_url)
+        if build_config.retrieval_capability == "hybrid"
+        else None
+    )
     batch_embed_and_upsert(
         vector_store=successor_store,
         embedding_service=embedding_service,
         documents=documents,
         metadatas=metadatas,
+        sparse_encoder_service=sparse_encoder_service,
     )
 
     if current_target == qdrant_alias:
