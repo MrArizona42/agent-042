@@ -689,7 +689,7 @@ class TestRequestPathFailureMode:
 class TestLegacyMetadataHandling:
     """Legacy collections missing sparse_encoder/retrieval_strategy are rejected."""
 
-    def _make_kb_json(self, tmp_path: Path) -> Path:
+    def _make_kb_json(self, tmp_path: Path, *, retrieval_strategy: str = "dense") -> Path:
         data = [
             {
                 "task": "chat",
@@ -702,7 +702,7 @@ class TestLegacyMetadataHandling:
                                 "top_k": 5,
                                 "score_threshold": 0.35,
                                 "reranker": None,
-                                "retrieval_strategy": "dense",
+                                "retrieval_strategy": retrieval_strategy,
                                 "reranker_multiplier": 4,
                             },
                         },
@@ -913,6 +913,180 @@ class TestLegacyMetadataHandling:
 
             with pytest.raises(RuntimeError, match="Embedding dimension mismatch"):
                 svc.validate_knowledge_bases()
+
+    def test_hybrid_query_dense_build_non_strict_marks_unavailable(self, tmp_path: Path):
+        """Incompatible alias/build capability marks the alias unavailable."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path, retrieval_strategy="hybrid")
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_settings.sparse_encoder_model = "Qdrant/bm25"
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 384,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            mock_read_meta.return_value = MagicMock(
+                build_config=BuildConfig(
+                    chunking_strategy="recursive",
+                    chunk_size=512,
+                    chunk_overlap=64,
+                    embedding_model="test-model",
+                    sparse_encoder=None,
+                    retrieval_capability="dense",
+                )
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc.validate_knowledge_bases()
+
+            assert "arxiv_champion" in svc._unavailable
+
+    def test_hybrid_query_dense_build_strict_raises(self, tmp_path: Path):
+        """Strict startup raises on query/build capability mismatches."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path, retrieval_strategy="hybrid")
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = True
+            mock_settings.sparse_encoder_model = "Qdrant/bm25"
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 384,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            mock_read_meta.return_value = MagicMock(
+                build_config=BuildConfig(
+                    chunking_strategy="recursive",
+                    chunk_size=512,
+                    chunk_overlap=64,
+                    embedding_model="test-model",
+                    sparse_encoder=None,
+                    retrieval_capability="dense",
+                )
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+
+            with pytest.raises(RuntimeError, match="requires build capability 'hybrid'"):
+                svc.validate_knowledge_bases()
+
+    def test_sparse_encoder_mismatch_rejects_lazy_retriever_creation(self, tmp_path: Path):
+        """Serving path rejects aliases whose sparse encoder config no longer matches."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path, retrieval_strategy="hybrid")
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_settings.sparse_encoder_model = "other/model"
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 384,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            mock_read_meta.return_value = MagicMock(
+                build_config=BuildConfig(
+                    chunking_strategy="recursive",
+                    chunk_size=512,
+                    chunk_overlap=64,
+                    embedding_model="test-model",
+                    sparse_encoder="Qdrant/bm25",
+                    retrieval_capability="hybrid",
+                )
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+
+            with pytest.raises(RuntimeError, match="RAG retriever unavailable"):
+                svc.retrieve_documents(
+                    query="test query",
+                    knowledge_base="arxiv",
+                    alias="champion",
+                )
+
+            assert "arxiv_champion" in svc._unavailable
 
 
 # ---------------------------------------------------------------------------

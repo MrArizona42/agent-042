@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from gateway.config import get_settings
 from rag.embeddings import EmbeddingService
-from rag.ops.meta import BuildConfig, read_collection_meta
+from rag.ops.meta import BuildConfig, read_collection_meta, validate_query_compatibility
 from rag.reranker import Reranker, get_reranker
 from rag.retriever import Retriever
 from rag.sparse_encoder import SparseEncoderService
@@ -98,6 +98,7 @@ class RAGService:
         cache_key: str,
         vector_store: QdrantVectorStore,
         *,
+        query_strategy: str,
         strict: bool,
     ) -> BuildConfig | None:
         """Read and cache BuildConfig for an alias, enforcing runtime compatibility."""
@@ -111,6 +112,22 @@ class RAGService:
             self._mark_alias_unavailable(
                 cache_key,
                 f"Failed to read _meta for collection '{cache_key}': {exc}",
+                strict=strict,
+                exc=exc,
+            )
+            return None
+
+        try:
+            validate_query_compatibility(
+                query_strategy=query_strategy,
+                build_config=meta.build_config,
+                runtime_sparse_encoder=getattr(self.settings, "sparse_encoder_model", None),
+                context=cache_key,
+            )
+        except ValueError as exc:
+            self._mark_alias_unavailable(
+                cache_key,
+                str(exc),
                 strict=strict,
                 exc=exc,
             )
@@ -164,6 +181,9 @@ class RAGService:
             return None
 
         qdrant_alias_name = cache_key
+        alias_cfg = kb_cfg.aliases.get(alias)
+        if alias_cfg is None:
+            return None
 
         vector_store = QdrantVectorStore(
             host=self.settings.qdrant_host,
@@ -180,11 +200,15 @@ class RAGService:
                 self._unavailable.add(cache_key)
             return None
 
-        build_cfg = self._ensure_build_config(cache_key, vector_store, strict=False)
+        build_cfg = self._ensure_build_config(
+            cache_key,
+            vector_store,
+            query_strategy=alias_cfg.retrieval_strategy,
+            strict=False,
+        )
         if build_cfg is None:
             return None
 
-        alias_cfg = kb_cfg.aliases.get(alias)
         reranker: Reranker | None = None
         if alias_cfg and alias_cfg.reranker:
             reranker = get_reranker(alias_cfg.reranker)
@@ -280,7 +304,7 @@ class RAGService:
 
         for task_cfg in get_knowledge_bases().values():
             for kb_cfg in task_cfg.knowledge_bases:
-                for alias in kb_cfg.aliases:
+                for alias, alias_cfg in kb_cfg.aliases.items():
                     cache_key = self._qdrant_alias(kb_cfg.name, alias)
                     vs = QdrantVectorStore(
                         host=self.settings.qdrant_host,
@@ -297,7 +321,12 @@ class RAGService:
                         self._mark_alias_unavailable(cache_key, msg, strict=strict)
                         continue
 
-                    self._ensure_build_config(cache_key, vs, strict=strict)
+                    self._ensure_build_config(
+                        cache_key,
+                        vs,
+                        query_strategy=alias_cfg.retrieval_strategy,
+                        strict=strict,
+                    )
 
     def retrieve_documents(
         self,

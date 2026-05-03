@@ -232,3 +232,88 @@ class TestValidateKbAlias:
         from shared.config import validate_kb_alias
 
         validate_kb_alias("arxiv")  # alias=None is fine
+
+
+# ---------------------------------------------------------------------------
+# Query/build compatibility validation
+# ---------------------------------------------------------------------------
+
+
+class TestQueryBuildCompatibility:
+    def _build_config(self, *, retrieval_capability: str, sparse_encoder: str | None):
+        from rag.ops.meta import BuildConfig
+
+        return BuildConfig(
+            chunking_strategy="recursive",
+            chunk_size=512,
+            chunk_overlap=64,
+            embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+            sparse_encoder=sparse_encoder,
+            retrieval_capability=retrieval_capability,
+        )
+
+    def test_dense_query_accepts_hybrid_build(self):
+        from rag.ops.meta import validate_query_compatibility
+
+        validate_query_compatibility(
+            query_strategy="dense",
+            build_config=self._build_config(
+                retrieval_capability="hybrid",
+                sparse_encoder="Qdrant/bm25",
+            ),
+            context="arxiv_champion",
+        )
+
+    def test_dense_query_rejects_sparse_only_build(self):
+        from rag.ops.meta import validate_query_compatibility
+
+        with pytest.raises(ValueError, match="query strategy 'dense' requires a dense leg"):
+            validate_query_compatibility(
+                query_strategy="dense",
+                build_config=self._build_config(
+                    retrieval_capability="sparse",
+                    sparse_encoder="Qdrant/bm25",
+                ),
+                context="arxiv_champion",
+            )
+
+    def test_hybrid_query_rejects_dense_build(self):
+        from rag.ops.meta import validate_query_compatibility
+
+        with pytest.raises(ValueError, match="requires build capability 'hybrid'"):
+            validate_query_compatibility(
+                query_strategy="hybrid",
+                build_config=self._build_config(
+                    retrieval_capability="dense",
+                    sparse_encoder=None,
+                ),
+                runtime_sparse_encoder="Qdrant/bm25",
+                context="arxiv_champion",
+            )
+
+    def test_sparse_query_requires_matching_sparse_encoder(self):
+        from rag.ops.meta import validate_query_compatibility
+
+        with pytest.raises(ValueError, match="does not match build sparse encoder"):
+            validate_query_compatibility(
+                query_strategy="sparse",
+                build_config=self._build_config(
+                    retrieval_capability="sparse",
+                    sparse_encoder="Qdrant/bm25",
+                ),
+                runtime_sparse_encoder="other/model",
+                context="arxiv_champion",
+            )
+
+    def test_sparse_query_accepts_sparse_build_with_matching_encoder(self):
+        from rag.ops.meta import validate_query_compatibility
+
+        validate_query_compatibility(
+            query_strategy="sparse",
+            build_config=self._build_config(
+                retrieval_capability="sparse",
+                sparse_encoder="Qdrant/bm25",
+            ),
+            runtime_sparse_encoder="Qdrant/bm25",
+            context="arxiv_champion",
+        )
