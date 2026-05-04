@@ -584,6 +584,7 @@ def run_eval(
     dataset_name: str,
     metric: str,
     kb_name: str | None = None,
+    use_auto_rag: bool = False,
     rag_aliases: list[str],
     lora_aliases: list[str],
 ) -> list[dict[str, Any]]:
@@ -607,6 +608,7 @@ def run_eval(
         task=task,
         dataset_name=dataset_name,
         kb_name=kb_name,
+        use_auto_rag=use_auto_rag,
         rag_aliases=rag_aliases,
         lora_aliases=lora_aliases,
     )
@@ -626,6 +628,7 @@ def fetch_predictions(
     task: str,
     dataset_name: str,
     kb_name: str | None = None,
+    use_auto_rag: bool = False,
     rag_aliases: list[str],
     lora_aliases: list[str],
 ) -> dict[str, Any]:
@@ -642,7 +645,14 @@ def fetch_predictions(
     if task not in _TASK_METRICS:
         raise ValueError(f"Unknown task: {task!r}")
 
-    if kb_name is None:
+    if task == "retrieval" and kb_name is None:
+        raise ValueError("Retrieval eval requires kb_name")
+
+    if use_auto_rag:
+        if task == "retrieval":
+            raise ValueError("Retrieval eval does not support use_auto_rag")
+        kb_name = None
+    elif kb_name is None:
         kb_name = _SUITE_KB.get((task, dataset_name))
 
     if task == "summarize":

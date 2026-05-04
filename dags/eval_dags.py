@@ -155,6 +155,11 @@ def _resolve_params(context: dict) -> dict:
     knowledge_base = (
         custom["knowledge_base"] if "knowledge_base" in custom else params.get("knowledge_base")
     )
+    knowledge_base_mode = (
+        custom["knowledge_base_mode"]
+        if "knowledge_base_mode" in custom
+        else params.get("knowledge_base_mode", "explicit")
+    )
     metrics = custom["metrics"] if "metrics" in custom else params["metrics"]
     kb_aliases = (
         custom["knowledge_base_aliases"]
@@ -172,6 +177,8 @@ def _resolve_params(context: dict) -> dict:
         kb_aliases = [a.strip() for a in kb_aliases.split(",") if a.strip()]
     if isinstance(lora_aliases, str):
         lora_aliases = [a.strip() for a in lora_aliases.split(",") if a.strip()]
+    if isinstance(knowledge_base_mode, str):
+        knowledge_base_mode = knowledge_base_mode.strip().lower()
 
     # Strict validation — fail if anything is absent
     if not metrics:
@@ -180,9 +187,18 @@ def _resolve_params(context: dict) -> dict:
         raise ValueError("Required parameter 'knowledge_base_aliases' is empty")
     if not lora_aliases:
         raise ValueError("Required parameter 'lora_aliases' is empty")
+    if knowledge_base_mode not in {"auto", "explicit"}:
+        raise ValueError("Required parameter 'knowledge_base_mode' must be 'auto' or 'explicit'")
+    if knowledge_base_mode == "explicit" and not knowledge_base:
+        raise ValueError(
+            "Required parameter 'knowledge_base' must be set when knowledge_base_mode='explicit'"
+        )
+    if knowledge_base_mode == "auto":
+        knowledge_base = None
 
     return {
         "knowledge_base": knowledge_base,
+        "use_auto_rag": knowledge_base_mode == "auto",
         "metrics": metrics,
         "knowledge_base_aliases": kb_aliases,
         "lora_aliases": lora_aliases,
@@ -223,6 +239,7 @@ def _fetch_predictions_task(
         task=eval_task,
         dataset_name=dataset,
         kb_name=resolved["knowledge_base"],
+        use_auto_rag=resolved["use_auto_rag"],
         rag_aliases=resolved["knowledge_base_aliases"],
         lora_aliases=resolved["lora_aliases"],
     )
@@ -321,6 +338,28 @@ for _suite in _EVAL_SUITES:
         params={
             **(
                 {
+                    "knowledge_base_mode": Param(
+                        "explicit",
+                        type="string",
+                        enum=["explicit", "auto"],
+                        description=(
+                            "Knowledge-base selection mode for generation evals. "
+                            "Use 'explicit' to force the selected knowledge base or 'auto' "
+                            "to let the gateway auto-select by routed task."
+                        ),
+                    ),
+                    "knowledge_base": Param(
+                        default=None,
+                        type=["string", "null"],
+                        enum=_kb_options,
+                        description=(
+                            "Knowledge base to force for generation evals when "
+                            "knowledge_base_mode='explicit'. Leave null for auto mode."
+                        ),
+                    ),
+                }
+                if _task != "retrieval"
+                else {
                     "knowledge_base": Param(
                         type="string",
                         enum=_kb_options,
@@ -328,10 +367,8 @@ for _suite in _EVAL_SUITES:
                             "Target knowledge base for retrieval evaluation. "
                             f"Valid: {', '.join(_kb_options)}."
                         ),
-                    ),
+                    )
                 }
-                if _task == "retrieval"
-                else {}
             ),
             "knowledge_base_aliases": Param(
                 [],
@@ -372,7 +409,8 @@ for _suite in _EVAL_SUITES:
                 type=["string", "null"],
                 description=(
                     "Optional JSON overrides. Example: "
-                    '{"metrics": ["my_metric"], "knowledge_base_aliases": ["a1", "a2"]}'
+                    '{"knowledge_base_mode": "auto", "metrics": ["my_metric"], '
+                    '"knowledge_base_aliases": ["a1", "a2"]}'
                 ),
             ),
         },

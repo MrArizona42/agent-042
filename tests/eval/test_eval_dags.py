@@ -28,6 +28,8 @@ def kb_json_file(tmp_path: Path) -> Path:
         {
             "task": "chat",
             "label": "General knowledge",
+            "routing_description": "General ML research discussion.",
+            "adapter": {"name": "", "alias": "", "enabled": False},
             "knowledge_bases": [
                 {
                     "name": "arxiv",
@@ -37,17 +39,22 @@ def kb_json_file(tmp_path: Path) -> Path:
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         }
                     },
                     "update_strategy": "incremental",
                     "label": "ArXiv papers",
                     "description": "ML papers",
+                    "selection_description": "Research papers and literature-grounded answers.",
                 }
             ],
         },
         {
             "task": "code",
             "label": "Coding assistance",
+            "routing_description": "Programming help for ML systems.",
+            "adapter": {"name": "", "alias": "", "enabled": False},
             "knowledge_bases": [
                 {
                     "name": "pytorch_docs",
@@ -57,11 +64,14 @@ def kb_json_file(tmp_path: Path) -> Path:
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         }
                     },
                     "update_strategy": "replace",
                     "label": "PyTorch docs",
                     "description": "PyTorch documentation",
+                    "selection_description": "PyTorch API reference and implementation guidance.",
                 }
             ],
         },
@@ -130,3 +140,65 @@ def test_eval_dags_kb_options_use_shared_registry(
 
     assert eval_dags._list_knowledge_base_names() == ["arxiv", "pytorch_docs"]
     assert eval_dags._kb_options == ["arxiv", "pytorch_docs"]
+
+
+def test_eval_dags_resolve_params_supports_auto_kb_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    kb_json_file: Path,
+):
+    import shared.config as cfg
+    from shared.config import _load_knowledge_bases
+
+    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    _install_airflow_stubs(monkeypatch)
+    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+    sys.modules.pop("dags.eval_dags", None)
+    eval_dags = importlib.import_module("dags.eval_dags")
+    eval_dags = importlib.reload(eval_dags)
+
+    resolved = eval_dags._resolve_params(
+        {
+            "params": {
+                "knowledge_base_mode": "auto",
+                "knowledge_base": None,
+                "knowledge_base_aliases": ["champion"],
+                "metrics": ["relevance"],
+                "lora_aliases": ["none"],
+                "custom_params": "",
+            }
+        }
+    )
+
+    assert resolved["knowledge_base"] is None
+    assert resolved["use_auto_rag"] is True
+
+
+def test_eval_dags_resolve_params_requires_kb_for_explicit_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    kb_json_file: Path,
+):
+    import shared.config as cfg
+    from shared.config import _load_knowledge_bases
+
+    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    _install_airflow_stubs(monkeypatch)
+    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+    sys.modules.pop("dags.eval_dags", None)
+    eval_dags = importlib.import_module("dags.eval_dags")
+    eval_dags = importlib.reload(eval_dags)
+
+    with pytest.raises(ValueError, match="knowledge_base"):
+        eval_dags._resolve_params(
+            {
+                "params": {
+                    "knowledge_base_mode": "explicit",
+                    "knowledge_base": None,
+                    "knowledge_base_aliases": ["champion"],
+                    "metrics": ["relevance"],
+                    "lora_aliases": ["none"],
+                    "custom_params": "",
+                }
+            }
+        )
