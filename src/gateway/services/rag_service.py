@@ -90,6 +90,19 @@ class RAGService:
         self._unavailable.clear()
         self._kb_embeddings.clear()
 
+    def warm_caches(self, *, validate: bool = False) -> None:
+        """Best-effort eager rebuild of config-derived caches.
+
+        Used by config reload and startup flows that want to surface cache/
+        config issues earlier instead of waiting for the next request.
+        """
+        if not self.enabled:
+            return
+
+        if validate:
+            self.validate_knowledge_bases()
+        self._build_kb_embeddings()
+
     def _build_kb_embeddings(self) -> dict[str, list[float]]:
         if self._kb_embeddings:
             return self._kb_embeddings

@@ -250,3 +250,38 @@ def test_prepare_request_skips_auto_selection_for_tasks_without_kbs() -> None:
     retrieve_rag.assert_called_once_with((), last_user="hello")
     _, kwargs = process._prompt_builder.build_budgeted_messages.call_args
     assert kwargs["rag_requested"] is False
+
+
+def test_reload_config_caches_invalidates_and_warms_router_and_rag_service() -> None:
+    process = _ProcessChat()
+    process._router = MagicMock()
+    existing_rag_service = MagicMock()
+    warmed_rag_service = MagicMock()
+    process._rag_service = existing_rag_service
+
+    settings = _settings()
+
+    with patch.object(
+        process,
+        "ensure_rag_service",
+        return_value=warmed_rag_service,
+    ) as ensure_rag_service:
+        process.reload_config_caches(settings=settings)
+
+    process._router.invalidate_cache.assert_called_once_with()
+    process._router.warm_cache.assert_called_once_with()
+    existing_rag_service.invalidate_caches.assert_called_once_with()
+    ensure_rag_service.assert_called_once_with(settings=settings, validate=True)
+    warmed_rag_service.warm_caches.assert_called_once_with()
+
+
+def test_reload_config_caches_is_fail_open_on_warmup_errors() -> None:
+    process = _ProcessChat()
+    process._router = MagicMock()
+    process._router.warm_cache.side_effect = RuntimeError("router down")
+
+    with patch.object(process, "ensure_rag_service", side_effect=RuntimeError("rag down")):
+        process.reload_config_caches(settings=_settings())
+
+    process._router.invalidate_cache.assert_called_once_with()
+    process._router.warm_cache.assert_called_once_with()

@@ -55,6 +55,9 @@ class EmbeddingTaskRouter:
     def invalidate_cache(self) -> None:
         self._task_embeddings.clear()
 
+    def warm_cache(self) -> None:
+        self._build_task_embeddings()
+
     def _ensure_embedding_service(self) -> EmbeddingService:
         if self._embedding_service is None:
             self._embedding_service = self._embedding_service_factory()

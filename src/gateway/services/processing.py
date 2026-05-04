@@ -86,6 +86,38 @@ class _ProcessChat:
 
         return self._rag_service
 
+    def reload_config_caches(self, *, settings=None) -> None:
+        """Invalidate and best-effort rebuild config-derived caches.
+
+        Reload is intentionally fail-open: cache rebuild issues are logged and
+        runtime request handling falls back to lazy rebuild or safe defaults.
+        """
+        if settings is None:
+            settings = get_settings()
+
+        self._router.invalidate_cache()
+        try:
+            self._router.warm_cache()
+        except Exception:
+            logger.warning("Task router cache warmup failed after config reload", exc_info=True)
+
+        if self._rag_service is not None:
+            self._rag_service.invalidate_caches()
+
+        try:
+            rag_service = self.ensure_rag_service(settings=settings, validate=True)
+        except Exception:
+            logger.warning("RAG service validation failed after config reload", exc_info=True)
+            return
+
+        if rag_service is None:
+            return
+
+        try:
+            rag_service.warm_caches()
+        except Exception:
+            logger.warning("RAG cache warmup failed after config reload", exc_info=True)
+
     def _client(self) -> VllmOpenAIClient:
         settings = get_settings()
         return VllmOpenAIClient(base_url=settings.vllm_base_url, api_key=settings.api_key)
