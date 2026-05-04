@@ -11,6 +11,7 @@ from rag.chunking import get_chunker
 from rag.embeddings import EmbeddingService
 from rag.ops.materialize import batch_embed_and_upsert
 from rag.ops.update.common import load_update_collection_meta
+from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
 from shared.config import get_kb_config, get_settings, validate_kb_alias
 
@@ -65,10 +66,12 @@ def update_arxiv_collection(
     with open(arxiv_path, encoding="utf-8") as file_handle:
         papers = json.load(file_handle)
 
-    embedding_service = EmbeddingService(
-        model_name=build_config.embedding_model,
-        embeddings_url=embeddings_url,
-    )
+    embedding_service: EmbeddingService | None = None
+    if build_config.retrieval_capability != "sparse":
+        embedding_service = EmbeddingService(
+            model_name=build_config.embedding_model,
+            embeddings_url=embeddings_url,
+        )
     chunker = get_chunker(
         strategy=build_config.chunking_strategy,
         chunk_size=build_config.chunk_size,
@@ -95,12 +98,18 @@ def update_arxiv_collection(
             )
             ids.append(str(uuid.uuid5(_POINT_ID_NS, f"arxiv:{paper['arxiv_id']}:{chunk_idx}")))
 
+    sparse_encoder_service = (
+        SparseEncoderService(embeddings_url=embeddings_url)
+        if build_config.retrieval_capability in {"hybrid", "sparse"}
+        else None
+    )
     batch_embed_and_upsert(
         vector_store=target_store,
         embedding_service=embedding_service,
         documents=documents,
         metadatas=metadatas,
         ids=ids,
+        sparse_encoder_service=sparse_encoder_service,
     )
 
     info = target_store.get_collection_info()

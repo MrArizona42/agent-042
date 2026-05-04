@@ -8,6 +8,7 @@ from typing import Any, Sequence
 
 from rag.embeddings import EmbeddingService
 from rag.ops.meta import CollectionMeta, write_collection_meta
+from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,10 @@ def create_collection_with_meta(
         port=qdrant_port,
         collection_name=collection_name,
     )
-    vector_store.create_collection(dimension=dimension)
+    vector_store.create_collection(
+        dimension=dimension,
+        retrieval_capability=meta.build_config.retrieval_capability,
+    )
     write_collection_meta(vector_store, meta, dimension=dimension)
     return vector_store
 
@@ -41,11 +45,12 @@ def create_collection_with_meta(
 def batch_embed_and_upsert(
     *,
     vector_store: QdrantVectorStore,
-    embedding_service: EmbeddingService,
+    embedding_service: EmbeddingService | None,
     documents: Sequence[str],
     metadatas: Sequence[dict[str, Any]],
     ids: Sequence[str] | None = None,
     batch_size: int = 32,
+    sparse_encoder_service: SparseEncoderService | None = None,
 ) -> None:
     """Embed texts in batches and upsert them into Qdrant."""
     if len(documents) != len(metadatas):
@@ -57,15 +62,28 @@ def batch_embed_and_upsert(
         logger.info("No documents to materialize into '%s'", vector_store.collection_name)
         return
 
+    if embedding_service is None and sparse_encoder_service is None:
+        raise ValueError("At least one of embedding_service or sparse_encoder_service is required")
+
     for start in range(0, len(documents), batch_size):
         end = start + batch_size
         batch_documents = list(documents[start:end])
         batch_metadatas = list(metadatas[start:end])
         batch_ids = list(ids[start:end]) if ids is not None else None
-        embeddings = embedding_service.embed_documents(batch_documents)
+        embeddings = (
+            embedding_service.embed_documents(batch_documents)
+            if embedding_service is not None
+            else None
+        )
+        sparse_vectors = (
+            sparse_encoder_service.encode_documents(batch_documents)
+            if sparse_encoder_service is not None
+            else None
+        )
         vector_store.add_documents(
             documents=batch_documents,
             embeddings=embeddings,
             metadatas=batch_metadatas,
             ids=batch_ids,
+            sparse_vectors=sparse_vectors,
         )

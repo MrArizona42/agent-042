@@ -15,6 +15,7 @@ Schedule: @weekly
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import sys
@@ -71,6 +72,9 @@ def _bootstrap_project_imports() -> None:
 
 
 _bootstrap_project_imports()
+scrape_pytorch_doc_page = importlib.import_module(
+    "shared.pytorch_docs_scraper"
+).scrape_pytorch_doc_page
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
@@ -84,42 +88,6 @@ default_args = {
     "retries": 0,
 }
 
-# ---------------------------------------------------------------------------
-# Task callables
-# ---------------------------------------------------------------------------
-
-
-def _scrape_pytorch_doc_page(url: str) -> dict:
-    """Scrape a single PyTorch documentation page."""
-    import requests
-    from bs4 import BeautifulSoup
-
-    resp = requests.get(url, timeout=30)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "lxml")
-
-    title_tag = soup.find("h1")
-    title_text = title_tag.get_text(strip=True) if title_tag else "Untitled"
-
-    content_div = soup.find("div", {"role": "main"}) or soup.find("article")
-    if content_div:
-        for tag in content_div.find_all(["nav", "footer", "script", "style"]):
-            tag.decompose()
-        content = content_div.get_text(separator="\n", strip=True)
-    else:
-        content = ""
-
-    code_blocks = soup.find_all("code") or soup.find_all("pre")
-    code_examples = [b.get_text(strip=True) for b in code_blocks[:PYTORCH_MAX_CODE_EXAMPLES]]
-
-    return {
-        "url": url,
-        "title": title_text,
-        "content": content,
-        "code_examples": code_examples,
-        "scraped_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-    }
-
 
 def _collect_pytorch_docs() -> str:
     """Scrape a list of PyTorch doc pages and save to JSON."""
@@ -130,7 +98,14 @@ def _collect_pytorch_docs() -> str:
         url = urljoin(PYTORCH_BASE_URL, page_path)
         print(f"[{i}/{len(PYTORCH_PAGES)}] {url}")
         try:
-            pages.append(_scrape_pytorch_doc_page(url))
+            page, skip_reason = scrape_pytorch_doc_page(
+                url,
+                max_code_examples=PYTORCH_MAX_CODE_EXAMPLES,
+            )
+            if page is None:
+                print(f"  Warning: skipped page ({skip_reason})")
+            else:
+                pages.append(page)
             time.sleep(PYTORCH_SCRAPE_DELAY_SECONDS)  # polite rate-limiting
         except Exception as exc:
             print(f"  Warning: {exc}")

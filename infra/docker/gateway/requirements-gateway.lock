@@ -100,6 +100,10 @@ packaging==26.0
     #   langsmith
 portalocker==3.2.0
     # via qdrant-client
+prometheus-client==0.25.0
+    # via prometheus-fastapi-instrumentator
+prometheus-fastapi-instrumentator==7.1.0
+    # via agent-042 (pyproject.toml)
 prompt-toolkit==3.0.52
     # via click-repl
 protobuf==7.34.0
@@ -146,7 +150,9 @@ six==1.17.0
 sqlalchemy==2.0.48
     # via agent-042 (pyproject.toml)
 starlette==0.52.1
-    # via fastapi
+    # via
+    #   fastapi
+    #   prometheus-fastapi-instrumentator
 tenacity==9.1.4
     # via langchain-core
 termcolor==3.3.0

@@ -142,3 +142,7 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
+
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")

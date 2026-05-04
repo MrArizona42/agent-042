@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -16,8 +16,14 @@ from qdrant_client.models import (
     Distance,
     FieldCondition,
     Filter,
+    Fusion,
+    FusionQuery,
     MatchValue,
     PointStruct,
+    Prefetch,
+    SparseIndexParams,
+    SparseVector,
+    SparseVectorParams,
     VectorParams,
 )
 
@@ -53,11 +59,18 @@ class QdrantVectorStore:
         self.collection_name = collection_name
         logger.info(f"Connected to Qdrant at {host}:{port}")
 
-    def create_collection(self, dimension: int, force_recreate: bool = False):
+    def create_collection(
+        self,
+        dimension: int,
+        retrieval_capability: str = "dense",
+        force_recreate: bool = False,
+    ):
         """Create a collection for storing vectors.
 
         Args:
             dimension: Dimension of embedding vectors
+            retrieval_capability: ``"dense"``, ``"hybrid"``, or ``"sparse"``;
+                controls which vector legs are created.
             force_recreate: If True, delete existing collection and create new one
         """
         # Use collection_exists() which correctly handles aliases
@@ -70,12 +83,16 @@ class QdrantVectorStore:
 
         if not exists:
             logger.info(f"Creating collection: {self.collection_name} with dimension: {dimension}")
+            sparse_vectors_config = None
+            if retrieval_capability in {"hybrid", "sparse"}:
+                sparse_vectors_config = {"sparse": SparseVectorParams(index=SparseIndexParams())}
+            vectors_config: dict[str, VectorParams] = {}
+            if retrieval_capability in {"dense", "hybrid"}:
+                vectors_config["dense"] = VectorParams(size=dimension, distance=Distance.COSINE)
             self.client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    size=dimension,
-                    distance=Distance.COSINE,
-                ),
+                vectors_config=vectors_config,
+                sparse_vectors_config=sparse_vectors_config,
             )
         else:
             logger.info(f"Collection already exists: {self.collection_name}")
@@ -83,20 +100,31 @@ class QdrantVectorStore:
     def add_documents(
         self,
         documents: List[str],
-        embeddings: List[List[float]],
+        embeddings: Optional[List[List[float]]] = None,
         metadatas: Optional[List[Dict[str, Any]]] = None,
         ids: Optional[List[str]] = None,
+        sparse_vectors: Optional[List[SparseVector]] = None,
     ):
         """Add documents with their embeddings to the collection.
 
         Args:
             documents: List of document texts
-            embeddings: List of embedding vectors
+            embeddings: Optional list of dense embedding vectors
             metadatas: Optional list of metadata dicts for each document
             ids: Optional list of IDs for each document (auto-generated if None)
+            sparse_vectors: Optional sparse vectors for hybrid or sparse collections.
         """
         if not documents:
             return
+
+        if embeddings is None and sparse_vectors is None:
+            raise ValueError("At least one of embeddings or sparse_vectors must be provided")
+
+        if embeddings is not None and len(embeddings) != len(documents):
+            raise ValueError("embeddings and documents must have the same length")
+
+        if sparse_vectors is not None and len(sparse_vectors) != len(documents):
+            raise ValueError("sparse_vectors and documents must have the same length")
 
         if metadatas is None:
             metadatas = [{} for _ in documents]
@@ -110,15 +138,20 @@ class QdrantVectorStore:
             ids = [start_id + i + 1 for i in range(len(documents))]
 
         points = []
-        for doc_id, doc, embedding, metadata in zip(ids, documents, embeddings, metadatas):
+        for i, (doc_id, doc, metadata) in enumerate(zip(ids, documents, metadatas)):
             payload = {
                 "content": doc,
                 **metadata,
             }
+            vec: Any = {}
+            if embeddings is not None:
+                vec["dense"] = embeddings[i]
+            if sparse_vectors is not None:
+                vec["sparse"] = sparse_vectors[i]
             points.append(
                 PointStruct(
                     id=doc_id,  # Must be int > 0 or UUID string
-                    vector=embedding,
+                    vector=vec,
                     payload=payload,
                 )
             )
@@ -134,10 +167,12 @@ class QdrantVectorStore:
 
     def search(
         self,
-        query_embedding: List[float],
+        query_embedding: Optional[List[float]],
         top_k: int,
-        score_threshold: float,
+        score_threshold: Optional[float],
         filter_dict: Optional[Dict[str, Any]] = None,
+        strategy: Literal["dense", "hybrid", "sparse"] = "dense",
+        sparse_query: Optional[SparseVector] = None,
     ) -> List[Document]:
         """Search for similar documents.
 
@@ -145,10 +180,12 @@ class QdrantVectorStore:
         (``type=collection_meta``).
 
         Args:
-            query_embedding: Query vector
-            top_k: Number of results to return
-            score_threshold: Minimum similarity score
-            filter_dict: Optional metadata filters
+            query_embedding: Dense query vector.
+            top_k: Number of results to return.
+            score_threshold: Minimum similarity score.
+            filter_dict: Optional metadata filters.
+            strategy: ``"dense"`` (default), ``"hybrid"``, or ``"sparse"``.
+            sparse_query: Sparse query vector; required when sparse retrieval is used.
 
         Returns:
             List of Document objects with content, metadata, and similarity scores
@@ -168,18 +205,55 @@ class QdrantVectorStore:
         else:
             qf = Filter(must_not=[meta_exclusion])
 
-        search_result = self.client.query_points(
-            collection_name=self.collection_name,
-            query=query_embedding,
-            limit=top_k,
-            score_threshold=score_threshold,
-            with_payload=True,
-            query_filter=qf,
-        )
+        if strategy == "hybrid":
+            if query_embedding is None:
+                raise ValueError("query_embedding is required for hybrid search")
+            if sparse_query is None:
+                raise ValueError("sparse_query is required for hybrid search")
+            search_result = self.client.query_points(
+                collection_name=self.collection_name,
+                prefetch=[
+                    Prefetch(query=query_embedding, using="dense", limit=top_k),
+                    Prefetch(
+                        query=sparse_query,
+                        using="sparse",
+                        limit=top_k,
+                    ),
+                ],
+                query=FusionQuery(fusion=Fusion.DBSF),
+                limit=top_k,
+                score_threshold=score_threshold,
+                with_payload=True,
+                query_filter=qf,
+            )
+        elif strategy == "sparse":
+            if sparse_query is None:
+                raise ValueError("sparse_query is required for sparse search")
+            search_result = self.client.query_points(
+                collection_name=self.collection_name,
+                query=sparse_query,
+                using="sparse",
+                limit=top_k,
+                score_threshold=score_threshold,
+                with_payload=True,
+                query_filter=qf,
+            )
+        else:
+            if query_embedding is None:
+                raise ValueError("query_embedding is required for dense search")
+            search_result = self.client.query_points(
+                collection_name=self.collection_name,
+                query=query_embedding,
+                using="dense",
+                limit=top_k,
+                score_threshold=score_threshold,
+                with_payload=True,
+                query_filter=qf,
+            )
 
         documents = []
         for hit in search_result.points:
-            payload = hit.payload
+            payload = dict(hit.payload or {})
             content = payload.pop("content", "")
             documents.append(
                 Document(
@@ -210,10 +284,7 @@ class QdrantVectorStore:
                 size = getattr(vector_params, "size", None)
                 if isinstance(size, int):
                     return size
-            return None
-
-        size = getattr(params, "size", None)
-        return size if isinstance(size, int) else None
+        return None
 
     def get_collection_info(self) -> Dict[str, Any]:
         """Get information about the collection."""
@@ -300,6 +371,18 @@ class QdrantVectorStore:
     _META_NS = uuid.UUID("b8c9d0e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e")
     _META_ID = str(uuid.uuid5(_META_NS, "_meta"))
 
+    def _meta_vector(self, dimension: int) -> Dict[str, Any]:
+        """Build the metadata sentinel vector matching the collection schema."""
+        collection_info = self.client.get_collection(self.collection_name)
+        params = getattr(
+            getattr(getattr(collection_info, "config", None), "params", None),
+            "vectors",
+            None,
+        )
+        if isinstance(params, dict) and "dense" in params:
+            return {"dense": [0.0] * dimension}
+        return {"sparse": SparseVector(indices=[], values=[])}
+
     def write_meta(self, payload: Dict[str, Any], dimension: int) -> None:
         """Write a metadata sentinel point to the collection.
 
@@ -318,7 +401,7 @@ class QdrantVectorStore:
             points=[
                 PointStruct(
                     id=self._META_ID,
-                    vector=[0.0] * dimension,
+                    vector=self._meta_vector(dimension),
                     payload=meta_payload,
                 )
             ],

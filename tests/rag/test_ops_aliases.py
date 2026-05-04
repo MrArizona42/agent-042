@@ -34,11 +34,15 @@ def kb_json_file(tmp_path: Path) -> Path:
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         },
                         "challenger": {
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         },
                     },
                     "update_strategy": "incremental",
@@ -59,6 +63,8 @@ def kb_json_file(tmp_path: Path) -> Path:
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         },
                     },
                     "update_strategy": "replace",
@@ -92,7 +98,7 @@ def _collection_meta_payload(kb_name: str = "arxiv") -> dict[str, object]:
             "chunk_overlap": 64,
             "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
             "sparse_encoder": None,
-            "retrieval_strategy": "dense",
+            "retrieval_capability": "dense",
         },
     }
 

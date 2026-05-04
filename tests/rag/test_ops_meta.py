@@ -13,7 +13,7 @@ def _valid_build_payload() -> dict[str, object]:
         "chunk_overlap": 64,
         "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
         "sparse_encoder": None,
-        "retrieval_strategy": "dense",
+        "retrieval_capability": "dense",
     }
 
 

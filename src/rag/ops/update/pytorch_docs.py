@@ -15,6 +15,7 @@ from rag.ops.materialize import (
 )
 from rag.ops.meta import build_collection_meta
 from rag.ops.update.common import load_update_collection_meta
+from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
 from shared.config import get_kb_config, get_settings, validate_kb_alias
 
@@ -75,10 +76,14 @@ def update_pytorch_docs_collection(
     with open(docs_path, encoding="utf-8") as file_handle:
         docs = json.load(file_handle)
 
-    embedding_service = EmbeddingService(
-        model_name=build_config.embedding_model,
-        embeddings_url=embeddings_url,
-    )
+    embedding_service: EmbeddingService | None = None
+    dimension = 0
+    if build_config.retrieval_capability != "sparse":
+        embedding_service = EmbeddingService(
+            model_name=build_config.embedding_model,
+            embeddings_url=embeddings_url,
+        )
+        dimension = embedding_service.dimension
     chunker = get_chunker(
         strategy=build_config.chunking_strategy,
         chunk_size=build_config.chunk_size,
@@ -95,7 +100,7 @@ def update_pytorch_docs_collection(
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
         collection_name=successor_collection,
-        dimension=embedding_service.dimension,
+        dimension=dimension,
         meta=successor_meta,
     )
     successor_store.update_alias(staging_alias, successor_collection)
@@ -116,11 +121,17 @@ def update_pytorch_docs_collection(
                 }
             )
 
+    sparse_encoder_service = (
+        SparseEncoderService(embeddings_url=embeddings_url)
+        if build_config.retrieval_capability in {"hybrid", "sparse"}
+        else None
+    )
     batch_embed_and_upsert(
         vector_store=successor_store,
         embedding_service=embedding_service,
         documents=documents,
         metadatas=metadatas,
+        sparse_encoder_service=sparse_encoder_service,
     )
 
     if current_target == qdrant_alias:

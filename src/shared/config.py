@@ -48,6 +48,8 @@ class AliasConfig(BaseModel):
     top_k: int
     score_threshold: float
     reranker: Optional[str]  # null today; model name when reranker is implemented
+    retrieval_strategy: Literal["dense", "hybrid", "sparse"]
+    reranker_multiplier: int
 
 
 class KBConfig(BaseModel):
@@ -382,6 +384,30 @@ class RagSettings(BaseModel):
         default=False,
         description="If True, raise on legacy / invalid Qdrant collections at startup "
         "instead of logging and marking them unavailable",
+    )
+    sparse_encoder_model: str = Field(
+        default="Qdrant/bm25",
+        validation_alias=AliasChoices(
+            "SPARSE_ENCODER_MODEL",
+            "sparse_encoder_model",
+        ),
+        description="fastembed model name for sparse (BM25) vector encoding",
+    )
+    reranker_url: str = Field(
+        default="http://reranker:8101",
+        validation_alias=AliasChoices(
+            "RERANKER_URL",
+            "reranker_url",
+        ),
+        description="URL of the reranker microservice",
+    )
+    reranker_model: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        validation_alias=AliasChoices(
+            "RERANKER_MODEL",
+            "reranker_model",
+        ),
+        description="Cross-encoder model loaded by the reranker service",
     )
 
 

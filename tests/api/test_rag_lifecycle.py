@@ -53,11 +53,15 @@ def kb_json_file(tmp_path: Path):
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         },
                         "challenger": {
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         },
                     },
                     "update_strategy": "incremental",
@@ -78,6 +82,8 @@ def kb_json_file(tmp_path: Path):
                             "top_k": 5,
                             "score_threshold": 0.35,
                             "reranker": None,
+                            "retrieval_strategy": "dense",
+                            "reranker_multiplier": 4,
                         },
                     },
                     "update_strategy": "replace",
@@ -463,19 +469,21 @@ class TestRetrieveDocumentsConfig:
                 chunk_overlap=64,
                 embedding_model="test-model",
                 sparse_encoder=None,
-                retrieval_strategy="dense",
+                retrieval_capability="dense",
             )
 
             from gateway.services.rag_service import RAGService
 
             svc = RAGService(settings=mock_settings)
             # Pre-populate build config cache
-            svc._build_configs["arxiv_champion"] = build_cfg
+            svc._build_configs["arxiv_20260401"] = build_cfg
+            svc._resolved_collections["arxiv_champion"] = "arxiv_20260401"
 
             # Mock the retriever to capture the call
             mock_retriever = MagicMock()
             mock_retriever.retrieve.return_value = []
             svc._retrievers["arxiv_champion"] = mock_retriever
+            mock_vs.resolve_alias.return_value = "arxiv_20260401"
 
             svc.retrieve_documents(
                 query="test query",
@@ -519,6 +527,7 @@ class TestRetrieveDocumentsConfig:
 
             mock_vs = mock_vs_cls.return_value
             mock_vs.collection_exists.return_value = True
+            mock_vs.resolve_alias.return_value = None
             mock_vs.get_collection_info.return_value = {
                 "exists": True,
                 "points_count": 0,
@@ -533,7 +542,7 @@ class TestRetrieveDocumentsConfig:
                 chunk_overlap=64,
                 embedding_model="test-model",
                 sparse_encoder=None,
-                retrieval_strategy="dense",
+                retrieval_capability="dense",
             )
             mock_read_meta.return_value = MagicMock(build_config=build_cfg)
 
@@ -557,6 +566,316 @@ class TestRetrieveDocumentsConfig:
                 strategy="dense",
             )
 
+    def test_reuses_build_config_cache_for_aliases_on_same_collection(self, kb_json_file: Path):
+        """Different aliases should reuse build metadata for the same physical target."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.Retriever") as mock_retriever_cls,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            stores: dict[str, MagicMock] = {}
+
+            def make_store(*, host, port, collection_name):
+                del host, port
+                store = stores.get(collection_name)
+                if store is not None:
+                    return store
+
+                store = MagicMock()
+                store.collection_name = collection_name
+                store.collection_exists.return_value = True
+                if collection_name in {"arxiv_champion", "arxiv_challenger"}:
+                    store.resolve_alias.return_value = "arxiv_20260401"
+                else:
+                    store.resolve_alias.return_value = None
+                    store.get_collection_info.return_value = {
+                        "exists": True,
+                        "points_count": 0,
+                        "vector_size": 384,
+                    }
+                stores[collection_name] = store
+                return store
+
+            mock_vs_cls.side_effect = make_store
+
+            from rag.ops.meta import BuildConfig
+
+            build_cfg = BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="test-model",
+                sparse_encoder=None,
+                retrieval_capability="dense",
+            )
+            mock_read_meta.return_value = MagicMock(build_config=build_cfg)
+
+            champion_retriever = MagicMock()
+            champion_retriever.retrieve.return_value = []
+            challenger_retriever = MagicMock()
+            challenger_retriever.retrieve.return_value = []
+            mock_retriever_cls.side_effect = [champion_retriever, challenger_retriever]
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc.retrieve_documents(query="q1", knowledge_base="arxiv", alias="champion")
+            svc.retrieve_documents(query="q2", knowledge_base="arxiv", alias="challenger")
+
+            mock_read_meta.assert_called_once()
+            assert svc._resolved_collections["arxiv_champion"] == "arxiv_20260401"
+            assert svc._resolved_collections["arxiv_challenger"] == "arxiv_20260401"
+            assert "arxiv_20260401" in svc._build_configs
+
+    def test_alias_rebind_refreshes_retriever_and_build_config(self, kb_json_file: Path):
+        """The next request after an alias rebind must use the new target metadata."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.Retriever") as mock_retriever_cls,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            current_target = {"name": "arxiv_20260401"}
+            stores: dict[str, MagicMock] = {}
+
+            def make_store(*, host, port, collection_name):
+                del host, port
+                store = stores.get(collection_name)
+                if store is not None:
+                    return store
+
+                store = MagicMock()
+                store.collection_name = collection_name
+                store.collection_exists.return_value = True
+                if collection_name == "arxiv_champion":
+                    store.resolve_alias.side_effect = lambda alias_name: current_target["name"]
+                else:
+                    store.resolve_alias.return_value = None
+                    store.get_collection_info.return_value = {
+                        "exists": True,
+                        "points_count": 0,
+                        "vector_size": 384,
+                    }
+                stores[collection_name] = store
+                return store
+
+            mock_vs_cls.side_effect = make_store
+
+            from rag.ops.meta import BuildConfig
+
+            old_build_cfg = BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="old-model",
+                sparse_encoder=None,
+                retrieval_capability="dense",
+            )
+            new_build_cfg = BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="new-model",
+                sparse_encoder=None,
+                retrieval_capability="dense",
+            )
+
+            def read_meta_side_effect(vector_store, *, context):
+                if vector_store.collection_name == "arxiv_20260401":
+                    return MagicMock(build_config=old_build_cfg)
+                if vector_store.collection_name == "arxiv_20260402":
+                    return MagicMock(build_config=new_build_cfg)
+                raise AssertionError(f"Unexpected collection: {vector_store.collection_name}")
+
+            mock_read_meta.side_effect = read_meta_side_effect
+
+            first_retriever = MagicMock()
+            first_retriever.retrieve.return_value = []
+            second_retriever = MagicMock()
+            second_retriever.retrieve.return_value = []
+            mock_retriever_cls.side_effect = [first_retriever, second_retriever]
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+
+            svc.retrieve_documents(query="first", knowledge_base="arxiv", alias="champion")
+
+            current_target["name"] = "arxiv_20260402"
+
+            svc.retrieve_documents(query="second", knowledge_base="arxiv", alias="champion")
+
+            assert mock_retriever_cls.call_count == 2
+            assert svc._resolved_collections["arxiv_champion"] == "arxiv_20260402"
+            assert "arxiv_20260401" in svc._build_configs
+            assert "arxiv_20260402" in svc._build_configs
+            assert [call.kwargs["context"] for call in mock_read_meta.call_args_list] == [
+                "arxiv_20260401",
+                "arxiv_20260402",
+            ]
+            first_retriever.retrieve.assert_called_once()
+            second_retriever.retrieve.assert_called_once()
+
+    def test_retriever_failure_raises_instead_of_returning_empty(self, kb_json_file: Path):
+        """Pipeline failures must propagate so requests fail closed."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService"),
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_get_settings.return_value = mock_settings
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+
+            from rag.ops.meta import BuildConfig
+
+            build_cfg = BuildConfig(
+                chunking_strategy="recursive",
+                chunk_size=512,
+                chunk_overlap=64,
+                embedding_model="test-model",
+                sparse_encoder=None,
+                retrieval_capability="dense",
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc._build_configs["arxiv_20260401"] = build_cfg
+            svc._resolved_collections["arxiv_champion"] = "arxiv_20260401"
+
+            mock_retriever = MagicMock()
+            mock_retriever.retrieve.side_effect = RuntimeError("reranker down")
+            svc._retrievers["arxiv_champion"] = mock_retriever
+            mock_vs.resolve_alias.return_value = "arxiv_20260401"
+
+            with pytest.raises(RuntimeError, match="Failed to retrieve RAG documents"):
+                svc.retrieve_documents(
+                    query="test query",
+                    knowledge_base="arxiv",
+                    alias="champion",
+                )
+
+
+class TestRequestPathFailureMode:
+    """Request handling distinguishes zero-hit retrieval from pipeline failure."""
+
+    def test_chat_request_returns_500_when_rag_pipeline_fails(self, kb_json_file: Path):
+        import shared.config as cfg
+        from shared.config import _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        from gateway.api.v1 import openai_compat
+
+        app = _make_test_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        rag_service = MagicMock()
+        rag_service.enabled = True
+        rag_service.retrieve_documents.side_effect = RuntimeError("sparse encoder down")
+
+        with patch.object(
+            openai_compat.process_chat,
+            "ensure_rag_service",
+            return_value=rag_service,
+        ):
+            response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": True,
+                    "rag_sources": [{"knowledge_base": "arxiv", "alias": "champion"}],
+                },
+            )
+
+        assert response.status_code == 500
+        rag_service.retrieve_documents.assert_called_once_with(
+            query="hi",
+            knowledge_base="arxiv",
+            alias="champion",
+        )
+
+    def test_retrieve_rag_chunks_keeps_zero_hit_results_non_error(self, kb_json_file: Path):
+        import shared.config as cfg
+        from gateway.schemas.openai_chat import ChatCompletionRequest
+        from gateway.services.processing import _ProcessChat
+        from shared.config import _load_knowledge_bases
+
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+        processor = _ProcessChat()
+        rag_service = MagicMock()
+        rag_service.enabled = True
+        rag_service.retrieve_documents.return_value = []
+        request = ChatCompletionRequest(
+            messages=[{"role": "user", "content": "hi"}],
+            stream=True,
+            rag_sources=[{"knowledge_base": "arxiv", "alias": "champion"}],
+        )
+
+        with patch.object(processor, "ensure_rag_service", return_value=rag_service):
+            rag_chunks = processor._retrieve_rag_chunks(request, last_user="hi")
+
+        assert rag_chunks == {}
+        rag_service.retrieve_documents.assert_called_once_with(
+            query="hi",
+            knowledge_base="arxiv",
+            alias="champion",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Legacy metadata handling tests
@@ -566,7 +885,7 @@ class TestRetrieveDocumentsConfig:
 class TestLegacyMetadataHandling:
     """Legacy collections missing sparse_encoder/retrieval_strategy are rejected."""
 
-    def _make_kb_json(self, tmp_path: Path) -> Path:
+    def _make_kb_json(self, tmp_path: Path, *, retrieval_strategy: str = "dense") -> Path:
         data = [
             {
                 "task": "chat",
@@ -579,6 +898,8 @@ class TestLegacyMetadataHandling:
                                 "top_k": 5,
                                 "score_threshold": 0.35,
                                 "reranker": None,
+                                "retrieval_strategy": retrieval_strategy,
+                                "reranker_multiplier": 4,
                             },
                         },
                     },
@@ -676,7 +997,7 @@ class TestLegacyMetadataHandling:
             "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
         }
 
-        with pytest.raises(ValueError, match="retrieval_strategy"):
+        with pytest.raises(ValueError, match="retrieval_capability"):
             BuildConfig.from_payload(legacy_payload)
 
     def test_dimension_mismatch_non_strict_marks_unavailable(self, tmp_path: Path):
@@ -723,7 +1044,7 @@ class TestLegacyMetadataHandling:
                     chunk_overlap=64,
                     embedding_model="other-model",
                     sparse_encoder=None,
-                    retrieval_strategy="dense",
+                    retrieval_capability="dense",
                 )
             )
 
@@ -778,7 +1099,7 @@ class TestLegacyMetadataHandling:
                     chunk_overlap=64,
                     embedding_model="other-model",
                     sparse_encoder=None,
-                    retrieval_strategy="dense",
+                    retrieval_capability="dense",
                 )
             )
 
@@ -788,6 +1109,181 @@ class TestLegacyMetadataHandling:
 
             with pytest.raises(RuntimeError, match="Embedding dimension mismatch"):
                 svc.validate_knowledge_bases()
+
+    def test_hybrid_query_dense_build_non_strict_marks_unavailable(self, tmp_path: Path):
+        """Incompatible alias/build capability marks the alias unavailable."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path, retrieval_strategy="hybrid")
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.embeddings_url = "http://embeddings:8100"
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_settings.sparse_encoder_model = "Qdrant/bm25"
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 384,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            mock_read_meta.return_value = MagicMock(
+                build_config=BuildConfig(
+                    chunking_strategy="recursive",
+                    chunk_size=512,
+                    chunk_overlap=64,
+                    embedding_model="test-model",
+                    sparse_encoder=None,
+                    retrieval_capability="dense",
+                )
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+            svc.validate_knowledge_bases()
+
+            assert "arxiv_champion" in svc._unavailable
+
+    def test_hybrid_query_dense_build_strict_raises(self, tmp_path: Path):
+        """Strict startup raises on query/build capability mismatches."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path, retrieval_strategy="hybrid")
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = True
+            mock_settings.sparse_encoder_model = "Qdrant/bm25"
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 384,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            mock_read_meta.return_value = MagicMock(
+                build_config=BuildConfig(
+                    chunking_strategy="recursive",
+                    chunk_size=512,
+                    chunk_overlap=64,
+                    embedding_model="test-model",
+                    sparse_encoder=None,
+                    retrieval_capability="dense",
+                )
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+
+            with pytest.raises(RuntimeError, match="requires build capability 'hybrid'"):
+                svc.validate_knowledge_bases()
+
+    def test_sparse_encoder_mismatch_rejects_lazy_retriever_creation(self, tmp_path: Path):
+        """Serving path rejects aliases whose sparse encoder config no longer matches."""
+        import shared.config as cfg
+        from shared.config import Settings, _load_knowledge_bases
+
+        kb_path = self._make_kb_json(tmp_path, retrieval_strategy="hybrid")
+        cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_path)
+
+        with (
+            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
+            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
+            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
+            patch("gateway.services.rag_service.get_settings") as mock_get_settings,
+        ):
+            mock_settings = MagicMock(spec=Settings)
+            mock_settings.rag_enabled = True
+            mock_settings.embedding_model = "test-model"
+            mock_settings.embedding_device = "cpu"
+            mock_settings.embedding_batch_size = 32
+            mock_settings.qdrant_host = "localhost"
+            mock_settings.qdrant_port = 6333
+            mock_settings.rag_strict_startup = False
+            mock_settings.sparse_encoder_model = "other/model"
+            mock_get_settings.return_value = mock_settings
+
+            mock_embedding = mock_embedding_cls.return_value
+            mock_embedding.dimension = 384
+
+            mock_vs = mock_vs_cls.return_value
+            mock_vs.collection_exists.return_value = True
+            mock_vs.get_collection_info.return_value = {
+                "exists": True,
+                "points_count": 0,
+                "vector_size": 384,
+            }
+
+            from rag.ops.meta import BuildConfig
+
+            mock_read_meta.return_value = MagicMock(
+                build_config=BuildConfig(
+                    chunking_strategy="recursive",
+                    chunk_size=512,
+                    chunk_overlap=64,
+                    embedding_model="test-model",
+                    sparse_encoder="Qdrant/bm25",
+                    retrieval_capability="hybrid",
+                )
+            )
+
+            from gateway.services.rag_service import RAGService
+
+            svc = RAGService(settings=mock_settings)
+
+            with pytest.raises(RuntimeError, match="RAG retriever unavailable"):
+                svc.retrieve_documents(
+                    query="test query",
+                    knowledge_base="arxiv",
+                    alias="champion",
+                )
+
+            assert "arxiv_champion" in svc._unavailable
 
 
 # ---------------------------------------------------------------------------
