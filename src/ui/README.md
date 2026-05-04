@@ -6,16 +6,14 @@ Simple chat UI that talks to the FastAPI gateway.
 
 - Chat interface with two-channel streaming: thinking expander + live answer body
 - Full prompt expander populated from gateway prompt preview
-- **Knowledge Base selector** — choose which RAG collection to query:
-  - *Disabled* — no retrieval
-  - *ArXiv papers (ML / AI theory)* — latest ML/AI research
-  - *PyTorch docs (coding)* — PyTorch API documentation
+- Automatic task-scoped RAG selection driven by the gateway when retrieval is useful
 
 ## Gateway Contract
 
 The UI uses the gateway's rich first-party stream:
 
 - sends `X-UI-Rich-Stream: 1` on `POST /v1/chat/completions`
+- leaves `rag_sources` unset so the gateway stays in auto-selection mode
 - reads `X-Request-Id` from the streaming response
 - fetches `GET /v1/chat/prompt-preview/{request_id}` to show the full prompt and RAG context
 - renders `thinking_token` and `answer_token` events in separate UI containers

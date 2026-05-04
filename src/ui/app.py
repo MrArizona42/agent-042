@@ -5,7 +5,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from shared.config import bootstrap_local_settings_env, get_knowledge_bases
+from shared.config import bootstrap_local_settings_env
 from shared.vllm_payloads import canonicalize_assistant_content
 from ui.client import GatewayClient
 from ui.config import get_settings
@@ -137,26 +137,6 @@ with st.sidebar:
 
         st.divider()
 
-    st.subheader("Knowledge Base")
-
-    # Build options from the knowledge base registry
-    kb_options: dict[str, str | None] = {"Disabled": None}
-    _kb_meta: dict[str, dict] = {}
-    for task_cfg in get_knowledge_bases().values():
-        for kb_cfg in task_cfg.knowledge_bases:
-            kb_options[kb_cfg.label] = kb_cfg.name
-            _kb_meta[kb_cfg.name] = {"description": kb_cfg.description}
-
-    selected_kb_label = st.radio(
-        "Select knowledge base for RAG retrieval",
-        options=list(kb_options.keys()),
-        index=0,
-    )
-    selected_kb = kb_options[selected_kb_label]
-
-    if selected_kb:
-        st.caption(_kb_meta[selected_kb]["description"])
-
 
 # ------------------------------------------------------------------
 # Chat session — created lazily on first message (avoids empty sessions)
@@ -192,8 +172,6 @@ if prompt:
         # "model": None,
         "messages": st.session_state.messages,
     }
-    if selected_kb:
-        payload["rag_sources"] = [{"knowledge_base": selected_kb}]
     if st.session_state.get("chat_session_id"):
         payload["chat_session_id"] = st.session_state.chat_session_id
 
