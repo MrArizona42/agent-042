@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+import shared.config as cfg
+from gateway.schemas.openai_chat import ChatCompletionRequest
+from gateway.services.processing import _ProcessChat
+from gateway.services.task_router import RouteDecision
+from shared.config import AdapterConfig, KBConfig, TaskConfig
+
+
+def _alias_config() -> dict[str, object]:
+    return {
+        "top_k": 5,
+        "score_threshold": 0.35,
+        "reranker": None,
+        "retrieval_strategy": "dense",
+        "reranker_multiplier": 4,
+    }
+
+
+@pytest.fixture(autouse=True)
+def _loaded_kb_registry() -> None:
+    arxiv = KBConfig(
+        name="arxiv",
+        default_alias="champion",
+        aliases={"champion": _alias_config()},
+        label="ArXiv",
+        description="Research papers",
+        selection_description="Research papers and literature-grounded answers.",
+    )
+    pytorch_docs = KBConfig(
+        name="pytorch_docs",
+        default_alias="champion",
+        aliases={"champion": _alias_config()},
+        label="PyTorch docs",
+        description="API docs",
+        selection_description="PyTorch API reference and implementation guidance.",
+    )
+
+    cfg._KB_REGISTRY = {
+        "chat": TaskConfig(
+            task="chat",
+            label="General knowledge",
+            routing_description="General ML research discussion.",
+            adapter=AdapterConfig(name="", alias="", enabled=False),
+            knowledge_bases=[arxiv],
+        ),
+        "code": TaskConfig(
+            task="code",
+            label="Coding assistance",
+            routing_description="Programming help for ML systems.",
+            adapter=AdapterConfig(name="lora-code", alias="champion", enabled=True),
+            knowledge_bases=[pytorch_docs],
+        ),
+        "summarize": TaskConfig(
+            task="summarize",
+            label="Summarization",
+            routing_description="Summarize user-provided content.",
+            adapter=AdapterConfig(name="", alias="", enabled=False),
+            knowledge_bases=[],
+        ),
+    }
+    cfg._KB_INDEX = {
+        "arxiv": arxiv,
+        "pytorch_docs": pytorch_docs,
+    }
+
+    yield
+
+    cfg._KB_REGISTRY = None
+    cfg._KB_INDEX = None
+
+
+def _settings(**overrides: object) -> SimpleNamespace:
+    return SimpleNamespace(
+        default_model="base-model",
+        repetition_penalty=1.1,
+        model_max_tokens=64,
+        budget_guard=8,
+        min_response_budget=4,
+        **overrides,
+    )
+
+
+def _prompt_result() -> SimpleNamespace:
+    return SimpleNamespace(
+        messages=[
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "hello"},
+        ],
+        rag_context_chunks=[],
+    )
+
+
+def test_resolve_rag_request_distinguishes_auto_off_and_explicit() -> None:
+    process = _ProcessChat()
+
+    auto_request = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}])
+    off_request = ChatCompletionRequest(
+        messages=[{"role": "user", "content": "hello"}],
+        rag_sources=[],
+    )
+    explicit_request = ChatCompletionRequest(
+        messages=[{"role": "user", "content": "hello"}],
+        rag_sources=[{"knowledge_base": "arxiv"}],
+    )
+
+    auto = process._resolve_rag_request(auto_request, task="chat")
+    force_off = process._resolve_rag_request(off_request, task="chat")
+    explicit = process._resolve_rag_request(explicit_request, task="chat")
+
+    assert auto.mode == "auto"
+    assert auto.sources == ()
+    assert auto.rag_requested is False
+    assert auto.task_has_knowledge_bases is True
+
+    assert force_off.mode == "off"
+    assert force_off.sources == ()
+    assert force_off.rag_requested is False
+    assert force_off.task_has_knowledge_bases is True
+
+    assert explicit.mode == "explicit"
+    assert len(explicit.sources) == 1
+    assert explicit.sources[0].knowledge_base == "arxiv"
+    assert explicit.rag_requested is True
+    assert explicit.task_has_knowledge_bases is True
+
+
+def test_resolve_rag_request_marks_summarize_as_having_no_kbs() -> None:
+    process = _ProcessChat()
+    request = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}])
+
+    resolved = process._resolve_rag_request(request, task="summarize")
+
+    assert resolved.mode == "auto"
+    assert resolved.task_has_knowledge_bases is False
+
+
+def test_prepare_request_uses_task_adapter_model_when_no_explicit_model() -> None:
+    process = _ProcessChat()
+    process._prompt_builder = MagicMock()
+    process._prompt_builder.build_budgeted_messages.return_value = _prompt_result()
+
+    request = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}])
+
+    with (
+        patch("gateway.services.processing.get_settings", return_value=_settings()),
+        patch.object(process._router, "decide", return_value=RouteDecision(task="code")),
+        patch.object(process, "_retrieve_rag_chunks", return_value={}) as retrieve_rag,
+    ):
+        prepared = process._prepare_request(request)
+
+    assert prepared.generation_payload["model"] == "lora-code-champion"
+    retrieve_rag.assert_called_once_with((), last_user="hello")
+
+
+def test_prepare_request_prefers_explicit_model_over_task_adapter() -> None:
+    process = _ProcessChat()
+    process._prompt_builder = MagicMock()
+    process._prompt_builder.build_budgeted_messages.return_value = _prompt_result()
+
+    request = ChatCompletionRequest(
+        messages=[{"role": "user", "content": "hello"}],
+        model="manual-model",
+    )
+
+    with (
+        patch("gateway.services.processing.get_settings", return_value=_settings()),
+        patch.object(process._router, "decide", return_value=RouteDecision(task="code")),
+        patch.object(process, "_retrieve_rag_chunks", return_value={}),
+    ):
+        prepared = process._prepare_request(request)
+
+    assert prepared.generation_payload["model"] == "manual-model"
+
+
+def test_prepare_request_marks_explicit_rag_sources_as_requested() -> None:
+    process = _ProcessChat()
+    process._prompt_builder = MagicMock()
+    process._prompt_builder.build_budgeted_messages.return_value = _prompt_result()
+
+    request = ChatCompletionRequest(
+        messages=[{"role": "user", "content": "hello"}],
+        rag_sources=[{"knowledge_base": "arxiv"}],
+    )
+
+    with (
+        patch("gateway.services.processing.get_settings", return_value=_settings()),
+        patch.object(process._router, "decide", return_value=RouteDecision(task="chat")),
+        patch.object(process, "_retrieve_rag_chunks", return_value={}) as retrieve_rag,
+    ):
+        process._prepare_request(request)
+
+    retrieve_rag.assert_called_once()
+    _, kwargs = process._prompt_builder.build_budgeted_messages.call_args
+    assert kwargs["rag_requested"] is True
