@@ -40,6 +40,7 @@ SERVICES=(
   "mlflow|--extra mlflow|3.12|infra/docker/mlflow/requirements-mlflow.lock|"
   "adapter-sync|--extra mlflow|3.12|infra/docker/adapter-sync/requirements-adapter-sync.lock|"
   "embeddings|--extra embeddings|3.12|infra/docker/embeddings/requirements-embeddings.lock|"
+  "reranker|--extra reranker|3.12|infra/docker/reranker/requirements-reranker.lock|"
   "jupyter|--extra training --extra rag --group dev --extra mlflow|3.13|infra/docker/jupyter/requirements-jupyter.lock|"
   "airflow|--extra airflow|3.12|infra/docker/airflow/requirements.lock|--constraint ${AIRFLOW_CONSTRAINTS}"
   "airflow-worker|--extra airflow-worker|3.12|infra/docker/airflow-worker/requirements-airflow-worker.lock|--constraint ${AIRFLOW_CONSTRAINTS} ${TORCH_CPU}"

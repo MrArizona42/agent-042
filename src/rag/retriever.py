@@ -7,6 +7,7 @@ from typing import List, Literal, Optional
 
 from rag.embeddings import EmbeddingService
 from rag.reranker import Reranker
+from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import Document, QdrantVectorStore
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,8 @@ class Retriever:
         embedding_service: EmbeddingService,
         vector_store: QdrantVectorStore,
         reranker: Reranker | None = None,
+        sparse_encoder_service: SparseEncoderService | None = None,
+        reranker_multiplier: int = 1,
     ):
         """Initialize retriever.
 
@@ -27,10 +30,14 @@ class Retriever:
             embedding_service: Service for generating embeddings
             vector_store: Vector database for similarity search
             reranker: Optional post-retrieval reranker
+            sparse_encoder_service: Sparse encoder for hybrid retrieval
+            reranker_multiplier: Candidate expansion factor when reranking
         """
         self.embedding_service = embedding_service
         self.vector_store = vector_store
         self.reranker = reranker
+        self.sparse_encoder_service = sparse_encoder_service
+        self.reranker_multiplier = reranker_multiplier
 
     def retrieve(
         self,
@@ -56,12 +63,8 @@ class Retriever:
             logger.warning("Empty query provided to retriever")
             return []
 
-        if strategy != "dense":
-            raise NotImplementedError(f"retrieval_strategy '{strategy}' not yet implemented")
-
-        # Embed query
-        logger.info(f"Embedding query: {query[:100]}...")
-        query_embedding = self.embedding_service.embed_query(query)
+        fetch_k = top_k * self.reranker_multiplier if self.reranker is not None else top_k
+        first_stage_threshold = None if self.reranker is not None else score_threshold
 
         # Build filter if task specified
         filter_dict = None
@@ -69,16 +72,46 @@ class Retriever:
             filter_dict = {"must": [{"key": "task", "match": {"value": task}}]}
 
         # Search vector store
-        logger.info(f"Searching for top {top_k} documents (threshold={score_threshold})")
-        candidates = self.vector_store.search(
-            query_embedding=query_embedding,
-            top_k=top_k,
-            score_threshold=score_threshold,
-            filter_dict=filter_dict,
-        )
+        logger.info(f"Searching for top {fetch_k} documents (strategy={strategy})")
+        if strategy == "hybrid":
+            if self.sparse_encoder_service is None:
+                raise RuntimeError("Sparse encoder service is required for hybrid retrieval")
+            logger.info(f"Embedding query: {query[:100]}...")
+            query_embedding = self.embedding_service.embed_query(query)
+            sparse_query = self.sparse_encoder_service.encode_query(query)
+            candidates = self.vector_store.search(
+                query_embedding=query_embedding,
+                top_k=fetch_k,
+                score_threshold=first_stage_threshold,
+                filter_dict=filter_dict,
+                strategy="hybrid",
+                sparse_query=sparse_query,
+            )
+        elif strategy == "sparse":
+            if self.sparse_encoder_service is None:
+                raise RuntimeError("Sparse encoder service is required for sparse retrieval")
+            sparse_query = self.sparse_encoder_service.encode_query(query)
+            candidates = self.vector_store.search(
+                query_embedding=None,
+                top_k=fetch_k,
+                score_threshold=first_stage_threshold,
+                filter_dict=filter_dict,
+                strategy="sparse",
+                sparse_query=sparse_query,
+            )
+        else:
+            logger.info(f"Embedding query: {query[:100]}...")
+            query_embedding = self.embedding_service.embed_query(query)
+            candidates = self.vector_store.search(
+                query_embedding=query_embedding,
+                top_k=fetch_k,
+                score_threshold=first_stage_threshold,
+                filter_dict=filter_dict,
+            )
 
         if self.reranker is not None:
             candidates = self.reranker.rerank(query, candidates, top_k)
+            candidates = [d for d in candidates if d.score >= score_threshold]
 
         logger.info(f"Retrieved {len(candidates)} documents")
         return candidates[:top_k]

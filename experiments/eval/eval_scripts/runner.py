@@ -77,10 +77,15 @@ from experiments.eval.eval_scripts.retrieval_bench import (
     read_build_config,
 )
 from rag.embeddings import EmbeddingService
+from rag.ops.meta import validate_query_compatibility
+from rag.reranker import get_reranker
+from rag.retriever import Retriever
+from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
 from shared.config import (
     bootstrap_local_settings_env,
     get_eval_settings,
+    get_kb_config,
     get_registry_settings,
     get_settings,
 )
@@ -581,7 +586,6 @@ def run_eval(
     kb_name: str | None = None,
     rag_aliases: list[str],
     lora_aliases: list[str],
-    k: int = 10,
 ) -> list[dict[str, Any]]:
     """Run evaluation for a single metric across all (rag_alias, lora_alias) combinations.
 
@@ -605,7 +609,6 @@ def run_eval(
         kb_name=kb_name,
         rag_aliases=rag_aliases,
         lora_aliases=lora_aliases,
-        k=k,
     )
 
     return calculate_metrics(
@@ -625,7 +628,6 @@ def fetch_predictions(
     kb_name: str | None = None,
     rag_aliases: list[str],
     lora_aliases: list[str],
-    k: int = 10,
 ) -> dict[str, Any]:
     """Phase 1: Generate predictions for all (rag, lora) combinations.
 
@@ -666,7 +668,6 @@ def fetch_predictions(
                     rag_alias=rag_alias,
                     kb_name=kb_name,
                     eval_settings=eval_settings,
-                    k=k,
                 )
             elif task == "code":
                 bundle = _fetch_code_predictions(
@@ -716,7 +717,6 @@ def fetch_predictions(
             "bert_score_model": eval_settings.bert_score_model,
             "max_tokens": eval_settings.max_completion_tokens,
         },
-        "k": k,
         "bundles": bundles,
     }
 
@@ -954,7 +954,6 @@ def _fetch_retrieval_predictions(
     rag_alias: str,
     kb_name: str | None,
     eval_settings: Any,
-    k: int,
 ) -> dict[str, Any]:
     """Fetch retrieval query results for a single rag_alias."""
     if not kb_name:
@@ -964,6 +963,13 @@ def _fetch_retrieval_predictions(
     qdrant_host = settings.qdrant_host
     qdrant_port = settings.qdrant_port
 
+    kb_config = get_kb_config(kb_name)
+    if kb_config is None:
+        raise RuntimeError(f"KB '{kb_name}' not found in knowledge_bases.json")
+    alias_config = kb_config.aliases.get(rag_alias)
+    if alias_config is None:
+        raise RuntimeError(f"Alias '{rag_alias}' not found for KB '{kb_name}'")
+
     build_config = read_build_config(
         kb_name=kb_name,
         rag_alias=rag_alias,
@@ -972,6 +978,13 @@ def _fetch_retrieval_predictions(
     )
     if build_config is None:
         raise RuntimeError(f"Cannot read build config for {kb_name}_{rag_alias}")
+
+    validate_query_compatibility(
+        query_strategy=alias_config.retrieval_strategy,
+        build_config=build_config,
+        runtime_sparse_encoder=settings.sparse_encoder_model,
+        context=f"{kb_name}_{rag_alias}",
+    )
 
     samples = _load_dataset_samples("retrieval", dataset_name)
     if not samples:
@@ -1005,13 +1018,24 @@ def _fetch_retrieval_predictions(
         embeddings_url=settings.embeddings_url,
     )
 
+    emb_service = EmbeddingService(
+        model_name=build_config.embedding_model,
+        embeddings_url=settings.embeddings_url,
+    )
+    sparse_encoder = None
+    if alias_config.retrieval_strategy in {"hybrid", "sparse"}:
+        sparse_encoder = SparseEncoderService(embeddings_url=settings.embeddings_url)
+    reranker = get_reranker(alias_config.reranker) if alias_config.reranker else None
+
     try:
-        embedding_model = build_config.embedding_model
-        emb_service = EmbeddingService(
-            model_name=embedding_model,
-            embeddings_url=settings.embeddings_url,
-        )
         vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
+        retriever = Retriever(
+            embedding_service=emb_service,
+            vector_store=vs,
+            reranker=reranker,
+            sparse_encoder_service=sparse_encoder,
+            reranker_multiplier=alias_config.reranker_multiplier,
+        )
 
         queries = [s for s in samples if s.get("query")]
         total_queries = len(queries)
@@ -1032,8 +1056,12 @@ def _fetch_retrieval_predictions(
         )
 
         for idx, q in enumerate(queries):
-            query_emb = emb_service.embed_query(q["query"])
-            results = vs.search(query_embedding=query_emb, top_k=k, score_threshold=0.0)
+            results = retriever.retrieve(
+                query=q["query"],
+                top_k=alias_config.top_k,
+                score_threshold=alias_config.score_threshold,
+                strategy=alias_config.retrieval_strategy,
+            )
             retrieved_ids = [doc.metadata.get("source", "") for doc in results]
             relevance = q.get("relevance", {})
             query_results.append(
@@ -1067,6 +1095,11 @@ def _fetch_retrieval_predictions(
                 unit="queries",
             )
     finally:
+        emb_service.close()
+        if sparse_encoder is not None:
+            sparse_encoder.close()
+        if reranker is not None:
+            reranker.close()
         try:
             delete_temp_collection(
                 temp_collection,
@@ -1087,6 +1120,8 @@ def _fetch_retrieval_predictions(
         "rag_enabled": True,
         "query_results": query_results,
         "sample_details": sample_details,
+        "retrieval_top_k": alias_config.top_k,
+        "score_threshold": alias_config.score_threshold,
         "build_config": build_config.to_payload(),
         "temp_collection": temp_collection,
     }
@@ -1146,7 +1181,6 @@ def calculate_metrics(
                     kb_name=kb_name,
                     eval_settings=eval_settings,
                     eval_context=eval_context,
-                    k=prediction_data["k"],
                 )
             elif task == "code":
                 rows = _compute_code_metric(
@@ -1335,10 +1369,13 @@ def _compute_retrieval_metric(
     kb_name: str | None,
     eval_settings: Any,
     eval_context: dict[str, Any] | None = None,
-    k: int,
 ) -> list[dict[str, Any]]:
     """Compute a single retrieval metric on pre-fetched query results."""
     query_results = bundle["query_results"]
+    retrieval_top_k = bundle.get("retrieval_top_k")
+    if not isinstance(retrieval_top_k, int) or retrieval_top_k <= 0:
+        raise RuntimeError("Retrieval bundle is missing a valid retrieval_top_k")
+
     recall_scores: list[float] = []
     ndcg_scores: list[float] = []
     mrr_scores: list[float] = []
@@ -1348,9 +1385,9 @@ def _compute_retrieval_metric(
         relevance = qr["relevance"]
         relevant_ids = {doc_id for doc_id, rel in relevance.items() if rel > 0}
 
-        recall_scores.append(compute_recall_at_k(retrieved_ids, relevant_ids, k=k))
-        ndcg_scores.append(compute_ndcg_at_k(retrieved_ids, relevance, k=k))
-        mrr_scores.append(compute_mrr_at_k(retrieved_ids, relevant_ids, k=k))
+        recall_scores.append(compute_recall_at_k(retrieved_ids, relevant_ids, k=retrieval_top_k))
+        ndcg_scores.append(compute_ndcg_at_k(retrieved_ids, relevance, k=retrieval_top_k))
+        mrr_scores.append(compute_mrr_at_k(retrieved_ids, relevant_ids, k=retrieval_top_k))
 
     if not recall_scores:
         raise RuntimeError(f"No query results for retrieval/{dataset_name}")
@@ -1386,6 +1423,8 @@ def _compute_retrieval_metric(
             "chunking_strategy": build_config.get("chunking_strategy"),
             "chunk_size": build_config.get("chunk_size"),
             "chunk_overlap": build_config.get("chunk_overlap"),
+            "retrieval_top_k": retrieval_top_k,
+            "score_threshold": bundle.get("score_threshold"),
         }
     )
 
@@ -1394,7 +1433,7 @@ def _compute_retrieval_metric(
         rows.append(
             {
                 **common,
-                "metric_name": f"recall_at_{k}",
+                "metric_name": f"recall_at_{retrieval_top_k}",
                 "metric_value": avg_recall,
                 "finished_at": now,
                 "status": "completed",
@@ -1404,7 +1443,7 @@ def _compute_retrieval_metric(
         rows.append(
             {
                 **common,
-                "metric_name": f"ndcg_at_{k}",
+                "metric_name": f"ndcg_at_{retrieval_top_k}",
                 "metric_value": avg_ndcg,
                 "finished_at": now,
                 "status": "completed",
@@ -1414,7 +1453,7 @@ def _compute_retrieval_metric(
         rows.append(
             {
                 **common,
-                "metric_name": f"mrr_at_{k}",
+                "metric_name": f"mrr_at_{retrieval_top_k}",
                 "metric_value": avg_mrr,
                 "finished_at": now,
                 "status": "completed",
@@ -1435,7 +1474,6 @@ def main(
     kb: str | None = None,
     rag_aliases: str = "none",
     lora_aliases: str = "none",
-    k: int = 10,
 ) -> None:
     """Run evaluation for a single metric.
 
@@ -1446,7 +1484,6 @@ def main(
         kb: Knowledge base name (required for retrieval evals).
         rag_aliases: Comma-separated RAG alias roles.
         lora_aliases: Comma-separated LoRA alias roles.
-        k: Top-K cutoff for retrieval metrics (default: 10).
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -1467,7 +1504,6 @@ def main(
         kb_name=kb,
         rag_aliases=rag_list,
         lora_aliases=lora_list,
-        k=k,
     )
 
     # Print summary

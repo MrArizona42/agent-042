@@ -9,6 +9,7 @@ x-shared-endpoints: &shared-endpoints
   VLLM_BASE_URL: ${VLLM_BASE_URL:-http://vllm:8000}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
   EMBEDDINGS_URL: ${EMBEDDINGS_URL:-http://embeddings:8100}
+  RERANKER_URL: ${RERANKER_URL:-http://reranker:8101}
   EVAL_GATEWAY_URL: http://gateway:9000
   MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
   QDRANT_HOST: ${QDRANT_HOST:-qdrant}
@@ -376,6 +377,30 @@ services:
     restart: unless-stopped
 
   # =====================
+  # Reranker Service (cross-encoder)
+  # =====================
+  reranker:
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: infra/docker/reranker/Dockerfile
+
+    environment:
+      RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
   # Celery Worker (LLM Task Execution)
   # =====================
   celery-worker:
@@ -564,6 +589,8 @@ services:
       redis:
         condition: service_healthy
       embeddings:
+        condition: service_healthy
+      reranker:
         condition: service_healthy
       postgres:
         condition: service_healthy

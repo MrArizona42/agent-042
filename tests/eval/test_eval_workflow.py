@@ -13,6 +13,9 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from qdrant_client.models import SparseVector
+
+from rag.vector_store import Document
 
 # Ensure settings don't require live services
 os.environ.setdefault("GATEWAY_RAG_ENABLED", "false")
@@ -808,6 +811,20 @@ class _FakeStreamResponse:
         yield from self._lines
 
 
+class _FailingStreamResponse(_FakeStreamResponse):
+    def __init__(self, *, status_code: int, url: str):
+        super().__init__(lines=[], headers={})
+        self._request = httpx.Request("POST", url)
+        self._response = httpx.Response(status_code, request=self._request)
+
+    def raise_for_status(self) -> None:
+        raise httpx.HTTPStatusError(
+            f"Server error '{self._response.status_code}' for url '{self._request.url}'",
+            request=self._request,
+            response=self._response,
+        )
+
+
 class _FakeStreamContext:
     def __init__(self, response: _FakeStreamResponse):
         self._response = response
@@ -864,6 +881,28 @@ class TestRunnerGatewayTransport:
         assert timeout.read is None
         assert timeout.connect == 30.0
         assert mock_stream.call_args.kwargs["json"]["max_completion_tokens"] == 512
+
+    def test_call_gateway_propagates_gateway_http_failure_for_rag_requests(self):
+        from experiments.eval.eval_scripts.runner import _call_gateway
+
+        stream_response = _FailingStreamResponse(
+            status_code=500,
+            url="http://gateway:9000/v1/chat/completions",
+        )
+
+        with patch(
+            "experiments.eval.eval_scripts.runner.httpx.stream",
+            return_value=_FakeStreamContext(stream_response),
+        ):
+            with pytest.raises(httpx.HTTPStatusError, match="500"):
+                _call_gateway(
+                    messages=[{"role": "user", "content": "hello"}],
+                    gateway_url="http://gateway:9000",
+                    rag_sources=[{"knowledge_base": "arxiv", "alias": "champion"}],
+                    temperature=0.0,
+                    internal_api_key="secret",
+                    expect_rag_context=True,
+                )
 
     def test_call_gateway_reconstructs_chat_response_from_standard_sse(self):
         from experiments.eval.eval_scripts.runner import _call_gateway
@@ -1081,3 +1120,211 @@ class TestMigrationSQL:
         assert "ALTER TABLE chat_messages" in sql
         assert "prompt_tokens" in sql
         assert "completion_tokens" in sql
+
+
+class TestRetrievalEvalParity:
+    def test_build_temp_collection_preserves_hybrid_sparse_leg(self):
+        from experiments.eval.eval_scripts.retrieval_bench import build_temp_collection
+        from rag.ops.meta import BuildConfig
+
+        build_config = BuildConfig(
+            chunking_strategy="recursive",
+            chunk_size=128,
+            chunk_overlap=16,
+            embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+            sparse_encoder="Qdrant/bm25",
+            retrieval_capability="hybrid",
+        )
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = ["chunk-1"]
+        mock_emb = MagicMock()
+        mock_emb.embed_documents.return_value = [[0.1, 0.2, 0.3]]
+        sparse_vectors = [SparseVector(indices=[0, 1], values=[0.4, 0.6])]
+        mock_sparse = MagicMock()
+        mock_sparse.encode_documents.return_value = sparse_vectors
+        mock_vs = MagicMock()
+
+        with (
+            patch("rag.chunking.get_chunker", return_value=mock_chunker),
+            patch("rag.embeddings.EmbeddingService", return_value=mock_emb),
+            patch("rag.sparse_encoder.SparseEncoderService", return_value=mock_sparse),
+            patch("rag.vector_store.QdrantVectorStore", return_value=mock_vs),
+        ):
+            build_temp_collection(
+                kb_name="arxiv",
+                dataset_name="beir_scifact",
+                rag_alias="challenger",
+                corpus=[{"doc_id": "doc-1", "text": "chunk me"}],
+                build_config=build_config,
+                qdrant_host="localhost",
+                qdrant_port=6333,
+                embeddings_url="http://embeddings:8100",
+            )
+
+        mock_vs.create_collection.assert_called_once_with(
+            dimension=3,
+            retrieval_capability="hybrid",
+        )
+        add_kwargs = mock_vs.add_documents.call_args.kwargs
+        assert add_kwargs["embeddings"] == [[0.1, 0.2, 0.3]]
+        assert add_kwargs["sparse_vectors"] == sparse_vectors
+        mock_emb.close.assert_called_once()
+        mock_sparse.close.assert_called_once()
+
+    def test_fetch_retrieval_predictions_uses_alias_configured_retriever(self):
+        from experiments.eval.eval_scripts.runner import _fetch_retrieval_predictions
+        from rag.ops.meta import BuildConfig
+
+        build_config = BuildConfig(
+            chunking_strategy="recursive",
+            chunk_size=128,
+            chunk_overlap=16,
+            embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+            sparse_encoder="Qdrant/bm25",
+            retrieval_capability="hybrid",
+        )
+        alias_config = types.SimpleNamespace(
+            top_k=5,
+            score_threshold=0.01,
+            reranker="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            retrieval_strategy="hybrid",
+            reranker_multiplier=4,
+        )
+        mock_settings = types.SimpleNamespace(
+            qdrant_host="localhost",
+            qdrant_port=6333,
+            embeddings_url="http://embeddings:8100",
+            sparse_encoder_model="Qdrant/bm25",
+        )
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = [
+            Document(content="chunk-1", metadata={"source": "doc-1"}, score=0.9)
+        ]
+        mock_reranker = MagicMock()
+        mock_emb = MagicMock()
+        mock_sparse = MagicMock()
+
+        with (
+            patch("experiments.eval.eval_scripts.runner.get_settings", return_value=mock_settings),
+            patch(
+                "experiments.eval.eval_scripts.runner.get_kb_config",
+                return_value=types.SimpleNamespace(aliases={"challenger": alias_config}),
+            ),
+            patch(
+                "experiments.eval.eval_scripts.runner.read_build_config",
+                return_value=build_config,
+            ),
+            patch(
+                "experiments.eval.eval_scripts.runner._load_dataset_samples",
+                return_value=[
+                    {
+                        "query": "what is hybrid retrieval",
+                        "query_id": "q-1",
+                        "relevance": {"doc-1": 1.0},
+                        "relevant_docs": [{"doc_id": "doc-1", "text": "chunk-1"}],
+                    }
+                ],
+            ),
+            patch(
+                "experiments.eval.eval_scripts.runner.build_temp_collection",
+                return_value="eval_arxiv_tmp",
+            ),
+            patch("experiments.eval.eval_scripts.runner.EmbeddingService", return_value=mock_emb),
+            patch(
+                "experiments.eval.eval_scripts.runner.SparseEncoderService",
+                return_value=mock_sparse,
+            ),
+            patch(
+                "experiments.eval.eval_scripts.runner.get_reranker",
+                return_value=mock_reranker,
+            ),
+            patch(
+                "experiments.eval.eval_scripts.runner.QdrantVectorStore",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "experiments.eval.eval_scripts.runner.Retriever",
+                return_value=mock_retriever,
+            ) as mock_retriever_cls,
+            patch("experiments.eval.eval_scripts.runner.delete_temp_collection") as mock_delete,
+            patch("experiments.eval.eval_scripts.runner._log_fetch_progress"),
+        ):
+            result = _fetch_retrieval_predictions(
+                dataset_name="beir_scifact",
+                rag_alias="challenger",
+                kb_name="arxiv",
+                eval_settings=types.SimpleNamespace(),
+            )
+
+        mock_retriever_cls.assert_called_once()
+        retriever_kwargs = mock_retriever_cls.call_args.kwargs
+        assert retriever_kwargs["reranker"] is mock_reranker
+        assert retriever_kwargs["sparse_encoder_service"] is mock_sparse
+        assert retriever_kwargs["reranker_multiplier"] == 4
+        mock_retriever.retrieve.assert_called_once_with(
+            query="what is hybrid retrieval",
+            top_k=5,
+            score_threshold=0.01,
+            strategy="hybrid",
+        )
+        assert result["query_results"] == [
+            {
+                "retrieved_ids": ["doc-1"],
+                "relevance": {"doc-1": 1.0},
+            }
+        ]
+        assert result["retrieval_top_k"] == 5
+        assert result["score_threshold"] == 0.01
+        mock_delete.assert_called_once_with(
+            "eval_arxiv_tmp",
+            qdrant_host="localhost",
+            qdrant_port=6333,
+        )
+
+    def test_calculate_metrics_uses_bundle_retrieval_top_k(self):
+        from experiments.eval.eval_scripts.runner import calculate_metrics
+
+        prediction_data = {
+            "task": "retrieval",
+            "dataset_name": "beir_scifact",
+            "kb_name": "arxiv",
+            "base_model": "base-model",
+            "eval_context": {},
+            "bundles": [
+                {
+                    "rag_alias": "challenger",
+                    "lora_alias": "none",
+                    "lora_info": {
+                        "adapter_name": None,
+                        "adapter_version": None,
+                        "adapter_mlflow_run_id": None,
+                    },
+                    "rag_enabled": True,
+                    "query_results": [
+                        {
+                            "retrieved_ids": ["doc-1", "doc-2", "doc-3"],
+                            "relevance": {"doc-1": 1.0, "doc-2": 0.5},
+                        }
+                    ],
+                    "sample_details": [],
+                    "retrieval_top_k": 2,
+                    "score_threshold": 0.01,
+                    "build_config": {
+                        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+                        "chunking_strategy": "recursive",
+                        "chunk_size": 128,
+                        "chunk_overlap": 16,
+                    },
+                    "temp_collection": "eval_arxiv_tmp",
+                }
+            ],
+        }
+
+        with patch("experiments.eval.eval_scripts.runner._log_to_db"):
+            rows = calculate_metrics(metric="recall_at_k", prediction_data=prediction_data)
+
+        assert len(rows) == 1
+        assert rows[0]["metric_name"] == "recall_at_2"
+        assert rows[0]["retrieval_top_k"] == 2
+        assert rows[0]["score_threshold"] == 0.01
+        assert rows[0]["metric_value"] == pytest.approx(1.0)

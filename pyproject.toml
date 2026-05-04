@@ -114,6 +114,14 @@ rag = [
 ]
 
 embeddings = [
+    "fastembed>=0.8.0",
+    "fastapi>=0.128.0",
+    "uvicorn[standard]>=0.35.0",
+    "sentence-transformers>=3.3.1",
+    "pydantic-settings>=2.10.1",
+]
+
+reranker = [
     "fastapi>=0.128.0",
     "uvicorn[standard]>=0.35.0",
     "sentence-transformers>=3.3.1",

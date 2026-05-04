@@ -8,6 +8,8 @@ from typing import Any, Literal, Mapping
 
 from rag.vector_store import QdrantVectorStore
 
+QueryStrategy = Literal["dense", "hybrid", "sparse"]
+
 
 def _require_non_empty_str(value: Any, *, field_name: str, context: str) -> str:
     if not isinstance(value, str) or not value.strip():
@@ -30,7 +32,7 @@ class BuildConfig:
     chunk_overlap: int
     embedding_model: str
     sparse_encoder: str | None
-    retrieval_strategy: Literal["dense", "hybrid", "sparse"]
+    retrieval_capability: Literal["dense", "hybrid", "sparse"]
 
     def __post_init__(self) -> None:
         if not self.chunking_strategy.strip():
@@ -49,7 +51,7 @@ class BuildConfig:
             "chunk_overlap": self.chunk_overlap,
             "embedding_model": self.embedding_model,
             "sparse_encoder": self.sparse_encoder,
-            "retrieval_strategy": self.retrieval_strategy,
+            "retrieval_capability": self.retrieval_capability,
         }
 
     @classmethod
@@ -59,11 +61,11 @@ class BuildConfig:
         *,
         context: str = "build_config",
     ) -> "BuildConfig":
-        retrieval_strategy = payload.get("retrieval_strategy")
-        if retrieval_strategy not in ("dense", "hybrid", "sparse"):
+        retrieval_capability = payload.get("retrieval_capability")
+        if retrieval_capability not in ("dense", "hybrid", "sparse"):
             raise ValueError(
-                f"{context}: 'retrieval_strategy' must be one of "
-                f"'dense', 'hybrid', 'sparse' (got {retrieval_strategy!r})"
+                f"{context}: 'retrieval_capability' must be one of "
+                f"'dense', 'hybrid', 'sparse' (got {retrieval_capability!r})"
             )
 
         return cls(
@@ -88,7 +90,86 @@ class BuildConfig:
                 context=context,
             ),
             sparse_encoder=payload.get("sparse_encoder"),
-            retrieval_strategy=retrieval_strategy,
+            retrieval_capability=retrieval_capability,
+        )
+
+
+def validate_query_compatibility(
+    *,
+    query_strategy: QueryStrategy,
+    build_config: BuildConfig,
+    runtime_sparse_encoder: str | None = None,
+    context: str = "build_config",
+) -> None:
+    """Validate that a query-time strategy is compatible with build metadata."""
+    build_capability = build_config.retrieval_capability
+    has_dense_leg = build_capability in ("dense", "hybrid")
+    has_sparse_leg = build_capability in ("hybrid", "sparse")
+
+    if query_strategy == "dense":
+        if not has_dense_leg:
+            raise ValueError(
+                f"{context}: query strategy 'dense' requires a dense leg, "
+                f"but build capability is '{build_capability}'"
+            )
+        return
+
+    if query_strategy == "hybrid":
+        if build_capability != "hybrid":
+            raise ValueError(
+                f"{context}: query strategy 'hybrid' requires build capability "
+                f"'hybrid' (got '{build_capability}')"
+            )
+        _validate_sparse_encoder_compatibility(
+            build_config=build_config,
+            runtime_sparse_encoder=runtime_sparse_encoder,
+            query_strategy=query_strategy,
+            context=context,
+        )
+        return
+
+    if query_strategy == "sparse":
+        if not has_sparse_leg:
+            raise ValueError(
+                f"{context}: query strategy 'sparse' requires a sparse leg, "
+                f"but build capability is '{build_capability}'"
+            )
+        _validate_sparse_encoder_compatibility(
+            build_config=build_config,
+            runtime_sparse_encoder=runtime_sparse_encoder,
+            query_strategy=query_strategy,
+            context=context,
+        )
+        return
+
+    raise ValueError(f"{context}: unsupported query strategy {query_strategy!r}")
+
+
+def _validate_sparse_encoder_compatibility(
+    *,
+    build_config: BuildConfig,
+    runtime_sparse_encoder: str | None,
+    query_strategy: QueryStrategy,
+    context: str,
+) -> None:
+    build_sparse_encoder = build_config.sparse_encoder
+    if not isinstance(build_sparse_encoder, str) or not build_sparse_encoder.strip():
+        raise ValueError(
+            f"{context}: query strategy '{query_strategy}' requires collection metadata "
+            "with a non-empty sparse_encoder"
+        )
+
+    if not isinstance(runtime_sparse_encoder, str) or not runtime_sparse_encoder.strip():
+        raise ValueError(
+            f"{context}: query strategy '{query_strategy}' requires the runtime "
+            "SPARSE_ENCODER_MODEL configuration"
+        )
+
+    runtime_sparse_encoder = runtime_sparse_encoder.strip()
+    if runtime_sparse_encoder != build_sparse_encoder:
+        raise ValueError(
+            f"{context}: runtime sparse encoder '{runtime_sparse_encoder}' does not "
+            f"match build sparse encoder '{build_sparse_encoder}'"
         )
 
 
