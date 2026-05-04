@@ -53,7 +53,10 @@ class ChatCompletionRequest(BaseModel):
     # RAG sources: multiple knowledge bases with explicit alias selection.
     rag_sources: list[RAGSource] | None = Field(
         default=None,
-        description="Knowledge bases for RAG retrieval. None = RAG disabled.",
+        description=(
+            "Knowledge bases for RAG retrieval. null = auto-select knowledge bases for the "
+            "routed task, [] = disable RAG, non-empty list = explicit override."
+        ),
     )
 
 

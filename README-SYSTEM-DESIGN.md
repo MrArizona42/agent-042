@@ -786,16 +786,17 @@ DAG `rag_collection_cleanup` (расписание: `@daily`) удаляет orp
 
 ### Airflow orchestration
 
-`dags/eval_dags.py` создаёт шесть Airflow DAG-ов, по одному на каждую пару `(task, dataset)`:
+`dags/eval_dags.py` создаёт семь Airflow DAG-ов, по одному на каждую пару `(task, dataset)`:
 
 | DAG | Task | Dataset |
 |-----|------|---------|
 | `eval_chat_hotpotqa` | chat | HotpotQA |
 | `eval_chat_nq` | chat | Natural Questions |
-| `eval_summarize_arxiv` | summarize | ArXiv summarization |
+| `eval_summarization_arxiv` | summarize | ArXiv summarization |
 | `eval_code_humaneval` | code | HumanEval |
 | `eval_retrieval_beir_scifact` | retrieval | BEIR-SciFact |
 | `eval_retrieval_beir_nfcorpus` | retrieval | BEIR-NFCorpus |
+| `eval_retrieval_msmarco` | retrieval | MS MARCO |
 
 Каждый DAG содержит два последовательных шага:
 1. **`fetch_predictions`**: вызывает Gateway API (для generation) или Qdrant напрямую (для
@@ -805,7 +806,10 @@ DAG `rag_collection_cleanup` (расписание: `@daily`) удаляет orp
    таблицы `eval_runs` и `eval_samples`.
 
 Конкретная метрика и матрица по `rag_aliases` / `lora_aliases` выбираются при trigger-time
-через параметры Airflow UI.
+через параметры Airflow UI. Для generation DAG-ов там же выбирается режим knowledge base:
+`knowledge_base_mode="explicit"` + `knowledge_base=<kb>` для принудительного KB или
+`knowledge_base_mode="auto"` для gateway auto-selection. Retrieval DAG-ы по-прежнему
+требуют явный `knowledge_base`.
 
 ### Two-step runner
 
@@ -814,6 +818,8 @@ DAG `rag_collection_cleanup` (расписание: `@daily`) удаляет orp
 * Поддерживает три этапа оценки (stage 1: base LLM, stage 2: + RAG, stage 3: + LoRA)
 * Результаты пишет в PostgreSQL tables `eval_runs` и `eval_samples`
 * CLI: `python -m experiments.eval.eval_scripts.runner --task chat --dataset hotpotqa --metric rouge_l`
+* Для generation eval runner поддерживает `use_auto_rag=True`, чтобы сохранить `kb_name=None`
+  и проверить gateway auto-selection вместо suite-default KB
 
 ### Operator path
 
@@ -891,10 +897,11 @@ Airflow используется для оркестрации тяжёлых в
 | `train_lora` | Manual trigger | `gpu` (concurrency 1) | Обучение LoRA адаптера |
 | `eval_chat_hotpotqa` | Manual trigger | default (CPU) | Eval: chat на HotpotQA |
 | `eval_chat_nq` | Manual trigger | default | Eval: chat на Natural Questions |
-| `eval_summarize_arxiv` | Manual trigger | default | Eval: summarization на ArXiv |
+| `eval_summarization_arxiv` | Manual trigger | default | Eval: summarization на ArXiv |
 | `eval_code_humaneval` | Manual trigger | default | Eval: code на HumanEval |
 | `eval_retrieval_beir_scifact` | Manual trigger | default | Eval: retrieval на BEIR-SciFact |
 | `eval_retrieval_beir_nfcorpus` | Manual trigger | default | Eval: retrieval на BEIR-NFCorpus |
+| `eval_retrieval_msmarco` | Manual trigger | default | Eval: retrieval на MS MARCO |
 | `arxiv_rag_update` | `@daily` | default | Скачивание статей, DVC, обновление RAG |
 | `pytorch_docs_rag_update` | `@weekly` | default | Скрапинг docs, DVC, обновление RAG |
 | `rag_collection_cleanup` | `@daily` | default | Удаление orphan-коллекций Qdrant (retention 7 дней) |

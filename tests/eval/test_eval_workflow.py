@@ -1052,6 +1052,111 @@ class TestRunnerGatewayTransport:
                 )
 
 
+class TestFetchPredictionsRagSelection:
+    def test_fetch_predictions_preserves_auto_mode_for_generation_tasks(self):
+        from experiments.eval.eval_scripts.runner import fetch_predictions
+
+        eval_settings = types.SimpleNamespace(
+            temperature=0.0,
+            judge_model="judge-model",
+            bert_score_model="bert-model",
+            max_completion_tokens=256,
+        )
+        settings = types.SimpleNamespace(default_model="base-model")
+
+        with (
+            patch(
+                "experiments.eval.eval_scripts.runner.get_eval_settings", return_value=eval_settings
+            ),
+            patch("experiments.eval.eval_scripts.runner.get_settings", return_value=settings),
+            patch(
+                "experiments.eval.eval_scripts.runner._fetch_generation_predictions",
+                return_value={
+                    "rag_alias": "champion",
+                    "lora_alias": "none",
+                    "lora_info": {
+                        "adapter_name": None,
+                        "adapter_version": None,
+                        "adapter_mlflow_run_id": None,
+                    },
+                    "rag_enabled": False,
+                    "predictions": ["answer"],
+                    "references": ["reference"],
+                    "judge_samples": [],
+                    "sample_details": [],
+                },
+            ) as mock_fetch_generation,
+        ):
+            prediction_data = fetch_predictions(
+                task="chat",
+                dataset_name="hotpotqa",
+                kb_name="arxiv",
+                use_auto_rag=True,
+                rag_aliases=["champion"],
+                lora_aliases=["none"],
+            )
+
+        assert prediction_data["kb_name"] is None
+        assert mock_fetch_generation.call_args.kwargs["kb_name"] is None
+
+    def test_fetch_predictions_keeps_suite_default_when_auto_mode_is_off(self):
+        from experiments.eval.eval_scripts.runner import fetch_predictions
+
+        eval_settings = types.SimpleNamespace(
+            temperature=0.0,
+            judge_model="judge-model",
+            bert_score_model="bert-model",
+            max_completion_tokens=256,
+        )
+        settings = types.SimpleNamespace(default_model="base-model")
+
+        with (
+            patch(
+                "experiments.eval.eval_scripts.runner.get_eval_settings", return_value=eval_settings
+            ),
+            patch("experiments.eval.eval_scripts.runner.get_settings", return_value=settings),
+            patch(
+                "experiments.eval.eval_scripts.runner._fetch_generation_predictions",
+                return_value={
+                    "rag_alias": "champion",
+                    "lora_alias": "none",
+                    "lora_info": {
+                        "adapter_name": None,
+                        "adapter_version": None,
+                        "adapter_mlflow_run_id": None,
+                    },
+                    "rag_enabled": True,
+                    "predictions": ["answer"],
+                    "references": ["reference"],
+                    "judge_samples": [],
+                    "sample_details": [],
+                },
+            ) as mock_fetch_generation,
+        ):
+            prediction_data = fetch_predictions(
+                task="chat",
+                dataset_name="hotpotqa",
+                rag_aliases=["champion"],
+                lora_aliases=["none"],
+            )
+
+        assert prediction_data["kb_name"] == "arxiv"
+        assert mock_fetch_generation.call_args.kwargs["kb_name"] == "arxiv"
+
+    def test_fetch_predictions_rejects_auto_mode_for_retrieval(self):
+        from experiments.eval.eval_scripts.runner import fetch_predictions
+
+        with pytest.raises(ValueError, match="does not support use_auto_rag"):
+            fetch_predictions(
+                task="retrieval",
+                dataset_name="beir_scifact",
+                use_auto_rag=True,
+                kb_name="arxiv",
+                rag_aliases=["champion"],
+                lora_aliases=["none"],
+            )
+
+
 # ---------------------------------------------------------------------------
 # Migration SQL file tests
 # ---------------------------------------------------------------------------

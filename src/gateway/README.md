@@ -113,20 +113,35 @@ Rich UI SSE emits named events `thinking_token`, `answer_token`, `usage`, `done`
 
 ### RAG Knowledge Base Selection
 
-The `POST /v1/chat/completions` endpoint accepts an optional `rag_sources` array
+The `POST /v1/chat/completions` endpoint accepts an optional `rag_sources` field
 that controls which Qdrant collections are used for RAG retrieval:
+
+| Value | Behavior |
+|-------|----------|
+| `null` or omitted | Auto-select knowledge bases for the routed task. |
+| `[]` | Force RAG off for this request. |
+| Non-empty array | Use the provided knowledge bases and aliases as an explicit override. |
 
 | Field | Description |
 |-------|-------------|
 | `knowledge_base` | KB name, e.g. `"arxiv"`, `"pytorch_docs"` |
 | `alias` | Alias role, e.g. `"champion"`, `"challenger"`. Uses the KB's `default_alias` when `null`. |
 
-Example payload:
+Explicit override example:
 
 ```json
 {
   "messages": [{"role": "user", "content": "Explain attention mechanisms"}],
     "rag_sources": [{"knowledge_base": "arxiv", "alias": "challenger"}]
+}
+```
+
+Auto-selection example:
+
+```json
+{
+    "messages": [{"role": "user", "content": "Summarize this paper"}],
+    "rag_sources": null
 }
 ```
 
