@@ -52,6 +52,20 @@ class AliasConfig(BaseModel):
     reranker_multiplier: int
 
 
+class AdapterConfig(BaseModel):
+    """Per-task LoRA routing configuration."""
+
+    name: str = ""
+    alias: str = ""
+    enabled: bool = False
+
+    @model_validator(mode="after")
+    def _enabled_adapter_must_be_complete(self) -> "AdapterConfig":
+        if self.enabled and (not self.name.strip() or not self.alias.strip()):
+            raise ValueError("enabled adapter requires non-empty name and alias")
+        return self
+
+
 class KBConfig(BaseModel):
     """Single knowledge-base entry within a task group."""
 
@@ -61,6 +75,7 @@ class KBConfig(BaseModel):
     update_strategy: Literal["incremental", "replace"] = "replace"
     label: str = ""
     description: str = ""
+    selection_description: str
 
     @model_validator(mode="after")
     def _default_alias_must_exist(self) -> "KBConfig":
@@ -77,6 +92,8 @@ class TaskConfig(BaseModel):
 
     task: str
     label: str = ""
+    routing_description: str
+    adapter: AdapterConfig = Field(default_factory=AdapterConfig)
     knowledge_bases: list[KBConfig] = Field(default_factory=list)
 
 
@@ -379,6 +396,21 @@ class RagSettings(BaseModel):
         ),
         description="Batch size for embedding generation",
         ge=1,
+    )
+    kb_selection_threshold: float = Field(
+        default=0.3,
+        description="Cosine similarity threshold for automatic KB selection",
+        ge=0.0,
+        le=1.0,
+    )
+    task_classification_threshold: float = Field(
+        default=0.0,
+        description=(
+            "Minimum cosine similarity for task classification; "
+            "0.0 means always pick the closest task"
+        ),
+        ge=0.0,
+        le=1.0,
     )
     rag_strict_startup: bool = Field(
         default=False,

@@ -1,8 +1,8 @@
-"""Tests for config contract validation — Phase 5.
+"""Tests for config contract validation.
 
-Covers AliasConfig completeness, KBConfig.default_alias pointing to a
-declared alias, duplicate KB names across tasks, and validate_kb_alias()
-error messages.
+Covers AliasConfig completeness, AdapterConfig validation, KB / task registry
+requirements, duplicate KB names across tasks, and validate_kb_alias() error
+messages.
 """
 
 from __future__ import annotations
@@ -86,6 +86,33 @@ class TestAliasConfigValidation:
         assert cfg.retrieval_strategy == "sparse"
 
 
+class TestAdapterConfigValidation:
+    def test_disabled_adapter_allows_empty_strings(self):
+        from shared.config import AdapterConfig
+
+        cfg = AdapterConfig(name="", alias="", enabled=False)
+
+        assert cfg.enabled is False
+        assert cfg.name == ""
+        assert cfg.alias == ""
+
+    def test_enabled_adapter_requires_name(self):
+        from pydantic import ValidationError
+
+        from shared.config import AdapterConfig
+
+        with pytest.raises(ValidationError, match="enabled adapter"):
+            AdapterConfig(name="", alias="champion", enabled=True)
+
+    def test_enabled_adapter_requires_alias(self):
+        from pydantic import ValidationError
+
+        from shared.config import AdapterConfig
+
+        with pytest.raises(ValidationError, match="enabled adapter"):
+            AdapterConfig(name="lora-chat", alias="", enabled=True)
+
+
 # ---------------------------------------------------------------------------
 # KBConfig.default_alias must point to declared alias
 # ---------------------------------------------------------------------------
@@ -111,6 +138,7 @@ class TestKBConfigDefaultAlias:
                     },
                 },
                 update_strategy="replace",
+                selection_description="Selection text",
             )
 
     def test_valid_default_alias_ok(self):
@@ -129,8 +157,58 @@ class TestKBConfigDefaultAlias:
                 },
             },
             update_strategy="replace",
+            selection_description="Selection text",
         )
         assert cfg.default_alias == "champion"
+
+    def test_selection_description_is_required(self):
+        from pydantic import ValidationError
+
+        from shared.config import KBConfig
+
+        with pytest.raises(ValidationError, match="selection_description"):
+            KBConfig(
+                name="test_kb",
+                default_alias="champion",
+                aliases={
+                    "champion": {
+                        "top_k": 5,
+                        "score_threshold": 0.35,
+                        "reranker": None,
+                        "retrieval_strategy": "dense",
+                        "reranker_multiplier": 4,
+                    },
+                },
+                update_strategy="replace",
+            )
+
+
+class TestTaskConfigValidation:
+    def test_task_config_allows_empty_knowledge_bases(self):
+        from shared.config import TaskConfig
+
+        cfg = TaskConfig(
+            task="summarize",
+            label="Summarization",
+            routing_description="Summarize user-provided content.",
+            adapter={"name": "", "alias": "", "enabled": False},
+            knowledge_bases=[],
+        )
+
+        assert cfg.task == "summarize"
+        assert cfg.knowledge_bases == []
+
+    def test_task_config_requires_routing_description(self):
+        from pydantic import ValidationError
+
+        from shared.config import TaskConfig
+
+        with pytest.raises(ValidationError, match="routing_description"):
+            TaskConfig(
+                task="chat",
+                label="General knowledge",
+                knowledge_bases=[],
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +224,8 @@ class TestDuplicateKBNames:
             {
                 "task": "chat",
                 "label": "General",
+                "routing_description": "General chat about ML research.",
+                "adapter": {"name": "", "alias": "", "enabled": False},
                 "knowledge_bases": [
                     {
                         "name": "arxiv",
@@ -159,12 +239,15 @@ class TestDuplicateKBNames:
                                 "reranker_multiplier": 4,
                             },
                         },
+                        "selection_description": "Research papers and theory.",
                     },
                 ],
             },
             {
                 "task": "code",
                 "label": "Code",
+                "routing_description": "Programming help for ML systems.",
+                "adapter": {"name": "", "alias": "", "enabled": False},
                 "knowledge_bases": [
                     {
                         "name": "arxiv",
@@ -178,6 +261,7 @@ class TestDuplicateKBNames:
                                 "reranker_multiplier": 4,
                             },
                         },
+                        "selection_description": "Research papers and theory.",
                     },
                 ],
             },
@@ -203,6 +287,8 @@ class TestValidateKbAlias:
         data = [
             {
                 "task": "chat",
+                "routing_description": "General chat about ML research.",
+                "adapter": {"name": "", "alias": "", "enabled": False},
                 "knowledge_bases": [
                     {
                         "name": "arxiv",
@@ -216,6 +302,7 @@ class TestValidateKbAlias:
                                 "reranker_multiplier": 4,
                             },
                         },
+                        "selection_description": "Research papers and theory.",
                     },
                 ],
             },
