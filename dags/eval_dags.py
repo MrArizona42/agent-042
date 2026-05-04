@@ -156,7 +156,6 @@ def _resolve_params(context: dict) -> dict:
         custom["knowledge_base"] if "knowledge_base" in custom else params.get("knowledge_base")
     )
     metrics = custom["metrics"] if "metrics" in custom else params["metrics"]
-    metric_k = int(custom["metric_k"]) if "metric_k" in custom else int(params.get("metric_k", 10))
     kb_aliases = (
         custom["knowledge_base_aliases"]
         if "knowledge_base_aliases" in custom
@@ -185,7 +184,6 @@ def _resolve_params(context: dict) -> dict:
     return {
         "knowledge_base": knowledge_base,
         "metrics": metrics,
-        "metric_k": metric_k,
         "knowledge_base_aliases": kb_aliases,
         "lora_aliases": lora_aliases,
     }
@@ -227,7 +225,6 @@ def _fetch_predictions_task(
         kb_name=resolved["knowledge_base"],
         rag_aliases=resolved["knowledge_base_aliases"],
         lora_aliases=resolved["lora_aliases"],
-        k=resolved["metric_k"],
     )
 
     # Persist to file (avoids XCom size limits)
@@ -353,18 +350,6 @@ for _suite in _EVAL_SUITES:
                     f"Metrics to compute (multi-select). Valid: {', '.join(_metrics)}. "
                     "For values outside this list, use custom_params."
                 ),
-            ),
-            **(
-                {
-                    "metric_k": Param(
-                        5,
-                        type="integer",
-                        enum=[1, 3, 5, 10, 20],
-                        description="Top-K cutoff for Recall@K, nDCG@K, MRR@K.",
-                    ),
-                }
-                if _task == "retrieval"
-                else {}
             ),
             # noqa: PIE800
             **(

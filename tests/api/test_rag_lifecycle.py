@@ -1129,6 +1129,7 @@ class TestLegacyMetadataHandling:
             mock_settings.embedding_model = "test-model"
             mock_settings.embedding_device = "cpu"
             mock_settings.embedding_batch_size = 32
+            mock_settings.embeddings_url = "http://embeddings:8100"
             mock_settings.qdrant_host = "localhost"
             mock_settings.qdrant_port = 6333
             mock_settings.rag_strict_startup = False

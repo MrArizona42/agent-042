@@ -2,7 +2,7 @@
 
 Reads the build config from the ``_meta`` sentinel of a production collection,
 then indexes the benchmark corpus into a temporary Qdrant collection using
-the same embedding model and chunking configuration.
+the same embedding model, chunking configuration, and retrieval capability.
 """
 
 from __future__ import annotations
@@ -10,7 +10,10 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rag.ops.meta import BuildConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +28,7 @@ def read_build_config(
     rag_alias: str,
     qdrant_host: str,
     qdrant_port: int,
-) -> dict[str, Any] | None:
+) -> BuildConfig | None:
     """Read the ``_meta`` sentinel from the production collection.
 
     The alias ``{kb_name}_{rag_alias}`` is resolved to obtain the build
@@ -79,6 +82,7 @@ def build_temp_collection(
     """
     from rag.chunking import get_chunker
     from rag.embeddings import EmbeddingService
+    from rag.sparse_encoder import SparseEncoderService
     from rag.vector_store import QdrantVectorStore
 
     collection_name = f"eval_{kb_name}_{dataset_name}_{rag_alias}_{_timestamp()}"
@@ -89,11 +93,21 @@ def build_temp_collection(
     chunk_overlap = build_config.chunk_overlap
     chunking_strategy = build_config.chunking_strategy
 
-    # Use chunking strategy directly with get_chunker
-    emb_service = EmbeddingService(
-        model_name=embedding_model,
-        embeddings_url=embeddings_url,
-    )
+    retrieval_capability = build_config.retrieval_capability
+    has_dense_leg = retrieval_capability in {"dense", "hybrid"}
+    has_sparse_leg = retrieval_capability in {"hybrid", "sparse"}
+
+    emb_service = None
+    if has_dense_leg:
+        emb_service = EmbeddingService(
+            model_name=embedding_model,
+            embeddings_url=embeddings_url,
+        )
+
+    sparse_encoder = None
+    if has_sparse_leg:
+        sparse_encoder = SparseEncoderService(embeddings_url=embeddings_url)
+
     chunker = get_chunker(
         strategy=chunking_strategy, chunk_size=chunk_size, chunk_overlap=chunk_overlap
     )
@@ -114,14 +128,31 @@ def build_temp_collection(
         logger.warning("No chunks produced from corpus")
         return collection_name
 
-    # Embed
-    embeddings = emb_service.embed_documents(all_texts)
-    dimension = len(embeddings[0])
+    try:
+        embeddings = emb_service.embed_documents(all_texts) if emb_service is not None else None
+        sparse_vectors = (
+            sparse_encoder.encode_documents(all_texts) if sparse_encoder is not None else None
+        )
+        dimension = len(embeddings[0]) if embeddings is not None else 1
 
-    # Create collection and add documents
-    vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=collection_name)
-    vs.create_collection(dimension=dimension)
-    vs.add_documents(documents=all_texts, embeddings=embeddings, metadatas=all_meta, ids=all_ids)
+        # Create collection and add documents using the same vector legs as production.
+        vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=collection_name)
+        vs.create_collection(
+            dimension=dimension,
+            retrieval_capability=retrieval_capability,
+        )
+        vs.add_documents(
+            documents=all_texts,
+            embeddings=embeddings,
+            metadatas=all_meta,
+            ids=all_ids,
+            sparse_vectors=sparse_vectors,
+        )
+    finally:
+        if emb_service is not None:
+            emb_service.close()
+        if sparse_encoder is not None:
+            sparse_encoder.close()
 
     logger.info("Built temporary collection '%s' with %d chunks", collection_name, len(all_texts))
     return collection_name
