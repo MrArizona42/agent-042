@@ -8,7 +8,7 @@
                 "default_alias": "champion",
                 "aliases": {
                     "champion":   { "top_k": 5,  "score_threshold": 0.35, "reranker": null, "retrieval_strategy": "dense", "reranker_multiplier": 4 },
-                    "challenger": { "top_k": 10, "score_threshold": 0.25, "reranker": null, "retrieval_strategy": "dense", "reranker_multiplier": 4 }
+                    "challenger": { "top_k": 5, "score_threshold": 0.01, "reranker": "cross-encoder/ms-marco-MiniLM-L-6-v2", "retrieval_strategy": "hybrid", "reranker_multiplier": 4 }
                 },
                 "update_strategy": "incremental",
                 "label": "ArXiv papers (ML / AI theory)",
@@ -25,7 +25,7 @@
                 "default_alias": "champion",
                 "aliases": {
                     "champion":   { "top_k": 5,  "score_threshold": 0.35, "reranker": null, "retrieval_strategy": "dense", "reranker_multiplier": 4 },
-                    "challenger": { "top_k": 5,  "score_threshold": 0.35, "reranker": null, "retrieval_strategy": "dense", "reranker_multiplier": 4 }
+                    "challenger": { "top_k": 5, "score_threshold": 0.01, "reranker": "cross-encoder/ms-marco-MiniLM-L-6-v2", "retrieval_strategy": "hybrid", "reranker_multiplier": 4 }
                 },
                 "update_strategy": "replace",
                 "label": "PyTorch docs",
