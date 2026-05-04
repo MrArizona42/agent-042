@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import shared.config as cfg
-from gateway.schemas.openai_chat import ChatCompletionRequest
+from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
 from gateway.services.processing import _ProcessChat
 from gateway.services.task_router import RouteDecision
 from shared.config import AdapterConfig, KBConfig, TaskConfig
@@ -76,14 +76,16 @@ def _loaded_kb_registry() -> None:
 
 
 def _settings(**overrides: object) -> SimpleNamespace:
-    return SimpleNamespace(
-        default_model="base-model",
-        repetition_penalty=1.1,
-        model_max_tokens=64,
-        budget_guard=8,
-        min_response_budget=4,
-        **overrides,
-    )
+    data = {
+        "default_model": "base-model",
+        "repetition_penalty": 1.1,
+        "model_max_tokens": 64,
+        "budget_guard": 8,
+        "min_response_budget": 4,
+        "rag_enabled": True,
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
 
 
 def _prompt_result() -> SimpleNamespace:
@@ -148,7 +150,9 @@ def test_prepare_request_uses_task_adapter_model_when_no_explicit_model() -> Non
     request = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}])
 
     with (
-        patch("gateway.services.processing.get_settings", return_value=_settings()),
+        patch(
+            "gateway.services.processing.get_settings", return_value=_settings(rag_enabled=False)
+        ),
         patch.object(process._router, "decide", return_value=RouteDecision(task="code")),
         patch.object(process, "_retrieve_rag_chunks", return_value={}) as retrieve_rag,
     ):
@@ -169,7 +173,9 @@ def test_prepare_request_prefers_explicit_model_over_task_adapter() -> None:
     )
 
     with (
-        patch("gateway.services.processing.get_settings", return_value=_settings()),
+        patch(
+            "gateway.services.processing.get_settings", return_value=_settings(rag_enabled=False)
+        ),
         patch.object(process._router, "decide", return_value=RouteDecision(task="code")),
         patch.object(process, "_retrieve_rag_chunks", return_value={}),
     ):
@@ -198,3 +204,49 @@ def test_prepare_request_marks_explicit_rag_sources_as_requested() -> None:
     retrieve_rag.assert_called_once()
     _, kwargs = process._prompt_builder.build_budgeted_messages.call_args
     assert kwargs["rag_requested"] is True
+
+
+def test_prepare_request_auto_selects_task_scoped_rag_sources() -> None:
+    process = _ProcessChat()
+    process._prompt_builder = MagicMock()
+    process._prompt_builder.build_budgeted_messages.return_value = _prompt_result()
+
+    request = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}])
+    rag_service = MagicMock()
+    rag_service.enabled = True
+    rag_service.select_knowledge_bases.return_value = [RAGSource(knowledge_base="arxiv")]
+
+    with (
+        patch("gateway.services.processing.get_settings", return_value=_settings()),
+        patch.object(process._router, "decide", return_value=RouteDecision(task="chat")),
+        patch.object(process, "ensure_rag_service", return_value=rag_service),
+        patch.object(process, "_retrieve_rag_chunks", return_value={}) as retrieve_rag,
+    ):
+        process._prepare_request(request)
+
+    rag_service.select_knowledge_bases.assert_called_once_with("hello", "chat")
+    retrieve_rag.assert_called_once()
+    assert [src.knowledge_base for src in retrieve_rag.call_args.args[0]] == ["arxiv"]
+    _, kwargs = process._prompt_builder.build_budgeted_messages.call_args
+    assert kwargs["rag_requested"] is True
+
+
+def test_prepare_request_skips_auto_selection_for_tasks_without_kbs() -> None:
+    process = _ProcessChat()
+    process._prompt_builder = MagicMock()
+    process._prompt_builder.build_budgeted_messages.return_value = _prompt_result()
+
+    request = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}])
+
+    with (
+        patch("gateway.services.processing.get_settings", return_value=_settings()),
+        patch.object(process._router, "decide", return_value=RouteDecision(task="summarize")),
+        patch.object(process, "ensure_rag_service") as ensure_rag_service,
+        patch.object(process, "_retrieve_rag_chunks", return_value={}) as retrieve_rag,
+    ):
+        process._prepare_request(request)
+
+    ensure_rag_service.assert_not_called()
+    retrieve_rag.assert_called_once_with((), last_user="hello")
+    _, kwargs = process._prompt_builder.build_budgeted_messages.call_args
+    assert kwargs["rag_requested"] is False

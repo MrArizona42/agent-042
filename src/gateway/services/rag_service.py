@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Optional
 
 from gateway.config import get_settings
+from gateway.schemas.openai_chat import RAGSource
 from rag.embeddings import EmbeddingService
 from rag.ops.meta import BuildConfig, read_collection_meta, validate_query_compatibility
 from rag.reranker import Reranker, get_reranker
@@ -15,6 +17,18 @@ from rag.vector_store import QdrantVectorStore
 from shared.config import Settings, get_kb_config, get_knowledge_bases
 
 logger = logging.getLogger(__name__)
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right) or not left:
+        return -1.0
+
+    dot_product = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return -1.0
+    return dot_product / (left_norm * right_norm)
 
 
 class RAGService:
@@ -42,6 +56,7 @@ class RAGService:
         self._build_configs: dict[str, BuildConfig] = {}
         self._resolved_collections: dict[str, str] = {}
         self._unavailable: set[str] = set()
+        self._kb_embeddings: dict[str, list[float]] = {}
 
         if not self.enabled:
             logger.info("RAG is disabled")
@@ -73,6 +88,32 @@ class RAGService:
         self._build_configs.clear()
         self._resolved_collections.clear()
         self._unavailable.clear()
+        self._kb_embeddings.clear()
+
+    def _build_kb_embeddings(self) -> dict[str, list[float]]:
+        if self._kb_embeddings:
+            return self._kb_embeddings
+
+        kb_items: list[tuple[str, str]] = []
+        for task_cfg in get_knowledge_bases().values():
+            for kb_cfg in task_cfg.knowledge_bases:
+                if kb_cfg.selection_description.strip():
+                    kb_items.append((kb_cfg.name, kb_cfg.selection_description))
+
+        if not kb_items:
+            self._kb_embeddings = {}
+            return self._kb_embeddings
+
+        kb_names = [kb_name for kb_name, _ in kb_items]
+        descriptions = [description for _, description in kb_items]
+        embeddings = self.embedding_service.embed_documents(descriptions)
+        if len(embeddings) != len(kb_names):
+            raise RuntimeError("KB embedding count does not match configured knowledge bases")
+
+        self._kb_embeddings = {
+            kb_name: embedding for kb_name, embedding in zip(kb_names, embeddings, strict=True)
+        }
+        return self._kb_embeddings
 
     @staticmethod
     def _qdrant_alias(kb_name: str, alias: str) -> str:
@@ -321,6 +362,31 @@ class RAGService:
                 }
             )
         return result
+
+    def select_knowledge_bases(self, query: str, task: str) -> list[RAGSource]:
+        """Select task-scoped knowledge bases by embedding similarity."""
+        if not self.enabled or not query.strip():
+            return []
+
+        task_cfg = get_knowledge_bases().get(task)
+        if task_cfg is None or not task_cfg.knowledge_bases:
+            return []
+
+        kb_embeddings = self._build_kb_embeddings()
+        query_embedding = self.embedding_service.embed_query(query)
+        threshold = float(self.settings.kb_selection_threshold)
+
+        scored_candidates: list[tuple[float, str]] = []
+        for kb_cfg in task_cfg.knowledge_bases:
+            kb_embedding = kb_embeddings.get(kb_cfg.name)
+            if kb_embedding is None:
+                continue
+            score = _cosine_similarity(query_embedding, kb_embedding)
+            if score >= threshold:
+                scored_candidates.append((score, kb_cfg.name))
+
+        scored_candidates.sort(key=lambda item: item[0], reverse=True)
+        return [RAGSource(knowledge_base=kb_name) for _, kb_name in scored_candidates]
 
     def validate_knowledge_bases(self) -> None:
         """Check every alias in config resolves to an existing Qdrant collection.

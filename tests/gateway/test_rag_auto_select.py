@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import shared.config as cfg
+from gateway.services.rag_service import RAGService
+from shared.config import AdapterConfig, KBConfig, TaskConfig
+
+
+def _alias_config() -> dict[str, object]:
+    return {
+        "top_k": 5,
+        "score_threshold": 0.35,
+        "reranker": None,
+        "retrieval_strategy": "dense",
+        "reranker_multiplier": 4,
+    }
+
+
+class _FakeEmbeddingService:
+    def __init__(self) -> None:
+        self.embed_documents_calls = 0
+        self._document_vectors = {
+            "Research papers and literature-grounded answers.": [1.0, 0.0],
+            "PyTorch API reference and implementation guidance.": [0.0, 1.0],
+        }
+        self._query_vectors = {
+            "Explain the latest transformer paper": [0.95, 0.05],
+            "What tensor shape does Conv2d expect?": [0.05, 0.95],
+            "Unrelated request": [0.2, 0.2],
+        }
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self.embed_documents_calls += 1
+        return [self._document_vectors[text] for text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._query_vectors[text]
+
+
+def _settings(**overrides: object) -> SimpleNamespace:
+    data = {
+        "rag_enabled": True,
+        "embedding_model": "test-embedding",
+        "embedding_device": "cpu",
+        "embedding_batch_size": 32,
+        "embeddings_url": "http://embeddings:8100",
+        "embeddings_timeout": 10.0,
+        "kb_selection_threshold": 0.3,
+        "qdrant_host": "localhost",
+        "qdrant_port": 6333,
+        "rag_strict_startup": False,
+        "sparse_encoder_model": "Qdrant/bm25",
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
+def _load_registry() -> None:
+    arxiv = KBConfig(
+        name="arxiv",
+        default_alias="champion",
+        aliases={"champion": _alias_config()},
+        label="ArXiv",
+        description="Research papers",
+        selection_description="Research papers and literature-grounded answers.",
+    )
+    pytorch_docs = KBConfig(
+        name="pytorch_docs",
+        default_alias="champion",
+        aliases={"champion": _alias_config()},
+        label="PyTorch docs",
+        description="API docs",
+        selection_description="PyTorch API reference and implementation guidance.",
+    )
+
+    cfg._KB_REGISTRY = {
+        "chat": TaskConfig(
+            task="chat",
+            label="General knowledge",
+            routing_description="General ML research discussion.",
+            adapter=AdapterConfig(name="", alias="", enabled=False),
+            knowledge_bases=[arxiv],
+        ),
+        "code": TaskConfig(
+            task="code",
+            label="Coding assistance",
+            routing_description="Programming help for ML systems.",
+            adapter=AdapterConfig(name="", alias="", enabled=False),
+            knowledge_bases=[pytorch_docs],
+        ),
+        "summarize": TaskConfig(
+            task="summarize",
+            label="Summarization",
+            routing_description="Summarize user-provided content.",
+            adapter=AdapterConfig(name="", alias="", enabled=False),
+            knowledge_bases=[],
+        ),
+    }
+    cfg._KB_INDEX = {
+        "arxiv": arxiv,
+        "pytorch_docs": pytorch_docs,
+    }
+
+
+def test_select_knowledge_bases_returns_task_scoped_match() -> None:
+    _load_registry()
+    try:
+        embedding_service = _FakeEmbeddingService()
+        with patch("gateway.services.rag_service.EmbeddingService", return_value=embedding_service):
+            service = RAGService(settings=_settings())
+
+        sources = service.select_knowledge_bases(
+            "Explain the latest transformer paper",
+            task="chat",
+        )
+
+        assert [source.knowledge_base for source in sources] == ["arxiv"]
+    finally:
+        cfg._KB_REGISTRY = None
+        cfg._KB_INDEX = None
+
+
+def test_select_knowledge_bases_returns_empty_below_threshold() -> None:
+    _load_registry()
+    try:
+        with patch(
+            "gateway.services.rag_service.EmbeddingService",
+            return_value=_FakeEmbeddingService(),
+        ):
+            service = RAGService(settings=_settings(kb_selection_threshold=0.8))
+
+        sources = service.select_knowledge_bases("Unrelated request", task="chat")
+
+        assert sources == []
+    finally:
+        cfg._KB_REGISTRY = None
+        cfg._KB_INDEX = None
+
+
+def test_select_knowledge_bases_skips_tasks_without_kbs() -> None:
+    _load_registry()
+    try:
+        with patch(
+            "gateway.services.rag_service.EmbeddingService",
+            return_value=_FakeEmbeddingService(),
+        ):
+            service = RAGService(settings=_settings())
+
+        sources = service.select_knowledge_bases(
+            "Explain the latest transformer paper", task="summarize"
+        )
+
+        assert sources == []
+    finally:
+        cfg._KB_REGISTRY = None
+        cfg._KB_INDEX = None
+
+
+def test_select_knowledge_bases_caches_kb_prototypes_until_invalidated() -> None:
+    _load_registry()
+    try:
+        embedding_service = _FakeEmbeddingService()
+        with patch("gateway.services.rag_service.EmbeddingService", return_value=embedding_service):
+            service = RAGService(settings=_settings())
+
+        service.select_knowledge_bases("Explain the latest transformer paper", task="chat")
+        service.select_knowledge_bases("What tensor shape does Conv2d expect?", task="code")
+
+        assert embedding_service.embed_documents_calls == 1
+
+        service.invalidate_caches()
+        service.select_knowledge_bases("Explain the latest transformer paper", task="chat")
+
+        assert embedding_service.embed_documents_calls == 2
+    finally:
+        cfg._KB_REGISTRY = None
+        cfg._KB_INDEX = None

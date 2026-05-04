@@ -166,6 +166,26 @@ class _ProcessChat:
             task_has_knowledge_bases=task_has_knowledge_bases,
         )
 
+    def _auto_select_rag_sources(
+        self,
+        *,
+        query: str,
+        task: str,
+    ) -> tuple[RAGSource, ...]:
+        rag_service = self.ensure_rag_service()
+        if rag_service is None or not rag_service.enabled:
+            return ()
+
+        try:
+            return tuple(rag_service.select_knowledge_bases(query, task))
+        except Exception:
+            logger.warning(
+                "Automatic KB selection failed for task=%s",
+                task,
+                exc_info=True,
+            )
+            return ()
+
     @staticmethod
     def _resolve_task_model(task: str, *, settings: Any) -> str:
         task_cfg = get_knowledge_bases().get(task)
@@ -235,15 +255,25 @@ class _ProcessChat:
         decision = self._router.decide(last_user)
         rag_request = self._resolve_rag_request(req, task=decision.task)
 
+        rag_sources = rag_request.sources
+        rag_requested = rag_request.rag_requested
+        if (
+            rag_request.mode == "auto"
+            and rag_request.task_has_knowledge_bases
+            and settings.rag_enabled
+        ):
+            rag_requested = True
+            rag_sources = self._auto_select_rag_sources(query=last_user, task=decision.task)
+
         rag_chunks_by_source = self._retrieve_rag_chunks(
-            rag_request.sources,
+            rag_sources,
             last_user=last_user,
         )
         prompt = self._prompt_builder.build_budgeted_messages(
             task=decision.task,
             request_messages=[m.model_dump(exclude_none=True) for m in req.messages],
             rag_chunks_by_source=rag_chunks_by_source,
-            rag_requested=rag_request.rag_requested,
+            rag_requested=rag_requested,
             settings=settings,
         )
 
