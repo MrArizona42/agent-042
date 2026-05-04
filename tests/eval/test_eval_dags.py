@@ -5,6 +5,7 @@ import json
 import sys
 import types
 from pathlib import Path
+from unittest.mock import mock_open, patch
 
 import pytest
 
@@ -202,3 +203,80 @@ def test_eval_dags_resolve_params_requires_kb_for_explicit_mode(
                 }
             }
         )
+
+
+def test_generation_dag_params_expose_kb_mode_controls(
+    monkeypatch: pytest.MonkeyPatch,
+    kb_json_file: Path,
+):
+    import shared.config as cfg
+    from shared.config import _load_knowledge_bases
+
+    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    _install_airflow_stubs(monkeypatch)
+    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+    sys.modules.pop("dags.eval_dags", None)
+    eval_dags = importlib.import_module("dags.eval_dags")
+    eval_dags = importlib.reload(eval_dags)
+
+    chat_params = eval_dags.eval_chat_hotpotqa.kwargs["params"]
+    retrieval_params = eval_dags.eval_retrieval_beir_scifact.kwargs["params"]
+
+    assert "knowledge_base_mode" in chat_params
+    assert chat_params["knowledge_base_mode"].kwargs["enum"] == ["explicit", "auto"]
+    assert "knowledge_base" in chat_params
+    assert "lora_aliases" in chat_params
+
+    assert "knowledge_base_mode" not in retrieval_params
+    assert "knowledge_base" in retrieval_params
+    assert "lora_aliases" not in retrieval_params
+
+
+def test_fetch_predictions_task_forwards_use_auto_rag(
+    monkeypatch: pytest.MonkeyPatch,
+    kb_json_file: Path,
+):
+    import shared.config as cfg
+    from shared.config import _load_knowledge_bases
+
+    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    _install_airflow_stubs(monkeypatch)
+    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
+
+    sys.modules.pop("dags.eval_dags", None)
+    eval_dags = importlib.import_module("dags.eval_dags")
+    eval_dags = importlib.reload(eval_dags)
+
+    forwarded: dict[str, object] = {}
+    fake_runner = types.ModuleType("experiments.eval.eval_scripts.runner")
+
+    def _fake_fetch_predictions(**kwargs):
+        forwarded.update(kwargs)
+        return {"bundles": []}
+
+    fake_runner.fetch_predictions = _fake_fetch_predictions
+    monkeypatch.setitem(sys.modules, "experiments.eval.eval_scripts.runner", fake_runner)
+
+    with patch("builtins.open", mock_open()), patch("json.dump"):
+        output_path = eval_dags._fetch_predictions_task(
+            eval_task="chat",
+            dataset="hotpotqa",
+            run_id="manual__001",
+            params={
+                "knowledge_base_mode": "auto",
+                "knowledge_base": None,
+                "knowledge_base_aliases": ["champion"],
+                "metrics": ["relevance"],
+                "lora_aliases": ["none"],
+                "custom_params": "",
+            },
+        )
+
+    assert forwarded["task"] == "chat"
+    assert forwarded["dataset_name"] == "hotpotqa"
+    assert forwarded["kb_name"] is None
+    assert forwarded["use_auto_rag"] is True
+    assert forwarded["rag_aliases"] == ["champion"]
+    assert forwarded["lora_aliases"] == ["none"]
+    assert output_path.endswith("eval_predictions_manual__001.json")

@@ -1,9 +1,9 @@
 """Airflow DAGs for evaluation workflows.
 
 Each DAG represents a unique ``(task, dataset)`` evaluation suite.
-The **metrics** to compute and the **alias** configuration are selected
-at trigger time via Airflow ``Params`` (rendered as multi-select lists
-in the UI).
+The **metrics**, alias configuration, and generation-task knowledge-base
+selection mode are selected at trigger time via Airflow ``Params``
+(rendered as multi-select lists in the UI).
 
 Two-step execution:
     1. ``fetch_predictions`` — calls the gateway / retrieval system.
@@ -16,11 +16,16 @@ XCom size limits.
 All tasks run on the dedicated Airflow Celery worker which has
 bert-score, torch (CPU), and other heavy dependencies installed.
 
-For custom parameter values that are not in the dropdown lists, put
-a JSON string into the ``custom_params`` field when triggering the DAG.
-Example::
+For generation DAGs, ``knowledge_base_mode="explicit"`` forces the selected
+``knowledge_base`` while ``knowledge_base_mode="auto"`` leaves knowledge-base
+selection to the gateway's task-scoped auto-routing. Retrieval DAGs always
+require an explicit ``knowledge_base``.
 
-    {"metrics": ["my_custom_metric"], "knowledge_base_aliases": ["my_alias"]}
+For custom parameter values that are not in the dropdown lists, put a JSON
+string into the ``custom_params`` field when triggering the DAG. Example::
+
+    {"knowledge_base_mode": "auto", "metrics": ["my_custom_metric"],
+     "knowledge_base_aliases": ["my_alias"]}
 
 Zero retries.  No silent fallback to default values — if any required
 parameter is missing or invalid the DAG fails immediately.
