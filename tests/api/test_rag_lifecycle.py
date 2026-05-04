@@ -895,6 +895,9 @@ class TestLegacyMetadataHandling:
         data = [
             {
                 "task": "chat",
+                "label": "General knowledge",
+                "routing_description": "General ML research discussion.",
+                "adapter": {"name": "", "alias": "", "enabled": False},
                 "knowledge_bases": [
                     {
                         "name": "arxiv",
@@ -908,6 +911,9 @@ class TestLegacyMetadataHandling:
                                 "reranker_multiplier": 4,
                             },
                         },
+                        "label": "ArXiv papers",
+                        "description": "ML papers",
+                        "selection_description": "Research papers and literature-grounded answers.",
                     },
                 ],
             },

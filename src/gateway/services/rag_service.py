@@ -6,6 +6,8 @@ import logging
 import math
 from typing import Any, Optional
 
+import httpx
+
 from gateway.config import get_settings
 from gateway.schemas.openai_chat import RAGSource
 from rag.embeddings import EmbeddingService
@@ -57,6 +59,7 @@ class RAGService:
         self._resolved_collections: dict[str, str] = {}
         self._unavailable: set[str] = set()
         self._kb_embeddings: dict[str, list[float]] = {}
+        self._available_vllm_models: set[str] | None = None
 
         if not self.enabled:
             logger.info("RAG is disabled")
@@ -89,6 +92,7 @@ class RAGService:
         self._resolved_collections.clear()
         self._unavailable.clear()
         self._kb_embeddings.clear()
+        self._available_vllm_models = None
 
     def warm_caches(self, *, validate: bool = False) -> None:
         """Best-effort eager rebuild of config-derived caches.
@@ -127,6 +131,62 @@ class RAGService:
             kb_name: embedding for kb_name, embedding in zip(kb_names, embeddings, strict=True)
         }
         return self._kb_embeddings
+
+    def _vllm_headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        api_key = getattr(self.settings, "api_key", None)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
+    def _load_available_vllm_models(self) -> set[str] | None:
+        if self._available_vllm_models is not None:
+            return self._available_vllm_models
+
+        try:
+            base_url = str(self.settings.vllm_base_url).rstrip("/")
+            timeout_s = float(getattr(self.settings, "vllm_timeout", 60.0))
+            with httpx.Client(timeout=timeout_s) as client:
+                response = client.get(
+                    f"{base_url}/v1/models",
+                    headers=self._vllm_headers(),
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except Exception:
+            logger.warning(
+                "Failed to load vLLM models for adapter validation",
+                exc_info=True,
+            )
+            return None
+
+        self._available_vllm_models = {
+            str(model_info["id"])
+            for model_info in payload.get("data", [])
+            if isinstance(model_info, dict) and model_info.get("id")
+        }
+        return self._available_vllm_models
+
+    def _validate_task_adapters(self) -> None:
+        available_models = self._load_available_vllm_models()
+        if available_models is None:
+            return
+
+        for task_cfg in get_knowledge_bases().values():
+            adapter_cfg = task_cfg.adapter
+            if not adapter_cfg.enabled:
+                continue
+
+            model_name = f"{adapter_cfg.name}-{adapter_cfg.alias}"
+            if model_name in available_models:
+                continue
+
+            logger.warning(
+                "Enabled adapter not found in vLLM at validation time: task=%s adapter=%s; "
+                "gateway will fall back to default_model until it is loaded",
+                task_cfg.task,
+                model_name,
+            )
 
     @staticmethod
     def _qdrant_alias(kb_name: str, alias: str) -> str:
@@ -453,6 +513,8 @@ class RAGService:
                         query_strategy=alias_cfg.retrieval_strategy,
                         strict=strict,
                     )
+
+        self._validate_task_adapters()
 
     def retrieve_documents(
         self,
