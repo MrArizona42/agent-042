@@ -15,6 +15,30 @@
 - Apache Airflow (LocalExecutor) — оркестрация пайплайнов, использует общий PostgreSQL
 - JupyterLab — интерактивная среда для экспериментов
 
+## Контракт Phase 1: серверный корень
+
+Phase 1 фиксирует операторский контракт для single-node deployment, не меняя пока текущий
+checkout-based запуск Compose. Каноническая серверная раскладка теперь считается такой:
+
+```text
+/srv/agent-042/
+  .env
+  .dvc/
+    config.local
+  assets/
+  artifacts/
+  releases/
+    <sha>/
+  current -> /srv/agent-042/releases/<sha>/
+```
+
+Что это означает на практике:
+- repo-root `.env` остаётся активным env-файлом для локального checkout и текущего Compose запуска
+- release-based deploy будет использовать внешний `/srv/agent-042/.env`, а не `.env` внутри релиза
+- переменные `ASSETS_ROOT`, `ARTIFACTS_ROOT`, `DVC_CONFIG_LOCAL_PATH`, `GITHUB_REPOSITORY`,
+  `GITHUB_DATA_SYNC_TOKEN` и `IMAGE_TAG` вводятся уже сейчас как часть server contract, хотя
+  часть из них начинает реально использоваться уже в Phase 2
+
 ## Требования
 
 ### Минимальные требования к железу
@@ -105,17 +129,34 @@ scripts/update_locks.sh --dry-run
 
 ### Подготовка переменных окружения
 
-1) Из корня репозитория создайте `.env` на основе примера и заполните значениями:
+1) Для локального checkout создайте `.env` в корне репозитория на основе примера:
 ```bash
 cp .env.example .env
 ```
 
-2) При необходимости скорректируйте `PROJECT_ROOT` и остальные значения `# CHANGE ME!`.
+2) Для серверного deploy используйте тот же набор ключей во внешнем файле
+`/srv/agent-042/.env`.
+
+3) При необходимости скорректируйте `PROJECT_ROOT` и остальные значения `# CHANGE ME!`.
 
 Ключевые переменные:
-- `PROJECT_ROOT` — абсолютный путь к корню репозитория на машине, где запускается Compose
+- `PROJECT_ROOT` — host-side путь, который Compose использует для checkout-based mount'ов или для
+  активного релиза
   - Linux пример: `/home/user/agent-042`
   - Windows пример (как в шаблоне): `C:/Users/user/MyGitRepos/agent-042`
+- `ASSETS_ROOT` — внешний корень для persistent `assets`
+  - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/assets`
+  - серверный deploy пример: `/srv/agent-042/assets`
+- `ARTIFACTS_ROOT` — внешний корень для persistent `artifacts`
+  - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/artifacts`
+  - серверный deploy пример: `/srv/agent-042/artifacts`
+- `DVC_CONFIG_LOCAL_PATH` — путь к machine-local `.dvc/config.local`
+  - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/.dvc/config.local`
+  - серверный deploy пример: `/srv/agent-042/.dvc/config.local`
+- `GITHUB_REPOSITORY` / `GITHUB_DATA_SYNC_TOKEN` — используются Airflow temp-clone DVC/Git sync
+  helper'ом для push в bot branch и для открытия или обновления PR в GitHub
+- `IMAGE_TAG` — будущий deployment-scoped tag для CI-built images; в текущем checkout-based
+  Compose ещё не используется
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — креды для Yandex Object Storage (нужны MLflow)
 - `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` — опциональная auth-пара для локальных MLflow-клиентов и ноутбуков
 - `MLFLOW_*` — конфиг MLflow (backend store + artifact root)
@@ -131,6 +172,9 @@ cp .env.example .env
 Замечание:
 - Канонический шаблон `.env.example` намеренно не содержит внутренние endpoint'ы вроде `VLLM_BASE_URL`, `EMBEDDINGS_URL`, `GATEWAY_URL`, `QDRANT_HOST` или `MLFLOW_TRACKING_URI`.
   Compose подставляет свои Docker-network значения напрямую из `infra/compose/docker-compose.yaml`, а локальные Python-запуски используют значения по умолчанию из `shared.config`.
+- На текущем этапе checkout-based Compose уже использует `ASSETS_ROOT`, `ARTIFACTS_ROOT` и
+  `DVC_CONFIG_LOCAL_PATH` для shared mounts, а `GITHUB_*`-переменные использует Airflow data-sync
+  path. `IMAGE_TAG` остаётся зарезервированным для последующих deploy фаз.
 
 Практический тюнинг vLLM для локальной GPU:
 - `VLLM_MAX_NUM_SEQS` — жёсткий верхний предел числа последовательностей, которые vLLM одновременно держит в scheduler batch. Для 12 GB GPU и длинного контекста безопасно начинать с `1-2`.
@@ -143,6 +187,9 @@ cp .env.example .env
   Поэтому при логировании/чтении артефактов из MLflow-клиента нужны S3 креды в окружении процесса.
 
 ### Запуск полного стека
+
+Ниже показаны текущие команды запуска из рабочего checkout. Это ещё не release-based deploy из
+`/srv/agent-042/current`.
 
 ```bash
 docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d
@@ -231,22 +278,32 @@ Airflow развёрнут с LocalExecutor (без Celery/Redis) и испол�
 - `airflow-scheduler` — планировщик задач (LocalExecutor)
 
 DAG-файлы размещаются в директории `dags/` в корне репозитория и монтируются в контейнеры Airflow.
-Корень проекта так же монтируется как `/opt/airflow/project` — это даёт DAG'ам доступ к скриптам, DVC-конфигурации и каталогам данных.
+Корень проекта так же монтируется как `/opt/airflow/project`, но shared state поверх него уже
+перекладывается на внешние bind mount'ы:
+- `${ASSETS_ROOT}/datasets` → `/opt/airflow/project/assets/datasets`
+- `${ASSETS_ROOT}/rag_data` → `/opt/airflow/project/assets/rag_data`
+- `${ARTIFACTS_ROOT}/training` → `/opt/airflow/project/artifacts/training`
+- `${DVC_CONFIG_LOCAL_PATH}` → `/opt/airflow/project/.dvc/config.local`
+
+Это даёт DAG'ам стабильные project-relative пути, но убирает зависимость от записи в checkout-backed
+`assets/`, `artifacts/` и `.dvc`.
 
 ### Доступные DAG'и
 
 | DAG | Расписание | Описание |
 |-----|-----------|----------|
-| `arxiv_rag_update` | `@daily` | Загрузка новых ArXiv статей → `dvc add/push` → refresh коллекции за alias `arxiv_champion` через `rag.ops.update.update_arxiv_collection()` |
-| `pytorch_docs_rag_update` | `@weekly` | Скрейпинг документации PyTorch → `dvc add/push` → rebuild successor collection из `_meta` у `pytorch_docs_champion` через `rag.ops.update.update_pytorch_docs_collection()` |
+| `arxiv_rag_update` | `@daily` | Загрузка новых ArXiv статей → temp clone + `dvc add/push` + bot-branch PR → refresh коллекции за alias `arxiv_champion` через `rag.ops.update.update_arxiv_collection()` |
+| `pytorch_docs_rag_update` | `@weekly` | Скрейпинг документации PyTorch → temp clone + `dvc add/push` + bot-branch PR → rebuild successor collection из `_meta` у `pytorch_docs_champion` через `rag.ops.update.update_pytorch_docs_collection()` |
 
 Каждый DAG состоит из трёх задач:
 ```
-download / scrape  >>  dvc_version  >>  build_index
+download / scrape  >>  dvc_version_via_temp_clone  >>  build_index
 ```
 
 - **download / scrape** — PythonOperator: загрузка данных (ArXiv API или web scraping)
-- **dvc_version** — BashOperator: `dvc add` + `dvc push` для версионирования данных
+- **dvc_version** — PythonOperator: создаёт временный clone, подключает shared dataset через symlink,
+  запускает `dvc add` + `dvc push`, коммитит `.dvc`/`.gitignore` изменения в `data-sync/*` и
+  открывает или обновляет PR в `develop`
 - **build_index** — PythonOperator: вызов production update-функций из `src/rag/ops/update`
   (`update_arxiv_collection` или `update_pytorch_docs_collection`) для refresh/rebuild векторного индекса
 
@@ -277,6 +334,7 @@ DAG'и также используют следующие переменные (
 - `QDRANT_HOST` / `QDRANT_PORT` — адрес Qdrant для пересборки индексов
 - `EMBEDDING_MODEL` — модель эмбеддингов (берётся из `GATEWAY_EMBEDDING_MODEL`)
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_DEFAULT_REGION` — для `dvc push` в Yandex Cloud S3
+- `GITHUB_REPOSITORY` / `GITHUB_DATA_SYNC_TOKEN` — для temp-clone Git push и GitHub PR API
 
 Примечание: `airflow-init` автоматически проверяет наличие базы `airflow` в PostgreSQL и создаёт её при необходимости — никаких ручных шагов не требуется.
 
@@ -287,7 +345,7 @@ JupyterLab предоставляет интерактивную среду дл
 Монтируемые директории:
 - `${PROJECT_ROOT}/src` → `/home/jovyan/src` (ro) — production-модули для импортов `shared/*`, `rag/*`, `gateway/*`
 - `experiments/` → `/home/jovyan/experiments` (rw) — скрипты и конфиги экспериментов
-- `assets/` → `/home/jovyan/assets` (rw) — данные, модели, адаптеры
+- `${ASSETS_ROOT}` → `/home/jovyan/assets` (rw) — внешний shared root для данных, моделей и адаптеров
 - `dags/` → `/home/jovyan/dags` (rw) — Airflow DAG-файлы
 
 Переменные окружения (`.env`):
@@ -300,6 +358,10 @@ JupyterLab предоставляет интерактивную среду дл
 - `QDRANT_HOST=qdrant`, `QDRANT_PORT=${QDRANT_PORT}`
 - `EMBEDDINGS_URL=http://embeddings:8100`
 - `EVAL_GATEWAY_URL=http://gateway:9000`
+
+Важно: этот `PROJECT_ROOT=/home/jovyan` относится только к контейнеру Jupyter. Это не тот же
+самый `PROJECT_ROOT`, который оператор задаёт в repo-root `.env` или в `/srv/agent-042/.env` для
+Compose interpolation на хосте.
 
 Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.
 
