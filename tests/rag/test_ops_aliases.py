@@ -25,6 +25,8 @@ def kb_json_file(tmp_path: Path) -> Path:
         {
             "task": "chat",
             "label": "General knowledge",
+            "routing_description": "General ML research discussion.",
+            "adapter": {"name": "", "alias": "", "enabled": False},
             "knowledge_bases": [
                 {
                     "name": "arxiv",
@@ -48,12 +50,15 @@ def kb_json_file(tmp_path: Path) -> Path:
                     "update_strategy": "incremental",
                     "label": "ArXiv papers",
                     "description": "ML papers",
+                    "selection_description": "Research papers and literature-grounded answers.",
                 },
             ],
         },
         {
             "task": "code",
             "label": "Coding assistance",
+            "routing_description": "Programming help for ML systems.",
+            "adapter": {"name": "", "alias": "", "enabled": False},
             "knowledge_bases": [
                 {
                     "name": "pytorch_docs",
@@ -70,6 +75,7 @@ def kb_json_file(tmp_path: Path) -> Path:
                     "update_strategy": "replace",
                     "label": "PyTorch docs",
                     "description": "Coding docs",
+                    "selection_description": "PyTorch API reference and implementation guidance.",
                 },
             ],
         },

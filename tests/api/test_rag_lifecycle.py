@@ -873,7 +873,7 @@ class TestRequestPathFailureMode:
         )
 
         with patch.object(processor, "ensure_rag_service", return_value=rag_service):
-            rag_chunks = processor._retrieve_rag_chunks(request, last_user="hi")
+            rag_chunks = processor._retrieve_rag_chunks(request.rag_sources or [], last_user="hi")
 
         assert rag_chunks == {}
         rag_service.retrieve_documents.assert_called_once_with(
