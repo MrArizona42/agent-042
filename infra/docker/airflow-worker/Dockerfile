@@ -10,6 +10,12 @@
 # Base version must stay in sync with infra/docker/airflow/Dockerfile.
 FROM apache/airflow:3.1.8
 
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+USER airflow
+
 # Install DAG task dependencies for the Celery worker.
 # torch is installed from the CPU-only index to avoid pulling CUDA wheels.
 # The --constraint file prevents overriding Airflow-critical packages

@@ -44,6 +44,8 @@ def kb_json_file(tmp_path: Path):
         {
             "task": "chat",
             "label": "General knowledge",
+            "routing_description": "General ML research discussion.",
+            "adapter": {"name": "", "alias": "", "enabled": False},
             "knowledge_bases": [
                 {
                     "name": "arxiv",
@@ -67,12 +69,15 @@ def kb_json_file(tmp_path: Path):
                     "update_strategy": "incremental",
                     "label": "ArXiv papers",
                     "description": "ML papers",
+                    "selection_description": "Research papers and literature-grounded answers.",
                 },
             ],
         },
         {
             "task": "code",
             "label": "Coding assistance",
+            "routing_description": "Programming help for ML systems.",
+            "adapter": {"name": "", "alias": "", "enabled": False},
             "knowledge_bases": [
                 {
                     "name": "pytorch_docs",
@@ -89,6 +94,7 @@ def kb_json_file(tmp_path: Path):
                     "update_strategy": "replace",
                     "label": "PyTorch docs",
                     "description": "Coding docs",
+                    "selection_description": "PyTorch API reference and implementation guidance.",
                 },
             ],
         },
@@ -867,7 +873,7 @@ class TestRequestPathFailureMode:
         )
 
         with patch.object(processor, "ensure_rag_service", return_value=rag_service):
-            rag_chunks = processor._retrieve_rag_chunks(request, last_user="hi")
+            rag_chunks = processor._retrieve_rag_chunks(request.rag_sources or [], last_user="hi")
 
         assert rag_chunks == {}
         rag_service.retrieve_documents.assert_called_once_with(
@@ -889,6 +895,9 @@ class TestLegacyMetadataHandling:
         data = [
             {
                 "task": "chat",
+                "label": "General knowledge",
+                "routing_description": "General ML research discussion.",
+                "adapter": {"name": "", "alias": "", "enabled": False},
                 "knowledge_bases": [
                     {
                         "name": "arxiv",
@@ -902,6 +911,9 @@ class TestLegacyMetadataHandling:
                                 "reranker_multiplier": 4,
                             },
                         },
+                        "label": "ArXiv papers",
+                        "description": "ML papers",
+                        "selection_description": "Research papers and literature-grounded answers.",
                     },
                 ],
             },
@@ -1308,13 +1320,17 @@ class TestReloadConfigEndpoint:
         assert "unavailable" in resp.json()["detail"].lower()
 
     def test_reload_clears_caches(self, kb_json_file: Path):
-        """Authenticated reload clears KB caches."""
+        """Authenticated reload clears KB caches before reload hook executes."""
         import shared.config as cfg
         from shared.config import _load_knowledge_bases
 
         cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
         from gateway.api.v1 import knowledge_bases
+
+        def _reload_hook(*, settings):
+            assert cfg._KB_REGISTRY is None
+            assert cfg._KB_INDEX is None
 
         app = FastAPI()
         app.include_router(knowledge_bases.router, prefix="/v1")
@@ -1326,13 +1342,20 @@ class TestReloadConfigEndpoint:
             request.state.session_id = "session-123"
             return await call_next(request)
 
-        client = TestClient(app)
-        resp = client.post("/v1/admin/reload-config")
+        with (
+            patch.object(
+                knowledge_bases.process_chat,
+                "reload_config_caches",
+                side_effect=_reload_hook,
+            ) as reload_caches,
+            patch("gateway.api.v1.knowledge_bases.get_settings", return_value=MagicMock()),
+        ):
+            client = TestClient(app)
+            resp = client.post("/v1/admin/reload-config")
+
         assert resp.status_code == 200
         assert resp.json()["status"] == "reloaded"
-        # Caches should be cleared
-        assert cfg._KB_REGISTRY is None
-        assert cfg._KB_INDEX is None
+        reload_caches.assert_called_once()
 
     def test_reload_rejects_non_session_auth(self):
         """Internal API-key style auth must not be allowed to reload config."""

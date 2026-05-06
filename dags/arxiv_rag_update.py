@@ -10,6 +10,7 @@ Schedule: @daily
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import sys
@@ -17,7 +18,6 @@ from datetime import datetime
 from pathlib import Path
 
 from airflow import DAG
-from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.python import PythonOperator
 
 # ---------------------------------------------------------------------------
@@ -32,8 +32,6 @@ ARXIV_CATEGORIES: list[str] = ["cs.LG", "cs.AI"]
 ARXIV_MAX_RESULTS: int = 100
 
 # Paths as strings for bash commands
-_project_root = str(PROJECT_ROOT)
-_arxiv_rel = str(ARXIV_OUTPUT_DIR.relative_to(PROJECT_ROOT))
 _arxiv_json = str(ARXIV_OUTPUT_DIR / "arxiv_papers.json")
 
 
@@ -46,6 +44,9 @@ def _bootstrap_project_imports() -> None:
 
 
 _bootstrap_project_imports()
+sync_dvc_dataset_via_temp_clone = importlib.import_module(
+    "shared.airflow_git_sync"
+).sync_dvc_dataset_via_temp_clone
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
@@ -118,6 +119,17 @@ def _update_arxiv_index() -> dict[str, object]:
     )
 
 
+def _version_arxiv_dataset() -> dict[str, str | bool]:
+    """Persist ArXiv dataset pointer updates through a temp clone."""
+    return sync_dvc_dataset_via_temp_clone(
+        repo_root=PROJECT_ROOT,
+        dataset_rel_path=Path("assets/rag_data/arxiv"),
+        commit_message="chore(data-sync): refresh arxiv rag dataset",
+        pr_title="chore(data-sync): refresh arxiv rag dataset",
+        pr_body=("Automated ArXiv RAG dataset refresh produced by the Airflow daily sync DAG."),
+    )
+
+
 # ---------------------------------------------------------------------------
 # DAG definition
 # ---------------------------------------------------------------------------
@@ -136,9 +148,9 @@ with DAG(
         python_callable=_download_arxiv_papers,
     )
 
-    dvc_version = BashOperator(
+    dvc_version = PythonOperator(
         task_id="dvc_version_arxiv",
-        bash_command=f"cd {_project_root} && dvc add {_arxiv_rel} && dvc push ",
+        python_callable=_version_arxiv_dataset,
     )
 
     # Daily updates target only the champion alias.

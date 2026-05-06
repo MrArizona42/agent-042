@@ -49,22 +49,34 @@ x-airflow-common-env: &airflow-common-env
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+  GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}
+  GITHUB_DATA_SYNC_TOKEN: ${GITHUB_DATA_SYNC_TOKEN}
 
 x-airflow-common-build: &airflow-common-build
   context: ${PROJECT_ROOT}
   dockerfile: infra/docker/airflow/Dockerfile
 
+x-airflow-common-image: &airflow-common-image "ghcr.io/${GITHUB_REPOSITORY}-airflow:${IMAGE_TAG}"
+
 x-airflow-worker-build: &airflow-worker-build
   context: ${PROJECT_ROOT}
   dockerfile: infra/docker/airflow-worker/Dockerfile
+
+x-airflow-worker-image: &airflow-worker-image "ghcr.io/${GITHUB_REPOSITORY}-airflow-worker:${IMAGE_TAG}"
 
 x-airflow-worker-gpu-build: &airflow-worker-gpu-build
   context: ${PROJECT_ROOT}
   dockerfile: infra/docker/airflow-worker-gpu/Dockerfile
 
+x-airflow-worker-gpu-image: &airflow-worker-gpu-image "ghcr.io/${GITHUB_REPOSITORY}-airflow-worker-gpu:${IMAGE_TAG}"
+
 x-airflow-common-volumes: &airflow-common-volumes
   - ${PROJECT_ROOT}/dags:/opt/airflow/dags
   - ${PROJECT_ROOT}:/opt/airflow/project
+  - ${ASSETS_ROOT}/datasets:/opt/airflow/project/assets/datasets
+  - ${ASSETS_ROOT}/rag_data:/opt/airflow/project/assets/rag_data
+  - ${ARTIFACTS_ROOT}/training:/opt/airflow/project/artifacts/training
+  - ${DVC_CONFIG_LOCAL_PATH}:/opt/airflow/project/.dvc/config.local:ro
   - airflow_logs:/opt/airflow/logs
 
 x-logging: &default-logging
@@ -123,6 +135,7 @@ services:
   # MLflow Tracking Server
   # =====================
   mlflow:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-mlflow:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/mlflow/Dockerfile
@@ -176,6 +189,7 @@ services:
   # hot-loads them into the running vLLM via its REST API.
   # =====================
   vllm-adapter-sync:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-adapter-sync:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/adapter-sync/Dockerfile
@@ -190,7 +204,7 @@ services:
       REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES}
 
     volumes:
-      - ${PROJECT_ROOT}/assets/adapters:/adapters:rw
+      - ${ASSETS_ROOT}/adapters:/adapters:rw
 
     depends_on:
       vllm:
@@ -244,8 +258,8 @@ services:
       - "127.0.0.1:${VLLM_PORT}:8000"
 
     volumes:
-      - ${PROJECT_ROOT}/assets/models:/models:rw
-      - ${PROJECT_ROOT}/assets/adapters:/adapters:rw
+      - ${ASSETS_ROOT}/models:/models:rw
+      - ${ASSETS_ROOT}/adapters:/adapters:rw
 
     depends_on:
       mlflow:
@@ -355,6 +369,7 @@ services:
   # Embeddings Service (sentence-transformers)
   # =====================
   embeddings:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-embeddings:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/embeddings/Dockerfile
@@ -380,6 +395,7 @@ services:
   # Reranker Service (cross-encoder)
   # =====================
   reranker:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-reranker:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/reranker/Dockerfile
@@ -404,6 +420,7 @@ services:
   # Celery Worker (LLM Task Execution)
   # =====================
   celery-worker:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-celery:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/celery/Dockerfile
@@ -434,6 +451,7 @@ services:
   # Uses a fat image with all task dependencies pre-installed.
   # =====================
   airflow-worker:
+    image: *airflow-worker-image
     build: *airflow-worker-build
     # Low concurrency: eval tasks (BERTScore, etc.) load large models into RAM.
     # The default (== CPU count) causes OOM kills.
@@ -446,6 +464,10 @@ services:
     volumes:
       - ${PROJECT_ROOT}/dags:/opt/airflow/dags
       - ${PROJECT_ROOT}:/opt/airflow/project
+      - ${ASSETS_ROOT}/datasets:/opt/airflow/project/assets/datasets
+      - ${ASSETS_ROOT}/rag_data:/opt/airflow/project/assets/rag_data
+      - ${ARTIFACTS_ROOT}/training:/opt/airflow/project/artifacts/training
+      - ${DVC_CONFIG_LOCAL_PATH}:/opt/airflow/project/.dvc/config.local:ro
       - airflow_logs:/opt/airflow/logs
     depends_on:
       rabbitmq:
@@ -453,8 +475,6 @@ services:
       postgres:
         condition: service_healthy
       airflow-init:
-        condition: service_completed_successfully
-      airflow-prepare-dirs:
         condition: service_completed_successfully
       airflow-webserver:
         condition: service_healthy
@@ -481,6 +501,7 @@ services:
   # Concurrency 1: each training job needs exclusive GPU access.
   # =====================
   airflow-worker-gpu:
+    image: *airflow-worker-gpu-image
     build: *airflow-worker-gpu-build
     command: celery worker --queues gpu --concurrency 1
     environment:
@@ -489,6 +510,10 @@ services:
     volumes:
       - ${PROJECT_ROOT}/dags:/opt/airflow/dags
       - ${PROJECT_ROOT}:/opt/airflow/project
+      - ${ASSETS_ROOT}/datasets:/opt/airflow/project/assets/datasets
+      - ${ASSETS_ROOT}/rag_data:/opt/airflow/project/assets/rag_data
+      - ${ARTIFACTS_ROOT}/training:/opt/airflow/project/artifacts/training
+      - ${DVC_CONFIG_LOCAL_PATH}:/opt/airflow/project/.dvc/config.local:ro
       - airflow_logs:/opt/airflow/logs
     depends_on:
       rabbitmq:
@@ -496,8 +521,6 @@ services:
       postgres:
         condition: service_healthy
       airflow-init:
-        condition: service_completed_successfully
-      airflow-prepare-dirs:
         condition: service_completed_successfully
       airflow-webserver:
         condition: service_healthy
@@ -529,6 +552,7 @@ services:
   # Code execution sandbox sidecar
   # =====================
   code-sandbox:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-code-sandbox:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/code-sandbox/Dockerfile
@@ -554,6 +578,7 @@ services:
   # Agent Gateway (FastAPI)
   # =====================
   gateway:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-gateway:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/gateway/Dockerfile
@@ -614,6 +639,7 @@ services:
   # Agent UI (Streamlit)
   # =====================
   ui:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-ui:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/ui/Dockerfile
@@ -760,41 +786,10 @@ services:
     logging: *default-logging
     restart: unless-stopped
 
-  # Airflow – ensure DAG output directories are writable (one-shot)
-  # The project root is bind-mounted from the host, so files keep the
-  # host UID.  The airflow user inside the container (UID 50000) cannot
-  # write to those directories.  This service runs as root to create
-  # the directories and hand ownership to the airflow user.
-  # =====================
-  airflow-prepare-dirs:
-    build: *airflow-common-build
-    user: "0:0"
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        mkdir -p /opt/airflow/project/assets/rag_data/arxiv
-        mkdir -p /opt/airflow/project/assets/rag_data/pytorch_docs
-        chown -R 50000:0 /opt/airflow/project/assets/rag_data
-        chmod -R 775 /opt/airflow/project/assets/rag_data
-        # Training DAGs write Hydra outputs, checkpoints, and exports here.
-        mkdir -p /opt/airflow/project/artifacts/training/hydra
-        mkdir -p /opt/airflow/project/artifacts/training/runs
-        chown -R 50000:0 /opt/airflow/project/artifacts/training
-        chmod -R 775 /opt/airflow/project/artifacts/training
-        # DVC uses .dvc/tmp/lock and other temp files during `dvc add/push`
-        mkdir -p /opt/airflow/project/.dvc/tmp
-        chown -R 50000:0 /opt/airflow/project/.dvc
-        chmod -R 775 /opt/airflow/project/.dvc
-        echo "RAG data, training artifacts, and DVC directories prepared."
-    volumes:
-      - ${PROJECT_ROOT}:/opt/airflow/project
-    logging: *default-logging
-    restart: "no"
-
   # Airflow – database migration & admin user (one-shot)
   # =====================
   airflow-init:
+    image: *airflow-common-image
     build: *airflow-common-build
     entrypoint: /bin/bash
     command:
@@ -895,6 +890,7 @@ services:
   # Airflow Webserver
   # =====================
   airflow-webserver:
+    image: *airflow-common-image
     build: *airflow-common-build
     command: api-server
     environment:
@@ -906,8 +902,6 @@ services:
     volumes: *airflow-common-volumes
     depends_on:
       airflow-init:
-        condition: service_completed_successfully
-      airflow-prepare-dirs:
         condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
@@ -927,6 +921,7 @@ services:
   # Airflow Scheduler (CeleryExecutor)
   # =====================
   airflow-dag-processor:
+    image: *airflow-common-image
     build: *airflow-common-build
     command: dag-processor
     environment:
@@ -934,8 +929,6 @@ services:
     volumes: *airflow-common-volumes
     depends_on:
       airflow-init:
-        condition: service_completed_successfully
-      airflow-prepare-dirs:
         condition: service_completed_successfully
       airflow-webserver:
         condition: service_healthy
@@ -952,6 +945,7 @@ services:
     restart: unless-stopped
 
   airflow-scheduler:
+    image: *airflow-common-image
     build: *airflow-common-build
     command: scheduler
     environment:
@@ -959,8 +953,6 @@ services:
     volumes: *airflow-common-volumes
     depends_on:
       airflow-init:
-        condition: service_completed_successfully
-      airflow-prepare-dirs:
         condition: service_completed_successfully
       airflow-webserver:
         condition: service_healthy
@@ -982,6 +974,7 @@ services:
   # JupyterLab
   # =====================
   jupyter:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-jupyter:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/jupyter/Dockerfile
@@ -1004,7 +997,7 @@ services:
     volumes:
       - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
       - ${PROJECT_ROOT}/experiments:/home/jovyan/experiments:rw
-      - ${PROJECT_ROOT}/assets:/home/jovyan/assets:rw
+      - ${ASSETS_ROOT}:/home/jovyan/assets:rw
       - ${PROJECT_ROOT}/dags:/home/jovyan/dags:rw
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8888/jupyter/api || exit 1"]

@@ -5,10 +5,10 @@ import logging
 import uuid as _uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Literal, Sequence
 
 from gateway.config import get_settings
-from gateway.schemas.openai_chat import ChatCompletionRequest
+from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
 from gateway.services.budget import build_budget_meta
 from gateway.services.celery_client import CeleryClient
 from gateway.services.prompt_builder import PromptBuilder
@@ -16,7 +16,7 @@ from gateway.services.rag_service import RAGService
 from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
-from shared.config import get_kb_config
+from shared.config import get_kb_config, get_knowledge_bases
 from shared.vllm_payloads import (
     canonicalize_assistant_content,
 )
@@ -34,6 +34,14 @@ class PreparedChatRequest:
     budget_meta: dict[str, int]
     rag_context_chunks: list[dict[str, Any]]
     prompt_messages: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class ResolvedRAGRequest:
+    mode: Literal["auto", "off", "explicit"]
+    sources: tuple[RAGSource, ...]
+    rag_requested: bool
+    task_has_knowledge_bases: bool
 
 
 class _ProcessChat:
@@ -77,6 +85,38 @@ class _ProcessChat:
             self._rag_service.validate_knowledge_bases()
 
         return self._rag_service
+
+    def reload_config_caches(self, *, settings=None) -> None:
+        """Invalidate and best-effort rebuild config-derived caches.
+
+        Reload is intentionally fail-open: cache rebuild issues are logged and
+        runtime request handling falls back to lazy rebuild or safe defaults.
+        """
+        if settings is None:
+            settings = get_settings()
+
+        self._router.invalidate_cache()
+        try:
+            self._router.warm_cache()
+        except Exception:
+            logger.warning("Task router cache warmup failed after config reload", exc_info=True)
+
+        if self._rag_service is not None:
+            self._rag_service.invalidate_caches()
+
+        try:
+            rag_service = self.ensure_rag_service(settings=settings, validate=True)
+        except Exception:
+            logger.warning("RAG service validation failed after config reload", exc_info=True)
+            return
+
+        if rag_service is None:
+            return
+
+        try:
+            rag_service.warm_caches()
+        except Exception:
+            logger.warning("RAG cache warmup failed after config reload", exc_info=True)
 
     def _client(self) -> VllmOpenAIClient:
         settings = get_settings()
@@ -122,15 +162,78 @@ class _ProcessChat:
             if key not in disallowed and value is not None
         }
 
-    def _retrieve_rag_chunks(
+    @staticmethod
+    def _task_has_knowledge_bases(task: str) -> bool:
+        task_cfg = get_knowledge_bases().get(task)
+        return bool(task_cfg and task_cfg.knowledge_bases)
+
+    def _resolve_rag_request(
         self,
         req: ChatCompletionRequest,
+        *,
+        task: str,
+    ) -> ResolvedRAGRequest:
+        task_has_knowledge_bases = self._task_has_knowledge_bases(task)
+
+        if req.rag_sources is None:
+            return ResolvedRAGRequest(
+                mode="auto",
+                sources=(),
+                rag_requested=False,
+                task_has_knowledge_bases=task_has_knowledge_bases,
+            )
+
+        if not req.rag_sources:
+            return ResolvedRAGRequest(
+                mode="off",
+                sources=(),
+                rag_requested=False,
+                task_has_knowledge_bases=task_has_knowledge_bases,
+            )
+
+        return ResolvedRAGRequest(
+            mode="explicit",
+            sources=tuple(req.rag_sources),
+            rag_requested=True,
+            task_has_knowledge_bases=task_has_knowledge_bases,
+        )
+
+    def _auto_select_rag_sources(
+        self,
+        *,
+        query: str,
+        task: str,
+    ) -> tuple[RAGSource, ...]:
+        rag_service = self.ensure_rag_service()
+        if rag_service is None or not rag_service.enabled:
+            return ()
+
+        try:
+            return tuple(rag_service.select_knowledge_bases(query, task))
+        except Exception:
+            logger.warning(
+                "Automatic KB selection failed for task=%s",
+                task,
+                exc_info=True,
+            )
+            return ()
+
+    @staticmethod
+    def _resolve_task_model(task: str, *, settings: Any) -> str:
+        task_cfg = get_knowledge_bases().get(task)
+        if task_cfg is not None and task_cfg.adapter.enabled:
+            return f"{task_cfg.adapter.name}-{task_cfg.adapter.alias}"
+        return settings.default_model
+
+    def _retrieve_rag_chunks(
+        self,
+        rag_sources: Sequence[RAGSource],
         *,
         last_user: str,
     ) -> dict[str, list[dict[str, Any]]]:
         rag_chunks_by_source: dict[str, list[dict[str, Any]]] = {}
 
-        if not req.rag_sources:
+        if not rag_sources:
             return rag_chunks_by_source
 
         rag_service = self.ensure_rag_service()
@@ -140,7 +243,7 @@ class _ProcessChat:
                 "RAG sources were requested, but the RAG service is disabled or unavailable"
             )
 
-        for src in req.rag_sources:
+        for src in rag_sources:
             kb_cfg = get_kb_config(src.knowledge_base)
             effective_alias = src.alias or (kb_cfg.default_alias if kb_cfg else "champion")
             logger.info(
@@ -182,20 +285,36 @@ class _ProcessChat:
         settings = get_settings()
         last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
         decision = self._router.decide(last_user)
+        rag_request = self._resolve_rag_request(req, task=decision.task)
 
-        rag_chunks_by_source = self._retrieve_rag_chunks(req, last_user=last_user)
+        rag_sources = rag_request.sources
+        rag_requested = rag_request.rag_requested
+        if (
+            rag_request.mode == "auto"
+            and rag_request.task_has_knowledge_bases
+            and settings.rag_enabled
+        ):
+            rag_requested = True
+            rag_sources = self._auto_select_rag_sources(query=last_user, task=decision.task)
+
+        rag_chunks_by_source = self._retrieve_rag_chunks(
+            rag_sources,
+            last_user=last_user,
+        )
         prompt = self._prompt_builder.build_budgeted_messages(
             task=decision.task,
             request_messages=[m.model_dump(exclude_none=True) for m in req.messages],
             rag_chunks_by_source=rag_chunks_by_source,
-            rag_requested=bool(req.rag_sources),
+            rag_requested=rag_requested,
             settings=settings,
         )
 
         logger.info("Built budgeted prompt with %s message(s)", len(prompt.messages))
 
         generation_payload: dict[str, Any] = {
-            "model": req.model if req.model else settings.default_model,
+            "model": req.model
+            if req.model
+            else self._resolve_task_model(decision.task, settings=settings),
             "messages": prompt.messages,
             "temperature": req.temperature,
             "top_p": req.top_p,
