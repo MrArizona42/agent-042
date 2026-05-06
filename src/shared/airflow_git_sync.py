@@ -71,10 +71,20 @@ def build_github_remote_url(repo: GitHubRepo, token: str) -> str:
     return f"https://x-access-token:{quote(token, safe='')}@github.com/{repo.slug}.git"
 
 
-def replace_with_symlink(
-    *, clone_root: Path, dataset_rel_path: str | Path, source_dir: Path
+def _link_or_copy_file(source_path: Path, destination_path: Path) -> Path:
+    """Stage a file cheaply when possible, falling back to a regular copy."""
+    try:
+        os.link(source_path, destination_path)
+    except OSError:
+        shutil.copy2(source_path, destination_path)
+
+    return destination_path
+
+
+def stage_dataset_path(
+    *, clone_root: Path, dataset_rel_path: str | Path, source_path: Path
 ) -> Path:
-    """Replace the dataset path inside the clone with a symlink to shared data."""
+    """Replace the dataset path inside the clone with a real staged copy."""
     tracked = dvc_tracked_paths(dataset_rel_path)
     destination = clone_root / tracked.dataset_rel_path
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -84,7 +94,11 @@ def replace_with_symlink(
     elif destination.exists():
         shutil.rmtree(destination)
 
-    destination.symlink_to(source_dir, target_is_directory=True)
+    if source_path.is_dir():
+        shutil.copytree(source_path, destination, copy_function=_link_or_copy_file)
+    else:
+        _link_or_copy_file(source_path, destination)
+
     return destination
 
 
@@ -146,10 +160,10 @@ def sync_dvc_dataset_via_temp_clone(
         clone_dvc_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(local_dvc_config, clone_dvc_dir / "config.local")
 
-        replace_with_symlink(
+        stage_dataset_path(
             clone_root=clone_dir,
             dataset_rel_path=tracked.dataset_rel_path,
-            source_dir=source_dir,
+            source_path=source_dir,
         )
 
         dataset_rel_str = tracked.dataset_rel_path.as_posix()

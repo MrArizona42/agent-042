@@ -17,7 +17,7 @@ airflow_git_sync = importlib.import_module("shared.airflow_git_sync")
 GitHubRepo = airflow_git_sync.GitHubRepo
 build_github_remote_url = airflow_git_sync.build_github_remote_url
 dvc_tracked_paths = airflow_git_sync.dvc_tracked_paths
-replace_with_symlink = airflow_git_sync.replace_with_symlink
+stage_dataset_path = airflow_git_sync.stage_dataset_path
 run_command = airflow_git_sync._run
 
 
@@ -53,7 +53,7 @@ def test_build_github_remote_url_escapes_token() -> None:
     )
 
 
-def test_replace_with_symlink_replaces_existing_dataset_dir(tmp_path: Path) -> None:
+def test_stage_dataset_path_replaces_existing_dataset_dir(tmp_path: Path) -> None:
     clone_root = tmp_path / "clone"
     source_dir = tmp_path / "shared" / "arxiv"
     destination = clone_root / "assets" / "rag_data" / "arxiv"
@@ -63,14 +63,15 @@ def test_replace_with_symlink_replaces_existing_dataset_dir(tmp_path: Path) -> N
     destination.mkdir(parents=True)
     (destination / "stale.txt").write_text("old", encoding="utf-8")
 
-    symlink_path = replace_with_symlink(
+    staged_path = stage_dataset_path(
         clone_root=clone_root,
         dataset_rel_path="assets/rag_data/arxiv",
-        source_dir=source_dir,
+        source_path=source_dir,
     )
 
-    assert symlink_path.is_symlink()
-    assert symlink_path.resolve() == source_dir.resolve()
+    assert staged_path.is_dir()
+    assert not staged_path.is_symlink()
+    assert (staged_path / "payload.json").read_text(encoding="utf-8") == "[]"
 
 
 def test_run_redacts_github_token_in_command_failures(
