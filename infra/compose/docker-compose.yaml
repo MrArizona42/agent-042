@@ -56,13 +56,19 @@ x-airflow-common-build: &airflow-common-build
   context: ${PROJECT_ROOT}
   dockerfile: infra/docker/airflow/Dockerfile
 
+x-airflow-common-image: &airflow-common-image "ghcr.io/${GITHUB_REPOSITORY}-airflow:${IMAGE_TAG}"
+
 x-airflow-worker-build: &airflow-worker-build
   context: ${PROJECT_ROOT}
   dockerfile: infra/docker/airflow-worker/Dockerfile
 
+x-airflow-worker-image: &airflow-worker-image "ghcr.io/${GITHUB_REPOSITORY}-airflow-worker:${IMAGE_TAG}"
+
 x-airflow-worker-gpu-build: &airflow-worker-gpu-build
   context: ${PROJECT_ROOT}
   dockerfile: infra/docker/airflow-worker-gpu/Dockerfile
+
+x-airflow-worker-gpu-image: &airflow-worker-gpu-image "ghcr.io/${GITHUB_REPOSITORY}-airflow-worker-gpu:${IMAGE_TAG}"
 
 x-airflow-common-volumes: &airflow-common-volumes
   - ${PROJECT_ROOT}/dags:/opt/airflow/dags
@@ -129,6 +135,7 @@ services:
   # MLflow Tracking Server
   # =====================
   mlflow:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-mlflow:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/mlflow/Dockerfile
@@ -182,6 +189,7 @@ services:
   # hot-loads them into the running vLLM via its REST API.
   # =====================
   vllm-adapter-sync:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-adapter-sync:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/adapter-sync/Dockerfile
@@ -361,6 +369,7 @@ services:
   # Embeddings Service (sentence-transformers)
   # =====================
   embeddings:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-embeddings:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/embeddings/Dockerfile
@@ -386,6 +395,7 @@ services:
   # Reranker Service (cross-encoder)
   # =====================
   reranker:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-reranker:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/reranker/Dockerfile
@@ -410,6 +420,7 @@ services:
   # Celery Worker (LLM Task Execution)
   # =====================
   celery-worker:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-celery:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/celery/Dockerfile
@@ -440,6 +451,7 @@ services:
   # Uses a fat image with all task dependencies pre-installed.
   # =====================
   airflow-worker:
+    image: *airflow-worker-image
     build: *airflow-worker-build
     # Low concurrency: eval tasks (BERTScore, etc.) load large models into RAM.
     # The default (== CPU count) causes OOM kills.
@@ -489,6 +501,7 @@ services:
   # Concurrency 1: each training job needs exclusive GPU access.
   # =====================
   airflow-worker-gpu:
+    image: *airflow-worker-gpu-image
     build: *airflow-worker-gpu-build
     command: celery worker --queues gpu --concurrency 1
     environment:
@@ -539,6 +552,7 @@ services:
   # Code execution sandbox sidecar
   # =====================
   code-sandbox:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-code-sandbox:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/code-sandbox/Dockerfile
@@ -564,6 +578,7 @@ services:
   # Agent Gateway (FastAPI)
   # =====================
   gateway:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-gateway:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/gateway/Dockerfile
@@ -624,6 +639,7 @@ services:
   # Agent UI (Streamlit)
   # =====================
   ui:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-ui:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/ui/Dockerfile
@@ -773,6 +789,7 @@ services:
   # Airflow – database migration & admin user (one-shot)
   # =====================
   airflow-init:
+    image: *airflow-common-image
     build: *airflow-common-build
     entrypoint: /bin/bash
     command:
@@ -873,6 +890,7 @@ services:
   # Airflow Webserver
   # =====================
   airflow-webserver:
+    image: *airflow-common-image
     build: *airflow-common-build
     command: api-server
     environment:
@@ -903,6 +921,7 @@ services:
   # Airflow Scheduler (CeleryExecutor)
   # =====================
   airflow-dag-processor:
+    image: *airflow-common-image
     build: *airflow-common-build
     command: dag-processor
     environment:
@@ -926,6 +945,7 @@ services:
     restart: unless-stopped
 
   airflow-scheduler:
+    image: *airflow-common-image
     build: *airflow-common-build
     command: scheduler
     environment:
@@ -954,6 +974,7 @@ services:
   # JupyterLab
   # =====================
   jupyter:
+    image: "ghcr.io/${GITHUB_REPOSITORY}-jupyter:${IMAGE_TAG}"
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/jupyter/Dockerfile
