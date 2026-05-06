@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
+from subprocess import CompletedProcess
 
 import pytest
 
@@ -17,6 +18,7 @@ GitHubRepo = airflow_git_sync.GitHubRepo
 build_github_remote_url = airflow_git_sync.build_github_remote_url
 dvc_tracked_paths = airflow_git_sync.dvc_tracked_paths
 replace_with_symlink = airflow_git_sync.replace_with_symlink
+run_command = airflow_git_sync._run
 
 
 def test_github_repo_from_slug_parses_owner_and_name() -> None:
@@ -69,3 +71,29 @@ def test_replace_with_symlink_replaces_existing_dataset_dir(tmp_path: Path) -> N
 
     assert symlink_path.is_symlink()
     assert symlink_path.resolve() == source_dir.resolve()
+
+
+def test_run_redacts_github_token_in_command_failures(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_run(*args: object, **kwargs: object) -> CompletedProcess[str]:
+        return CompletedProcess(
+            args=args[0],
+            returncode=1,
+            stdout="",
+            stderr="fatal: authentication failed",
+        )
+
+    monkeypatch.setattr(airflow_git_sync.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match=r"\*\*\*") as exc_info:
+        run_command(
+            [
+                "git",
+                "clone",
+                "https://x-access-token:secret-token@github.com/octocat/hello-world.git",
+            ],
+            cwd=tmp_path,
+        )
+
+    assert "secret-token" not in str(exc_info.value)

@@ -275,6 +275,23 @@ def _require_tool(name: str) -> None:
         raise RuntimeError(f"Required CLI tool '{name}' is not available in PATH")
 
 
+def _sanitize_cmd_for_error(cmd: list[str]) -> str:
+    sanitized_parts: list[str] = []
+    prefix = "https://x-access-token:"
+    suffix = "@github.com/"
+
+    for part in cmd:
+        if prefix not in part or suffix not in part:
+            sanitized_parts.append(part)
+            continue
+
+        token_start = part.index(prefix) + len(prefix)
+        token_end = part.index(suffix, token_start)
+        sanitized_parts.append(f"{part[:token_start]}***{part[token_end:]}")
+
+    return " ".join(sanitized_parts)
+
+
 def _run(cmd: list[str], *, cwd: Path, capture_output: bool = False) -> str:
     env = os.environ.copy()
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
@@ -287,8 +304,9 @@ def _run(cmd: list[str], *, cwd: Path, capture_output: bool = False) -> str:
         capture_output=True,
     )
     if result.returncode != 0:
+        sanitized_cmd = _sanitize_cmd_for_error(cmd)
         raise RuntimeError(
-            f"Command failed ({result.returncode}): {' '.join(cmd)}\n"
+            f"Command failed ({result.returncode}): {sanitized_cmd}\n"
             f"stdout:\n{result.stdout}\n"
             f"stderr:\n{result.stderr}"
         )
