@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: Pre-commit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install lint dependencies
+        run: uv sync --locked --group lint
+
+      - name: Run pre-commit
+        run: uv run --no-sync pre-commit run --all-files --show-diff-on-failure
+
+  pytest-core:
+    name: Pytest core
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ROOT: ${{ github.workspace }}
+      PYTHONPATH: src
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install core test dependencies
+        run: >-
+          uv sync --locked --group test
+          --extra gateway
+          --extra ui
+          --extra worker
+          --extra rag
+          --extra airflow-worker
+
+      - name: Run core pytest suite
+        run: >-
+          uv run --no-sync python -m pytest -q
+          tests/api
+          tests/auth
+          tests/eval
+          tests/gateway
+          tests/rag
+          tests/ui
+          tests/worker
+
+  pytest-training:
+    name: Pytest training
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ROOT: ${{ github.workspace }}
+      PYTHONPATH: src
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install training test dependencies
+        run: uv sync --locked --group test --extra training
+
+      - name: Run training pytest suite
+        run: uv run --no-sync python -m pytest -q tests/training

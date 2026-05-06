@@ -25,7 +25,6 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 from airflow import DAG
-from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.python import PythonOperator
 
 # ---------------------------------------------------------------------------
@@ -58,8 +57,6 @@ PYTORCH_PAGES: list[str] = [
 ]
 
 # Paths as strings for bash commands
-_project_root = str(PROJECT_ROOT)
-_pytorch_rel = str(PYTORCH_OUTPUT_DIR.relative_to(PROJECT_ROOT))
 _pytorch_json = str(PYTORCH_OUTPUT_DIR / "pytorch_docs.json")
 
 
@@ -72,6 +69,10 @@ def _bootstrap_project_imports() -> None:
 
 
 _bootstrap_project_imports()
+sync_dvc_dataset_via_temp_clone = importlib.import_module(
+    "shared.airflow_git_sync"
+).sync_dvc_dataset_via_temp_clone
+
 scrape_pytorch_doc_page = importlib.import_module(
     "shared.pytorch_docs_scraper"
 ).scrape_pytorch_doc_page
@@ -129,6 +130,19 @@ def _update_pytorch_index() -> dict[str, object]:
     )
 
 
+def _version_pytorch_dataset() -> dict[str, str | bool]:
+    """Persist PyTorch docs dataset pointer updates through a temp clone."""
+    return sync_dvc_dataset_via_temp_clone(
+        repo_root=PROJECT_ROOT,
+        dataset_rel_path=Path("assets/rag_data/pytorch_docs"),
+        commit_message="chore(data-sync): refresh pytorch docs rag dataset",
+        pr_title="chore(data-sync): refresh pytorch docs rag dataset",
+        pr_body=(
+            "Automated PyTorch docs RAG dataset refresh produced by the Airflow weekly sync DAG."
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # DAG definition
 # ---------------------------------------------------------------------------
@@ -147,9 +161,9 @@ with DAG(
         python_callable=_collect_pytorch_docs,
     )
 
-    dvc_version = BashOperator(
+    dvc_version = PythonOperator(
         task_id="dvc_version_pytorch",
-        bash_command=f"cd {_project_root} && dvc add {_pytorch_rel} && dvc push ",
+        python_callable=_version_pytorch_dataset,
     )
 
     # Champion-only rebuild via the replace strategy.

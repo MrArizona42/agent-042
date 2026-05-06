@@ -52,18 +52,29 @@ champion vs champion+reranker используя существующую eval-�
 
 ---
 
-### 2.3 CI/CD: hosted workflows
+### 2.3 Delivery workflow and CI/CD
 
 **Текущее состояние**: quality gates только через локальные pre-commit hooks, ruff, pytest.
-Нет hosted CI/CD.
+Server deployment по-прежнему завязан на live git checkout: ветки переключаются и pull-ятся на
+одном узле, а runtime tree одновременно является и deployment target, и Git workspace.
 
 **Целевое**:
-1. Pre-commit hooks (ruff, mypy) run on push
-2. `pytest` полный прогон на push / PR
-3. Docker image builds on merge to `main` (validates all Dockerfiles build successfully)
-4. Push images to container registry (GitHub Container Registry) с тегом по git SHA и `latest`
+1. Hosted CI: pre-commit и полный `pytest` на push / PR для любой ветки
+2. Один deploy entrypoint для same-node deployment: выбрать ветку и развернуть clean release без
+  `.git` в runtime tree
+3. Manual branch deploy workflow/script с input `branch`, который делает export выбранной ветки в
+  fresh release dir вместо ручной серии `git switch` + `git pull` + compose rebuild
+4. Optional server-side admin workspace только для Git-mutating operator tasks, но не для runtime
+  deployment
+5. Optional image builds только как branch-aware optimization поверх clean-release flow
+6. Persistent state mounts и ownership cleanup только там, где данные должны переживать release
+  replacement
 
-**Новые файлы**: `.github/workflows/ci.yml`.
+**Детальный план**: `DELIVERY-WORKFLOW-PLAN.md`.
+
+**Новые файлы**: `.github/workflows/ci.yml`, `scripts/deploy_branch.sh`, optional
+`scripts/export_release.sh`, optional `.github/workflows/deploy-branch.yml`, optional
+`.github/workflows/images.yml`.
 
 ---
 
