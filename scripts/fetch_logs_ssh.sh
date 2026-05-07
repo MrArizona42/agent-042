@@ -11,8 +11,8 @@
 #   service ...           — optional list of services to dump (default: all)
 #
 # Examples:
-#   bash scripts/fetch_logs_ssh.sh deploy@10.0.0.1 /srv/agent-042
-#   bash scripts/fetch_logs_ssh.sh deploy@10.0.0.1 /srv/agent-042 gateway ui
+#   bash scripts/fetch_logs_ssh.sh deploy@10.0.0.1 /home/anton-m/agent-042
+#   bash scripts/fetch_logs_ssh.sh deploy@10.0.0.1 /home/anton-m/agent-042 gateway ui
 #
 # Requires: ssh, scp (both available via OpenSSH / Git Bash)
 #

@@ -240,6 +240,12 @@ AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: "aws_default"
 | `airflow-init` | Helm hook (`helm.sh/hook: pre-install,pre-upgrade`) |
 | `airflow-prepare-dirs` | Pod `initContainer` or dropped entirely (PVC `fsGroup`) |
 
+For the current single-node Compose rollout, the practical equivalent is host-prepared bind mounts,
+not a root sidecar. `/home/anton-m/agent-042/assets`, `/home/anton-m/agent-042/artifacts`, and
+`/home/anton-m/agent-042/.dvc/config.local` should be created once on the host and granted ACLs for the
+operator plus the effective Airflow and Jupyter UIDs before Airflow is started. See
+`scripts/setup_shared_root_permissions.sh` and `infra/README.md` for the exact Phase 2 commands.
+
 ### 4e. `sys.path.insert` in `eval_dags.py`
 
 ```python
