@@ -54,6 +54,9 @@ jobs:
           raw_sha="${{ inputs.sha }}"
           release_root="${{ inputs.release_root }}"
 
+          [[ "$branch" =~ ^[a-zA-Z0-9/_.-]+$ ]] || { echo "branch contains unsafe characters: $branch" >&2; exit 1; }
+          [[ "$release_root" =~ ^/[a-zA-Z0-9/_.-]+$ ]] || { echo "release_root contains unsafe characters: $release_root" >&2; exit 1; }
+
           git cat-file -e "$raw_sha^{commit}"
           sha="$(git rev-parse "$raw_sha")"
           git merge-base --is-ancestor "$sha" "origin/$branch"
@@ -116,7 +119,7 @@ jobs:
 
           : "${DEPLOY_PORT:=22}"
 
-          for required_var in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_PRIVATE_KEY; do
+          for required_var in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_PRIVATE_KEY DEPLOY_SSH_KNOWN_HOSTS; do
             if [[ -z "${!required_var:-}" ]]; then
               echo "$required_var is required for deploy workflow" >&2
               exit 1
@@ -134,11 +137,7 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-          if [[ -n "${DEPLOY_SSH_KNOWN_HOSTS:-}" ]]; then
-            printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          else
-            ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" > ~/.ssh/known_hosts
-          fi
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
       - name: Upload release archive
