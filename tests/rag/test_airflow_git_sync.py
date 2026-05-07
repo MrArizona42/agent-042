@@ -19,6 +19,7 @@ build_github_remote_url = airflow_git_sync.build_github_remote_url
 dvc_tracked_paths = airflow_git_sync.dvc_tracked_paths
 stage_dataset_path = airflow_git_sync.stage_dataset_path
 run_command = airflow_git_sync._run
+prime_force_with_lease_ref = airflow_git_sync._prime_force_with_lease_ref
 
 
 def test_github_repo_from_slug_parses_owner_and_name() -> None:
@@ -98,3 +99,51 @@ def test_run_redacts_github_token_in_command_failures(
         )
 
     assert "secret-token" not in str(exc_info.value)
+
+
+def test_prime_force_with_lease_ref_fetches_existing_remote_branch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(
+        airflow_git_sync,
+        "_remote_branch_exists",
+        lambda *, clone_dir, branch: True,
+    )
+
+    def fake_run(cmd: list[str], *, cwd: Path, capture_output: bool = False) -> str:
+        commands.append(cmd)
+        return ""
+
+    monkeypatch.setattr(airflow_git_sync, "_run", fake_run)
+
+    prime_force_with_lease_ref(clone_dir=tmp_path, branch="data-sync/develop")
+
+    assert commands == [
+        [
+            "git",
+            "fetch",
+            "--depth",
+            "1",
+            "origin",
+            "refs/heads/data-sync/develop:refs/remotes/origin/data-sync/develop",
+        ]
+    ]
+
+
+def test_prime_force_with_lease_ref_skips_missing_remote_branch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        airflow_git_sync,
+        "_remote_branch_exists",
+        lambda *, clone_dir, branch: False,
+    )
+
+    def fail_run(*args: object, **kwargs: object) -> str:
+        raise AssertionError("git fetch should not run when the remote branch is absent")
+
+    monkeypatch.setattr(airflow_git_sync, "_run", fail_run)
+
+    prime_force_with_lease_ref(clone_dir=tmp_path, branch="data-sync/develop")
