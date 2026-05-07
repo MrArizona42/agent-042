@@ -1,0 +1,188 @@
+name: Deploy Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch that should contain the target commit
+        required: true
+        type: string
+      sha:
+        description: Exact commit SHA to deploy
+        required: true
+        type: string
+      release_root:
+        description: Canonical deploy root on the server
+        required: true
+        default: /home/anton-m/agent-042
+        type: string
+      keep_releases:
+        description: Number of release directories to retain after a successful deploy
+        required: true
+        default: '5'
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    name: Deploy exact release
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets['DEPLOY_SSH_HOST'] }}
+      DEPLOY_USER: ${{ secrets['DEPLOY_SSH_USER'] }}
+      DEPLOY_PORT: ${{ vars['DEPLOY_SSH_PORT'] }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets['DEPLOY_SSH_PRIVATE_KEY'] }}
+      DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets['DEPLOY_SSH_KNOWN_HOSTS'] }}
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+
+      - name: Resolve target release
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          branch="${{ inputs.branch }}"
+          raw_sha="${{ inputs.sha }}"
+          release_root="${{ inputs.release_root }}"
+
+          git cat-file -e "$raw_sha^{commit}"
+          sha="$(git rev-parse "$raw_sha")"
+          git merge-base --is-ancestor "$sha" "origin/$branch"
+
+          branch_slug="$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]' | sed -E 's#[^a-z0-9]+#-#g; s#(^-+|-+$)##g')"
+          sha_short="${sha:0:12}"
+          image_tag="$branch_slug-$sha_short"
+          release_dir="$release_root/releases/$sha"
+          repository_lower="$(printf '%s' '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "branch_slug=$branch_slug" >> "$GITHUB_OUTPUT"
+          echo "sha_short=$sha_short" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+          echo "release_root=$release_root" >> "$GITHUB_OUTPUT"
+          echo "release_dir=$release_dir" >> "$GITHUB_OUTPUT"
+          echo "repository_lower=$repository_lower" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify release images exist
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          images=(
+            adapter-sync
+            airflow
+            airflow-worker
+            airflow-worker-gpu
+            celery
+            code-sandbox
+            embeddings
+            gateway
+            jupyter
+            mlflow
+            reranker
+            ui
+          )
+
+          for image in "${images[@]}"; do
+            image_ref="ghcr.io/${{ steps.resolve.outputs.repository_lower }}-$image:${{ steps.resolve.outputs.image_tag }}"
+            echo "Checking $image_ref"
+            docker buildx imagetools inspect "$image_ref" >/dev/null
+          done
+
+      - name: Validate SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : "${DEPLOY_PORT:=22}"
+
+          for required_var in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_PRIVATE_KEY; do
+            if [[ -z "${!required_var:-}" ]]; then
+              echo "$required_var is required for deploy workflow" >&2
+              exit 1
+            fi
+          done
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : "${DEPLOY_PORT:=22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          if [[ -n "${DEPLOY_SSH_KNOWN_HOSTS:-}" ]]; then
+            printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" > ~/.ssh/known_hosts
+          fi
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Upload release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : "${DEPLOY_PORT:=22}"
+          ssh_target="$DEPLOY_USER@$DEPLOY_HOST"
+          release_root="${{ steps.resolve.outputs.release_root }}"
+          release_dir="${{ steps.resolve.outputs.release_dir }}"
+
+          ssh -p "$DEPLOY_PORT" "$ssh_target" "mkdir -p '$release_root/releases' && rm -rf '$release_dir' && mkdir -p '$release_dir'"
+
+          git archive --format=tar "${{ steps.resolve.outputs.sha }}" |
+            ssh -p "$DEPLOY_PORT" "$ssh_target" "tar -xf - -C '$release_dir'"
+
+      - name: Deploy on server
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : "${DEPLOY_PORT:=22}"
+          ssh_target="$DEPLOY_USER@$DEPLOY_HOST"
+
+          ssh -p "$DEPLOY_PORT" "$ssh_target" \
+            "bash '${{ steps.resolve.outputs.release_dir }}/scripts/deploy_release.sh' \
+              --release-root '${{ steps.resolve.outputs.release_root }}' \
+              --release-dir '${{ steps.resolve.outputs.release_dir }}' \
+              --env-file '${{ steps.resolve.outputs.release_root }}/.env' \
+              --image-tag '${{ steps.resolve.outputs.image_tag }}' \
+              --source-branch '${{ steps.resolve.outputs.branch }}' \
+              --source-sha '${{ steps.resolve.outputs.sha }}' \
+              --keep-releases '${{ inputs.keep_releases }}'"
+
+      - name: Summarize deployment
+        shell: bash
+        run: |
+          {
+            echo "### Release deployed"
+            echo
+            echo "- Branch: ${{ steps.resolve.outputs.branch }}"
+            echo "- Commit: ${{ steps.resolve.outputs.sha }}"
+            echo "- Image tag: ${{ steps.resolve.outputs.image_tag }}"
+            echo "- Release root: ${{ steps.resolve.outputs.release_root }}"
+            echo "- Release dir: ${{ steps.resolve.outputs.release_dir }}"
+          } >> "$GITHUB_STEP_SUMMARY"

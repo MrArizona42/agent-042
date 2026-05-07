@@ -2,12 +2,19 @@ name: CI
 
 on:
   push:
-    branches:
-      - "**"
+    branches-ignore:
+      - develop
+      - main
+      - data-sync/**
   pull_request:
     branches:
       - develop
       - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
 
 permissions:
   contents: read
