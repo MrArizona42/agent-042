@@ -158,7 +158,6 @@ def sync_dvc_dataset_via_temp_clone(
             ],
             cwd=repo_root,
         )
-        _prime_force_with_lease_ref(clone_dir=clone_dir, branch=target_bot_branch)
 
         clone_dvc_dir = clone_dir / ".dvc"
         clone_dvc_dir.mkdir(parents=True, exist_ok=True)
@@ -201,11 +200,15 @@ def sync_dvc_dataset_via_temp_clone(
         _run(["git", "config", "user.email", git_author_email], cwd=clone_dir)
         _run(["git", "checkout", "-B", target_bot_branch], cwd=clone_dir)
         _run(["git", "commit", "-m", commit_message], cwd=clone_dir)
+        force_with_lease_arg = _build_force_with_lease_arg(
+            clone_dir=clone_dir,
+            branch=target_bot_branch,
+        )
         _run(
             [
                 "git",
                 "push",
-                "--force-with-lease",
+                force_with_lease_arg,
                 "origin",
                 f"HEAD:refs/heads/{target_bot_branch}",
             ],
@@ -297,26 +300,16 @@ def _require_tool(name: str) -> None:
         raise RuntimeError(f"Required CLI tool '{name}' is not available in PATH")
 
 
-def _prime_force_with_lease_ref(*, clone_dir: Path, branch: str) -> None:
-    """Fetch the remote bot branch so force-with-lease has an up-to-date lease target."""
-    if not _remote_branch_exists(clone_dir=clone_dir, branch=branch):
-        return
-
-    _run(
-        [
-            "git",
-            "fetch",
-            "--depth",
-            "1",
-            "origin",
-            f"refs/heads/{branch}:refs/remotes/origin/{branch}",
-        ],
-        cwd=clone_dir,
-    )
+def _build_force_with_lease_arg(*, clone_dir: Path, branch: str) -> str:
+    """Build an explicit force-with-lease guard for the target remote branch."""
+    remote_head = _remote_branch_head(clone_dir=clone_dir, branch=branch)
+    if remote_head is None:
+        return f"--force-with-lease=refs/heads/{branch}:"
+    return f"--force-with-lease=refs/heads/{branch}:{remote_head}"
 
 
-def _remote_branch_exists(*, clone_dir: Path, branch: str) -> bool:
-    """Return whether the remote branch already exists on origin."""
+def _remote_branch_head(*, clone_dir: Path, branch: str) -> str | None:
+    """Return the current remote branch head SHA, or None when the branch is absent."""
     env = os.environ.copy()
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
     cmd = ["git", "ls-remote", "--exit-code", "--heads", "origin", f"refs/heads/{branch}"]
@@ -329,9 +322,14 @@ def _remote_branch_exists(*, clone_dir: Path, branch: str) -> bool:
         capture_output=True,
     )
     if result.returncode == 0:
-        return True
+        stdout = result.stdout.strip()
+        if not stdout:
+            raise RuntimeError(
+                f"git ls-remote returned success without output for branch {branch!r}"
+            )
+        return stdout.split()[0]
     if result.returncode == 2:
-        return False
+        return None
 
     sanitized_cmd = _sanitize_cmd_for_error(cmd)
     raise RuntimeError(
