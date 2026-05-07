@@ -1,11 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches-ignore:
-      - develop
-      - main
-      - data-sync/**
   pull_request:
     branches:
       - develop
