@@ -71,14 +71,17 @@ def build_github_remote_url(repo: GitHubRepo, token: str) -> str:
     return f"https://x-access-token:{quote(token, safe='')}@github.com/{repo.slug}.git"
 
 
-def _link_or_copy_file(source_path: Path, destination_path: Path) -> Path:
+def _link_or_copy_file(source_path: str | Path, destination_path: str | Path) -> Path:
     """Stage a file cheaply when possible, falling back to a regular copy."""
-    try:
-        os.link(source_path, destination_path)
-    except OSError:
-        shutil.copy2(source_path, destination_path)
+    source = Path(source_path)
+    destination = Path(destination_path)
 
-    return destination_path
+    try:
+        os.link(source, destination)
+    except OSError:
+        shutil.copy2(source, destination)
+
+    return destination
 
 
 def stage_dataset_path(
@@ -197,11 +200,15 @@ def sync_dvc_dataset_via_temp_clone(
         _run(["git", "config", "user.email", git_author_email], cwd=clone_dir)
         _run(["git", "checkout", "-B", target_bot_branch], cwd=clone_dir)
         _run(["git", "commit", "-m", commit_message], cwd=clone_dir)
+        force_with_lease_arg = _build_force_with_lease_arg(
+            clone_dir=clone_dir,
+            branch=target_bot_branch,
+        )
         _run(
             [
                 "git",
                 "push",
-                "--force-with-lease",
+                force_with_lease_arg,
                 "origin",
                 f"HEAD:refs/heads/{target_bot_branch}",
             ],
@@ -216,13 +223,17 @@ def sync_dvc_dataset_via_temp_clone(
             title=pr_title,
             body=pr_body,
         )
+        pr_url = pr.get("html_url")
+        if not isinstance(pr_url, str) or not pr_url:
+            raise RuntimeError("GitHub pull request response did not include a valid html_url")
+
         return {
             "changed": True,
             "branch": target_bot_branch,
             "base_branch": base_branch,
             "dataset": tracked.dataset_rel_path.as_posix(),
             "repository": repo.slug,
-            "pr_url": pr["html_url"],
+            "pr_url": pr_url,
         }
 
 
@@ -287,6 +298,45 @@ def _github_headers(token: str) -> dict[str, str]:
 def _require_tool(name: str) -> None:
     if shutil.which(name) is None:
         raise RuntimeError(f"Required CLI tool '{name}' is not available in PATH")
+
+
+def _build_force_with_lease_arg(*, clone_dir: Path, branch: str) -> str:
+    """Build an explicit force-with-lease guard for the target remote branch."""
+    remote_head = _remote_branch_head(clone_dir=clone_dir, branch=branch)
+    if remote_head is None:
+        return f"--force-with-lease=refs/heads/{branch}:"
+    return f"--force-with-lease=refs/heads/{branch}:{remote_head}"
+
+
+def _remote_branch_head(*, clone_dir: Path, branch: str) -> str | None:
+    """Return the current remote branch head SHA, or None when the branch is absent."""
+    env = os.environ.copy()
+    env.setdefault("GIT_TERMINAL_PROMPT", "0")
+    cmd = ["git", "ls-remote", "--exit-code", "--heads", "origin", f"refs/heads/{branch}"]
+    result = subprocess.run(
+        cmd,
+        cwd=clone_dir,
+        env=env,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        stdout = result.stdout.strip()
+        if not stdout:
+            raise RuntimeError(
+                f"git ls-remote returned success without output for branch {branch!r}"
+            )
+        return stdout.split()[0]
+    if result.returncode == 2:
+        return None
+
+    sanitized_cmd = _sanitize_cmd_for_error(cmd)
+    raise RuntimeError(
+        f"Command failed ({result.returncode}): {sanitized_cmd}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
 
 
 def _sanitize_cmd_for_error(cmd: list[str]) -> str:

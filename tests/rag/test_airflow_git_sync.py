@@ -19,6 +19,7 @@ build_github_remote_url = airflow_git_sync.build_github_remote_url
 dvc_tracked_paths = airflow_git_sync.dvc_tracked_paths
 stage_dataset_path = airflow_git_sync.stage_dataset_path
 run_command = airflow_git_sync._run
+build_force_with_lease_arg = airflow_git_sync._build_force_with_lease_arg
 
 
 def test_github_repo_from_slug_parses_owner_and_name() -> None:
@@ -98,3 +99,67 @@ def test_run_redacts_github_token_in_command_failures(
         )
 
     assert "secret-token" not in str(exc_info.value)
+
+
+def test_build_force_with_lease_arg_uses_remote_branch_sha(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        airflow_git_sync,
+        "_remote_branch_head",
+        lambda *, clone_dir, branch: "abc123def456",
+    )
+
+    assert build_force_with_lease_arg(clone_dir=tmp_path, branch="data-sync/develop") == (
+        "--force-with-lease=refs/heads/data-sync/develop:abc123def456"
+    )
+
+
+def test_build_force_with_lease_arg_requires_branch_absence_when_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        airflow_git_sync,
+        "_remote_branch_head",
+        lambda *, clone_dir, branch: None,
+    )
+
+    assert build_force_with_lease_arg(clone_dir=tmp_path, branch="data-sync/develop") == (
+        "--force-with-lease=refs/heads/data-sync/develop:"
+    )
+
+
+def test_remote_branch_head_parses_ls_remote_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_run(*args: object, **kwargs: object) -> CompletedProcess[str]:
+        return CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout="abc123def456\trefs/heads/data-sync/develop\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(airflow_git_sync.subprocess, "run", fake_run)
+
+    assert airflow_git_sync._remote_branch_head(clone_dir=tmp_path, branch="data-sync/develop") == (
+        "abc123def456"
+    )
+
+
+def test_remote_branch_head_returns_none_when_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_run(*args: object, **kwargs: object) -> CompletedProcess[str]:
+        return CompletedProcess(
+            args=args[0],
+            returncode=2,
+            stdout="",
+            stderr="",
+        )
+
+    monkeypatch.setattr(airflow_git_sync.subprocess, "run", fake_run)
+
+    assert (
+        airflow_git_sync._remote_branch_head(clone_dir=tmp_path, branch="data-sync/develop") is None
+    )
