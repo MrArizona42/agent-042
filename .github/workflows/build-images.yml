@@ -1,11 +1,10 @@
 name: Build Images
 
 on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
+  push:
+    branches:
+      - develop
+      - main
   workflow_dispatch:
     inputs:
       branch:
@@ -41,19 +40,9 @@ jobs:
           set -euo pipefail
 
           should_build=true
-          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            branch="${{ github.event.workflow_run.head_branch }}"
-            sha="${{ github.event.workflow_run.head_sha }}"
-            conclusion="${{ github.event.workflow_run.conclusion }}"
-            upstream_event="${{ github.event.workflow_run.event }}"
-
-            if [[ "$conclusion" != "success" || "$upstream_event" != "push" ]]; then
-              should_build=false
-            fi
-
-            if [[ "$branch" != "develop" && "$branch" != "main" ]]; then
-              should_build=false
-            fi
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            branch="${{ github.ref_name }}"
+            sha="${{ github.sha }}"
           else
             branch="${{ inputs.branch }}"
             sha="${{ inputs.sha }}"
