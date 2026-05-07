@@ -120,8 +120,12 @@ scripts/update_locks.sh --dry-run
 - `celery-worker` — Celery worker для асинхронного выполнения LLM-задач (1 процесс, GPU-bound)
 - `gateway` — FastAPI gateway (порт хоста по умолчанию `9001` → контейнер `9000`)
 - `ui` — Streamlit UI (порт хоста по умолчанию `8501` → контейнер `8501`)
+- `embeddings` — Embedding microservice: dense vectors (`/v1/embeddings`) и sparse BM25 (`/v1/sparse-embeddings`) (порт хоста по умолчанию `8100`)
+- `reranker` — Reranker microservice: cross-encoder scoring (`/v1/rerank`) (порт хоста по умолчанию `8101`)
 - `flower` — Flower мониторинг Celery (порт хоста по умолчанию `5555` → контейнер `5555`)
 - `redisinsight` — RedisInsight мониторинг Redis (порт хоста по умолчанию `5540` → контейнер `5540`)
+- `prometheus` — Prometheus (порт хоста по умолчанию `9090` → контейнер `9090`); scrapes gateway, vLLM, RabbitMQ
+- `grafana` — Grafana (порт хоста по умолчанию `3000` → контейнер `3000`); доступна через nginx `/grafana/`; datasources: Postgres (ML analytics) + Prometheus (infra)
 - `airflow-init` — одноразовая миграция БД Airflow и создание admin-пользователя
 - `airflow-webserver` — Airflow UI (порт хоста по умолчанию `8080` → контейнер `8080`)
 - `airflow-scheduler` — Airflow Scheduler (LocalExecutor)
@@ -166,6 +170,9 @@ cp .env.example .env
 - `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
 - `FLOWER_*` — порт Flower (мониторинг Celery)
 - `REDISINSIGHT_*` — порт RedisInsight (мониторинг Redis)
+- `PROMETHEUS_PORT` — порт Prometheus (по умолчанию `9090`)
+- `GRAFANA_PORT` — порт Grafana (по умолчанию `3000`)
+- `GRAFANA_ADMIN_PASSWORD` — пароль admin-пользователя Grafana
 - `AIRFLOW_*` — конфиг Airflow (порт, БД, Fernet-ключ, admin-пользователь)
 - `JUPYTER_*` — конфиг JupyterLab (порт, токен)
 

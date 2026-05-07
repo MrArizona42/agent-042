@@ -31,7 +31,7 @@
 **FastAPI Gateway** выполняет несколько функций:
 - **Auth layer** — OIDC/OAuth2 через Google, PKCE-flow, хранение сессий в Redis, защита от CSRF
 - **User history management** — CRUD для `chat_sessions` и `chat_messages` в PostgreSQL
-- **Task routing** — классификация запроса по ключевым словам (`chat` / `summarize` / `code`, планируется отдельный оркестратор)
+- **Task routing** — embedding-based классификация запроса (`EmbeddingTaskRouter`): задача определяется по семантическому сходству с `routing_description` каждой задачи в `knowledge_bases.json`; KB auto-selection работает аналогично через `selection_description`
 - **Prompt builder** — формирование системного промпта под задачу (`chat` / `summarize` / `code`) с инъекцией RAG-контекста
 - **Redirect logic** — OAuth-редиректы на Google и обратно
 - **Discovery / introspection** — `/health`, `/config`, `/v1/models`, `/v1/knowledge-bases`
@@ -123,10 +123,17 @@
 **Мониторинг:**
 - **MLflow UI** — кривые обучения, таблицы параметров и метрик, сравнение экспериментов
 - **Airflow UI** — статус DAG-запусков, логи задач, управление расписаниями
+- **Grafana** — ML-analytics dashboards (eval score trends, adapter comparisons, chat volume) из
+  Postgres; infrastructure dashboards (request latency, error rate, vLLM GPU metrics) из
+  Prometheus; доступна по пути `/grafana/`
+- **Prometheus** — сбор метрик с gateway `/metrics`, vLLM и RabbitMQ
 - **Flower** — мониторинг Celery-воркеров: очереди, статусы задач, throughput
 - **RedisInsight** — инспекция ключей Redis: pub/sub каналы, сессионные ключи
 - **RabbitMQ Management** — очереди, consumer-ы, метрики сообщений
 
 **Развёртывание:**
-- Текущее состояние: один сервер, Docker Compose. Все сервисы описаны в `infra/compose/docker-compose.yaml`.
-- Планируется: k8s, Helm Charts, CI/CD.
+- Один сервер, Docker Compose. Все сервисы описаны в `infra/compose/docker-compose.yaml`.
+- **CI/CD** реализован: GitHub Actions валидация (проходит на каждый push), сборка
+  изображений (автоматически при мерже в develop/main) и deploy через команду
+  `scripts/deploy_release.sh` в release-ориентированный лайаут `/home/anton-m/agent-042/releases/<sha>/`.
+- Планируется: k8s, Helm Charts.

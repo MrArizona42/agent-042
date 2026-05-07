@@ -170,7 +170,8 @@ ML/DL/AI/LLM, который ускоряет поиск информации, �
 |--------|-----------|------|------------|
 | `gateway` | FastAPI | 9000 | API Gateway: аутентификация, сборка промптов, RAG, SSE streaming, prompt preview |
 | `vllm` | vLLM v0.16.0 | 8000 | OpenAI-compatible LLM inference с multi-LoRA и hot-reload |
-| `embeddings` | FastAPI + sentence-transformers | 8100 | Standalone embedding microservice |
+| `embeddings` | FastAPI + sentence-transformers | 8100 | Standalone embedding microservice; dense vectors через `/v1/embeddings`, BM25 sparse vectors через `/v1/sparse-embeddings` |
+| `reranker` | FastAPI + sentence-transformers | 8101 | Standalone reranker microservice; cross-encoder скоринг через `/v1/rerank` |
 | `celery-worker` | Celery | — | Async LLM inference: exact `/tokenize` preflight, generation через vLLM, streaming событий через Redis Pub/Sub |
 | `ui` | Streamlit | 8501 | First-party чат-интерфейс с OAuth2 и rich SSE рендерингом thinking / answer каналов |
 | `vllm-adapter-sync` | Python | — | Синхронизация MLflow Model Registry адаптеров в vLLM |
@@ -198,6 +199,8 @@ ML/DL/AI/LLM, который ускоряет поиск информации, �
 | `rabbitmq` | RabbitMQ 3 + Management | 5672/15672 | Celery broker (Airflow workers и gateway worker) |
 | `flower` | Flower | 5555 | Мониторинг Celery worker-ов |
 | `redisinsight` | RedisInsight | 5540 | Мониторинг Redis |
+| `prometheus` | Prometheus v3.4.0 | 9090 | Сбор метрик с gateway, vLLM, RabbitMQ |
+| `grafana` | Grafana OSS 13.0.1 | 3000 | ML-analytics и infrastructure dashboards; datasources: Postgres + Prometheus |
 
 **Docker network isolation:**
 
@@ -339,7 +342,8 @@ gateway and UI can render them independently.
   generate code
     * таска определяется rule-based по кейвордам или выбирается вручную в UI
 * FastAPI использует Prompt Builder, который собирает промпт
-    * **в UI можно выбрать, использовать ли RAG и какие knowledge base задействовать**
+    * **Gateway автоматически выбирает knowledge bases для задачи; пользователь не управляет
+      выбором вручную**
     * **Промпт может дополняться retrieved context из RAG**
     * Собирается Prompt Config
 * vLLM Inference Server всегда имеет загруженную базовую LLM
@@ -351,10 +355,12 @@ gateway and UI can render them independently.
 
 * Клиент делает запрос
 * Запрос попадает в API Gateway (FastAPI)
-* **FastAPI использует Task Router, который определяет задействуемую функцию: chat / summarize /
-  generate code**
-    * **таска определяется rule-based по кейвордам или выбирается вручную в UI**
-    * **под каждую таску существует свой LoRA**
+* FastAPI использует Task Router, который определяет задействуемую функцию: chat / summarize /
+  generate code
+    * **таска определяется embedding-based классификатором (`EmbeddingTaskRouter`) по семантическому
+      сходству запроса с `routing_description` каждой задачи**
+    * **под каждую таску существует свой LoRA; adapter активируется автоматически через
+      `adapter` блок в `knowledge_bases.json` (если `enabled: true`)**
 * FastAPI использует Prompt Builder, который собирает промпт
     * в UI можно выбрать, использовать ли RAG
     * **Промпт фиксированный, но разный для каждой функции**
@@ -368,24 +374,20 @@ gateway and UI can render them independently.
 
 * Клиент делает запрос
 * Запрос попадает в API Gateway (FastAPI)
-* **Между FastAPI и Task Router / Prompt Builder есть отдельный слой абстракции с
-  LLM, которая автоматизирует выбор адаптеров и RAG, а также может задействовать другие
-  инструменты.**
-    * **Подробности TBD**
-* FastAPI использует Task Router, который определяет, что нужно сделать: chat / summarize /
-  generate code
-    * **в UI можно вручную выбрать, какую задачу нужно выполнять**
-    * под каждую таску существует свой LoRA
+* **Embedding-based task routing (Layer 1) и KB auto-selection (Layer 2) уже реализованы:
+  gateway определяет задачу и knowledge bases без участия пользователя. LoRA adapter
+  выбирается автоматически из `adapter` блока в `knowledge_bases.json`.**
+    * Явный `req.model` от клиента всегда переопределяет авто-выбор (eval runner использует этот путь)
+    * Явный `req.rag_sources` от клиента переопределяет KB auto-selection; `[]` отключает RAG
+* **Планируемое расширение**: function-calling agent layer, где отдельная LLM принимает
+  решения о вызове инструментов (`search_knowledge_base`, `summarize_document`, `generate_code`,
+  `web_search`) поверх текущей routing инфраструктуры (см. `REMAINING-CHANGES.md` §2.10)
 * FastAPI использует Prompt Builder, который собирает промпт
-    * **в UI можно выбрать, использовать ли RAG**
     * Собирается Prompt Config
 * vLLM Inference Server всегда имеет загруженную базовую LLM
     * получает информацию, какой адаптер подгружать (или никакой)
     * получает промпт
     * vLLM генерирует ответ, который через FastAPI направляется клиенту
-
-> **Примечание**: Agent layer с динамическим выбором инструментов — запланированное расширение
-> (см. `REMAINING-CHANGES.md` §2.12).
 
 ### Embeddings Microservice
 
@@ -401,6 +403,7 @@ embedding-вычисления независимо.
 | `GET /health` | Health check |
 | `GET /v1/dimension` | Размерность эмбеддингов и имя модели |
 | `POST /v1/embeddings` | Batch embedding текстов → float vectors |
+| `POST /v1/sparse-embeddings` | Batch sparse (BM25) encoding текстов → sparse vectors |
 
 По умолчанию используется модель `sentence-transformers/all-MiniLM-L6-v2` с поддержкой CPU,
 CUDA и MPS devices. Batch size настраивается через `EMBEDDING_BATCH_SIZE` (по умолчанию 32).
@@ -461,8 +464,9 @@ Streamlit-приложение (`src/ui/app.py`) реализует чат-ин�
   forwarding через `GatewayClient`.
 * **Chat sessions**: боковая панель со списком сессий, создание/удаление/переключение.
   Lazy creation — сессия создаётся только при первом сообщении.
-* **Knowledge base selector**: выбор RAG knowledge bases для текущего запроса (arXiv для chat,
-  PyTorch docs для code).
+* **Авто-выбор KB**: UI не управляет выбором knowledge base вручную — gateway автоматически
+  определяет задачу и релевантные KB по семантическому сходству запроса. `rag_sources` не
+  передаётся в запросе, что означает режим авто-выбора (None = auto).
 * **Thinking visualization**: UI читает rich SSE-события `thinking_token` и `answer_token` и
   рендерит их в отдельных контейнерах: thinking expander и основной assistant frame.
 * **GatewayClient** (`src/ui/client.py`) — HTTP wrapper над Gateway API с пробросом session
@@ -485,8 +489,9 @@ RAG-система разрабатывается для двух ключевы
 * **Reranking стратегии**: методы переупорядочивания извлечённых чанков для повышения целевых метрик
   качества.
 
-> **Примечание**: RAG hybrid-search и reranking benchmarks являются запланированными, но ещё не
-> реализованными улучшениями (см. `REMAINING-CHANGES.md` §2.3–2.4).
+> **Примечание**: Hybrid search (BM25 + dense fusion) и cross-encoder reranking реализованы
+> в challenger aliases; champion aliases используют dense retrieval.
+> Benchmarks champion vs challenger+hybrid+reranker проводятся через существующую eval-платформу.
 
 #### Реализованные chunking-стратегии
 
@@ -506,10 +511,12 @@ sentinel коллекции.
 
 | Компонент | Файл | Назначение |
 |-----------|------|------------|
-| `EmbeddingService` | `src/rag/embeddings.py` | HTTP-клиент к embeddings microservice |
-| `QdrantVectorStore` | `src/rag/vector_store.py` | Обёртка над Qdrant: collections, aliases, `_meta` sentinel, search |
-| `Retriever` | `src/rag/retriever.py` | Orchestrator: embed query → vector search → format context |
-| `RAGService` | `src/gateway/services/rag_service.py` | Gateway-side: multi-KB retrieval с alias-based routing |
+| `EmbeddingService` | `src/rag/embeddings.py` | HTTP-клиент к embeddings microservice (dense vectors) |
+| `SparseEncoderService` | `src/rag/sparse_encoder.py` | HTTP-клиент к embeddings `/v1/sparse-embeddings` (BM25 sparse vectors) |
+| `QdrantVectorStore` | `src/rag/vector_store.py` | Обёртка над Qdrant: named-vector collections, hybrid DBSF search, aliases, `_meta` sentinel |
+| `CrossEncoderReranker` | `src/rag/reranker.py` | HTTP-клиент к reranker microservice; перезаписывает `Document.score` cross-encoder оценкой |
+| `Retriever` | `src/rag/retriever.py` | Orchestrator: embed → search (dense/hybrid/sparse) → rerank → filter by score_threshold |
+| `RAGService` | `src/gateway/services/rag_service.py` | Gateway-side: KB auto-selection, multi-KB retrieval с alias-based routing |
 
 #### Production RAG operations (`src/rag/ops/`)
 

@@ -24,79 +24,11 @@
 
 ---
 
-### 2.1 RAG: reranking
+### 2.1 Kafka: inference event streaming
 
-**Текущее состояние**: RAG система не имеет reranking-стадии. Multi-KB results сливаются и
-все передаются в промпт. `EvalRun` модель содержит поле `reranking_strategy`, но реализации нет.
-
-**Целевое**: добавить cross-encoder reranker (e.g. `cross-encoder/ms-marco-MiniLM-L-6-v2`) в
-retrieval pipeline. Реализовать через factory pattern `get_reranker(strategy)` по аналогии с
-`get_chunker()`. Одна строка в `rag_service.py` для включения/отключения. Провести benchmark
-champion vs champion+reranker используя существующую eval-платформу.
-
-**Новые файлы**: `src/rag/rerankers.py`.
-**Затрагиваемые файлы**: `src/rag/retriever.py`, `src/gateway/services/rag_service.py`.
-
----
-
-### 2.2 RAG: hybrid search
-
-**Текущее состояние**: только dense retrieval (`VectorParams` с `Distance.COSINE`).
-
-**Целевое**: Qdrant поддерживает sparse+dense fusion нативно. Добавить sparse vectors
-(BM25 или SPLADE) при индексации, использовать Qdrant fusion при поиске. Eval framework уже
-содержит retrieval benchmarks — чистое A/B сравнение.
-
-**Затрагиваемые файлы**: `src/rag/vector_store.py`, `src/rag/ops/materialize.py`,
-`src/rag/retriever.py`.
-
----
-
-### 2.3 Delivery workflow and CI/CD
-
-**Текущее состояние**: quality gates только через локальные pre-commit hooks, ruff, pytest.
-Server deployment по-прежнему завязан на live git checkout: ветки переключаются и pull-ятся на
-одном узле, а runtime tree одновременно является и deployment target, и Git workspace.
-
-**Целевое**:
-1. Hosted CI: pre-commit и полный `pytest` на push / PR для любой ветки
-2. Один deploy entrypoint для same-node deployment: выбрать ветку и развернуть clean release без
-  `.git` в runtime tree
-3. Manual branch deploy workflow/script с input `branch`, который делает export выбранной ветки в
-  fresh release dir вместо ручной серии `git switch` + `git pull` + compose rebuild
-4. Optional server-side admin workspace только для Git-mutating operator tasks, но не для runtime
-  deployment
-5. Optional image builds только как branch-aware optimization поверх clean-release flow
-6. Persistent state mounts и ownership cleanup только там, где данные должны переживать release
-  replacement
-
-**Детальный план**: `DELIVERY-WORKFLOW-PLAN.md`.
-
-**Новые файлы**: `.github/workflows/ci.yml`, `scripts/deploy_branch.sh`, optional
-`scripts/export_release.sh`, optional `.github/workflows/deploy-branch.yml`, optional
-`.github/workflows/images.yml`.
-
----
-
-### 2.4 Observability: Prometheus + Grafana
-
-**Текущее состояние**: нет метрик, нет alerting. Мониторинг ограничен UI dashboards
-(Flower, RedisInsight, Airflow) и health checks.
-
-**Целевое**:
-- Prometheus metrics endpoint в gateway (request latency, error rates, queue depth)
-- vLLM native Prometheus metrics (token throughput, GPU utilization)
-- Grafana с двумя datasource: **Prometheus** (инфраструктурные метрики) и **ClickHouse**
-  (ML-аналитика — см. 2.6). Разделение принципиально: Prometheus отвечает за SLI/SLO
-  инфраструктуры, ClickHouse — за качество модели и тренды eval
-- Docker Compose services для Prometheus и Grafana
-
-**Новые файлы**: Compose service definitions, Grafana dashboard JSONs, Prometheus config.
-**Затрагиваемые файлы**: `src/gateway/main.py` (metrics middleware).
-
----
-
-### 2.5 Kafka: inference event streaming
+> **Примечание**: Grafana + Postgres ML-analytics уже реализованы (eval score trends,
+> chat volume, adapter comparisons). Kafka нужен для inference-аналитики реального
+> трафика, которая выходит за рамки того, что хранится в `chat_messages`.
 
 **Текущее состояние**: gateway не сохраняет inference-события как durable event log. После
 завершения генерации данные существуют только в `chat_messages` PostgreSQL.
@@ -108,8 +40,8 @@ user_id, session_id, timestamp}`. Отдельный топик `feedback-events
 
 **Важно**: Kafka **не заменяет** RabbitMQ. RabbitMQ — job queue для task dispatch (удаляет
 сообщение после забора воркером). Kafka — durable, replayable audit log с несколькими
-консьюмерами: ClickHouse consumer (аналитика, см. 2.6) и Spark batch jobs (данные для обучения,
-см. 2.8).
+консьюмерами: ClickHouse consumer (аналитика, см. 2.2) и Spark batch jobs (данные для обучения,
+см. 2.4).
 
 **Новые файлы**: `src/gateway/services/event_publisher.py`, Compose service для Kafka + Zookeeper
 (или Redpanda как lightweight альтернатива).
@@ -117,29 +49,27 @@ user_id, session_id, timestamp}`. Отдельный топик `feedback-events
 
 ---
 
-### 2.6 ClickHouse: OLAP аналитика
+### 2.2 ClickHouse: inference OLAP аналитика
 
-**Текущее состояние**: per-sample eval метрики (ROUGE-L, BERTScore, Recall@k по каждому
-документу) хранятся в PostgreSQL вместе с транзакционными данными. Inference-аналитика
-отсутствует.
+**Текущее состояние**: eval metrics (ROUGE-L, BERTScore, Recall@k) и chat история хранятся
+в PostgreSQL; Grafana уже читает эти данные для ML-analytics dashboards. Inference-аналитика
+реального трафика (latency percentiles по адаптерам, RAG hit rate динамика) отсутствует —
+она требует Kafka event stream (см. 2.1).
 
-**Целевое**: ClickHouse как аналитический backend для двух потоков данных:
+**Целевое**: ClickHouse как аналитический backend для inference-потока:
 - **Inference analytics**: Kafka consumer из топика `inference-events` → ClickHouse таблица
   `inference_log`. Запросы: latency percentiles по LoRA-адаптерам, RAG hit rate динамика,
-  token throughput тренды
-- **Eval analytics**: per-sample eval метрики (тяжёлые OLAP-запросы — сравнения сотен
-  evaluation runs) уходят из PostgreSQL в ClickHouse. Сводная `eval_runs` таблица остаётся
-  в PostgreSQL
-
-Grafana получает ClickHouse как второй datasource (см. 2.4).
+  token throughput тренды.
+- Grafana получает ClickHouse как второй datasource; Postgres datasource для eval/chat
+  analytics остаётся.
 
 **Новые файлы**: Compose service, ClickHouse schema DDL, Kafka→ClickHouse consumer
 (materialized view или отдельный consumer).
-**Затрагиваемые файлы**: `experiments/eval/eval_scripts/` (запись метрик), `src/shared/db/`.
+**Затрагиваемые файлы**: `src/shared/db/`.
 
 ---
 
-### 2.7 Kubernetes: k3s + Helm + KEDA
+### 2.3 Kubernetes: k3s + Helm + KEDA
 
 **Текущее состояние**: `infra/helm/`, `infra/k3s/`, `infra/terraform/` зарезервированы.
 Docker Compose — единственный deployment manifest.
@@ -159,7 +89,7 @@ Docker Compose — единственный deployment manifest.
 
 ---
 
-### 2.8 Spark: distributed data pipeline в Airflow
+### 2.4 Spark: distributed data pipeline в Airflow
 
 **Текущее состояние**: RAG update DAGs (download → dvc_version → build_index) запускают
 single-process Python для chunking и обработки. Training data (open-code-instruct,
@@ -201,12 +131,12 @@ Compose service для Spark standalone.
 
 ---
 
-### 2.9 A/B model evaluation framework
+### 2.5 A/B model evaluation framework
 
 **Текущее состояние**: champion/challenger alias система существует в Qdrant и MLflow Model
 Registry как инфраструктура. Однако решение о promotion принимается только на основе offline
 benchmarks (`eval_runs`). Нет production traffic split, нет статистики по реальным запросам,
-nет формального критерия для promotion.
+нет формального критерия для promotion.
 
 **Целевое**: замкнуть champion/challenger систему production данными.
 
@@ -237,7 +167,7 @@ latency не регрессировала (p=0.41), рекомендуется p
 
 ---
 
-### 2.10 Observability: LLM-specific tracing
+### 2.6 Observability: LLM-specific tracing
 
 **Текущее состояние**: нет prompt/response logging, нет latency per step, нет cost tracking.
 
@@ -251,7 +181,7 @@ tracing через Jaeger/Tempo.
 
 ---
 
-### 2.11 Token / cost tracking
+### 2.7 Token / cost tracking
 
 **Текущее состояние**: online inference stores prompt/completion usage in the ORM model and
 threads prompt token counts through the sync/async gateway paths. Существующие `agent042` БД
@@ -261,13 +191,14 @@ threads prompt token counts through the sync/async gateway paths. Существ
 **Целевое**:
 - Применить `src/shared/db/chat_messages_add_usage_columns.sql` на все существующие `agent042` БД
 - Агрегация per-user / per-session
-- Grafana dashboard для token throughput и cost estimation (из ClickHouse inference_log)
+- Grafana dashboard для token throughput и cost estimation (из ClickHouse inference_log,
+  когда 2.1–2.2 будут реализованы)
 
 **Затрагиваемые файлы**: `src/shared/db/`, gateway processing, `chat_messages` schema.
 
 ---
 
-### 2.12 Security: rate limiting and input validation
+### 2.8 Security: rate limiting and input validation
 
 **Текущее состояние**: нет rate limiting, нет ограничений на длину input.
 
@@ -280,7 +211,7 @@ threads prompt token counts through the sync/async gateway paths. Существ
 
 ---
 
-### 2.13 Database: Alembic migrations
+### 2.9 Database: Alembic migrations
 
 **Текущее состояние**: schema bootstrap через ORM `Base.metadata.create_all` в gateway startup.
 Нет version-controlled migrations.
@@ -293,12 +224,14 @@ threads prompt token counts through the sync/async gateway paths. Существ
 
 ---
 
-### 2.14 Agent layer: dynamic tool selection
+### 2.10 Agent layer: dynamic tool selection
 
-**Текущее состояние**: task routing — rule-based по keywords
-(`RuleBasedTaskRouter.decide()` проверяет `any(k in t for k in [...])`).
+**Текущее состояние**: embedding-based task routing (`EmbeddingTaskRouter`) и KB auto-selection
+реализованы — gateway автоматически определяет задачу и knowledge bases по семантическому
+сходству запроса. LoRA auto-selection через `adapter` блок в `knowledge_bases.json` реализован.
+Manual KB override через `req.rag_sources` сохранён.
 
-**Целевое**: function-calling based agent layer:
+**Целевое**: function-calling based agent layer поверх существующей routing инфраструктуры:
 - User query → LLM решает tool calls → Execute tools → LLM синтезирует ответ
 - Registered tools: `search_knowledge_base(query, kb_name)`,
   `summarize_document(text)`, `generate_code(description)`,
