@@ -5,7 +5,7 @@ import os
 os.environ.setdefault("CELERY_BROKER_URL", "amqp://guest:guest@localhost:5672//")
 
 from gateway.services.celery_client import CeleryClient
-from worker.config import WorkerSettings
+from shared.config import WorkerSettings
 
 
 def test_celery_client_emits_sent_events_for_flower() -> None:

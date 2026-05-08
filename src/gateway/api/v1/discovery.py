@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from gateway.config import get_settings
+from shared.config import get_settings
 
 router = APIRouter()
 

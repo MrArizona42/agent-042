@@ -9,8 +9,8 @@ Copies the Phase 2 shared-state directories from an existing checkout-backed
 deployment tree into the external server roots expected by the new contract.
 
 Examples:
-  bash scripts/migrate_shared_state.sh /srv/agent-042/current /srv/agent-042
-  bash scripts/migrate_shared_state.sh "$PWD" /srv/agent-042
+    bash scripts/migrate_shared_state.sh /home/anton-m/agent-042/current /home/anton-m/agent-042
+    bash scripts/migrate_shared_state.sh "$PWD" /home/anton-m/agent-042
 EOF
 }
 
