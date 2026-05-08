@@ -8,7 +8,6 @@ from typing import Any, Optional
 
 import httpx
 
-from shared.config import get_settings
 from gateway.schemas.openai_chat import RAGSource
 from rag.embeddings import EmbeddingService
 from rag.ops.meta import BuildConfig, read_collection_meta, validate_query_compatibility
@@ -16,7 +15,7 @@ from rag.reranker import Reranker, get_reranker
 from rag.retriever import Retriever
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
-from shared.config import Settings, get_kb_config, get_knowledge_bases
+from shared.config import Settings, get_kb_config, get_knowledge_bases, get_settings
 
 logger = logging.getLogger(__name__)
 

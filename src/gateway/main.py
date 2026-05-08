@@ -14,14 +14,14 @@ from gateway.auth.middleware import AuthMiddleware
 from gateway.auth.oidc import OIDCClient
 from gateway.auth.router import router as auth_router
 from gateway.auth.session import SessionManager
+from gateway.services.celery_client import CeleryClient
+from gateway.services.processing import process_chat
+from gateway.services.redis_stream import RedisStreamService
 from shared.config import (
     bootstrap_local_settings_env,
     get_settings,
     validate_settings_on_startup,
 )
-from gateway.services.celery_client import CeleryClient
-from gateway.services.processing import process_chat
-from gateway.services.redis_stream import RedisStreamService
 
 # Configure logging
 logging.basicConfig(
