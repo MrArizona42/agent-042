@@ -14,7 +14,7 @@ from gateway.auth.middleware import AuthMiddleware
 from gateway.auth.oidc import OIDCClient
 from gateway.auth.router import router as auth_router
 from gateway.auth.session import SessionManager
-from gateway.config import (
+from shared.config import (
     bootstrap_local_settings_env,
     get_settings,
     validate_settings_on_startup,

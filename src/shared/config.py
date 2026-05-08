@@ -676,6 +676,50 @@ class UISettings(BaseSettings):
     )
 
 
+class WorkerSettings(BaseSettings):
+    """Worker-specific runtime settings.
+
+    Shared infrastructure endpoints such as ``CELERY_BROKER_URL`` still use the
+    canonical platform env names, while worker runtime knobs remain worker-local.
+    """
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+    celery_broker_url: str = Field(
+        validation_alias=PLATFORM_CELERY_BROKER_URL_ENV,
+        description="RabbitMQ connection URL (e.g. amqp://user:password@rabbitmq:5672//)",
+    )
+    task_default_timeout: int = Field(
+        default=300,
+        description="Default task timeout in seconds",
+    )
+    task_max_retries: int = Field(
+        default=3,
+        description="Maximum number of task retries",
+    )
+    task_retry_delay: int = Field(
+        default=5,
+        description="Delay between retries in seconds",
+    )
+    worker_pool: str = Field(
+        default="prefork",
+        description="Celery execution pool for gateway inference tasks",
+    )
+    worker_concurrency: int = Field(
+        default=2,
+        description="Concurrent worker slots for gateway inference tasks",
+        ge=1,
+    )
+    worker_send_task_events: bool = Field(
+        default=True,
+        description="Emit Celery task events so Flower can observe queued/running tasks",
+    )
+    worker_cancel_long_running_tasks_on_connection_loss: bool = Field(
+        default=True,
+        description="Cancel in-flight tasks if the broker connection is lost",
+    )
+
+
 @lru_cache
 def get_settings() -> GatewaySettings:
     """Get cached application settings.
@@ -708,6 +752,12 @@ def get_ui_settings() -> UISettings:
     return UISettings()
 
 
+@lru_cache
+def get_worker_settings() -> WorkerSettings:
+    """Get cached worker settings."""
+    return WorkerSettings()
+
+
 def clear_knowledge_base_caches() -> None:
     """Reset KB registry and index so the next access re-reads from disk."""
     global _KB_REGISTRY, _KB_INDEX  # noqa: PLW0603
@@ -722,6 +772,7 @@ def clear_settings_caches() -> None:
     get_registry_settings.cache_clear()
     get_eval_settings.cache_clear()
     get_ui_settings.cache_clear()
+    get_worker_settings.cache_clear()
     clear_knowledge_base_caches()
 
 

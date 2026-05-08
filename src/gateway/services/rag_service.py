@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 import httpx
 
-from gateway.config import get_settings
+from shared.config import get_settings
 from gateway.schemas.openai_chat import RAGSource
 from rag.embeddings import EmbeddingService
 from rag.ops.meta import BuildConfig, read_collection_meta, validate_query_compatibility

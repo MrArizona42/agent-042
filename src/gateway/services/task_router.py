@@ -5,7 +5,7 @@ import math
 from dataclasses import dataclass
 from typing import Callable
 
-from gateway.config import get_settings
+from shared.config import get_settings
 from rag.embeddings import EmbeddingService
 from shared.config import TaskConfig, get_knowledge_bases
 

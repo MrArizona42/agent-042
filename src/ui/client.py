@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 import requests
 
-from ui.config import get_ui_settings
+from shared.config import get_ui_settings
 
 
 @dataclass(frozen=True)

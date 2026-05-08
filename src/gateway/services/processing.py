@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Literal, Sequence
 
-from gateway.config import get_settings
+from shared.config import get_settings
 from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
 from gateway.services.budget import build_budget_meta
 from gateway.services.celery_client import CeleryClient

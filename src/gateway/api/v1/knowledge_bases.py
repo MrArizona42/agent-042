@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from gateway.config import get_settings
+from shared.config import get_settings
 from gateway.services.processing import process_chat
 from gateway.services.rag_service import RAGService
 from shared.config import clear_knowledge_base_caches
