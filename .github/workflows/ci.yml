@@ -1,11 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches-ignore:
-      - develop
-      - main
-      - data-sync/**
   pull_request:
     branches:
       - develop
@@ -27,7 +22,7 @@ jobs:
   pre-commit:
     name: Pre-commit
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,6 +46,7 @@ jobs:
   pytest-core:
     name: Pytest core
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       PROJECT_ROOT: ${{ github.workspace }}
       PYTHONPATH: src
@@ -92,6 +88,7 @@ jobs:
   pytest-training:
     name: Pytest training
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       PROJECT_ROOT: ${{ github.workspace }}
       PYTHONPATH: src

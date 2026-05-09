@@ -21,7 +21,7 @@ Phase 1 фиксирует операторский контракт для sing
 checkout-based запуск Compose. Каноническая серверная раскладка теперь считается такой:
 
 ```text
-/srv/agent-042/
+/home/anton-m/agent-042/
   .env
   .dvc/
     config.local
@@ -29,12 +29,12 @@ checkout-based запуск Compose. Каноническая серверная
   artifacts/
   releases/
     <sha>/
-  current -> /srv/agent-042/releases/<sha>/
+  current -> /home/anton-m/agent-042/releases/<sha>/
 ```
 
 Что это означает на практике:
 - repo-root `.env` остаётся активным env-файлом для локального checkout и текущего Compose запуска
-- release-based deploy будет использовать внешний `/srv/agent-042/.env`, а не `.env` внутри релиза
+- release-based deploy будет использовать внешний `/home/anton-m/agent-042/.env`, а не `.env` внутри релиза
 - переменные `ASSETS_ROOT`, `ARTIFACTS_ROOT`, `DVC_CONFIG_LOCAL_PATH`, `GITHUB_REPOSITORY`,
   `GITHUB_DATA_SYNC_TOKEN` и `IMAGE_TAG` вводятся уже сейчас как часть server contract, хотя
   часть из них начинает реально использоваться уже в Phase 2
@@ -120,8 +120,12 @@ scripts/update_locks.sh --dry-run
 - `celery-worker` — Celery worker для асинхронного выполнения LLM-задач (1 процесс, GPU-bound)
 - `gateway` — FastAPI gateway (порт хоста по умолчанию `9001` → контейнер `9000`)
 - `ui` — Streamlit UI (порт хоста по умолчанию `8501` → контейнер `8501`)
+- `embeddings` — Embedding microservice: dense vectors (`/v1/embeddings`) и sparse BM25 (`/v1/sparse-embeddings`) (порт хоста по умолчанию `8100`)
+- `reranker` — Reranker microservice: cross-encoder scoring (`/v1/rerank`) (порт хоста по умолчанию `8101`)
 - `flower` — Flower мониторинг Celery (порт хоста по умолчанию `5555` → контейнер `5555`)
 - `redisinsight` — RedisInsight мониторинг Redis (порт хоста по умолчанию `5540` → контейнер `5540`)
+- `prometheus` — Prometheus (порт хоста по умолчанию `9090` → контейнер `9090`); scrapes gateway, vLLM, RabbitMQ
+- `grafana` — Grafana (порт хоста по умолчанию `3000` → контейнер `3000`); доступна через nginx `/grafana/`; datasources: Postgres (ML analytics) + Prometheus (infra)
 - `airflow-init` — одноразовая миграция БД Airflow и создание admin-пользователя
 - `airflow-webserver` — Airflow UI (порт хоста по умолчанию `8080` → контейнер `8080`)
 - `airflow-scheduler` — Airflow Scheduler (LocalExecutor)
@@ -135,7 +139,7 @@ cp .env.example .env
 ```
 
 2) Для серверного deploy используйте тот же набор ключей во внешнем файле
-`/srv/agent-042/.env`.
+`/home/anton-m/agent-042/.env`.
 
 3) При необходимости скорректируйте `PROJECT_ROOT` и остальные значения `# CHANGE ME!`.
 
@@ -146,13 +150,13 @@ cp .env.example .env
   - Windows пример (как в шаблоне): `C:/Users/user/MyGitRepos/agent-042`
 - `ASSETS_ROOT` — внешний корень для persistent `assets`
   - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/assets`
-  - серверный deploy пример: `/srv/agent-042/assets`
+  - серверный deploy пример: `/home/anton-m/agent-042/assets`
 - `ARTIFACTS_ROOT` — внешний корень для persistent `artifacts`
   - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/artifacts`
-  - серверный deploy пример: `/srv/agent-042/artifacts`
+  - серверный deploy пример: `/home/anton-m/agent-042/artifacts`
 - `DVC_CONFIG_LOCAL_PATH` — путь к machine-local `.dvc/config.local`
   - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/.dvc/config.local`
-  - серверный deploy пример: `/srv/agent-042/.dvc/config.local`
+  - серверный deploy пример: `/home/anton-m/agent-042/.dvc/config.local`
 - `GITHUB_REPOSITORY` / `GITHUB_DATA_SYNC_TOKEN` — используются Airflow temp-clone DVC/Git sync
   helper'ом для push в bot branch и для открытия или обновления PR в GitHub
 - `IMAGE_TAG` — будущий deployment-scoped tag для CI-built images; в текущем checkout-based
@@ -166,6 +170,9 @@ cp .env.example .env
 - `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
 - `FLOWER_*` — порт Flower (мониторинг Celery)
 - `REDISINSIGHT_*` — порт RedisInsight (мониторинг Redis)
+- `PROMETHEUS_PORT` — порт Prometheus (по умолчанию `9090`)
+- `GRAFANA_PORT` — порт Grafana (по умолчанию `3000`)
+- `GRAFANA_ADMIN_PASSWORD` — пароль admin-пользователя Grafana
 - `AIRFLOW_*` — конфиг Airflow (порт, БД, Fernet-ключ, admin-пользователь)
 - `JUPYTER_*` — конфиг JupyterLab (порт, токен)
 
@@ -175,6 +182,106 @@ cp .env.example .env
 - На текущем этапе checkout-based Compose уже использует `ASSETS_ROOT`, `ARTIFACTS_ROOT` и
   `DVC_CONFIG_LOCAL_PATH` для shared mounts, а `GITHUB_*`-переменные использует Airflow data-sync
   path. `IMAGE_TAG` остаётся зарезервированным для последующих deploy фаз.
+
+### Подготовка shared roots и прав доступа (Phase 2)
+
+В текущем rollout Phase 2 Compose всё ещё запускается из checkout, но mutable state уже должен
+жить во внешнем `/home/anton-m/agent-042`. После удаления `airflow-prepare-dirs` эти bind mount'ы нужно
+подготовить на хосте заранее; иначе Airflow и Jupyter увидят каталоги, но не смогут в них писать.
+
+Рекомендуемый путь — helper из корня checkout:
+
+```bash
+sudo bash scripts/setup_shared_root_permissions.sh --deploy-user "<server-login>"
+```
+
+Полезные override-флаги:
+- `--server-root /home/anton-m/agent-042`
+- `--env-file .env`
+- `--compose-file infra/compose/docker-compose.yaml`
+- `--airflow-uid <uid>` / `--airflow-gpu-uid <uid>` / `--jupyter-uid <uid>` если UID нужно
+  передать вручную, не полагаясь на Compose
+- `--skip-usermod`, если пользователя не нужно добавлять в host-группу
+
+Ниже — ручной эквивалент того, что делает helper:
+
+1) Создайте shared roots и отдельную host-группу для операторского обслуживания:
+```bash
+export DEPLOY_USER="<server-login>"
+export CHECKOUT_ROOT="<server-checkout-path>"
+
+sudo apt-get install -y acl
+sudo groupadd --force agent042
+sudo usermod -aG agent042 "$DEPLOY_USER"
+
+sudo install -d -o "$DEPLOY_USER" -g agent042 -m 2775 \
+  /home/anton-m/agent-042 \
+  /home/anton-m/agent-042/assets \
+  /home/anton-m/agent-042/assets/models \
+  /home/anton-m/agent-042/assets/adapters \
+  /home/anton-m/agent-042/assets/datasets \
+  /home/anton-m/agent-042/assets/rag_data \
+  /home/anton-m/agent-042/artifacts \
+  /home/anton-m/agent-042/artifacts/training \
+  /home/anton-m/agent-042/.dvc
+```
+
+2) Узнайте реальные UID контейнерных пользователей. Для нового сервера удобнее делать это через
+`docker compose run --no-deps`, а если стек уже поднят, можно заменить команды на `docker compose exec`.
+```bash
+AIRFLOW_UID="$(docker compose --env-file .env -f infra/compose/docker-compose.yaml run --rm --no-deps --entrypoint id airflow-worker -u | tr -d '\r')"
+JUPYTER_UID="$(docker compose --env-file .env -f infra/compose/docker-compose.yaml run --rm --no-deps --entrypoint id jupyter -u | tr -d '\r')"
+echo "airflow uid: $AIRFLOW_UID"
+echo "jupyter uid: $JUPYTER_UID"
+```
+
+3) Назначьте group ownership, setgid и default ACL на writable shared roots:
+```bash
+sudo chgrp -R agent042 /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts /home/anton-m/agent-042/.dvc
+sudo find /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts -type d -exec chmod 2775 {} +
+sudo setfacl -R -m u:${DEPLOY_USER}:rwx,u:${AIRFLOW_UID}:rwx,u:${JUPYTER_UID}:rwx,g:agent042:rwx /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts
+sudo setfacl -R -d -m u:${DEPLOY_USER}:rwx,u:${AIRFLOW_UID}:rwx,u:${JUPYTER_UID}:rwx,g:agent042:rwx /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts
+```
+
+Если `airflow-worker-gpu` возвращает другой UID, добавьте для него те же ACL отдельной командой
+`setfacl -m` и `setfacl -d -m`.
+
+4) Перенесите machine-local DVC config во внешний путь и дайте Airflow read-only доступ:
+```bash
+sudo install -o "$DEPLOY_USER" -g agent042 -m 640 "$CHECKOUT_ROOT/.dvc/config.local" /home/anton-m/agent-042/.dvc/config.local
+sudo setfacl -m u:${AIRFLOW_UID}:r /home/anton-m/agent-042/.dvc/config.local
+```
+
+5) Если Phase 2 делается поверх существующего checkout-backed runtime, после подготовки прав
+запустите одноразовую миграцию shared state:
+```bash
+bash scripts/migrate_shared_state.sh "$CHECKOUT_ROOT" /home/anton-m/agent-042
+```
+
+6) После смены групп у host user перезайдите в shell или выполните:
+```bash
+newgrp agent042
+```
+
+7) Проверка после старта Compose:
+```bash
+docker compose --env-file .env -f infra/compose/docker-compose.yaml exec airflow-worker test -r /opt/airflow/project/.dvc/config.local && echo ok
+
+docker compose --env-file .env -f infra/compose/docker-compose.yaml exec -T airflow-worker python - <<'PY'
+from pathlib import Path
+
+path = Path('/opt/airflow/project/assets/rag_data/_perm_smoke')
+path.mkdir(parents=True, exist_ok=True)
+probe = path / 'ok.txt'
+probe.write_text('ok\n', encoding='utf-8')
+print(probe.read_text().strip())
+probe.unlink()
+path.rmdir()
+PY
+```
+
+Если эти проверки падают с `Permission denied`, это host-side проблема подготовки ACL/ownership, а
+не причина возвращать `airflow-prepare-dirs`.
 
 Практический тюнинг vLLM для локальной GPU:
 - `VLLM_MAX_NUM_SEQS` — жёсткий верхний предел числа последовательностей, которые vLLM одновременно держит в scheduler batch. Для 12 GB GPU и длинного контекста безопасно начинать с `1-2`.
@@ -189,66 +296,24 @@ cp .env.example .env
 ### Запуск полного стека
 
 Ниже показаны текущие команды запуска из рабочего checkout. Это ещё не release-based deploy из
-`/srv/agent-042/current`.
+`/home/anton-m/agent-042/current`.
 
+  - серверный deploy пример: `/home/anton-m/agent-042/assets`
 ```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d
+  - серверный deploy пример: `/home/anton-m/agent-042/artifacts`
 ```
-
-Проверка статуса:
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml ps
-```
-
+  - серверный deploy пример: `/home/anton-m/agent-042/.dvc/config.local`
 Полезные URL (если используете значения портов по умолчанию из `.env.example`):
-- MLflow UI: `http://<host>:5050`
+жить во внешнем `/home/anton-m/agent-042`. После удаления `airflow-prepare-dirs` эти bind mount'ы нужно
 - vLLM OpenAI API: `http://<host>:8000/v1/models`
-- Gateway health: `http://<host>:9001/health`
+- `--server-root /home/anton-m/agent-042`
 - UI (Streamlit): `http://<host>:8501`
-- Flower (мониторинг Celery): `http://<host>:5555`
+  /home/anton-m/agent-042 \
 - RedisInsight (мониторинг Redis): `http://<host>:5540`
-- RabbitMQ Management: `http://<host>:15672`
-- Airflow UI: `http://<host>:8080`
-- JupyterLab: `http://<host>:8888`
-
-### Запуск только части сервисов
-
-Только MLflow + Postgres:
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d postgres mlflow
-```
-
-Только inference + RAG (vLLM + Qdrant + Gateway + UI):
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d vllm qdrant gateway ui
-```
-
-### Остановка / перезапуск / логи
-
-Остановить:
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml down
-```
-
-Остановить и удалить volume'ы (удалит Postgres/Qdrant данные):
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml down -v
-```
-
-Логи всех сервисов:
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml logs -f
-```
-
-Логи конкретного сервиса:
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml logs -f vllm
-```
-
-Пересобрать и перезапустить один сервис:
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d gateway
-```
+sudo chgrp -R agent042 /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts /home/anton-m/agent-042/.dvc
+sudo find /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts -type d -exec chmod 2775 {} +
+sudo setfacl -R -m u:${DEPLOY_USER}:rwx,u:${AIRFLOW_UID}:rwx,u:${JUPYTER_UID}:rwx,g:agent042:rwx /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts
+sudo setfacl -R -d -m u:${DEPLOY_USER}:rwx,u:${AIRFLOW_UID}:rwx,u:${JUPYTER_UID}:rwx,g:agent042:rwx /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts
 
 ### Модели для vLLM
 
@@ -270,12 +335,15 @@ MLFlow разворачивается в докере (см. compose выше).
 
 ## Apache Airflow
 
-Airflow развёрнут с LocalExecutor (без Celery/Redis) и использует общий PostgreSQL с отдельной базой `airflow`.
+Airflow развёрнут с CeleryExecutor и использует общий PostgreSQL с отдельной базой `airflow` и RabbitMQ как broker.
 
 Сервисы:
 - `airflow-init` — одноразовая инициализация: автоматическое создание БД (если не существует), миграция и создание admin-пользователя
 - `airflow-webserver` — веб-интерфейс Airflow (порт `8080`)
-- `airflow-scheduler` — планировщик задач (LocalExecutor)
+- `airflow-dag-processor` — отдельный процесс разбора DAG-ов
+- `airflow-scheduler` — планировщик задач
+- `airflow-worker` — CPU worker для PythonOperator/BashOperator задач без GPU
+- `airflow-worker-gpu` — worker с доступом к GPU для задач, которым он нужен
 
 DAG-файлы размещаются в директории `dags/` в корне репозитория и монтируются в контейнеры Airflow.
 Корень проекта так же монтируется как `/opt/airflow/project`, но shared state поверх него уже
@@ -287,6 +355,9 @@ DAG-файлы размещаются в директории `dags/` в кор�
 
 Это даёт DAG'ам стабильные project-relative пути, но убирает зависимость от записи в checkout-backed
 `assets/`, `artifacts/` и `.dvc`.
+
+Важно: после Phase 2 отдельного `airflow-prepare-dirs` больше нет. Права на эти bind mount'ы
+должны быть подготовлены на хосте заранее через setgid + ACL из раздела выше.
 
 ### Доступные DAG'и
 
@@ -301,8 +372,9 @@ download / scrape  >>  dvc_version_via_temp_clone  >>  build_index
 ```
 
 - **download / scrape** — PythonOperator: загрузка данных (ArXiv API или web scraping)
-- **dvc_version** — PythonOperator: создаёт временный clone, подключает shared dataset через symlink,
-  запускает `dvc add` + `dvc push`, коммитит `.dvc`/`.gitignore` изменения в `data-sync/*` и
+- **dvc_version** — PythonOperator: создаёт временный clone, staging'ом подготавливает shared
+  dataset как обычную директорию внутри clone (hardlink если возможно, иначе copy), запускает
+  `dvc add` + `dvc push`, коммитит `.dvc`/`.gitignore` изменения в `data-sync/*` и
   открывает или обновляет PR в `develop`
 - **build_index** — PythonOperator: вызов production update-функций из `src/rag/ops/update`
   (`update_arxiv_collection` или `update_pytorch_docs_collection`) для refresh/rebuild векторного индекса
@@ -360,7 +432,7 @@ JupyterLab предоставляет интерактивную среду дл
 - `EVAL_GATEWAY_URL=http://gateway:9000`
 
 Важно: этот `PROJECT_ROOT=/home/jovyan` относится только к контейнеру Jupyter. Это не тот же
-самый `PROJECT_ROOT`, который оператор задаёт в repo-root `.env` или в `/srv/agent-042/.env` для
+самый `PROJECT_ROOT`, который оператор задаёт в repo-root `.env` или в `/home/anton-m/agent-042/.env` для
 Compose interpolation на хосте.
 
 Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.

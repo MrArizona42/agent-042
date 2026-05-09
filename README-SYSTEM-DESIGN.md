@@ -1,1104 +1,702 @@
 # Разработка и исследование интеллектуального ассистента для исследователей с использованием генерации на основе поиска и эффективного дообучения моделей
 
-## Инструкции
+## Содержание
 
-* `./infra/README.md` - настройка окружения и инфраструктуры
-* `./experiments/README.md` - как проводить эксперименты и operator workflow
-* `./CONFIG-CONTRACT.md` - краткий актуальный контракт конфигурации
-* `./src/gateway/README.md` - документация Gateway (FastAPI)
-* `./src/ui/README.md` - документация UI (Streamlit)
-* `./REMAINING-CHANGES.md` - список незавершенных изменений и планируемых доработок
+1. [Введение](#1-введение)
+2. [Высокоуровневая архитектура](#2-высокоуровневая-архитектура)
+3. [Каталог сервисов](#3-каталог-сервисов)
+4. [Инференс-пайплайн (runtime)](#4-инференс-пайплайн-runtime)
+5. [RAG-система](#5-rag-система)
+6. [LoRA fine-tuning pipeline](#6-lora-fine-tuning-pipeline)
+7. [Конфигурационная архитектура](#7-конфигурационная-архитектура)
+8. [MLOps и автоматизация](#8-mlops-и-автоматизация)
+9. [Оценка качества (Evaluation)](#9-оценка-качества-evaluation)
+10. [Инфраструктура и деплой](#10-инфраструктура-и-деплой)
+11. [Безопасность](#11-безопасность)
+12. [Структура репозитория](#12-структура-репозитория)
+13. [Итоги и выводы](#13-итоги-и-выводы)
 
-### Experiment Workflow
+---
 
-Операции с экспериментами разделены на два entrypoint-а: Airflow для тяжелых вычислений и
-Jupyter-ноутбуки в `experiments/` для ручных операторских решений. Инфраструктурные
-shell-утилиты расположены в `scripts/`.
+## 1. Введение
 
-* **LoRA**: обучение через Airflow DAG `train_lora`, регистрация/промоушен через
-  `experiments/training/lora_ops.ipynb`
-* **RAG**: обновление индексов через DAG-и `arxiv_rag_update` / `pytorch_docs_rag_update`,
-  production entrypoints в `src/rag/ops`, manual create/promote/inspect через
-  `experiments/rag/rag_ops.ipynb` (напрямую вызывает `src/rag/ops`),
-  notebook-only experimental forks в `experiments/rag/sandboxes/`
-* **Eval**: запуск через `dags/eval_dags.py`, просмотр результатов и сравнение конфигураций через
-  `experiments/eval/eval_results.ipynb`
-* **Misc**: `experiments/misc_ops/` — prefetch, MLflow quickref, PostgreSQL diagnostics
+### 1.1 Цель проекта и позиционирование
 
-## Структура репозитория
+Целью данного проекта является разработка интеллектуального ассистента для исследователей в области ML/AI с двумя ключевыми техническими компонентами: системой Retrieval-Augmented Generation (RAG) и pipeline'ом эффективного дообучения языковой модели на основе метода LoRA (Low-Rank Adaptation).
 
-Проект организован как монорепозиторий, содержащий все компоненты системы: inference-сервисы,
-RAG-пайплайн, обучение адаптеров, платформу оценки и инфраструктурные конфигурации. Ключевой
-принцип — **один репозиторий, один сервер**, приближенные к production практики.
+Запустить LLM и получить от неё ответы — тривиальная задача. Прикрутить к LLM базовый RAG — задача одного вечера. Настроить простой LoRA training pipeline — ещё один вечер. Однако поднять полноценную production-систему с надёжным хранением данных, воспроизводимыми экспериментами, автоматизированными пайплайнами обучения и оценки, прозрачным мониторингом и отлаженными процессами CI/CD — это оставшиеся 99% усилий. Данный проект сосредоточен именно на этих 99%.
 
-```
-├── src/                          # Все runtime-сервисы
-│   ├── gateway/                  # FastAPI API Gateway
-│   │   ├── api/v1/              # REST API endpoints (OpenAI-compat, discovery, sessions, KBs)
-│   │   ├── auth/                # OAuth2/OIDC, middleware, session management
-│   │   ├── schemas/             # Pydantic модели запросов и ответов
-│   │   └── services/            # Бизнес-логика (processing, task_router, prompt_builder,
-│   │                            #   rag_service, vllm_client, celery_client, redis_stream)
-│   ├── rag/                     # RAG-система
-│   │   ├── chunking.py          # Стратегии разбиения (fixed_token, code, section_aware)
-│   │   ├── embeddings.py        # HTTP-клиент к embedding microservice
-│   │   ├── retriever.py         # Orchestrator: embed → search → format
-│   │   ├── vector_store.py      # Qdrant wrapper: collections, aliases, _meta sentinel
-│   │   └── ops/                 # Production lifecycle (create/, update/, aliases, inspect, meta)
-│   ├── worker/                  # Celery worker для async LLM inference
-│   ├── embeddings/              # Standalone embedding microservice (FastAPI + sentence-transformers)
-│   ├── shared/                  # Общая конфигурация, DB models, model registry
-│   │   ├── config.py            # Единый источник settings (Platform, Gateway, RAG, Auth, ...)
-│   │   ├── knowledge_bases.json # Runtime registry: task → KB → aliases, update_strategy
-│   │   ├── model_registry.py    # MLflow-based LoRA adapter management + vLLM hot-load
-│   │   └── db/                  # SQLAlchemy models + SQL schema (users, sessions, eval_runs, ...)
-│   └── ui/                      # Streamlit чат-интерфейс
-├── experiments/                  # Operator notebooks и скрипты экспериментов
-│   ├── training/                # LoRA обучение (PyTorch Lightning + Hydra + PEFT)
-│   │   ├── train_adapter/       # Lightning Module, Data Module, модели, MLflow интеграция
-│   │   └── conf/                # Hydra конфигурации (config.yaml, experiment/, paths/)
-│   ├── eval/                    # Evaluation framework
-│   │   └── eval_scripts/        # Runner, datasets loader, metrics (automatic, llm_judge, code_exec)
-│   ├── rag/                     # RAG operator notebooks + experimental sandboxes
-│   └── misc_ops/                # Prefetch, MLflow quickref, PostgreSQL diagnostics
-├── dags/                        # Airflow DAG-и (train, eval, RAG update, cleanup)
-├── infra/                       # Инфраструктура
-│   ├── compose/                 # Docker Compose (основной deployment manifest)
-│   ├── docker/                  # Dockerfiles для всех сервисов
-│   ├── nginx/                   # Nginx reverse proxy config
-│   ├── helm/                    # (зарезервировано для будущих Helm charts)
-│   ├── k3s/                     # (зарезервировано для k3s)
-│   └── terraform/               # (зарезервировано для IaC)
-├── assets/                      # DVC-управляемые данные (datasets/, rag_data/, adapters/)
-├── artifacts/                   # Gitignored runtime outputs (training runs, hydra, logs)
-├── tests/                       # Тесты (api, auth, eval, rag, training)
-└── scripts/                     # Shell-утилиты (update_locks, dump_logs, fetch_logs)
-```
+Система разработана в парадигме **single-repository**: весь код — runtime-сервисы, инфраструктура, эксперименты, operator workflows и тесты — живёт в одном репозитории. Это обеспечивает единую точку входа для разработчика и операционного инженера, упрощает рефакторинг и гарантирует консистентность между экспериментальным и production-кодом.
 
-## Постановка задачи. Scope / Область исследования.
+**Целевая аудитория** — команды исследователей, которым нужен AI-ассистент для работы с собственными (в том числе конфиденциальными) базами знаний. Система разворачивается на выделенном сервере организации, что обеспечивает полный контроль над данными и позволяет работать с NDA-материалами.
 
-Целью данной работы является создать агентскую систему production уровня, которая способна
-выполнять роль полноценного AI-помощника для исследователей, работая в условиях ограниченных
-ресурсов и с высокой конфиденциальностью пользовательских данных. Технологии, которые будут
-использоваться, и которые предположительно смогут помочь в достижении таких целей:
+### 1.2 Ключевые проектные решения
 
-* LoRA адаптеры. Система будет работать с одной базовой LLM, при этом используя различные LoRA
-  под разные цели. Вопрос для исследования: возможно ли улучшить работу сервиса с одной LLM,
-  обучив отдельные LoRA под разные нужды.
-* RAG система. Расширение пользовательских промптов дополнительной информацией из баз знаний,
-  документацией, примерами кода и т.д. - один из эффективных способов повысить качество работы
-  LLM. В рамках проекта предстоит построить RAG систему и ответить на следующие вопросы:
-    * Какие данные следует использовать в RAG для разных задач?
-    * Какие методы retrieval будут оптимальными с точки зрения баланса производительности /
-      качества?
-    * Какие методы reranking выбрать?
-    * Влияние Chunking стратегий на качество работы сервиса.
-* Полноценный агентский сервис. Пункт на случай успешного выполнения предыдущих двух и наличия
-  дополнительного времени. Выбирать LoRA и задействовать RAG можно разными способами: вручную,
-  через простые rule-based стратегии, либо доверить это отдельной LLM. В рамках данного пункта
-  будет выполнена попытка организовать полноценных агентский сервис, который получает только
-  запрос от пользователя и генерирует ответ, используя все доступные инструменты, когда это
-  необходимо.
+* **Single-repository** - единая точка входа
+* **Docker Compose (single-node)** - система контейнеризации для запуска в режиме single-node
+* **vLLM как inference engine** - OpenAI-совместимый API, hot-loading LoRA адаптеров, высокая производительность
+* **Alias-based управление RAG и LoRA** - Возможность тестировать различные конфигурации без downtime и с возможностью откатиться
+* **Celery + Redis pub/sub для streaming** - Отвязка latency инференса от HTTP-соединения, снижение TTFT (time to first token), поддержка длинных ответов
+* **Airflow для автоматизации** - Основной бэкенд для стандартизованных и периодичных задач (обновление RAG, бенчмарки, пайплайн обучения LoRA)
 
-## Бизнес описание работы агентской системы
+---
 
-Цель проекта: Создать AI-ассистента на базе агентской системы с RAG для исследователей в областях
-ML/DL/AI/LLM, который ускоряет поиск информации, суммаризацию научных материалов и генерацию
-кода, повышая продуктивность и воспроизводимость исследований. Система работает локально и сохраняет
-конфиденциальность пользовательских данных. Она контекстно осведомлена о текущем проекте и
-участниках, учитывает историю запросов и выполняемых задач, а при необходимости дополняет знания
-внешним поиском — без раскрытия приватной информации. По сути, это «коллега‑ассистент», который
-понимает, где и над чем он работает, и помогает принимать решения быстро и безопасно.
+## 2. Архитектура и каталог сервисов
 
-### Целевая аудитория
+### 2.1 Платформа инференса
 
-* Исследователи: быстро извлекают суть статей, находят релевантные цитаты и идеи для
-  экспериментов.
-* ML-инженеры: получают примеры кода, рефакторинг и помощь с интеграцией моделей в пайплайны.
-* Студенты и стажеры: получают объяснения концепций и примеры с минимальным входным порогом.
-* Руководитель группы: получает обзор прогресса и агрегированные знания по проекту.
-
-### Ключевые сценарии использования
-
-* Чат с поддержкой поиска по внутренним и внешним источникам (RAG): ответы с указанием источников и
-  цитат.
-* Суммаризация статей и длинных документов (multi-level: от краткого «TL;DR» до подробной
-  структуры).
-* Генерация и доработка кода (шаблоны, тесты, советы по оптимизации).
-* Поиск по корпоративным/локальным репозиториям, базам знаний и коду.
-
-### Основные ценности
-
-* Экономия времени на обзор литературы и поиск решений.
-* Быстрая генерация кода и примеров, релевантных имеющимся базам знаний, проектам и репозиториям.
-
-### Ожидаемые возможности системы:
-
-* Чат-бот. Ответы на вопросы про разные области и аспекты ML / DL / AI / LLM.
-* Суммаризация документов / статей как отдельная функция.
-* Генерация кода как отдельная функция.
-* Поддержка контекста с базой знаний (статьи, документация, кодовые базы и т.д.) на базе RAG
-  системы как отдельная функция.
-
-### Возможные расширения функционала, возможностей RAG системы и решение проблемы cutoff-date:
-
-* Агентская система с автоматизированным выбором инструментов: LoRA для суммаризации / генерации
-  кода, задействование RAG, web-search.
-* Хранение и динамическое обновление информации о пользователе и истории переписки. Поддержка
-  агента в состоянии постоянного пребывания в контексте той системы, в которой он работает.
-
-## Техническое описание и постановка задачи
-
-Сервис имеет 2 основные платформы:
-
-1. Платформа для экспериментирования и обучения моделей и адаптеров
-2. Платформа с работающим LLM сервисом. Сам сервис строится в 4 этапа:
-    1. Базовая LLM.
-    2. Базовая LLM + RAG система. Фиксированный или rule-based выбор, когда использовать RAG.
-    3. Базовая LLM + RAG + LoRA адаптеры. Фиксированный или rule-based выбор адаптеров.
-    4. Агентский сервис с динамическим выбором задействуемых инструментов.
-
-### Микросервисная архитектура
-
-Вся система развёрнута как набор Docker-контейнеров, управляемых через Docker Compose, с единой
-точкой входа через Nginx reverse proxy. Архитектура следует принципам production-систем:
-изоляция по сетям, health check-и, горячая перезагрузка адаптеров, crash-recovery для worker-ов.
-
-**Сервисы inference-платформы:**
-
-| Сервис | Технология | Порт | Назначение |
-|--------|-----------|------|------------|
-| `gateway` | FastAPI | 9000 | API Gateway: аутентификация, сборка промптов, RAG, SSE streaming, prompt preview |
-| `vllm` | vLLM v0.16.0 | 8000 | OpenAI-compatible LLM inference с multi-LoRA и hot-reload |
-| `embeddings` | FastAPI + sentence-transformers | 8100 | Standalone embedding microservice |
-| `celery-worker` | Celery | — | Async LLM inference: exact `/tokenize` preflight, generation через vLLM, streaming событий через Redis Pub/Sub |
-| `ui` | Streamlit | 8501 | First-party чат-интерфейс с OAuth2 и rich SSE рендерингом thinking / answer каналов |
-| `vllm-adapter-sync` | Python | — | Синхронизация MLflow Model Registry адаптеров в vLLM |
-| `code-sandbox` | Python 3.13 (изолированный) | 8200 | Безопасное выполнение кода для HumanEval eval |
-
-**Сервисы платформы экспериментов:**
-
-| Сервис | Технология | Порт | Назначение |
-|--------|-----------|------|------------|
-| `airflow-webserver` | Apache Airflow 3 | 8080 | Web UI и API для DAG-ов |
-| `airflow-scheduler` | Apache Airflow 3 | — | Расписание DAG-ов |
-| `airflow-dag-processor` | Apache Airflow 3 | — | Парсинг DAG-файлов |
-| `airflow-worker` | Airflow Celery Worker | — | CPU worker: evals, RAG updates, cleanup (concurrency 2) |
-| `airflow-worker-gpu` | Airflow Celery Worker + CUDA | — | GPU worker: LoRA training (concurrency 1) |
-| `jupyter` | JupyterLab | 8888 | Operator notebooks для экспериментов |
-| `mlflow` | MLflow Tracking | 5050 | Experiment tracking и Model Registry |
-
-**Инфраструктурные сервисы:**
-
-| Сервис | Технология | Порт | Назначение |
-|--------|-----------|------|------------|
-| `postgres` | PostgreSQL 15 | 5432 | Airflow metadata, MLflow backend, agent042 app DB |
-| `qdrant` | Qdrant v1.17.0 | 6333/6334 | Векторная БД для RAG (HTTP/gRPC) |
-| `redis` | Redis 7 | 6379 | Sessions, Pub/Sub streaming, prompt preview cache |
-| `rabbitmq` | RabbitMQ 3 + Management | 5672/15672 | Celery broker (Airflow workers и gateway worker) |
-| `flower` | Flower | 5555 | Мониторинг Celery worker-ов |
-| `redisinsight` | RedisInsight | 5540 | Мониторинг Redis |
-
-**Docker network isolation:**
-
-| Сеть | Содержит | Назначение |
-|------|----------|------------|
-| `mlflow_db_net` | PostgreSQL, MLflow, Airflow, workers | Данные и experiment tracking |
-| `backend_net` | vLLM, Qdrant, RabbitMQ, Redis, Gateway, workers | Ядро inference |
-| `frontend_net` | UI ↔ Gateway | Клиентский слой |
-| `sandbox_net` | code-sandbox (без интернета) | Изолированное выполнение кода |
-
-Каждый сервис подключён только к тем сетям, которые необходимы для его работы. `code-sandbox`
-полностью изолирован: read-only root filesystem, tmpfs `/tmp`, ограничение 1 CPU / 256 MB RAM,
-доступ только из `sandbox_net` — без выхода в интернет.
-
-### Платформа для экспериментов и обучение LoRA
-
-* DVC with Yandex Cloud S3 remote
-* MLFlow with Yandex Cloud S3 remote
-* **MLflow Model Registry** — реестр версионированных LoRA-адаптеров с alias-based promotion
-  (champion / challenger) для перехода из экспериментов в production
-* **Qdrant aliases для RAG-индексов** — alias-based promotion для retrieval-конфигураций
-  (champion / challenger) без полного релиза в production
-* Hydra для конфигурирования тренировок
-* Lightning AI (Pytorch Lightning) для организации тренировочных пайплайнов
-* **Airflow + Jupyter split** — тяжелые compute workload-ы идут через DAG-и, а register / promote /
-  sync / inspect выполняются из operator notebooks
-* **Run-scoped training artifacts** — каждый training run пишет артефакты в
-  `artifacts/training/runs/<timestamp>-<uuid>/` с поддиректориями `checkpoints/`, `export/`,
-  `metadata/` и `evaluation/`
-* **Export from best checkpoint** — deployable LoRA-артефакт восстанавливается из лучшего
-  checkpoint-а перед экспортом и регистрацией
-* **`artifacts/` как runtime-корень** — gitignored runtime outputs складываются в `artifacts/`,
-  а hot-loaded serving adapters остаются в `assets/adapters/`
-
-### Контракт конфигурации
-
-* `src/shared/config.py` — единый источник истины для cross-service конфигурации. В нём
-  выделены `PlatformSettings`, `GatewayBehaviorSettings`, `RagSettings`, `AuthSettings`,
-  `RegistrySettings`, `EvalSettings` и `UISettings`; `GatewaySettings` агрегирует gateway-facing
-  настройки в один flat-контракт.
-* Канонический локальный шаблон конфигурации — корневой `.env.example` репозитория. Локальные
-  entrypoint-ы bootstrap-ят корневой `.env` из корня проекта через `src/shared/local_env.py`.
-  Контейнеризированные сервисы получают env vars напрямую из Docker Compose.
-* Канонические shared endpoint env vars: `VLLM_BASE_URL`, `EMBEDDINGS_URL`, `QDRANT_HOST`,
-  `QDRANT_PORT`, `MLFLOW_TRACKING_URI`, `REDIS_URL`, `CELERY_BROKER_URL`. Eval-specific endpoint
-  остаётся `EVAL_GATEWAY_URL`.
-* Service-specific settings используют префиксные семейства: `GATEWAY_*`, `EVAL_*`, `UI_*`,
-  `REGISTRY_*`, `AIRFLOW_*`, `VLLM_*` и т.д.
-* Query-time RAG конфигурация живёт в `src/shared/knowledge_bases.json` как `default_alias`,
-  `top_k`, `score_threshold` и `reranker`; build-time retrieval конфигурация (`embedding_model`,
-  `retrieval_strategy`, chunking facts) живёт в Qdrant `_meta.build_config`.
-* Краткий операционный reference по ownership и canonical env names живёт в
-  `CONFIG-CONTRACT.md`.
-
-### Текущий контракт online-serving
-
-#### Big Picture
-
-Each active serving-contract surface appears once below.
-
-1. Successful chat serving uses one production path only: Browser or client -> Gateway SSE -> Celery -> Worker -> vLLM -> Redis -> Gateway SSE.
-2. `POST /v1/chat/completions` is an SSE-only success path; `stream=false` is rejected.
-3. Gateway owns request shaping, RAG retrieval, prompt preview creation, and budget metadata.
-4. Worker owns exact `/tokenize` preflight, final `max_tokens`, streamed usage accumulation, and terminal worker events.
-5. Gateway exposes two response contracts: standard OpenAI-style SSE for generic clients and rich SSE for the first-party UI.
-6. Prompt preview is keyed by `X-Request-Id` and fetched through `GET /v1/chat/prompt-preview/{request_id}`.
-7. Usage and persistence complete only after the terminal `done` event.
-8. RAG query config comes from `src/shared/knowledge_bases.json`, while collection build facts come from Qdrant `_meta.build_config`.
-
-#### Runtime Reference
-
-| Surface | Owner / primary reader | Active contract | Change it when | Notes |
-| --- | --- | --- | --- | --- |
-| End-to-end serving path | Browser or client, gateway, Celery worker, vLLM, Redis | Successful chat generation follows one async path only: Browser or generic client -> Gateway SSE -> Celery -> Worker -> vLLM -> Redis -> Gateway SSE | The transport model or component boundaries change | This is the live production path, not an optional mode |
-| `POST /v1/chat/completions` | Gateway route layer | Successful generation requires `stream=true`; the route validates `rag_sources`, derives `request_id`, and returns streaming responses with `X-Request-Id` | The public chat API contract changes | `stream=false` is rejected rather than falling back to a blocking success path |
-| Request payload shape | Gateway route, UI, eval runner, generic clients | Request payload stays OpenAI-compatible and adds `rag_sources`, `chat_session_id`, and extra top-level passthrough fields that survive into generation payload assembly | The public request contract or client integrations change | `rag_sources` selects KB and alias; `chat_session_id` binds the exchange to persisted history |
-| Gateway startup requirements | Gateway runtime | Startup fails if async serving is disabled or `CELERY_BROKER_URL` is missing | Serving stops depending on Celery or the async-only rule changes | Active runtime is async-only |
-| Request shaping and budget policy | Gateway prompt assembly | Gateway builds the prompt through `src/gateway/services/budget.py` and `src/gateway/services/prompt_builder.py`, shaping system prompt, current turn, history, and RAG approximately | Prompt budgeting rules or shaping heuristics change | `BudgetSettings` in `src/shared/config.py` is the policy source; field defaults listed below |
-| Exact token preflight | Worker runtime | Worker sends the chat-affecting payload to vLLM `/tokenize`, reads exact `prompt_tokens`, computes `B_resp_final = model_max_tokens - prompt_tokens - budget_guard`, and rejects if below `min_response_budget`; also injects `stream_options: {"include_usage": true}` into the upstream vLLM payload | The exact budgeting rule or vLLM integration changes | Final response budget is derived from exact prompt size, not from gateway estimates |
-| Standard SSE contract | Generic clients, eval runner, notebooks that use the public API | Gateway returns answer delta chunks, a terminal finish chunk, a final usage chunk, and `[DONE]` | Generic client compatibility changes | This is the default contract when the UI-rich header is absent |
-| Rich UI SSE contract | First-party Streamlit UI | UI sends `X-UI-Rich-Stream: 1` and receives named events `thinking_token`, `answer_token`, `usage`, `done`, and `error` | The first-party UI protocol changes | This contract exists only for the first-party UI path |
-| Prompt preview | Gateway and UI or internal clients | Gateway stores prompt preview in Redis for 15 minutes and serves it through `GET /v1/chat/prompt-preview/{request_id}` | Prompt introspection or preview TTL changes | Preview includes `prompt_messages` and `rag_context` for the streamed request |
-| Worker event contract | Worker, Redis stream layer, gateway stream assembly | Worker publishes `thinking_token`, `answer_token`, `done`, and `error` into Redis Pub/Sub under `tokens:{conversation_id}` | Internal event names or payload shape change | Gateway assembles final SSE from these events rather than proxying raw worker output |
-| Usage and persistence | Worker and gateway persistence layer | Worker is the source of truth for final usage; `prompt_tokens` comes from `/tokenize`, completion usage comes from streamed vLLM usage, and gateway persists assistant rows only after terminal `done` | Usage accounting or persistence timing changes | Assistant rows store `prompt_tokens` and `completion_tokens`; user rows do not |
-| Canonical assistant content | Worker, gateway, UI history rendering | Assistant content is canonicalized as `<think>...</think>` plus answer when thinking exists, otherwise plain answer | Thinking/answer split or stored history format changes | Persisted history uses the canonical combined content |
-| RAG query config | `src/shared/knowledge_bases.json`, gateway RAG runtime, UI discovery | User-facing query config is task -> KB -> alias with `default_alias`, `top_k`, `score_threshold`, `reranker`, labels, and descriptions | Query-time retrieval behavior or visible KB registry changes | This is query config, not collection build metadata |
-| RAG build config | Qdrant `_meta.build_config`, `RAGService` | Collection build facts such as `embedding_model` and `retrieval_strategy` are read from Qdrant metadata and validated against runtime expectations | Collection structure or compatibility checks change | Alias query config and collection build config are intentionally separate |
-| RAG cache reload | Gateway RAG runtime and authenticated operators | `POST /v1/admin/reload-config` reloads `knowledge_bases.json` and invalidates cached retrievers and build-config state without a full gateway restart | The reload workflow or auth policy changes | Endpoint is unavailable when auth is disabled |
-
-#### BudgetSettings defaults
-
-`BudgetSettings` is mixed into `GatewaySettings`. All fields accept `GATEWAY_*` env var overrides.
-
-| Field | Default | Description |
+| Сервис | Технология | Роль |
 |---|---|---|
-| `model_max_tokens` | `32768` | Configured model window used as the top of the token ledger |
-| `chars_per_token` | `4.0` | Character-to-token ratio for gateway-side approximate shaping |
-| `budget_guard` | `512` | Reserved gap that absorbs estimation error and chat-template overhead |
-| `budget_system` | `768` | Approximate budget for the system prompt |
-| `budget_turn` | `10240` | Approximate budget for the current user turn; request rejected if exceeded |
-| `min_budget_history` | `4096` | Minimum guaranteed history budget (`B_hist_eff = min_budget_history + (budget_turn - turn_est)`) |
-| `budget_rag` | `6144` | Total budget for all RAG context; split equally across KBs with no redistribution |
-| `min_response_budget` | `256` | Minimum exact response budget below which the worker rejects before generation |
+| `gateway` | FastAPI + uvicorn | API Gateway: аутентификация, task routing, RAG, сборка промпта, async dispatch |
+| `vllm` | vLLM | Inference engine с OpenAI-совместимым API и hot-loading LoRA адаптеров |
+| `celery-worker` | Celery + RabbitMQ | Асинхронный inference: стримит токены обратно через Redis pub/sub |
+| `vllm-adapter-sync` | Python | Синхронизация LoRA артефактов из MLflow Model Registry в vLLM |
+| `embeddings` | FastAPI (sentence-transformers) | Сервис dense и sparse embeddings |
+| `reranker` | FastAPI (cross-encoder) | Cross-encoder reranking для улучшения качества RAG |
+| `qdrant` | Qdrant | Векторное хранилище для RAG-коллекций |
+| `redis` | Redis | Сессии, pub/sub для streaming-ответов, вспомогательное состояние |
+| `rabbitmq` | RabbitMQ | Брокер сообщений для Celery task queue |
+| `postgres` | PostgreSQL | Пользовательские данные, история диалогов, backend Airflow и MLflow |
+| `ui` | Streamlit | Пользовательский интерфейс с Google-авторизацией и streaming-инференсом |
+| `nginx` | nginx | TLS termination, reverse proxy, маршрутизация в UI и Gateway |
 
-**Multi-KB RAG trimming rule:** when a request references *n* KBs, each KB receives a fixed base
-allocation of `floor(budget_rag / n)` tokens. Chunks are kept in retrieval-score order within
-each section until the next chunk would exceed that section's budget. Unused budget in one KB
-section is not redistributed to other sections.
+### 2.2 Платформа экспериментов
 
-#### Reasoning extraction order
-
-The worker extracts thinking content in this fixed order:
-
-1. **Explicit delta fields** — checks `reasoning_content`, `reasoning`, and `thinking` on each streamed vLLM delta; the first non-empty value is used.
-2. **Compatibility `<think>` blocks** — when no explicit reasoning delta is seen, the worker parses streamed `<think>...</think>` segments in the answer content as the fallback.
-3. **Answer-only** — when neither representation is present, all content is treated as answer.
-
-`thinking_token` and `answer_token` events are emitted on separate Redis Pub/Sub channels so the
-gateway and UI can render them independently.
-
-### Этап 1. Базовая LLM.
-
-* Клиент делает запрос
-* Запрос попадает в API Gateway (FastAPI)
-* FastAPI использует Task Router для функции chat
-* FastAPI использует Prompt Builder, который собирает промпт
-    * Промпт содержит базовый system message и task-specific суффикс
-    * Собирается Prompt Config
-* vLLM Inference Server всегда имеет загруженную базовую LLM
-    * адаптеры не используются
-    * получает промпт
-    * vLLM генерирует ответ, который через FastAPI направляется клиенту
-
-### Этап 2. Базовая LLM + RAG система.
-
-* Клиент делает запрос
-* Запрос попадает в API Gateway (FastAPI)
-* FastAPI использует Task Router, который определяет, что нужно сделать: chat / summarize /
-  generate code
-    * таска определяется rule-based по кейвордам или выбирается вручную в UI
-* FastAPI использует Prompt Builder, который собирает промпт
-    * **в UI можно выбрать, использовать ли RAG и какие knowledge base задействовать**
-    * **Промпт может дополняться retrieved context из RAG**
-    * Собирается Prompt Config
-* vLLM Inference Server всегда имеет загруженную базовую LLM
-    * адаптеры не используются
-    * получает промпт
-    * vLLM генерирует ответ, который через FastAPI направляется клиенту
-
-### Этап 3. Базовая LLM + RAG + LoRA адаптеры.
-
-* Клиент делает запрос
-* Запрос попадает в API Gateway (FastAPI)
-* **FastAPI использует Task Router, который определяет задействуемую функцию: chat / summarize /
-  generate code**
-    * **таска определяется rule-based по кейвордам или выбирается вручную в UI**
-    * **под каждую таску существует свой LoRA**
-* FastAPI использует Prompt Builder, который собирает промпт
-    * в UI можно выбрать, использовать ли RAG
-    * **Промпт фиксированный, но разный для каждой функции**
-    * Собирается Prompt Config
-* vLLM Inference Server всегда имеет загруженную базовую LLM
-    * **получает информацию, какой адаптер подгружать (или никакой)**
-    * получает промпт
-    * vLLM генерирует ответ, который через FastAPI направляется клиенту
-
-### Этап 4. Агентский сервис с динамическим выбором задействуемых инструментов.
-
-* Клиент делает запрос
-* Запрос попадает в API Gateway (FastAPI)
-* **Между FastAPI и Task Router / Prompt Builder есть отдельный слой абстракции с
-  LLM, которая автоматизирует выбор адаптеров и RAG, а также может задействовать другие
-  инструменты.**
-    * **Подробности TBD**
-* FastAPI использует Task Router, который определяет, что нужно сделать: chat / summarize /
-  generate code
-    * **в UI можно вручную выбрать, какую задачу нужно выполнять**
-    * под каждую таску существует свой LoRA
-* FastAPI использует Prompt Builder, который собирает промпт
-    * **в UI можно выбрать, использовать ли RAG**
-    * Собирается Prompt Config
-* vLLM Inference Server всегда имеет загруженную базовую LLM
-    * получает информацию, какой адаптер подгружать (или никакой)
-    * получает промпт
-    * vLLM генерирует ответ, который через FastAPI направляется клиенту
-
-> **Примечание**: Agent layer с динамическим выбором инструментов — запланированное расширение
-> (см. `REMAINING-CHANGES.md` §2.12).
-
-### Embeddings Microservice
-
-Embedding-сервис (`src/embeddings/main.py`) вынесен в отдельный контейнер для изоляции тяжелых
-зависимостей (PyTorch, sentence-transformers) от Gateway и Airflow worker-ов. Gateway, RAG
-pipeline и eval runner обращаются к нему по HTTP, что позволяет масштабировать
-embedding-вычисления независимо.
-
-**API:**
-
-| Endpoint | Назначение |
-|----------|------------|
-| `GET /health` | Health check |
-| `GET /v1/dimension` | Размерность эмбеддингов и имя модели |
-| `POST /v1/embeddings` | Batch embedding текстов → float vectors |
-
-По умолчанию используется модель `sentence-transformers/all-MiniLM-L6-v2` с поддержкой CPU,
-CUDA и MPS devices. Batch size настраивается через `EMBEDDING_BATCH_SIZE` (по умолчанию 32).
-
-### Gateway API Endpoints
-
-| Endpoint | Method | Назначение | Auth |
-|----------|--------|------------|------|
-| `/health` | GET | Health check | нет |
-| `/config` | GET | Текущая конфигурация gateway | нет |
-| `/v1/models` | GET | Proxy к vLLM: список доступных моделей | да |
-| `/v1/chat/completions` | POST | Основной SSE-only inference endpoint (`stream=true`) | да |
-| `/v1/chat/prompt-preview/{request_id}` | GET | Prompt preview и `rag_context` по `request_id` | да |
-| `/v1/chat/sessions` | POST | Создание новой chat session | да |
-| `/v1/chat/sessions` | GET | Список сессий пользователя | да |
-| `/v1/chat/sessions/{id}/messages` | GET | Сообщения в сессии | да |
-| `/v1/chat/sessions/{id}` | DELETE | Удаление сессии (cascade) | да |
-| `/v1/knowledge-bases` | GET | Список доступных KB + alias-ов | нет |
-| `/v1/admin/reload-config` | POST | Hot-reload `knowledge_bases.json` и invalidation RAG caches | да |
-| `/auth/login` | GET | Начало OAuth2 PKCE flow | нет |
-| `/auth/callback` | GET | Обработка OAuth2 callback | нет |
-| `/auth/logout` | GET | Завершение сессии | нет |
-| `/auth/me` | GET | Профиль текущего пользователя | да |
-
-### Аутентификация и пользовательское состояние
-
-Система использует Google OAuth2 / OpenID Connect Authorization Code Flow with PKCE.
-
-* Nginx reverse proxy публикует все сервисы на одном домене с path-based routing:
-  `/` → Streamlit UI, `/auth/` → Gateway auth routes, `/api/` → Gateway API,
-  `/airflow/` → Airflow, `/jupyter/` → JupyterLab, `/mlflow/` → MLflow,
-  `/flower/` → Flower, `/redis-insight/` → RedisInsight, `/rabbitmq/` → RabbitMQ Management.
-  Внутренние сервисы (vLLM, Qdrant, Redis, PostgreSQL) доступны только через Docker-сеть.
-* Браузер получает только `HttpOnly` cookie `session_id`; access token, refresh token и срок их
-  жизни хранятся server-side в Redis (TTL сессии по умолчанию 24 часа).
-* **CSRF-защита** реализована через одноразовый `state` параметр в OAuth flow: при начале
-  авторизации генерируется криптографически стойкий `state`, который сохраняется в Redis с TTL
-  10 минут. При callback `state` потребляется атомарно через Redis pipeline, предотвращая replay
-  атаки. PKCE flow использует `code_verifier` / `code_challenge` (SHA-256) для защиты от
-  перехвата authorization code.
-* Gateway `AuthMiddleware` поддерживает два метода аутентификации:
-  1. **API Key** (`X-Api-Key` header) — для service-to-service вызовов (Airflow eval runner,
-     adapter sync). Проверка через `hmac.compare_digest()`. Запрос получает
-     `user_id = "__service__"`.
-  2. **Session Cookie / Bearer Token** — для пользовательских запросов. При необходимости
-     middleware тихо refresh-ит Google access token (за 120 секунд до истечения).
-* Публичные пути без аутентификации: `/health`, `/auth/*`, `/docs`, `/openapi.json`, `/redoc`.
-* PostgreSQL database `agent042` хранит `users`, `chat_sessions`, `chat_messages`, а также
-  evaluation tables `eval_runs` и `eval_samples`.
-* Streamlit UI позволяет создавать, переключать и удалять chat sessions; gateway сохраняет
-  streamed assistant responses в историю пользователя по terminal `done` event.
-
-### Streamlit UI
-
-Streamlit-приложение (`src/ui/app.py`) реализует чат-интерфейс:
-
-* **Авторизация**: OAuth2 redirect на Google через Gateway `/auth/login`, session cookie
-  forwarding через `GatewayClient`.
-* **Chat sessions**: боковая панель со списком сессий, создание/удаление/переключение.
-  Lazy creation — сессия создаётся только при первом сообщении.
-* **Knowledge base selector**: выбор RAG knowledge bases для текущего запроса (arXiv для chat,
-  PyTorch docs для code).
-* **Thinking visualization**: UI читает rich SSE-события `thinking_token` и `answer_token` и
-  рендерит их в отдельных контейнерах: thinking expander и основной assistant frame.
-* **GatewayClient** (`src/ui/client.py`) — HTTP wrapper над Gateway API с пробросом session
-  cookie как Bearer token.
-
-### RAG пайплайны
-
-RAG-система разрабатывается для двух ключевых функций агента: **чат** и **генерация кода**.
-**Суммаризация** всегда работает без RAG, так как суммаризация работает непосредственно
-с предоставленным пользователем документом.
-
-Для каждой RAG-подсистемы проводятся эксперименты по следующим направлениям:
-
-* **Данные**: какие типы источников и знаний необходимо включать в векторную БД для конкретной
-  задачи. Выбор knowledge base (arXiv, PyTorch docs и др.) — вопрос версионирования эксперимента;
-  переключение между ними выполняется вручную.
-* **Chunking стратегии**: способы разбиения документов на чанки и их влияние на качество retrieval и
-  генерации.
-* **Retrieval стратегии**: сравнение sparse, dense и hybrid подходов.
-* **Reranking стратегии**: методы переупорядочивания извлечённых чанков для повышения целевых метрик
-  качества.
-
-> **Примечание**: RAG hybrid-search и reranking benchmarks являются запланированными, но ещё не
-> реализованными улучшениями (см. `REMAINING-CHANGES.md` §2.3–2.4).
-
-#### Реализованные chunking-стратегии
-
-В `src/rag/chunking.py` реализованы три стратегии разбиения документов на чанки:
-
-| Стратегия | Описание | Применение |
-|-----------|----------|------------|
-| `fixed_token` | `RecursiveCharacterTextSplitter` с иерархией разделителей (`\n\n`, `\n`, `. `, ` `) | Baseline для большинства документов |
-| `code` | Разделение по структуре кода (regex: `def`, `class`, `async def`) с fallback на текстовое разбиение | PyTorch docs и код |
-| `section_aware` | Разделение по markdown-заголовкам (`#{1,6}`) с учётом ограничений на размер чанка | Научные статьи с выраженной структурой |
-
-Фабричная функция `get_chunker(strategy, **kwargs)` создаёт экземпляр нужной стратегии.
-Параметры `chunk_size` и `chunk_overlap` передаются при создании и сохраняются в `_meta`
-sentinel коллекции.
-
-#### RAG pipeline компоненты
-
-| Компонент | Файл | Назначение |
-|-----------|------|------------|
-| `EmbeddingService` | `src/rag/embeddings.py` | HTTP-клиент к embeddings microservice |
-| `QdrantVectorStore` | `src/rag/vector_store.py` | Обёртка над Qdrant: collections, aliases, `_meta` sentinel, search |
-| `Retriever` | `src/rag/retriever.py` | Orchestrator: embed query → vector search → format context |
-| `RAGService` | `src/gateway/services/rag_service.py` | Gateway-side: multi-KB retrieval с alias-based routing |
-
-#### Production RAG operations (`src/rag/ops/`)
-
-Вся production lifecycle логика для RAG-коллекций сосредоточена в `src/rag/ops/`:
-
-| Модуль | Назначение |
-|--------|------------|
-| `ops/meta.py` | `BuildConfig`, `CollectionMeta`, `ImplementationInfo` — метаданные и валидация |
-| `ops/materialize.py` | Создание коллекций, batch embed & upsert, генерация timestamped имён |
-| `ops/create/arxiv.py` | Bootstrap ArXiv коллекции с deterministic point IDs |
-| `ops/create/pytorch_docs.py` | Bootstrap PyTorch docs коллекции |
-| `ops/update/arxiv.py` | Инкрементальное обновление ArXiv (upsert в ту же коллекцию) |
-| `ops/update/pytorch_docs.py` | Полная замена PyTorch docs (blue-green deployment) |
-| `ops/aliases.py` | Назначение / промоушен / отвязка alias-ов с валидацией из `knowledge_bases.json` |
-| `ops/inspect.py` | Инспекция коллекций и alias-ов |
-
-`experiments/rag/rag_ops.ipynb` напрямую вызывает production entrypoints из `src/rag/ops` для
-ручного управления коллекциями. `experiments/rag/sandboxes/` предназначен исключительно для
-notebook-only экспериментального кода; Gateway, Airflow и production evals не импортируют его.
-
-**Данные для RAG**
-
-| Knowledge Base | Тип данных | Задачи | Стратегия обновления |
-|---|---|---|---|
-| arXiv | Научные статьи (cs.LG, cs.AI, NeurIPS, ICML, ICLR) | Chat | Инкрементальная (upsert по deterministic UUID) |
-| PyTorch docs | Документация библиотек, туториалы, примеры кода | Code generation | Полная замена (blue-green с staging alias) |
-
-## Метрики качества
-
-* Chat: Relevance (1–5), Correctness (1–5), BERTScore, ROUGE-L
-* Summarization: Faithfulness (1–5), Coverage (1–5), BERTScore, ROUGE-L
-* Code generation: Executable rate, pass@1
-* RAG-specific: Recall@k, nDCG@k, Groundedness
-
-## Данные и датасеты
-
-В проекте используются три категории данных с различным назначением.
-
-### 1. Данные для обучения LoRA адаптеров
-
-| Задача | Датасет | Назначение |
+| Сервис | Технология | Роль |
 |---|---|---|
-| Суммаризация | `ccdv/arxiv-summarization` (train, 203k примеров) | Fine-tuning LoRA для summarization |
-| Генерация кода | `nvidia/OpenCodeInstruct` (train, 5M примеров, фильтр: Python + ML/DL) | Fine-tuning LoRA для code generation |
+| `airflow-webserver / scheduler / dag-processor` | Apache Airflow | Оркестрация пайплайнов |
+| `airflow-worker` | Celery (CPU) | Бенчмарки, RAG-обновления, оценка качества |
+| `airflow-worker-gpu` | Celery (GPU) | Обучение LoRA адаптеров |
+| `jupyter` | JupyterLab | Интерактивные эксперименты и operator workflows |
+| `mlflow` | MLflow | Трекинг экспериментов, Model Registry |
+| `code-sandbox` | Docker (изолированный) | Безопасное выполнение кода при code evaluation |
 
-### 2. Данные для оценки (Evaluation Datasets)
+### 2.3 Платформа мониторинга
 
-Все перечисленные датасеты используются **на каждой** оценке соответствующей задачи.
+| Сервис | Роль |
+|---|---|
+| `prometheus` | Сбор технических метрик со всех сервисов |
+| `grafana` | Дашборды инфраструктурной observability и ML-процессов |
+| `flower` | Мониторинг Celery workers и очередей задач |
+| `redisinsight` | Инспекция Redis-ключей и pub/sub активности |
 
-**Генерация:**
+---
 
-| Задача | Датасет | Используется в этапах |
+## 4. Инференс-пайплайн (runtime)
+
+В этом разделе описан полный путь пользовательского запроса от браузера до ответа модели.
+
+### 4.1 Аутентификация (Google OAuth2 / OIDC + PKCE)
+
+Система использует Google OAuth 2.0 с PKCE (Proof Key for Code Exchange) — рекомендуемый стандарт для веб-приложений, защищающий от атак перехвата кода авторизации.
+
+**Поток аутентификации:**
+
+1. Неаутентифицированный запрос попадает в `AuthMiddleware` Gateway.
+2. Gateway генерирует `code_verifier` (случайная строка), `code_challenge` (SHA-256 хэш verifier'а) и `state` (CSRF-токен).
+3. Пользователь перенаправляется на Google Authorization Endpoint.
+4. После успешного входа Google возвращает `code` на callback URL Gateway.
+5. Gateway обменивает `code` + `code_verifier` на ID Token и Access Token через Google Token Endpoint.
+6. ID Token верифицируется через Google JWKS (публичные ключи). Из него извлекается `email` и `sub` пользователя.
+7. Создаётся сессия: уникальный `session_id` сохраняется в Redis с TTL. Cookie с `session_id` устанавливается в браузере.
+
+**Хранение сессий:**
+Сессии хранятся в Redis. Streamlit UI при каждом запросе передаёт cookie `session_id` в Gateway, который верифицирует сессию через Redis. При отсутствии или истечении сессии пользователь перенаправляется на повторный вход.
+
+### 4.2 Task Routing — классификация типа задачи
+
+После аутентификации Gateway определяет тип задачи: `chat`, `code` или `summarize`. Это влияет на выбор RAG-коллекции и LoRA-адаптера.
+
+**Embedding-based routing:**
+Основной метод — `EmbeddingTaskRouter`. Для каждой задачи в `knowledge_bases.json` задано `routing_description` — текстовое описание задачи. При инициализации Gateway вычисляет эмбеддинги всех `routing_description` и кэширует их. При запросе:
+
+1. Вычисляется эмбеддинг последнего сообщения пользователя.
+2. Считается косинусное сходство с эмбеддингами каждой задачи.
+3. Выбирается задача с наибольшим сходством. Если сходство ниже порогового значения (`task_classification_threshold`) — роутер возвращает `chat` как безопасный fallback.
+
+Примеры `routing_description` из конфигурации:
+- `chat`: "Open-ended ML/DL/AI/LLM research discussion, conceptual explanation..."
+- `code`: "Programming help for ML systems: writing code, debugging tracebacks..."
+- `summarize`: "Summarize or condense user-provided content into a shorter form..."
+
+### 4.3 RAG Retrieval — поиск в базах знаний
+
+На основе определённой задачи Gateway запрашивает соответствующую базу знаний через `RAGService`. Детальное описание — в разделе 5.
+
+Gateway поддерживает три режима RAG:
+
+- `auto` — автоматический выбор базы знаний по задаче.
+- `explicit` — пользователь явно указывает базу знаний (для eval-пайплайна).
+- `off` — RAG отключён (для задачи `summarize` нет баз знаний).
+
+### 4.4 Сборка промпта и token budget management
+
+`PromptBuilder` собирает итоговый промпт из системного промпта, истории диалога, RAG-контекста и текущего сообщения пользователя. Критически важна задача бюджетирования токенов: контекстное окно модели ограничено, нужно уместить все части с нужными приоритетами.
+
+**Бюджеты токенов (значения по умолчанию):**
+
+| Бюджет | Значение | Описание |
 |---|---|---|
-| Chat (QA) | HotpotQA (validation) | Этапы 1–4 |
-| Chat (QA) | Natural Questions (validation) | Этапы 1–4 |
-| Summarization | `ccdv/arxiv-summarization` (validation, 6.4k примеров) | Этапы 1–4 |
-| Code generation | `openai/openai_humaneval` (test, 164 примера) | Этапы 1–4 |
+| `model_max_tokens` | 32 768 | Размер контекстного окна модели |
+| `budget_guard` | 512 | Резерв на overhead chat-template |
+| `budget_system` | 768 | Системный промпт |
+| `budget_turn` | 10 240 | Текущий запрос пользователя |
+| `min_budget_history` | 4 096 | Минимум для истории диалога |
+| `budget_rag` | 6 144 | RAG-контекст |
+| `min_response_budget` | 256 | Минимум для ответа модели |
 
-**Retrieval (без генерации):**
+#### Приближённый подсчёт токенов (символьная эвристика)
 
-| Датасет | Метрики | Используется в этапах |
+На этапе сборки промпта в Gateway вызов реального токенизатора для каждого входящего запроса был бы дорогостоящим сетевым обращением к vLLM. Поэтому все проверки и обрезки на стороне Gateway используют **символьную аппроксимацию**: функция `estimate_tokens(text, chars_per_token)` вычисляет `⌈len(text) / chars_per_token⌉`. Параметр `chars_per_token` по умолчанию равен `4.0` (характерное значение для латинского текста). Использование `ceil` намеренно консервативно — Gateway предпочитает недооценить бюджет, чем переполнить контекстное окно.
+
+#### Точный подсчёт токенов (реальный токенизатор)
+
+Перед непосредственной генерацией Celery worker отправляет уже собранный промпт в vLLM через `/tokenize` и получает точное количество токенов `prompt_tokens`. На основе этого вычисляется окончательный бюджет ответа:
+
+```
+max_tokens = model_max_tokens - prompt_tokens - budget_guard
+```
+
+Если запрошен явный `max_tokens` пользователем, берётся `min(budget_cap, requested_max_tokens)`. Если оставшийся бюджет меньше `min_response_budget` — выбрасывается `ResponseBudgetExceededError` и генерация не начинается.
+
+#### Алгоритм формирования промпта
+
+**Шаг 1 — текущий запрос.** Оценивается длина текущего сообщения пользователя. Если `current_turn_tokens > budget_turn` → немедленная `BudgetValidationError`.
+
+**Шаг 2 — динамический бюджет истории.** Эффективный бюджет истории вычисляется как:
+
+```
+history_budget = min_budget_history + (budget_turn - current_turn_tokens)
+```
+
+Если запрос короткий, неиспользованная часть `budget_turn` передаётся истории. Это обеспечивает, что короткие запросы могут «видеть» больше контекста диалога.
+
+**Шаг 3 — обрезка истории.** `trim_history_pairs()` обходит историю **с конца** (от новых сообщений к старым). Сообщения группируются в «единицы»: пара `user + assistant` всегда обрабатывается совместно, чтобы не разрывать завершённые обмены. Одиночные сообщения (без пары) обрабатываются как отдельные единицы. Единицы добавляются к результату, пока не исчерпан бюджет; первая не уместившаяся единица и все более старые — отбрасываются.
+
+**Шаг 4 — системный промпт.** Оценивается размер системного промпта (включая все `system`-сообщения клиента). Если `system_tokens > budget_system` → `BudgetValidationError`.
+
+**Шаг 5 — обрезка RAG-чанков.** `trim_rag_chunks()` делит `budget_rag` **поровну** между источниками: `section_budget = budget_rag // num_sources`. Внутри каждого источника чанки берутся в порядке убывания релевантности (как вернул retriever) до исчерпания `section_budget`. Заголовок секции (`### Knowledge Base: ...`) учитывается в бюджете источника.
+
+**Шаг 6 — финальный промпт.** Возможны три варианта системного промпта в зависимости от результата RAG:
+
+- RAG вернул чанки → в системный промпт добавляется блок `--- RETRIEVED CONTEXT ---` с отформатированными документами (имя базы знаний, alias, источник, score, текст).
+- RAG запрашивался, но ничего не найдено → добавляется текст `(No relevant context was found in the knowledge base for this query.)`.
+- RAG не запрашивался (задача `summarize` или режим `off`) → системный промпт без изменений.
+
+#### Два типа ошибок бюджета
+
+| Ошибка | Где возникает | Причина |
 |---|---|---|
-| MS MARCO (validation) | Recall@k, nDCG@k | Этапы 2–4 |
-| BEIR‑SciFact (corpus) | Recall@k, nDCG@k | Этапы 2–4 |
-| BEIR‑NFCorpus (corpus) | Recall@k, nDCG@k | Этапы 2–4 |
+| `BudgetValidationError` | Gateway, сборка промпта | Текущий запрос или системный промпт превышают символьный бюджет |
+| `ResponseBudgetExceededError` | Celery worker, перед генерацией | Точный размер промпта оставляет меньше `min_response_budget` токенов для ответа |
 
-### 3. Knowledge Corpora для RAG-системы
+`BudgetValidationError` срабатывает до отправки задачи в Celery и возвращает HTTP-ошибку клиенту немедленно. `ResponseBudgetExceededError` срабатывает уже в worker'е — задача завершается с ошибкой, которая передаётся клиенту через Redis pub/sub.
 
-RAG использует недетерминированные, обновляемые источники, не входящие в supervised-датасеты.
+Системный промпт варьируется по задаче:
+- `chat`: базовый промпт исследовательского ассистента.
+- `code`: акцент на корректных, запускаемых решениях.
+- `summarize`: инструкция на структурированное сжатие.
 
-| Knowledge Base | Тип данных | Задачи |
+Если RAG нашёл релевантные чанки, они добавляются в системный промпт в виде секций `[Source: <kb_name>]`. Если RAG включён, но чанки не найдены — добавляется явное предупреждение об отсутствии контекста.
+
+### 4.5 Асинхронный инференс: Celery + RabbitMQ
+
+Gateway не обращается к vLLM напрямую. Вместо этого:
+
+1. Gateway отправляет задачу в RabbitMQ через Celery.
+2. Celery worker получает задачу и открывает streaming-соединение с vLLM (`/v1/chat/completions` с `stream=true`).
+3. Каждый полученный токен worker публикует в Redis-канал с уникальным `request_id`.
+4. Gateway подписывается на Redis-канал и проксирует токены в браузер через Server-Sent Events (SSE).
+
+**Обработка thinking-токенов:**
+Если модель поддерживает режим "extended thinking" (теги `<think>...</think>`), worker разделяет поток на `thinking_token` и `answer_token` события. UI отображает thinking-контент в отдельном раскрывающемся блоке "💭 Thinking...".
+
+**Детектирование зацикливания:**
+Worker отслеживает повторяющиеся последовательности символов (регулярное выражение на последних 1024 символах ответа). При обнаружении зацикливания генерация прерывается и пользователю сообщается об усечении.
+
+**Response token budget:**
+Перед генерацией worker запрашивает у vLLM количество токенов промпта через `/tokenize` и вычисляет допустимый `max_tokens` для ответа: `model_max_tokens - prompt_tokens - budget_guard`. Это предотвращает усечение ответа из-за переполнения контекстного окна.
+
+---
+
+## 5. RAG-система
+
+### 5.1 Архитектура retrieval
+
+Retrieval pipeline реализован в `src/rag/` и состоит из четырёх слоёв:
+
+```
+Запрос
+  │
+  ▼
+[Embedding / Sparse Encoding]
+  │
+  ▼
+[QdrantVectorStore] ── dense / sparse / hybrid search
+  │
+  ▼
+[Reranker] (опционально) ── cross-encoder re-scoring
+  │
+  ▼
+[Score threshold filtering]
+  │
+  ▼
+Релевантные документы (top_k)
+```
+
+**Стратегии поиска:**
+
+- **Dense retrieval** — поиск по векторному расстоянию (cosine) от dense эмбеддинга запроса. Модель эмбеддингов: `sentence-transformers/all-MiniLM-L6-v2` (по умолчанию).
+- **Sparse retrieval** — поиск по разреженным векторам (BM25). В проекте используется модель `Qdrant/bm25` из библиотеки fastembed. Подходит для точных терминологических запросов.
+- **Hybrid retrieval** — комбинация dense и sparse поиска через Reciprocal Rank Fusion (RRF). Обеспечивает баланс между семантическим и лексическим поиском.
+
+**Reranking:**
+При включённом reranker'е первый этап извлекает `top_k × reranker_multiplier` кандидатов (с расширенным порогом), второй этап пересортировывает их cross-encoder'ом (`cross-encoder/ms-marco-MiniLM-L-6-v2`), после чего применяется финальный score threshold.
+
+**Chunking:**
+Документы перед индексацией разбиваются на чанки:
+- `FixedTokenChunker` (основан на `RecursiveCharacterTextSplitter`) — для текстовых документов (arxiv-статьи, документация).
+- `CodeChunker` — для кода, сохраняет границы функций и классов.
+
+### 5.2 Базы знаний
+
+Система содержит две базы знаний, каждая из которых привязана к типу задачи:
+
+**`arxiv`** (задача `chat`)
+- Содержимое: статьи по ML/AI с arxiv.
+- Стратегия обновления: **incremental** — новые статьи добавляются без пересборки коллекции.
+- Активный champion: dense retrieval, `top_k=5`, `score_threshold=0.35`.
+- Challenger-конфиг: hybrid retrieval с cross-encoder reranking.
+
+**`pytorch_docs`** (задача `code`)
+- Содержимое: официальная документация PyTorch.
+- Стратегия обновления: **replace** — при каждом обновлении коллекция пересоздаётся полностью (документация версионируется целиком).
+- Идентичная схема champion/challenger.
+
+Задача `summarize` не использует базы знаний — модель работает исключительно с содержимым, предоставленным пользователем.
+
+### 5.3 Alias-based управление коллекциями (паттерн champion / challenger)
+
+Ключевой механизм для управления качеством RAG — система aliases поверх коллекций Qdrant. Одновременно могут существовать несколько версий коллекции (например, `arxiv-v1`, `arxiv-v2`). Alias `champion` указывает на текущую production-версию; alias `challenger` — на кандидата, проходящего валидацию.
+
+```
+Qdrant Collections:
+  arxiv-20250101  ◄── alias "champion"
+  arxiv-20250201  ◄── alias "challenger"
+
+После валидации challenger:
+  arxiv-20250101
+  arxiv-20250201  ◄── alias "champion"  (переключение мгновенное)
+```
+
+Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В конфигурации `knowledge_bases.json` каждый alias имеет собственный набор параметров retrieval (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Gateway читает параметры по активному alias в runtime.
+
+**Lifecycle коллекции:**
+
+1. **Создание** (`src/rag/ops/create/`) — парсинг источника, chunking, индексация в Qdrant, привязка alias.
+2. **Incremental update** (`src/rag/ops/update/`) — добавление новых документов без затрагивания существующих (для arxiv).
+3. **Replace update** — полная пересборка коллекции (для pytorch_docs при новой версии документации).
+4. **Alias promotion** (`src/rag/ops/aliases.py`) — переключение `champion` → новая версия.
+5. **Cleanup** (`dags/rag_collection_cleanup.py`) — удаление устаревших коллекций без активных aliases.
+
+### 5.4 Валидация конфигурации при старте
+
+При запуске Gateway автоматически валидирует `knowledge_bases.json`: проверяется наличие Qdrant-коллекций для всех объявленных aliases. Если коллекция не найдена, Gateway либо завершается с ошибкой (при `RAG_STRICT_STARTUP=true`), либо логирует предупреждение и продолжает работу.
+
+---
+
+## 6. LoRA Fine-Tuning Pipeline
+
+### 6.1 Стек и архитектура
+
+Fine-tuning реализован поверх следующего стека:
+
+| Компонент | Библиотека | Роль |
 |---|---|---|
-| arXiv | Научные статьи (NeurIPS, ICML, ICLR), блоги по ML/DL | Chat |
-| PyTorch docs | Документация библиотек, туториалы, примеры кода | Code generation |
+| PEFT | `peft` | Реализация LoRA, управление адаптерами |
+| Training loop | PyTorch Lightning | Абстракция над GPU, gradient accumulation, checkpointing |
+| Config management | Hydra | Иерархическое конфигурирование экспериментов |
+| Experiment tracking | MLflow | Логирование метрик, параметров и артефактов |
+| Model registry | MLflow | Версионирование и alias-based продвижение адаптеров |
+| Data versioning | DVC | Версионирование датасетов через Yandex Cloud S3 |
 
-### 4. Управление данными и воспроизводимость
+**Целевая модель (текущая конфигурация):** Qwen3-0.6B — компактная модель для обучения на RTX 3060 12GB.
 
-* **DVC** (Yandex Cloud S3 remote): хранение датасетов, фиксация preprocessing шагов,
-  воспроизводимость экспериментов.
-* **MLflow**: хранение метрик, логирование параметров обучения, сравнение LoRA-адаптеров.
+**LoRA-конфигурация:**
+- Rank `r=8`, `lora_alpha=16`, `lora_dropout=0.05`.
+- Target modules: все проекционные слои attention и feed-forward (`q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj`).
+- Квантизация: 4-bit NF4 (bitsandbytes) с double quantization — позволяет обучать модель при ограниченном VRAM.
+- Mixed precision: fp16.
 
-### 5. Model Registry и управление адаптерами (MLflow Model Registry)
+**Обучающие данные (текущая конфигурация):** `arxiv-summarization` датасет. Задача — суммаризация научных статей. Формат промпта: `Summarize the following article into an abstract: [article] Abstract:`. Токены промпта исключены из loss (параметр `train_on_inputs: false`).
 
-Для обеспечения плавного перехода от экспериментов к production используется **MLflow Model
-Registry** — единый реестр версионированных LoRA-адаптеров с alias-based lifecycle management.
+### 6.2 Конфигурирование экспериментов (Hydra)
 
-#### Жизненный цикл адаптера
-
-```
-train_adapter                  lora_ops.ipynb                sync (model_registry.py)
-─────────────                  ────────────────────          ──────────────────────────
-  Обучение LoRA                  Просмотр метрик              Скачивание aliased
-       ↓                        в MLflow UI                   адаптеров из S3
-  Логирование метрик                   ↓                              ↓
-  и артефактов в MLflow          register run → v4             Hot-load в vLLM
-  Tracking                             ↓                       через REST API
-                                 promote v4 → champion         (без рестарта)
-```
-
-#### Ключевые концепции
-
-* **Registered Model** — именованная группа адаптеров (например, `lora-summarize`,
-  `lora-code`, `lora-chat`). Имя соответствует задачам в `TaskRouter`.
-* **Model Version** — каждая регистрация создаёт новую версию. Версии иммутабельны.
-* **Aliases** — метки жизненного цикла:
-  * `champion` — production-адаптер, загружаемый в vLLM.
-  * `challenger` — кандидат на A/B-тестирование или ручную оценку.
-
-#### Инфраструктура
-
-* **Registry backend**: PostgreSQL (тот же, что для MLflow Tracking).
-* **Artifact storage**: Yandex Object Storage (S3) — адаптеры хранятся рядом с MLflow-артефактами.
-* **Hot-load sync**: `python -m shared.model_registry sync`
-  скачивает aliased-адаптеры в `assets/adapters/{model}/v{N}/` и загружает их в работающий
-  vLLM через `POST /v1/load_lora_adapter`. В vLLM адаптер регистрируется как `{model}-{alias}`
-  (например, `lora-summarize-champion`).
-* **vLLM multi-LoRA**: запускается с `--enable-lora` и `VLLM_ALLOW_RUNTIME_LORA_UPDATING=true`;
-  адаптеры загружаются/выгружаются без рестарта сервера.
-* **Adapter sync service**: Docker-контейнер `vllm-adapter-sync` автоматически синхронизирует
-  MLflow Model Registry с vLLM при изменении alias-ов.
-
-**Подробности использования**: `./experiments/README.md` → раздел «Model Registry».
-
-> **Примечание**: Training orchestration пока заканчивается на `train → inspect/promote`;
-> автоматический шаг `train → evaluate → human decision` не подключен
-
-### 6. Версионирование RAG-индексов
-
-`src/shared/knowledge_bases.json` — runtime registry knowledge bases. Он сгруппирован по task-ам и
-хранит только пользовательский каталог KB: task → knowledge base → aliases, `update_strategy`,
-label и description. Параметры сборки (`chunking_strategy`, `chunk_size`, `chunk_overlap`,
-embedding model) не лежат в JSON и сохраняются только в `_meta` sentinel внутри Qdrant
-collection, откуда их читают production refresh workflows и retrieval-only evals.
-
-#### `_meta` sentinel
-
-Каждая RAG-коллекция содержит служебную точку `_meta` — запись в Qdrant с детерминированным
-UUID (`uuid.uuid5` от фиксированного namespace и ключа `"_meta"`), нулевым вектором (не влияет
-на similarity search) и метаданными в payload:
-
-```json
-{
-  "type": "collection_meta",
-  "kb_name": "arxiv",
-  "build_config": {
-    "chunking_strategy": "fixed_token",
-    "chunk_size": 512,
-    "chunk_overlap": 64,
-    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
-    "sparse_encoder": null,
-    "retrieval_strategy": "dense"
-  },
-  "created_at": "2025-01-01T12:00:00Z",
-  "implementation": {
-    "module": "rag.ops.create.arxiv",
-    "experimental": false,
-    "identifier": null,
-    "git_sha": "abc1234"
-  }
-}
-```
-
-`sparse_encoder` and `retrieval_strategy` are required fields in `BuildConfig`. Collections created before this schema was introduced (legacy collections that lack these fields) are treated as invalid: in non-strict mode `RAGService` logs a warning and marks the alias unavailable; with `GATEWAY_RAG_STRICT_STARTUP=true` gateway startup raises immediately rather than continuing with unavailable aliases.
-
-Поисковые запросы автоматически исключают `_meta` через фильтр
-`must_not: [{"key": "type", "match": {"value": "collection_meta"}}]`.
-
-Это позволяет DAG-ам и production workflows не хранить конфиг внешне — вся информация для
-rebuild-а читается из `_meta` существующей production-коллекции.
-
-#### Версионирование и снятие снимков
-
-Для обеспечения воспроизводимости RAG-системы, векторные индексы Qdrant также подлежат
-версионированию:
-
-* **Qdrant snapshots**: встроенный механизм снимков коллекций (`POST /collections/{name}/snapshots`).
-* **DVC**: снимки индексов хранятся в Yandex Cloud S3 через DVC, аналогично датасетам.
-* **Связь с адаптерами**: в тегах model version в MLflow фиксируется версия RAG-индекса,
-  которая использовалась при оценке адаптера, обеспечивая полную воспроизводимость.
-
-#### Alias-based lifecycle
-
-Для безопасного сравнения retrieval-архитектур без полного release вводится alias-based lifecycle:
-
-* **RAG alias `champion`** — production retrieval-конфигурация.
-* **RAG alias `challenger`** — кандидатная retrieval-конфигурация (новый индекс, chunking,
-  reranking, top-k и т.д.).
-* **Atomic switch** — promotion выполняется через переключение alias на новую коллекцию.
-* **Naming convention**: `{kb_name}_{alias}` (например, `arxiv_champion`, `pytorch_docs_challenger`).
-  Physical collection names: `{kb_name}_{YYYYMMDD_HHMMSS}`.
-* **Production entrypoints** — создание, refresh, alias-management и inspection живут только в
-  `src/rag/ops/`.
-* **Sandbox boundary** — `experiments/rag/sandboxes/` предназначен только для notebook-only
-  экспериментального кода; Gateway, Airflow и production evals не импортируют его.
-
-#### Политика обновления индексов
-
-* `arxiv_rag_update` вызывает `rag.ops.update.update_arxiv_collection(kb="arxiv", alias="champion")`.
-  Функция читает `_meta` champion-коллекции и инкрементально обновляет именно её.
-  ArXiv использует deterministic point IDs (`uuid.uuid5` от `arxiv_id:chunk_idx`), что позволяет
-  перезаписывать существующие чанки без дубликатов.
-  Непродовые alias-ы можно refresh-ить вручную только из notebook path.
-* `pytorch_docs_rag_update` вызывает
-  `rag.ops.update.update_pytorch_docs_collection(kb="pytorch_docs", alias="champion")`.
-  Функция читает `_meta` champion-коллекции, создаёт successor collection, вешает staging alias
-  `{kb}_{alias}_staging` и затем атомарно перепривязывает champion. Старая коллекция удаляется,
-  если на неё не указывают другие alias-ы.
-* Gateway при старте валидирует все `(kb, alias)` из runtime registry против Qdrant и заранее
-  помечает отсутствующие alias-ы как unavailable с warning-логами.
-
-Выбор стратегии обновления:
-* **Инкрементальная (arXiv)**: статьи иммутабельны, новые добавляются upsert-ом. Безопасно
-  обновлять коллекцию in-place.
-* **Полная замена (PyTorch docs)**: документация может значительно меняться. Blue-green deployment
-  гарантирует атомарный переход без stale данных mid-update.
-
-#### Автоматическая очистка коллекций
-
-DAG `rag_collection_cleanup` (расписание: `@daily`) удаляет orphan-коллекции в Qdrant, которые
-не привязаны ни к одному alias-у и чей timestamp старше 7 дней. Legacy коллекции (`chat_documents`,
-`code_documents`) находятся в skip-list и не удаляются автоматически.
-
-#### Production policy
-
-* На production **всегда должен существовать alias `champion`**.
-* На production **могут существовать дополнительные alias-ы** (`challenger` и др.) для тестов и
-  валидации.
-* Параметры `top_k`, `score_threshold`, `reranker` являются alias-owned
-  конфигурацией в `knowledge_bases.json`. Каждый alias несёт свои параметры —
-  champion и challenger могут различаться без рестарта сервиса.
-* Gateway использует request-side budget slices, а worker
-  вычисляет финальный `max_tokens` через exact preflight к vLLM `/tokenize`.
-* Изменение query-config: редактирование `knowledge_bases.json` +
-  `POST /v1/admin/reload-config` (authenticated).
-* Build-time параметры (`chunking_strategy`, `embedding_model`, `sparse_encoder`,
-  `retrieval_strategy`) хранятся в Qdrant `_meta.build_config` и меняются только
-  через rebuild коллекции.
-
-#### Политика маршрутизации трафика
-
-* Production inference по умолчанию использует `default_alias` из `knowledge_bases.json`
-  (обычно `"champion"`).
-* Непродовые alias-ы (`challenger` и др.) используются для eval/тестов/ручных проверок.
-* Создание новых challenger-коллекций и alias promotion выполняются через
-  `experiments/rag/rag_ops.ipynb`, а не отдельным CLI.
-
-## Архитектура оценки
-
-Пайплайн оценки разделён на generation evals и retrieval-only evals.
-
-* **Generation evals** (`chat`, `summarize`, `code`) вызывают Gateway API
-  `POST /v1/chat/completions`. Gateway остаётся единственным источником истины для prompt
-  assembly, LoRA selection, RAG retrieval и inference.
-* **Retrieval-only evals** строят временные benchmark collections в Qdrant из corpora BEIR /
-  MS MARCO, используя те же build params, что и выбранный production alias: конфиг читается из
-  `_meta` соответствующей collection.
-
-### Модули метрик
-
-Метрики реализованы в `experiments/eval/eval_scripts/metrics/` тремя независимыми модулями:
-
-| Модуль | Метрики | Способ вычисления |
-|--------|---------|-------------------|
-| `automatic.py` | ROUGE-L, BERTScore, Recall@k, nDCG@k | Локальное вычисление, без внешних API |
-| `llm_judge.py` | Relevance, Correctness, Faithfulness, Coverage, Groundedness (1–5) | Google Gemini 2.0 Flash API с rate limiting (15 RPM) |
-| `code_exec.py` | pass@1, executable_rate | Извлечение кода из ответа LLM и исполнение в изолированном `code-sandbox` контейнере |
-
-**Code sandbox** для безопасного выполнения кода:
-* Отдельный Docker-контейнер (`code-sandbox`) на базе `python:3.13-slim`
-* Read-only root filesystem, tmpfs `/tmp`
-* Ограничения: 1 CPU, 256 MB RAM
-* Изолирован в `sandbox_net` — без доступа к интернету или другим сервисам
-* Запускается как non-root пользователь (`sandbox`)
-
-### Airflow orchestration
-
-`dags/eval_dags.py` создаёт семь Airflow DAG-ов, по одному на каждую пару `(task, dataset)`:
-
-| DAG | Task | Dataset |
-|-----|------|---------|
-| `eval_chat_hotpotqa` | chat | HotpotQA |
-| `eval_chat_nq` | chat | Natural Questions |
-| `eval_summarization_arxiv` | summarize | ArXiv summarization |
-| `eval_code_humaneval` | code | HumanEval |
-| `eval_retrieval_beir_scifact` | retrieval | BEIR-SciFact |
-| `eval_retrieval_beir_nfcorpus` | retrieval | BEIR-NFCorpus |
-| `eval_retrieval_msmarco` | retrieval | MS MARCO |
-
-Каждый DAG содержит два последовательных шага:
-1. **`fetch_predictions`**: вызывает Gateway API (для generation) или Qdrant напрямую (для
-   retrieval). Predictions передаются между шагами через временные JSON-файлы (избегает
-   ограничений XCom на размер).
-2. **`calculate_metrics`**: вычисляет выбранную метрику. Результаты записываются в PostgreSQL
-   таблицы `eval_runs` и `eval_samples`.
-
-Конкретная метрика и матрица по `rag_aliases` / `lora_aliases` выбираются при trigger-time
-через параметры Airflow UI. Для generation DAG-ов там же выбирается режим knowledge base:
-`knowledge_base_mode="explicit"` + `knowledge_base=<kb>` для принудительного KB или
-`knowledge_base_mode="auto"` для gateway auto-selection. Retrieval DAG-ы по-прежнему
-требуют явный `knowledge_base`.
-
-### Two-step runner
-
-`experiments/eval/eval_scripts/runner.py` реализует standalone runner для оценки:
-* Разделяет `fetch_predictions()` и `calculate_metrics()`
-* Поддерживает три этапа оценки (stage 1: base LLM, stage 2: + RAG, stage 3: + LoRA)
-* Результаты пишет в PostgreSQL tables `eval_runs` и `eval_samples`
-* CLI: `python -m experiments.eval.eval_scripts.runner --task chat --dataset hotpotqa --metric rouge_l`
-* Для generation eval runner поддерживает `use_auto_rag=True`, чтобы сохранить `kb_name=None`
-  и проверить gateway auto-selection вместо suite-default KB
-
-### Operator path
-
-Просмотр eval-таблиц, сравнение конфигураций и трендов находится в
-`experiments/eval/eval_results.ipynb`. Debug-notebook `experiments/eval/debug_eval.ipynb`
-используется для отладки отдельных шагов eval pipeline.
-
-## Обучение LoRA адаптеров
-
-Обучение адаптеров построено на стеке **PyTorch Lightning + Hydra + PEFT + BitsAndBytes**
-и расположено в `experiments/training/`.
-
-### Архитектура training pipeline
+Конфиги хранятся в `experiments/training/conf/`. Иерархия:
 
 ```
-Hydra Config (conf/)
-      │
-      ▼
-start_train.py          @hydra.main → инициализация конфига
-      │
-      ├── modeling.py       загрузка базовой LLM + 4-bit quantization + PEFT LoRA
-      ├── data_module.py    ArxivDataModule: tokenization, sequence budget, batching
-      ├── lit_module.py     PeftCausalLMModule: training/validation step, optimizer, scheduler
-      └── mlflow_utils.py   логирование в MLflow Tracking
-      │
-      ▼
-PyTorch Lightning Trainer
-      │
-      ├── Training loop с gradient checkpointing
-      ├── Validation с мониторингом val_loss
-      ├── Checkpointing лучших моделей
-      └── MLflow: метрики (train_loss, val_loss, lr, tokens/sec, GPU memory)
+conf/
+  config.yaml              # Базовый config (defaults: experiment, paths)
+  experiment/
+    train_adapter.yaml     # Параметры конкретного эксперимента
+    base_experiment.yaml   # Общие значения по умолчанию
+  paths/
+    paths_config.yaml      # Пути проекта (project_root)
 ```
 
-### Ключевые компоненты
-
-* **`PeftCausalLMModule`** (`lit_module.py`): Lightning Module, оборачивающий PEFT-fine-tuned
-  causal LM. Поддерживает AdamW optimizer с cosine/linear scheduling, tracking tokens/sec
-  и GPU memory usage.
-* **`ArxivDataModule`** (`data_module.py`): Lightning DataModule для on-the-fly tokenization
-  ArXiv article/abstract пар. Контролирует sequence budget (source + target + EOS ≤ max_seq_length).
-* **Quantization**: 4-bit quantization через BitsAndBytes (NF4) для обучения на ограниченных
-  GPU ресурсах.
-* **PEFT**: LoRA адаптеры с конфигурируемыми `r`, `lora_alpha`, `lora_dropout`, `target_modules`.
-* **Gradient checkpointing**: для уменьшения memory footprint при обучении.
+Все параметры эксперимента — модель, LoRA, данные, trainer, scheduler, логирование — описаны в одном YAML-файле. Переопределение через CLI: `python -m ... experiment=train_adapter lora.r=16`.
 
-### Hydra конфигурация
-
-Конфиги в `experiments/training/conf/`:
-* `config.yaml` — точка входа, default experiment
-* `experiment/train_adapter.yaml` — полная спецификация обучения
-  (model, lora, data, trainer, scheduler, logger, tracking, evaluation)
-* `paths/paths_config.yaml` — `project_root` (переопределяется за CLI для каждой машины)
-* Output directory: `artifacts/training/hydra/{date}/{time}/`
-* Поддержка multi-run sweeps: `python -m ... -m experiment.training.lr=1e-4,5e-5`
-
-### MLflow интеграция
-
-`mlflow_utils.py` логирует гиперпараметры, метрики и артефакты в MLflow Tracking.
-Регистрация адаптера в Model Registry и promotion alias-ов выполняются **отдельным шагом**
-из `experiments/training/lora_ops.ipynb`, а не автоматически при обучении.
-
-### Airflow DAG
-
-DAG `train_lora` (`dags/train_lora.py`) запускает тренировку как subprocess (для изоляции
-Hydra global state) на GPU worker (`queue="gpu"`, concurrency 1). Параметры
-`experiment_config` и `hydra_overrides` (JSON array) задаются через Airflow UI при trigger-time.
-
-## Airflow DAG-и
-
-Airflow используется для оркестрации тяжёлых вычислительных задач. Все DAG-и расположены в `dags/`:
-
-| DAG | Расписание | Worker Queue | Назначение |
-|-----|-----------|-------------|------------|
-| `train_lora` | Manual trigger | `gpu` (concurrency 1) | Обучение LoRA адаптера |
-| `eval_chat_hotpotqa` | Manual trigger | default (CPU) | Eval: chat на HotpotQA |
-| `eval_chat_nq` | Manual trigger | default | Eval: chat на Natural Questions |
-| `eval_summarization_arxiv` | Manual trigger | default | Eval: summarization на ArXiv |
-| `eval_code_humaneval` | Manual trigger | default | Eval: code на HumanEval |
-| `eval_retrieval_beir_scifact` | Manual trigger | default | Eval: retrieval на BEIR-SciFact |
-| `eval_retrieval_beir_nfcorpus` | Manual trigger | default | Eval: retrieval на BEIR-NFCorpus |
-| `eval_retrieval_msmarco` | Manual trigger | default | Eval: retrieval на MS MARCO |
-| `arxiv_rag_update` | `@daily` | default | Скачивание статей, DVC, обновление RAG |
-| `pytorch_docs_rag_update` | `@weekly` | default | Скрапинг docs, DVC, обновление RAG |
-| `rag_collection_cleanup` | `@daily` | default | Удаление orphan-коллекций Qdrant (retention 7 дней) |
-| `simple_dag` | `@daily` | default | Тестовый DAG (hello world) |
-
-**Worker routing**: Airflow использует Celery executor с двумя очередями:
-* **Default queue** (CPU, concurrency 2): evals, RAG updates, cleanup
-* **GPU queue** (concurrency 1): LoRA training
-
-## База данных
-
-PostgreSQL 15 обслуживает три логических домена:
-
-### application database `agent042`
-
-| Таблица | Назначение |
-|---------|------------|
-| `users` | Google OIDC пользователи (provider, sub, email, name, picture) |
-| `chat_sessions` | Per-user сессии чата (title, timestamps) |
-| `chat_messages` | Сообщения (role: user/assistant, content, timestamps, prompt/completion token usage) |
-| `eval_runs` | Метрики оценки: task, dataset, metric, model/adapter info, RAG config, status |
-| `eval_samples` | Per-sample eval details: input, output, reference, JSONB detail |
-
-`eval_runs` хранит полный контекст каждого eval run: task, dataset, metric name/value, base model,
-adapter name/version/MLflow run ID, lora_alias, rag_alias, knowledge base, qdrant collection,
-chunking strategy, chunk_size, top_k, score_threshold, generation params (temperature, max_tokens),
-judge model, status (running/completed/failed), timestamps и JSONB `extra` для расширяемости.
-
-### MLflow database
-
-Хранит experiment metadata, run tracking и Model Registry (адаптеры и их версии).
-
-### Airflow metadata database
-
-Хранит DAG definitions, task instances, XCom и scheduler state.
-
-Все три домена используют один PostgreSQL-инстанс. Новые схемы `agent042`
-bootstrap-ятся через ORM `Base.metadata.create_all` в gateway startup, а
-существующие БД обновляют `chat_messages` через
-`src/shared/db/chat_messages_add_usage_columns.sql`.
-
-## Развёртывание и инфраструктура
-
-### Docker Compose
-
-Основной deployment manifest — `infra/compose/docker-compose.yaml`. Он описывает все сервисы,
-сети, volumes и зависимости. Compose оркестрирует:
-
-* **Инициализацию**: `airflow-prepare-dirs` создаёт writable директории для RAG data, training
-  artifacts, DVC. `airflow-init` выполняет database creation, admin user seeding, Airflow
-  migrations.
-* **Health checks**: каждый сервис имеет health check (vLLM проверяет `/v1/models`, Gateway —
-  `/health`, Qdrant — `/healthz`), с dependency ordering через `depends_on.condition`.
-* **GPU support**: `airflow-worker-gpu` и `vllm` используют `deploy.resources.reservations` с
-  `capabilities: [gpu]`.
-* **Environment**: Compose env vars определяют container-to-container wiring (внутренние URL,
-  порты, credentials). Operator-editable values (секреты, порты, модель) берутся из `.env`.
-
-### Dockerfile-ы
-
-Каждый сервис имеет свой Docker-образ в `infra/docker/`:
-
-| Образ | Base image | Особенности |
-|-------|-----------|-------------|
-| `gateway` | `python:3.12-slim` | FastAPI, qdrant-client, authlib, sqlalchemy |
-| `embeddings` | `python:3.12-slim` | sentence-transformers, PyTorch |
-| `airflow` / `airflow-worker` | `apache/airflow:3.1.8` | bert-score, torch (CPU), qdrant, DVC, arxiv |
-| `airflow-worker-gpu` | `apache/airflow:3.1.8` | + CUDA torch, PEFT, Lightning, Hydra |
-| `code-sandbox` | `python:3.13-slim` | Минимальный образ, non-root user, без лишних пакетов |
-| `ui` | `python:3.12-slim` | Streamlit |
-| `celery` | `python:3.12-slim` | Celery worker для async inference |
-| `adapter-sync` | `python:3.12-slim` | MLflow client, vLLM REST API |
-
-Lock-файлы зависимостей (`requirements-*.lock`) перегенерируются через `scripts/update_locks.sh`.
-
-### Nginx Reverse Proxy
-
-Nginx (`infra/nginx/agent.antonlab.ru.conf`) обеспечивает единую точку входа с HTTPS
-(Let's Encrypt) и path-based routing:
-
-| Path | Upstream | Auth | Назначение |
-|------|----------|------|------------|
-| `/` | Streamlit UI :8501 | Application | Чат-интерфейс (WebSocket support) |
-| `/auth/` | Gateway :9000 | нет | OAuth2 flow |
-| `/api/` | Gateway :9000 | Application | REST API (prefix strip, long timeouts, no buffering) |
-| `/airflow/` | Airflow :8080 | Airflow own | DAG management |
-| `/jupyter/` | Jupyter :8888 | Token | Operator notebooks (WebSocket support) |
-| `/mlflow/` | MLflow :5050 | Basic auth | Experiment tracking |
-| `/flower/` | Flower :5555 | Basic auth | Celery monitoring |
-| `/redis-insight/` | RedisInsight :5540 | Basic auth | Redis monitoring |
-| `/rabbitmq/` | RabbitMQ :15672 | RabbitMQ own | Queue management |
+Scheduler: linear warmup (100 шагов, start_factor=0.05) с последующим линейным decay. Gradient accumulation: 8 шагов (effective batch size = 8 при batch_size=1). Gradient clipping: 1.0.
 
-Security headers: `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`,
-`X-XSS-Protection: 1; mode=block`. SSL: TLSv1.2/1.3, modern cipher suites.
+#### Способы запуска обучения
 
-Внутренние сервисы (vLLM, Qdrant, Redis, PostgreSQL, RabbitMQ AMQP) привязаны к `127.0.0.1`
-и недоступны извне.
+Обучение можно запустить двумя способами:
 
-## Мониторинг и Observability
+**Через Airflow DAG** (`dags/train_lora.py`) — основной production-способ. Обучение LoRA на GPU занимает значительное время, и держать открытую консоль или JupyterLab-сессию на всё это время непрактично. Airflow DAG работает по принципу «запустил и забыл»: задача ставится в очередь GPU worker'а через RabbitMQ, выполняется в фоне, а результаты (путь к `training_summary.json`, `run_id`) доступны в Airflow UI после завершения. Параметры передаются через интерфейс Airflow: имя конфига эксперимента и произвольные Hydra-переопределения в виде JSON-списка. Если DAG завершается с ошибкой, полный лог тренировки сохраняется в Airflow.
 
-| Инструмент | Доступ | Назначение |
-|-----------|--------|------------|
-| **MLflow** | `/mlflow/` | Просмотр метрик обучения, сравнение run-ов, Model Registry |
-| **Airflow** | `/airflow/` | Мониторинг DAG-ов, history, логи task-ов |
-| **Flower** | `/flower/` | Celery worker status, active tasks, task history |
-| **RedisInsight** | `/redis-insight/` | Redis keys, Pub/Sub каналы, memory usage |
-| **RabbitMQ Management** | `/rabbitmq/` | Queues, exchanges, connections, message rates |
-| **Gateway `/health`** | `/api/health` | Health check для мониторинг систем |
-| **Gateway `/config`** | `/api/config` | Текущая runtime-конфигурация gateway |
+**Через CLI** (`python -m experiments.training.train_adapter.start_train ...`) — вспомогательный способ для быстрых локальных экспериментов. Удобен при отладке конфигурации или запуске на локальной машине с GPU, когда нет доступа к Airflow.
 
-> **Примечание**: token/cost tracking и более полная observability для LLM path являются
-> запланированными улучшениями (см. `REMAINING-CHANGES.md` §2.5–2.6, §2.9).
+В обоих случаях используется один и тот же training entry point, поэтому результаты воспроизводимы.
 
-## Тестирование
+### 6.3 Трекинг экспериментов и Model Registry (MLflow)
 
-Тесты расположены в `tests/` и покрывают ключевые компоненты системы:
+Каждый training run логирует в MLflow:
+- Все Hydra-параметры эксперимента.
+- Метрики: `train_loss`, `val_loss`, `learning_rate`, `tokens_per_second`, `gpu_memory_allocated_mb`, `zero_target_ratio`.
+- Артефакты: веса адаптера, `training_summary.json` с лучшей метрикой и путём к checkpoint'у.
 
-| Модуль | Файлы | Что проверяет |
-|--------|-------|---------------|
-| API | `tests/api/test_rag_lifecycle.py` | KB config loader, RAGSource schema, ChatCompletionRequest с rag_sources, metadata exclusion filter |
-| Auth | `tests/auth/test_middleware.py` | AuthMiddleware routing, public/protected paths, session validation |
-| Auth | `tests/auth/test_csrf.py` | CSRF protection: state parameter validation в OAuth callback, missing/invalid state rejection |
-| Auth | `tests/auth/test_oidc.py` | OIDC client integration |
-| Eval | `tests/eval/test_eval_workflow.py` | EvalRun model, required DB columns (40+ fields), default status |
-| RAG | `tests/rag/test_ops_meta.py` | BuildConfig serialization/deserialization, CollectionMeta with ImplementationInfo |
-| RAG | `tests/rag/test_ops_aliases.py` | Alias operations |
-| Training | `tests/training/test_local_env.py` | Local environment setup, repo root detection |
+После завершения обучения run доступен в MLflow UI. Оператор инспектирует результаты в `experiments/training/lora_ops.ipynb` и принимает решение о промоушене:
 
-Тесты запускаются через `pytest`. Pre-commit hooks обеспечивают linting и formatting при каждом
-коммите.
+```python
+# В lora_ops.ipynb:
+registry.register("lora-summarize", run_id="...", version_tag="v2")
+registry.promote("lora-summarize", version=2, alias="challenger")
+# После валидации:
+registry.promote("lora-summarize", version=2, alias="champion")
+```
 
-## Зависимости и tooling проекта
+### 6.4 Adapter Sync и Hot-Loading в vLLM
 
-### pyproject.toml
+`vllm-adapter-sync` — выделенный сервис, который периодически:
 
-Проект использует `pyproject.toml` с **модульными extras** для изоляции зависимостей по
-сервисам:
+1. Запрашивает MLflow Model Registry все адаптеры с aliases `champion` и `challenger`.
+2. Скачивает недостающие версии в локальную директорию: `/adapters/{model_name}/v{version}/model/`.
+3. Загружает новые адаптеры в vLLM через `/v1/load_lora_adapter` API.
+4. Выгружает устаревшие адаптеры через `/v1/unload_lora_adapter` API.
 
-| Extra | Назначение | Ключевые пакеты |
-|-------|------------|-----------------|
-| `gateway` | FastAPI сервис | FastAPI, uvicorn, qdrant-client, authlib, sqlalchemy[asyncio], asyncpg |
-| `ui` | Streamlit UI | Streamlit, requests |
-| `worker` | Celery worker | celery, redis, httpx |
-| `rag` | RAG pipeline | sentence-transformers, langchain-text-splitters, arxiv, pypdf |
-| `embeddings` | Embedding service | sentence-transformers |
-| `training` | LoRA training | torch, transformers, peft, pytorch-lightning, hydra-core, bitsandbytes, datasets |
-| `airflow-worker` | CPU Airflow worker | bert-score, rouge-score, torch (CPU), qdrant-client, dvc[s3], arxiv |
-| `airflow-worker-gpu` | GPU Airflow worker | + CUDA torch, peft, pytorch-lightning, hydra |
-| `mlflow` | MLflow server | mlflow, psycopg2-binary, boto3 |
+Адаптеры именуются в vLLM как `{model_name}-{alias}`, например `lora-summarize-champion`. Gateway при выборе адаптера обращается к вLLM по этому имени. Процесс не требует перезапуска vLLM.
 
-Python version: 3.12–3.13.
+---
 
-### Утилитные скрипты
+## 7. Архитектура конфигов
 
-| Скрипт | Назначение |
-|--------|------------|
-| `scripts/update_locks.sh` | Перегенерация pip lock-файлов для Docker-образов |
-| `scripts/dump_docker_logs.sh` | Экспорт логов из работающих контейнеров |
-| `scripts/fetch_logs_ssh.sh` | Удалённое извлечение логов через SSH |
+### 7.1 Принцип единственного владельца (Config Ownership)
 
-## Workflow automation and CI/CD
+Каждый аспект конфигурации системы описан ровно в одном месте:
 
-### Branch: experiments
+| Конфиг | Назначение |
+|---|---|
+| `.env` | Секреты, URL-адреса внешних сервисов и feature flags. Единственный файл с чувствительными данными; не коммитится в репозиторий |
+| `src/shared/config.py` | Все runtime-настройки Python-сервисов (gateway, worker, UI) — читаются из переменных окружения через Pydantic Settings |
+| `src/shared/knowledge_bases.json` | Реестр задач, баз знаний и aliases: routing descriptions, параметры retrieval, LoRA-адаптеры по задачам |
+| `infra/compose/docker-compose.yaml` | Topology всей системы: сети, port bindings, volumes, health checks, зависимости между сервисами |
+| `infra/docker/**/Dockerfile` | Определения образов: базовые образы, установка зависимостей, process defaults |
+| `infra/nginx/*.conf` | TLS termination, reverse proxy rules и маршрутизация между UI и Gateway |
+| `experiments/training/conf/**` | Иерархические Hydra-конфиги для LoRA-экспериментов: модель, LoRA, данные, trainer, scheduler |
+| `pyproject.toml` | Зависимости Python-пакета, настройки linting (ruff, mypy) и dev-tooling |
 
-Ветка Experiments используется для экспериментов с обучением LoRA и аналогичных. Пайплайны
-экспериментов, которые подтвердили свою успешность, могут быть смержены в Main.
+### 7.2 `knowledge_bases.json` — реестр задач и баз знаний
 
-**Pre-commit:**
+Этот файл является единственным источником истины для:
+- Списка задач и их `routing_description` (используется task router'ом).
+- Списка баз знаний для каждой задачи.
+- Параметров каждого alias (retrieval strategy, top_k, score_threshold, reranker).
+- LoRA-адаптера для каждой задачи (name, alias, enabled).
 
-* ruff check (linting + import sorting, с автофиксом)
-* ruff format (форматирование кода)
-* проверка YAML/JSON
-* trailing whitespace, end-of-file-fixer, mixed-line-ending, check-case-conflict
-* check-added-large-files
+Файл загружается при старте Gateway и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте.
 
-### Branch: develop (inference dev)
+### 7.3 Pydantic Settings (`src/shared/config.py`)
 
-Эта ветка используется для разработки всей Inference части сервиса. Push в develop ветку, merge
-request из develop в main.
+Python-конфигурация реализована через `pydantic-settings`. Настройки читаются из переменных окружения (с поддержкой AliasChoices для нескольких имён переменных). Настройки сгруппированы в dataclass-подобные модели:
 
-**Pre-commit:**
+- `ServiceSettings` — имя сервиса, URL gateway.
+- `BudgetSettings` — бюджеты токенов для prompt building.
+- `RagSettings` — параметры RAG (embedding model, enabled, strict startup).
+- `AuthSettings` — Google OAuth credentials.
+- `InferenceSettings` — URL vLLM, модель, температура.
 
-По сути то же самое, что и в Experiments (единый `.pre-commit-config.yaml` в корне проекта).
+Функция `get_settings()` кэширует инстанс через `@lru_cache` — настройки создаются один раз при первом вызове. Для локального запуска вне Docker вызывается `bootstrap_local_settings_env()`, который загружает `.env` из корня репозитория.
 
-### Branch: main
+---
 
-Эта ветка содержит рабочую версию inference-сервиса.
+## 8. MLOps и автоматизация
 
-**CI:** quality gates выполняются через локальные `pre-commit`, `ruff`, `pytest` и ручную
-валидацию сервисов перед деплоем.
+### 8.1 Airflow DAG-и
 
-**CD:** деплой выполняется через Docker Compose и Nginx; Airflow DAG-и и notebook-ы входят в
-операционный контур развёртывания и сопровождения.
+Все автоматизированные пайплайны реализованы как Airflow DAG-и в директории `dags/`. Запускаются на выделенных Celery workers (CPU и GPU).
 
-> **Примечание**: Hosted CI/CD workflows (GitHub Actions и аналоги) являются запланированным
-> улучшением (см. `REMAINING-CHANGES.md` §2.7).
+**`train_lora.py`** — обучение LoRA адаптера на GPU worker'е.
+- Запускает `experiments.training.train_adapter.start_train` как subprocess (изоляция от Hydra global state).
+- Параметры через Airflow UI: имя конфига эксперимента (`experiment_config`) и список Hydra параметров, которые нужно переопределить.
+- Возвращает путь к `training_summary.json` через XCom.
+- Не выполняет регистрацию и продвижение — это ручной шаг в `lora_ops.ipynb`.
 
-## Незавершенные изменения и будущая работа
+**`arxiv_rag_update.py`** / **`pytorch_docs_rag_update.py`** — инкрементальное/полное обновление RAG-коллекций.
+- Используют production entrypoints из `src/rag/ops/update/`.
+- Единственные разрешённые пути обновления production-коллекций.
 
-Полный список незавершенных изменений и планируемых доработок ведётся в `REMAINING-CHANGES.md`.
+**`eval_dags.py`** — оценка качества (подробнее в разделе 9).
+
+**`rag_collection_cleanup.py`** — удаление Qdrant-коллекций без активных aliases.
+
+### 8.2 Operator Notebooks (JupyterLab)
+
+JupyterLab — точка входа для ручных операций оператора. Ноутбуки не содержат production-логику напрямую: они вызывают production entrypoints из `src/`.
+
+| Ноутбук | Назначение |
+|---|---|
+| `experiments/rag/rag_ops.ipynb` | RAG операции: create, refresh, alias management, диагностика |
+| `experiments/training/lora_ops.ipynb` | LoRA операции: регистрация, промоушен, синхронизация |
+| `experiments/training/lora_training.ipynb` | Интерактивный запуск обучения |
+| `experiments/eval/eval_results.ipynb` | Анализ результатов оценки |
+| `experiments/misc_ops/prefetch_assets.ipynb` | Загрузка моделей и датасетов |
+| `experiments/misc_ops/postgres_diagnostics.ipynb` | Диагностика БД |
+
+Принцип **notebook façade**: `experiments/rag/rag_ops.ipynb` импортирует только `experiments.rag.notebook_ops`, который является тонкой обёрткой над `src/rag/ops/`. Это гарантирует, что Airflow DAG-и и ноутбуки используют один и тот же production runtime.
+
+### 8.3 Версионирование данных (DVC)
+
+Все датасеты и крупные артефакты находятся под контролем DVC с remote-хранилищем в Yandex Cloud S3. В репозитории хранятся только `.dvc`-файлы (метаданные); сами данные загружаются через `dvc pull`.
+
+Поддерживаемые датасеты:
+- **Для обучения:** `arxiv-summarization`, `open-code-instruct`.
+- **Для RAG benchmark'ов:** `beir-nfcorpus`, `beir-scifact`, `hotpotqa`, `msmarco`, `natural-questions`.
+- **Для code evaluation:** `humaneval`.
+- **Для RAG коллекций:** `arxiv`, `pytorch_docs`.
+
+---
+
+## 9. Оценка качества (Evaluation)
+
+### 9.1 Архитектура eval pipeline
+
+Оценка реализована как двухэтапный процесс, управляемый Airflow DAG-ами в `dags/eval_dags.py`:
+
+**Этап 1 — `fetch_predictions`:** Gateway запрашивается с тестовыми вопросами из датасета. Ответы модели (предсказания) сохраняются в временный JSON-файл. Промежуточное хранение через файл (а не XCom) необходимо из-за размера данных.
+
+**Этап 2 — `calculate_metrics`:** По сохранённым предсказаниям вычисляются выбранные метрики и результаты логируются в PostgreSQL для последующего анализа.
+
+### 9.2 Метрики по типу задачи
+
+Каждый eval-suite — уникальная тройка `(task, dataset, metric)`. Eval runner принимает одну метрику за вызов, что позволяет запускать метрики параллельно или независимо.
+
+**`chat`** — оценка качества ответов ассистента на вопросы по ML/AI.
+- Датасеты: `hotpotqa`, `natural-questions`.
+- **relevance**, **correctness** — LLM-as-judge оценки (через внешний API); оценивают релевантность и фактическую корректность ответа.
+- **BERTScore F1** — семантическое сходство ответа и reference через языковую модель.
+- **ROUGE-L** — F1 на основе Longest Common Subsequence между ответом и reference.
+- При включённом RAG дополнительно вычисляется **groundedness** — LLM-judge оценка того, подкреплён ли ответ retrieved контекстом.
+
+**`summarize`** — оценка качества суммаризации научных статей.
+- Датасет: `arxiv-summarization`.
+- **faithfulness**, **coverage** — LLM-as-judge оценки связности и полноты резюме.
+- **BERTScore F1**, **ROUGE-L** — автоматические метрики совпадения с reference-абстрактом.
+
+**`code`** — оценка функциональной корректности сгенерированного кода.
+- Датасет: `humaneval`.
+- **pass@1** — задача решена, если сгенерированный код проходит все unit-тесты с первой попытки.
+- **executable_rate** — доля ответов, которые вообще исполняются без синтаксических ошибок (более мягкая метрика).
+- Код выполняется в изолированном `code-sandbox` контейнере (read-only filesystem, tmpfs, без сети).
+
+**`retrieval`** — независимый бенчмарк качества retrieval pipeline без участия генерации.
+- Датасеты: `beir-scifact`, `msmarco`, `beir-nfcorpus`.
+- **Recall@k** — доля релевантных документов среди top-k retrieved.
+- **nDCG@k** — нормализованный дисконтированный кумулятивный выигрыш; учитывает порядок ранжирования.
+- **MRR@k** (Mean Reciprocal Rank) — среднее обратное значение ранга первого релевантного документа.
+
+Замечание: на текущем этапе LLM-as-judge метрики не реализованы.
+
+### 9.3 Параметры запуска DAG-ов
+
+Eval DAG-и параметризованы через Airflow UI: выбор датасета, метрик, knowledge base, alias и режима RAG (`auto` vs `explicit`). Это позволяет гибко комбинировать конфигурации без изменения кода.
+
+### 9.4 Alias-based продвижение по результатам оценки
+
+Результаты оценки являются основанием для продвижения `challenger` в `champion`. Workflow:
+
+```
+Обучение (Airflow DAG)
+    │
+    ▼
+Регистрация в MLflow (lora_ops.ipynb)
+    │
+    ▼
+Промоушен: version → alias "challenger"
+    │
+    ▼
+Eval DAG с alias="challenger"
+    │
+    ▼
+Анализ в eval_results.ipynb
+    │
+    ▼ (если метрики лучше champion)
+Промоушен: alias "challenger" → "champion"
+```
+
+---
+
+## 10. Инфраструктура и деплой
+
+### 10.1 Docker Compose topology
+
+Всё приложение описано в одном `infra/compose/docker-compose.yaml`. Сервисы разделены на внутренние сети:
+- `app-network` — инференс-сервисы.
+- `infra-network` — инфраструктурные сервисы (БД, брокеры).
+- `monitoring-network` — observability стек.
+
+Volumes хранят персистентные данные: qdrant-storage, postgres-data, redis-data, mlflow-artifacts, airflow-logs, модели и датасеты (монтируются из хост-директории через `ASSETS_ROOT`).
+
+### 10.2 Release-based деплой
+
+На production-сервере реализован release-based deployment с симлинком:
+
+```
+/home/anton-m/agent-042/
+  .env                          # Операторский env-файл (вне релизов)
+  .dvc/config.local             # DVC remote credentials
+  assets/                       # Модели и датасеты (вне релизов)
+  artifacts/                    # Checkpoints и artifacts (вне релизов)
+  releases/
+    <sha1>/                     # Релиз 1 (код из GitHub)
+    <sha2>/                     # Релиз 2 (код из GitHub)
+  current -> releases/<sha2>/   # Симлинк на активный релиз
+```
+
+**Скрипт деплоя** (`scripts/deploy_release.sh`):
+1. Создаёт новую директорию `releases/<sha>` с кодом нового релиза.
+2. Переключает симлинк `current` на новый релиз.
+3. Запускает `docker compose up -d --build` с новым `IMAGE_TAG`.
+4. Выполняет smoke-тесты (health check). При неудаче — откат симлинка на предыдущий релиз.
+5. Удаляет старые релизы (хранит последние N).
+
+### 10.3 CI/CD
+
+Автоматизированный pipeline (GitHub Actions):
+1. **Lint** — `ruff` (linter) + `mypy` (type checking) + `pre-commit`.
+2. **Tests** — `pytest` (unit и integration тесты).
+3. **Build** — сборка Docker образов и push в registry с тегом `<branch>-<sha12>`.
+4. **Deploy** — SSH-деплой на production-сервер через `deploy_release.sh`.
+
+Зависимости управляются через `uv` (ultrafast package manager). Группы зависимостей разделены по сервисам: `gateway`, `ui`, `worker`, `airflow-worker`, `airflow-worker-gpu`, `training`, `rag`.
+
+### 10.4 Минимальные требования к инфраструктуре
+
+| Ресурс | Минимум |
+|---|---|
+| RAM | 16 GB |
+| GPU | NVIDIA RTX 3060 (12 GB VRAM) |
+| CPU | 4+ ядра |
+| Диск | 30+ GB (модели, кэши, volumes) |
+| ПО | Docker Engine, Docker Compose v2, NVIDIA Container Toolkit |
+
+### 10.5 Мониторинг
+
+**Prometheus + Grafana:**
+Gateway использует `prometheus-fastapi-instrumentator` — автоматически экспортирует метрики HTTP-запросов (latency, status codes, throughput). Grafana предоставляет дашборды инфраструктурной observability (CPU, GPU, память) и ML-специфические дашборды (очереди, inference latency).
+
+**Flower:** Мониторинг Celery workers — активные задачи, история, статистика очередей.
+
+**RedisInsight:** Инспекция Redis-ключей, pub/sub топиков, памяти.
+
+**MLflow UI:** Полная история всех training runs с метриками, параметрами и артефактами. Сравнение запусков, анализ трендов.
+
+---
+
+## 11. Безопасность
+
+### 11.1 Аутентификация
+
+Система использует Google OAuth 2.0 Authorization Code Flow с PKCE:
+- `code_verifier` — криптографически случайная строка (256 бит).
+- `code_challenge` — SHA-256 хэш `code_verifier`, передаётся в authorization request.
+- Это предотвращает атаки перехвата кода авторизации (authorization code interception attack).
+
+ID Token верифицируется через Google JWKS (JSON Web Key Sets) с проверкой подписи, audience (`aud`) и времени истечения (`exp`).
+
+### 11.2 Управление сессиями
+
+- Сессии хранятся в Redis с TTL (не в cookie напрямую).
+- Cookie содержит только непредсказуемый `session_id` (CSRF-защита через `state` parameter в OAuth flow).
+- `AuthMiddleware` в Gateway проверяет сессию при каждом запросе.
+
+### 11.3 Управление секретами
+
+- Все секреты (OAuth credentials, API keys, DB passwords) хранятся в `.env` файле на сервере.
+- `.env` никогда не коммитится в репозиторий (есть `.env.example` с документацией переменных).
+- Переменные окружения инжектируются в контейнеры через Docker Compose.
+
+---
+
+## 12. Структура репозитория
+
+```
+agent-042/
+├── src/                        # Production runtime код
+│   ├── gateway/                # FastAPI Gateway
+│   │   ├── api/                # HTTP routes
+│   │   ├── auth/               # OAuth2/OIDC middleware и router
+│   │   ├── schemas/            # Pydantic schemas (OpenAI-совместимые)
+│   │   └── services/           # Business logic (processing, RAG, prompt, Celery, Redis)
+│   ├── rag/                    # RAG pipeline
+│   │   ├── ops/                # Production lifecycle операции
+│   │   ├── chunking.py         # Стратегии chunking
+│   │   ├── embeddings.py       # Embedding service
+│   │   ├── reranker.py         # Cross-encoder reranker
+│   │   ├── retriever.py        # Retrieval orchestration
+│   │   ├── sparse_encoder.py   # Sparse (BM25) encoding
+│   │   └── vector_store.py     # Qdrant абстракция
+│   ├── shared/                 # Общий код для всех сервисов
+│   │   ├── config.py           # Pydantic settings
+│   │   ├── knowledge_bases.json # RAG registry
+│   │   ├── model_registry.py   # MLflow adapter sync
+│   │   └── db/                 # SQLAlchemy модели и engine
+│   ├── embeddings/             # Embeddings microservice
+│   ├── reranker/               # Reranker microservice
+│   ├── ui/                     # Streamlit UI
+│   └── worker/                 # Celery worker (inference tasks)
+├── experiments/                # Эксперименты и operator workflows
+│   ├── eval/                   # Eval ноутбуки и скрипты
+│   ├── rag/                    # RAG ноутбуки и sandboxes
+│   ├── training/               # LoRA обучение
+│   │   ├── conf/               # Hydra конфиги
+│   │   └── train_adapter/      # Training pipeline (Lightning, PEFT, MLflow)
+│   └── misc_ops/               # Прочие операции
+├── dags/                       # Airflow DAG-и
+├── infra/                      # Инфраструктура
+│   ├── compose/                # docker-compose.yaml
+│   ├── docker/                 # Dockerfiles по сервисам
+│   ├── grafana/                # Grafana provisioning
+│   └── nginx/                  # nginx конфиги
+├── tests/                      # Unit и integration тесты
+├── scripts/                    # Shell-скрипты (деплой, утилиты)
+├── assets/                     # Модели и датасеты (DVC-tracked)
+└── artifacts/                  # Training checkpoints и Hydra runs
+```
+
+---
+
+## 13. Итоги и выводы
+
+Проект Agent-042 представляет собой полноценную production-систему AI-ассистента, разработанную как выпускная квалификационная работа магистратуры по направлению «Искусственный Интеллект».
+
+**Основные реализованные компоненты:**
+
+- **Инференс-платформа** с поддержкой streaming, аутентификацией через Google OAuth2/PKCE и асинхронной обработкой запросов через Celery.
+- **RAG-система** с тремя стратегиями retrieval (dense, sparse, hybrid), cross-encoder reranking, alias-based управлением коллекциями и автоматической маршрутизацией по типу задачи через embedding-based классификацию.
+- **LoRA fine-tuning pipeline** с полным циклом от подготовки данных до serving: Hydra-конфигурирование, PyTorch Lightning обучение, MLflow трекинг и Model Registry, hot-loading адаптеров в vLLM.
+- **MLOps автоматизация** через Airflow DAG-и: обновление RAG, обучение адаптеров, eval pipeline.
+- **Evaluation framework** с метриками ROUGE-L, BERTScore, Recall@k, nDCG@k и поддержкой LLM-as-judge.
+- **Наблюдаемость** через Prometheus, Grafana, Flower, RedisInsight и MLflow.
+- **CI/CD** с автоматической проверкой кода, тестированием, сборкой образов и release-based деплоем.
+
+**Ключевая идея:** значительная часть усилий при разработке AI-систем — не алгоритмы, а инфраструктура. Воспроизводимость экспериментов, надёжность сервисов, прозрачность процессов и автоматизация рутинных задач формируют основу, на которой можно итеративно улучшать качество системы.

@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 import httpx
 
-from gateway.config import get_settings
+from shared.config import get_settings
 
 
 class VllmOpenAIClient:

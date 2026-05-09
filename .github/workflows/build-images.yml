@@ -25,7 +25,6 @@ jobs:
     name: Resolve build target
     runs-on: ubuntu-latest
     outputs:
-      should_build: ${{ steps.resolve.outputs.should_build }}
       branch: ${{ steps.resolve.outputs.branch }}
       branch_slug: ${{ steps.resolve.outputs.branch_slug }}
       sha: ${{ steps.resolve.outputs.sha }}
@@ -39,7 +38,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          should_build=true
           if [[ "${{ github.event_name }}" == "push" ]]; then
             branch="${{ github.ref_name }}"
             sha="${{ github.sha }}"
@@ -52,7 +50,6 @@ jobs:
           sha_short="${sha:0:12}"
           repository_lower="$(printf '%s' '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
 
-          echo "should_build=$should_build" >> "$GITHUB_OUTPUT"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "branch_slug=$branch_slug" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
@@ -60,14 +57,12 @@ jobs:
           echo "repository_lower=$repository_lower" >> "$GITHUB_OUTPUT"
 
       - name: Checkout branch for validation
-        if: steps.resolve.outputs.should_build == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.resolve.outputs.branch }}
           fetch-depth: 0
 
       - name: Verify requested SHA belongs to branch
-        if: steps.resolve.outputs.should_build == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -78,7 +73,6 @@ jobs:
     name: Publish ${{ matrix.image.name }}
     runs-on: ubuntu-latest
     needs: prepare
-    if: needs.prepare.outputs.should_build == 'true'
     strategy:
       fail-fast: false
       matrix:

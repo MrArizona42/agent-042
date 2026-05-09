@@ -5,10 +5,9 @@ from pathlib import Path
 
 import streamlit as st
 
-from shared.config import bootstrap_local_settings_env
+from shared.config import bootstrap_local_settings_env, get_settings
 from shared.vllm_payloads import canonicalize_assistant_content
 from ui.client import GatewayClient
-from ui.config import get_settings
 
 bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[2])
 

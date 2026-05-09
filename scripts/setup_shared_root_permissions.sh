@@ -5,14 +5,14 @@ usage() {
     cat <<'EOF'
 Usage: sudo bash scripts/setup_shared_root_permissions.sh [options]
 
-Prepare Phase 2 shared-root permissions for /srv/agent-042.
+Prepare Phase 2 shared-root permissions for /home/anton-m/agent-042.
 
 The helper creates the shared roots, discovers the effective container UIDs
 for Airflow and Jupyter, and applies setgid plus ACLs so the runtime can use
 external bind mounts without restoring airflow-prepare-dirs.
 
 Options:
-  --server-root PATH       Target shared root (default: /srv/agent-042)
+    --server-root PATH       Target shared root (default: /home/anton-m/agent-042)
   --deploy-user USER       Host login that should own the shared roots
                            (default: SUDO_USER)
   --group NAME             Host group for shared roots (default: agent042)
@@ -28,7 +28,7 @@ Options:
 
 Examples:
   sudo bash scripts/setup_shared_root_permissions.sh --deploy-user anton
-  sudo bash scripts/setup_shared_root_permissions.sh --deploy-user anton --server-root /srv/agent-042
+    sudo bash scripts/setup_shared_root_permissions.sh --deploy-user anton --server-root /home/anton-m/agent-042
   sudo bash scripts/setup_shared_root_permissions.sh --deploy-user anton --airflow-uid 50000 --jupyter-uid 1000
 EOF
 }
@@ -36,7 +36,7 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-SERVER_ROOT="/srv/agent-042"
+SERVER_ROOT="/home/anton-m/agent-042"
 DEPLOY_USER="${SUDO_USER:-}"
 GROUP_NAME="agent042"
 ENV_FILE="$REPO_ROOT/.env"
