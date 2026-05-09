@@ -100,14 +100,14 @@
 6. ID Token верифицируется через Google JWKS (публичные ключи). Из него извлекается `email` и `sub` пользователя.
 7. Создаётся сессия: уникальный `session_id` сохраняется в Redis с TTL. Cookie с `session_id` устанавливается в браузере.
 
-**Хранение сессий:**  
+**Хранение сессий:**
 Сессии хранятся в Redis. Streamlit UI при каждом запросе передаёт cookie `session_id` в Gateway, который верифицирует сессию через Redis. При отсутствии или истечении сессии пользователь перенаправляется на повторный вход.
 
 ### 4.2 Task Routing — классификация типа задачи
 
 После аутентификации Gateway определяет тип задачи: `chat`, `code` или `summarize`. Это влияет на выбор RAG-коллекции и LoRA-адаптера.
 
-**Embedding-based routing:**  
+**Embedding-based routing:**
 Основной метод — `EmbeddingTaskRouter`. Для каждой задачи в `knowledge_bases.json` задано `routing_description` — текстовое описание задачи. При инициализации Gateway вычисляет эмбеддинги всех `routing_description` и кэширует их. При запросе:
 
 1. Вычисляется эмбеддинг последнего сообщения пользователя.
@@ -208,13 +208,13 @@ Gateway не обращается к vLLM напрямую. Вместо это�
 3. Каждый полученный токен worker публикует в Redis-канал с уникальным `request_id`.
 4. Gateway подписывается на Redis-канал и проксирует токены в браузер через Server-Sent Events (SSE).
 
-**Обработка thinking-токенов:**  
+**Обработка thinking-токенов:**
 Если модель поддерживает режим "extended thinking" (теги `<think>...</think>`), worker разделяет поток на `thinking_token` и `answer_token` события. UI отображает thinking-контент в отдельном раскрывающемся блоке "💭 Thinking...".
 
-**Детектирование зацикливания:**  
+**Детектирование зацикливания:**
 Worker отслеживает повторяющиеся последовательности символов (регулярное выражение на последних 1024 символах ответа). При обнаружении зацикливания генерация прерывается и пользователю сообщается об усечении.
 
-**Response token budget:**  
+**Response token budget:**
 Перед генерацией worker запрашивает у vLLM количество токенов промпта через `/tokenize` и вычисляет допустимый `max_tokens` для ответа: `model_max_tokens - prompt_tokens - budget_guard`. Это предотвращает усечение ответа из-за переполнения контекстного окна.
 
 ---
@@ -250,10 +250,10 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 - **Sparse retrieval** — поиск по разреженным векторам (BM25). В проекте используется модель `Qdrant/bm25` из библиотеки fastembed. Подходит для точных терминологических запросов.
 - **Hybrid retrieval** — комбинация dense и sparse поиска через Reciprocal Rank Fusion (RRF). Обеспечивает баланс между семантическим и лексическим поиском.
 
-**Reranking:**  
+**Reranking:**
 При включённом reranker'е первый этап извлекает `top_k × reranker_multiplier` кандидатов (с расширенным порогом), второй этап пересортировывает их cross-encoder'ом (`cross-encoder/ms-marco-MiniLM-L-6-v2`), после чего применяется финальный score threshold.
 
-**Chunking:**  
+**Chunking:**
 Документы перед индексацией разбиваются на чанки:
 - `FixedTokenChunker` (основан на `RecursiveCharacterTextSplitter`) — для текстовых документов (arxiv-статьи, документация).
 - `CodeChunker` — для кода, сохраняет границы функций и классов.
@@ -601,7 +601,7 @@ Volumes хранят персистентные данные: qdrant-storage, po
 
 ### 10.5 Мониторинг
 
-**Prometheus + Grafana:**  
+**Prometheus + Grafana:**
 Gateway использует `prometheus-fastapi-instrumentator` — автоматически экспортирует метрики HTTP-запросов (latency, status codes, throughput). Grafana предоставляет дашборды инфраструктурной observability (CPU, GPU, память) и ML-специфические дашборды (очереди, inference latency).
 
 **Flower:** Мониторинг Celery workers — активные задачи, история, статистика очередей.
