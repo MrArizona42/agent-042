@@ -314,44 +314,6 @@ sudo chgrp -R agent042 /home/anton-m/agent-042/assets /home/anton-m/agent-042/ar
 sudo find /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts -type d -exec chmod 2775 {} +
 sudo setfacl -R -m u:${DEPLOY_USER}:rwx,u:${AIRFLOW_UID}:rwx,u:${JUPYTER_UID}:rwx,g:agent042:rwx /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts
 sudo setfacl -R -d -m u:${DEPLOY_USER}:rwx,u:${AIRFLOW_UID}:rwx,u:${JUPYTER_UID}:rwx,g:agent042:rwx /home/anton-m/agent-042/assets /home/anton-m/agent-042/artifacts
-### Запуск только части сервисов
-sudo install -o "$DEPLOY_USER" -g agent042 -m 640 "$CHECKOUT_ROOT/.dvc/config.local" /home/anton-m/agent-042/.dvc/config.local
-sudo setfacl -m u:${AIRFLOW_UID}:r /home/anton-m/agent-042/.dvc/config.local
-```bash
-bash scripts/migrate_shared_state.sh "$CHECKOUT_ROOT" /home/anton-m/agent-042
-```
-`/home/anton-m/agent-042/current`.
-Только inference + RAG (vLLM + Qdrant + Gateway + UI):
-самый `PROJECT_ROOT`, который оператор задаёт в repo-root `.env` или в `/home/anton-m/agent-042/.env` для
-docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d vllm qdrant gateway ui
-```
-
-### Остановка / перезапуск / логи
-
-Остановить:
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml down
-```
-
-Остановить и удалить volume'ы (удалит Postgres/Qdrant данные):
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml down -v
-```
-
-Логи всех сервисов:
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml logs -f
-```
-
-Логи конкретного сервиса:
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml logs -f vllm
-```
-
-Пересобрать и перезапустить один сервис:
-```bash
-docker compose --env-file .env -f infra/compose/docker-compose.yaml up --build -d gateway
-```
 
 ### Модели для vLLM
 
