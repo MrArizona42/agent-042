@@ -11,6 +11,7 @@ Schedule: @daily
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sys
 from datetime import datetime
@@ -27,12 +28,8 @@ PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 ASSETS_DIR = PROJECT_ROOT / "assets"
 ARXIV_OUTPUT_DIR = ASSETS_DIR / "rag_data" / "arxiv"
 
-ARXIV_CATEGORIES: list[str]
+ARXIV_CATEGORIES: list[str] = ["cs.LG", "cs.AI"]
 ARXIV_MAX_RESULTS: int = 100
-ARXIV_PAGE_SIZE: int = 100
-ARXIV_DELAY_SECONDS: float = 4.0
-ARXIV_MAX_RETRIES: int = 5
-ARXIV_REQUEST_TIMEOUT: int = 60
 
 # Paths as strings for bash commands
 _arxiv_json = str(ARXIV_OUTPUT_DIR / "arxiv_papers.json")
@@ -50,9 +47,6 @@ _bootstrap_project_imports()
 sync_dvc_dataset_via_temp_clone = importlib.import_module(
     "shared.airflow_git_sync"
 ).sync_dvc_dataset_via_temp_clone
-rag_data_fetchers = importlib.import_module("shared.rag_data_fetchers")
-
-ARXIV_CATEGORIES = list(rag_data_fetchers.DEFAULT_ARXIV_CATEGORIES)
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
@@ -73,17 +67,45 @@ default_args = {
 
 def _download_arxiv_papers() -> str:
     """Download papers from arXiv and save metadata + abstracts to JSON."""
-    summary = rag_data_fetchers.download_arxiv_papers(
-        categories=ARXIV_CATEGORIES,
+    import arxiv  # noqa: E402 -- delay import so DAG parses even when lib is missing
+
+    ARXIV_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    query = " OR ".join(f"cat:{cat}" for cat in ARXIV_CATEGORIES)
+    print(f"Searching arXiv: {query}  (max {ARXIV_MAX_RESULTS})")
+
+    client = arxiv.Client()
+    search = arxiv.Search(
+        query=query,
         max_results=ARXIV_MAX_RESULTS,
-        output_dir=ARXIV_OUTPUT_DIR,
-        page_size=ARXIV_PAGE_SIZE,
-        delay_seconds=ARXIV_DELAY_SECONDS,
-        max_retries=ARXIV_MAX_RETRIES,
-        request_timeout=ARXIV_REQUEST_TIMEOUT,
-        user_agent="agent-042-arxiv-sync/1.0",
+        sort_by=arxiv.SortCriterion.SubmittedDate,
+        sort_order=arxiv.SortOrder.Descending,
     )
-    return str(summary["output_file"])
+
+    papers: list[dict] = []
+    for i, result in enumerate(client.results(search), 1):
+        papers.append(
+            {
+                "arxiv_id": result.entry_id.split("/")[-1],
+                "title": result.title,
+                "authors": [a.name for a in result.authors],
+                "abstract": result.summary,
+                "published": result.published.isoformat(),
+                "updated": result.updated.isoformat(),
+                "categories": result.categories,
+                "primary_category": result.primary_category,
+                "pdf_url": result.pdf_url,
+            }
+        )
+        if i % 20 == 0:
+            print(f"  {i} papers fetched ...")
+
+    output_file = ARXIV_OUTPUT_DIR / "arxiv_papers.json"
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(papers, f, indent=2, ensure_ascii=False)
+
+    print(f"Downloaded {len(papers)} papers -> {output_file}")
+    return str(output_file)
 
 
 def _update_arxiv_index() -> dict[str, object]:
