@@ -188,7 +188,9 @@ def _parse_arxiv_entry(entry: ET.Element) -> dict[str, Any]:
 
     return {
         "arxiv_id": entry_id.rsplit("/", 1)[-1],
-        "title": _normalize_arxiv_text(entry.findtext("atom:title", default="", namespaces=ARXIV_XML_NS)),
+        "title": _normalize_arxiv_text(
+            entry.findtext("atom:title", default="", namespaces=ARXIV_XML_NS)
+        ),
         "authors": [
             _normalize_arxiv_text(author.findtext("atom:name", default="", namespaces=ARXIV_XML_NS))
             for author in entry.findall("atom:author", ARXIV_XML_NS)
@@ -203,7 +205,9 @@ def _parse_arxiv_entry(entry: ET.Element) -> dict[str, Any]:
             for category in entry.findall("atom:category", ARXIV_XML_NS)
             if category.attrib.get("scheme") == ARXIV_XML_NS["arxiv"]
         ],
-        "primary_category": primary_category.attrib.get("term") if primary_category is not None else None,
+        "primary_category": primary_category.attrib.get("term")
+        if primary_category is not None
+        else None,
         "pdf_url": pdf_url,
     }
 
@@ -519,9 +523,7 @@ def harvest_arxiv_metadata_oai(
             "stopped_early": bool(next_resumption_token),
         }
         set_summaries.append(set_summary)
-        print(
-            f"  wrote {record_count} records from {page_count} pages -> {output_file}"
-        )
+        print(f"  wrote {record_count} records from {page_count} pages -> {output_file}")
 
     summary = {
         "base_url": base_url,

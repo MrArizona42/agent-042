@@ -70,6 +70,7 @@ default_args = {
 # Task callables
 # ---------------------------------------------------------------------------
 
+
 def _download_arxiv_papers() -> str:
     """Download papers from arXiv and save metadata + abstracts to JSON."""
     summary = rag_data_fetchers.download_arxiv_papers(
