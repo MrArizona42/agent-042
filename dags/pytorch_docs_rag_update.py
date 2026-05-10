@@ -16,13 +16,10 @@ Schedule: @weekly
 from __future__ import annotations
 
 import importlib
-import json
 import os
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urljoin
 
 from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
@@ -35,26 +32,10 @@ PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 ASSETS_DIR = PROJECT_ROOT / "assets"
 PYTORCH_OUTPUT_DIR = ASSETS_DIR / "rag_data" / "pytorch_docs"
 
-PYTORCH_BASE_URL = "https://pytorch.org/docs/stable/"
+PYTORCH_BASE_URL: str
 PYTORCH_SCRAPE_DELAY_SECONDS = 1
 PYTORCH_MAX_CODE_EXAMPLES = 1000
-PYTORCH_PAGES: list[str] = [
-    "generated/torch.nn.Module.html",
-    "generated/torch.Tensor.html",
-    "generated/torch.nn.Linear.html",
-    "generated/torch.nn.Conv2d.html",
-    "generated/torch.nn.functional.relu.html",
-    "generated/torch.optim.Adam.html",
-    "generated/torch.optim.SGD.html",
-    "generated/torch.nn.CrossEntropyLoss.html",
-    "generated/torch.nn.MSELoss.html",
-    "generated/torch.autograd.backward.html",
-    "tensors.html",
-    "autograd.html",
-    "nn.html",
-    "optim.html",
-    "torch.html",
-]
+PYTORCH_PAGES: list[str]
 
 # Paths as strings for bash commands
 _pytorch_json = str(PYTORCH_OUTPUT_DIR / "pytorch_docs.json")
@@ -72,10 +53,10 @@ _bootstrap_project_imports()
 sync_dvc_dataset_via_temp_clone = importlib.import_module(
     "shared.airflow_git_sync"
 ).sync_dvc_dataset_via_temp_clone
+rag_data_fetchers = importlib.import_module("shared.rag_data_fetchers")
 
-scrape_pytorch_doc_page = importlib.import_module(
-    "shared.pytorch_docs_scraper"
-).scrape_pytorch_doc_page
+PYTORCH_BASE_URL = rag_data_fetchers.DEFAULT_PYTORCH_BASE_URL
+PYTORCH_PAGES = list(rag_data_fetchers.DEFAULT_PYTORCH_PAGES)
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
@@ -92,31 +73,14 @@ default_args = {
 
 def _collect_pytorch_docs() -> str:
     """Scrape a list of PyTorch doc pages and save to JSON."""
-    PYTORCH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    pages: list[dict] = []
-    for i, page_path in enumerate(PYTORCH_PAGES, 1):
-        url = urljoin(PYTORCH_BASE_URL, page_path)
-        print(f"[{i}/{len(PYTORCH_PAGES)}] {url}")
-        try:
-            page, skip_reason = scrape_pytorch_doc_page(
-                url,
-                max_code_examples=PYTORCH_MAX_CODE_EXAMPLES,
-            )
-            if page is None:
-                print(f"  Warning: skipped page ({skip_reason})")
-            else:
-                pages.append(page)
-            time.sleep(PYTORCH_SCRAPE_DELAY_SECONDS)  # polite rate-limiting
-        except Exception as exc:
-            print(f"  Warning: {exc}")
-
-    output_file = PYTORCH_OUTPUT_DIR / "pytorch_docs.json"
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(pages, f, indent=2, ensure_ascii=False)
-
-    print(f"Scraped {len(pages)} pages -> {output_file}")
-    return str(output_file)
+    summary = rag_data_fetchers.collect_pytorch_docs(
+        base_url=PYTORCH_BASE_URL,
+        page_list=PYTORCH_PAGES,
+        output_dir=PYTORCH_OUTPUT_DIR,
+        delay_seconds=PYTORCH_SCRAPE_DELAY_SECONDS,
+        max_code_examples=PYTORCH_MAX_CODE_EXAMPLES,
+    )
+    return str(summary["output_file"])
 
 
 def _update_pytorch_index() -> dict[str, object]:
