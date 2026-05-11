@@ -127,6 +127,7 @@ class EvalRun(Base):
     reranking_strategy: Mapped[str | None] = mapped_column(Text)
 
     # Judge & metrics config
+    judge_backend: Mapped[str | None] = mapped_column(Text)
     judge_model: Mapped[str | None] = mapped_column(Text)
     bert_score_model: Mapped[str | None] = mapped_column(Text)
 

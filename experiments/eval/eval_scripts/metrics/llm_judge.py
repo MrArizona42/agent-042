@@ -1,6 +1,5 @@
-"""LLM-as-Judge evaluation via Google Gemini API.
+"""LLM-as-Judge evaluation via a generic OpenAI-compatible chat backend.
 
-Uses Gemini 2.0 Flash through Google AI Studio for structured scoring.
 Supports Relevance, Correctness, Faithfulness, Coverage, and Groundedness.
 """
 
@@ -13,10 +12,14 @@ from typing import Any
 
 import httpx
 
+from shared.config import JudgeSettings
+
 logger = logging.getLogger(__name__)
 
-# Gemini free tier: 15 RPM
-_RPM_DELAY = 4.0  # seconds between calls to stay under 15 RPM
+_JUDGE_SYSTEM_PROMPT = (
+    "You are a strict evaluation model. "
+    "Return exactly one JSON object with keys 'score' and 'reason'."
+)
 
 # ---------------------------------------------------------------------------
 # Prompt templates
@@ -81,39 +84,96 @@ _METRIC_PROMPTS = {
 
 
 # ---------------------------------------------------------------------------
-# Gemini API client
+# Judge transport helpers
 # ---------------------------------------------------------------------------
 
 
-def _call_gemini(
-    prompt: str,
-    *,
-    api_key: str,
-    model: str,
-) -> dict[str, Any]:
-    """Call Gemini API and parse JSON response.
+def _chat_completions_url(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    if base.endswith("/v1"):
+        return f"{base}/chat/completions"
+    return f"{base}/v1/chat/completions"
 
-    Returns:
-        Parsed JSON dict from the model response.
-    """
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
-        f":generateContent?key={api_key}"
-    )
+
+def _coerce_response_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        fragments: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                fragments.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    fragments.append(text)
+        return "".join(fragments)
+    if isinstance(content, dict):
+        return json.dumps(content)
+    raise TypeError(f"Unsupported judge response content type: {type(content)!r}")
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        for idx, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                parsed, _ = decoder.raw_decode(text[idx:])
+            except json.JSONDecodeError:
+                continue
+            break
+        else:
+            raise ValueError(f"Judge response did not contain JSON: {text!r}") from None
+
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Judge response JSON must be an object, got: {type(parsed)!r}")
+    return parsed
+
+
+def _call_openai_compatible(prompt: str, *, judge_settings: JudgeSettings) -> dict[str, Any]:
+    """Call an OpenAI-compatible chat backend and parse a JSON judge response."""
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.0,
-            "responseMimeType": "application/json",
-        },
+        "model": judge_settings.model,
+        "messages": [
+            {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.0,
+        "max_tokens": 256,
+        "response_format": {"type": "json_object"},
     }
+    headers = {"Content-Type": "application/json"}
+    if judge_settings.api_key:
+        headers["Authorization"] = f"Bearer {judge_settings.api_key}"
 
-    resp = httpx.post(url, json=payload, timeout=60)
+    resp = httpx.post(
+        _chat_completions_url(judge_settings.base_url),
+        json=payload,
+        headers=headers,
+        timeout=judge_settings.timeout,
+    )
     resp.raise_for_status()
 
     data = resp.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
-    return json.loads(text)
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("Judge backend returned no choices")
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        raise ValueError("Judge backend returned an invalid message payload")
+
+    text = _coerce_response_text(message.get("content", ""))
+    return _extract_json_object(text)
+
+
+def _call_judge_model(prompt: str, *, judge_settings: JudgeSettings) -> dict[str, Any]:
+    if judge_settings.backend in {"local_vllm", "openai_compatible"}:
+        return _call_openai_compatible(prompt, judge_settings=judge_settings)
+    raise ValueError(f"Unsupported judge backend: {judge_settings.backend}")
 
 
 # ---------------------------------------------------------------------------
@@ -128,8 +188,7 @@ def judge_single(
     answer: str,
     reference: str = "",
     context: str = "",
-    api_key: str,
-    model: str,
+    judge_settings: JudgeSettings,
 ) -> dict[str, Any]:
     """Score a single (question, answer) pair on the given metric.
 
@@ -140,8 +199,7 @@ def judge_single(
         answer: Model-generated answer or summary.
         reference: Gold reference answer or source document.
         context: Retrieved RAG context (only for groundedness).
-        api_key: Google AI Studio API key.
-        model: Gemini model name.
+        judge_settings: Resolved LLM-as-judge transport and model config.
 
     Returns:
         ``{"score": int, "reason": str}``
@@ -158,10 +216,10 @@ def judge_single(
     )
 
     try:
-        result = _call_gemini(prompt, api_key=api_key, model=model)
+        result = _call_judge_model(prompt, judge_settings=judge_settings)
         return {"score": int(result.get("score", 0)), "reason": result.get("reason", "")}
     except Exception as e:
-        logger.error("Gemini judge call failed: %s", e)
+        logger.error("Judge model call failed: %s", e)
         return {"score": 0, "reason": f"error: {e}"}
 
 
@@ -169,8 +227,7 @@ def judge_batch(
     metric: str,
     *,
     samples: list[dict[str, str]],
-    api_key: str,
-    model: str,
+    judge_settings: JudgeSettings,
 ) -> dict[str, float]:
     """Score a batch of samples and return the average.
 
@@ -188,12 +245,11 @@ def judge_batch(
             answer=sample.get("answer", ""),
             reference=sample.get("reference", ""),
             context=sample.get("context", ""),
-            api_key=api_key,
-            model=model,
+            judge_settings=judge_settings,
         )
         scores.append(result["score"])
-        if (i + 1) < len(samples):
-            time.sleep(_RPM_DELAY)
+        if (i + 1) < len(samples) and judge_settings.request_delay_seconds > 0:
+            time.sleep(judge_settings.request_delay_seconds)
 
     avg = sum(scores) / len(scores) if scores else 0.0
     return {metric: avg}
