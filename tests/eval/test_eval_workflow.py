@@ -19,6 +19,7 @@ from rag.vector_store import Document
 
 # Ensure settings don't require live services
 os.environ.setdefault("GATEWAY_RAG_ENABLED", "false")
+os.environ.setdefault("EVAL_JUDGE_MODEL", "/models/Qwen/Qwen3-0.6B")
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +87,7 @@ class TestEvalRunModel:
             "qdrant_snapshot_id",
             "dataset_dvc_hash",
             "reranking_strategy",
+            "judge_backend",
             "judge_model",
             "bert_score_model",
             "temperature",
@@ -128,7 +130,13 @@ class TestEvalSettings:
         from shared.config import get_eval_settings
 
         s = get_eval_settings()
-        assert s.judge_model == "gemini-2.0-flash"
+        resolved_judge = s.resolve_judge_settings()
+
+        assert s.judge_backend == "local_vllm"
+        assert s.judge_model == "/models/Qwen/Qwen3-0.6B"
+        assert resolved_judge.backend == "local_vllm"
+        assert resolved_judge.model == "/models/Qwen/Qwen3-0.6B"
+        assert resolved_judge.base_url == "http://localhost:8000"
         assert s.temperature == 0.0
         assert s.max_completion_tokens == 2048
         assert s.code_exec_timeout == 30
@@ -138,10 +146,20 @@ class TestEvalSettings:
     def test_env_override(self, monkeypatch):
         from shared.config import EvalSettings
 
-        monkeypatch.setenv("EVAL_JUDGE_MODEL", "gemini-1.5-pro")
+        monkeypatch.setenv("EVAL_JUDGE_MODEL", "judge-model")
+        monkeypatch.setenv("EVAL_JUDGE_BACKEND", "openai_compatible")
+        monkeypatch.setenv("EVAL_JUDGE_BASE_URL", "https://judge.example")
+        monkeypatch.setenv("EVAL_JUDGE_API_KEY", "secret")
         monkeypatch.setenv("EVAL_TEMPERATURE", "0.7")
         s = EvalSettings()
-        assert s.judge_model == "gemini-1.5-pro"
+        resolved_judge = s.resolve_judge_settings()
+
+        assert s.judge_backend == "openai_compatible"
+        assert s.judge_model == "judge-model"
+        assert resolved_judge.backend == "openai_compatible"
+        assert resolved_judge.model == "judge-model"
+        assert resolved_judge.base_url == "https://judge.example"
+        assert resolved_judge.api_key == "secret"
         assert s.temperature == 0.7
 
 
@@ -438,31 +456,36 @@ class TestNqDatasetParsing:
 
 
 class TestLLMJudge:
-    """Tests for LLM-as-Judge with mocked Gemini calls."""
+    """Tests for LLM-as-Judge with mocked judge model calls."""
 
-    @patch("experiments.eval.eval_scripts.metrics.llm_judge._call_gemini")
-    def test_judge_single_relevance(self, mock_gemini):
+    @patch("experiments.eval.eval_scripts.metrics.llm_judge._call_judge_model")
+    def test_judge_single_relevance(self, mock_judge_model):
         from experiments.eval.eval_scripts.metrics.llm_judge import judge_single
+        from shared.config import JudgeSettings
 
-        mock_gemini.return_value = {"score": 4, "reason": "mostly relevant"}
+        mock_judge_model.return_value = {"score": 4, "reason": "mostly relevant"}
 
         result = judge_single(
             "relevance",
             question="What is ML?",
             answer="Machine learning is...",
             reference="ML is a subset of AI",
-            api_key="test-key",
-            model="gemini-2.0-flash",
+            judge_settings=JudgeSettings(
+                backend="local_vllm",
+                model="judge-model",
+                base_url="http://localhost:8000",
+            ),
         )
         assert result["score"] == 4
         assert "relevant" in result["reason"]
-        mock_gemini.assert_called_once()
+        mock_judge_model.assert_called_once()
 
-    @patch("experiments.eval.eval_scripts.metrics.llm_judge._call_gemini")
-    def test_judge_batch(self, mock_gemini):
+    @patch("experiments.eval.eval_scripts.metrics.llm_judge._call_judge_model")
+    def test_judge_batch(self, mock_judge_model):
         from experiments.eval.eval_scripts.metrics.llm_judge import judge_batch
+        from shared.config import JudgeSettings
 
-        mock_gemini.return_value = {"score": 3, "reason": "ok"}
+        mock_judge_model.return_value = {"score": 3, "reason": "ok"}
 
         result = judge_batch(
             "correctness",
@@ -470,21 +493,29 @@ class TestLLMJudge:
                 {"question": "q1", "answer": "a1", "reference": "r1"},
                 {"question": "q2", "answer": "a2", "reference": "r2"},
             ],
-            api_key="test-key",
-            model="gemini-2.0-flash",
+            judge_settings=JudgeSettings(
+                backend="openai_compatible",
+                model="judge-model",
+                base_url="https://judge.example",
+                api_key="secret",
+            ),
         )
         assert "correctness" in result
         assert result["correctness"] == 3.0
 
     def test_judge_unknown_metric(self):
         from experiments.eval.eval_scripts.metrics.llm_judge import judge_single
+        from shared.config import JudgeSettings
 
         with pytest.raises(ValueError, match="Unknown judge metric"):
             judge_single(
                 "nonexistent_metric",
                 answer="test",
-                api_key="key",
-                model="gemini-2.0-flash",
+                judge_settings=JudgeSettings(
+                    backend="local_vllm",
+                    model="judge-model",
+                    base_url="http://localhost:8000",
+                ),
             )
 
 
@@ -626,10 +657,12 @@ class TestRunnerConfig:
     def test_build_common_fields(self):
         from experiments.eval.eval_scripts.runner import _build_common_fields
 
-        settings = MagicMock()
-        settings.judge_model = "gemini-2.0-flash"
-        settings.bert_score_model = "deberta"
-        settings.temperature = 0.0
+        settings = types.SimpleNamespace(
+            judge_backend="local_vllm",
+            judge_model="judge-model",
+            bert_score_model="deberta",
+            temperature=0.0,
+        )
 
         fields = _build_common_fields(
             task="chat",
@@ -656,16 +689,21 @@ class TestRunnerConfig:
         assert fields["rag_enabled"] is False
         assert fields["rag_alias"] is None
         assert fields["knowledge_base"] is None
+        assert fields["judge_backend"] == "local_vllm"
+        assert fields["judge_model"] == "judge-model"
         assert fields["status"] == "running"
         assert isinstance(fields["id"], uuid.UUID)
 
     def test_build_common_fields_with_rag(self):
         from experiments.eval.eval_scripts.runner import _build_common_fields
 
-        settings = MagicMock()
-        settings.judge_model = "gemini-2.0-flash"
-        settings.bert_score_model = "deberta"
-        settings.temperature = 0.0
+        settings = types.SimpleNamespace(
+            judge_backend="openai_compatible",
+            judge_model="judge-model",
+            judge_base_url="https://judge.example",
+            bert_score_model="deberta",
+            temperature=0.0,
+        )
 
         fields = _build_common_fields(
             task="chat",
@@ -691,6 +729,8 @@ class TestRunnerConfig:
         assert fields["adapter_name"] == "lora-chat"
         assert fields["adapter_version"] == 3
         assert fields["lora_alias"] == "champion"
+        assert fields["judge_backend"] == "openai_compatible"
+        assert fields["judge_model"] == "judge-model"
 
     def test_calculate_metrics_applies_eval_context_overrides(self):
         from experiments.eval.eval_scripts.runner import calculate_metrics
@@ -1110,6 +1150,7 @@ class TestFetchPredictionsRagSelection:
 
         eval_settings = types.SimpleNamespace(
             temperature=0.0,
+            judge_backend="local_vllm",
             judge_model="judge-model",
             bert_score_model="bert-model",
             max_completion_tokens=256,
@@ -1149,6 +1190,8 @@ class TestFetchPredictionsRagSelection:
             )
 
         assert prediction_data["kb_name"] is None
+        assert prediction_data["judge_backend"] == "local_vllm"
+        assert prediction_data["judge_model"] == "judge-model"
         assert mock_fetch_generation.call_args.kwargs["kb_name"] is None
 
     def test_fetch_predictions_keeps_suite_default_when_auto_mode_is_off(self):
@@ -1156,6 +1199,7 @@ class TestFetchPredictionsRagSelection:
 
         eval_settings = types.SimpleNamespace(
             temperature=0.0,
+            judge_backend="local_vllm",
             judge_model="judge-model",
             bert_score_model="bert-model",
             max_completion_tokens=256,
@@ -1192,8 +1236,10 @@ class TestFetchPredictionsRagSelection:
                 lora_aliases=["none"],
             )
 
-        assert prediction_data["kb_name"] == "arxiv"
-        assert mock_fetch_generation.call_args.kwargs["kb_name"] == "arxiv"
+        assert prediction_data["kb_name"] is None
+        assert prediction_data["judge_backend"] == "local_vllm"
+        assert prediction_data["judge_model"] == "judge-model"
+        assert mock_fetch_generation.call_args.kwargs["kb_name"] is None
 
     def test_fetch_predictions_rejects_auto_mode_for_retrieval(self):
         from experiments.eval.eval_scripts.runner import fetch_predictions

@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS eval_runs (
     reranking_strategy    TEXT,                              -- none | cross_encoder | llm
 
     -- Judge & metrics config
+    judge_backend         TEXT,
     judge_model           TEXT,
     bert_score_model      TEXT,
 
