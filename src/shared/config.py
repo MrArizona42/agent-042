@@ -694,8 +694,7 @@ class EvalSettings(BaseSettings):
         if self.judge_backend == "openai_compatible":
             if not self.judge_base_url.strip():
                 raise ValueError(
-                    "EVAL_JUDGE_BASE_URL must be set when "
-                    "EVAL_JUDGE_BACKEND=openai_compatible"
+                    "EVAL_JUDGE_BASE_URL must be set when EVAL_JUDGE_BACKEND=openai_compatible"
                 )
         return self
 

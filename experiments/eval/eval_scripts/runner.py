@@ -573,13 +573,9 @@ def _resolve_judge_settings(
             )
     elif backend == "openai_compatible":
         if not model:
-            raise RuntimeError(
-                "LLM-as-Judge backend 'openai_compatible' requires judge_model"
-            )
+            raise RuntimeError("LLM-as-Judge backend 'openai_compatible' requires judge_model")
         if not base_url:
-            raise RuntimeError(
-                "LLM-as-Judge backend 'openai_compatible' requires judge_base_url"
-            )
+            raise RuntimeError("LLM-as-Judge backend 'openai_compatible' requires judge_base_url")
     else:
         raise RuntimeError(f"Unsupported judge backend: {backend!r}")
 
