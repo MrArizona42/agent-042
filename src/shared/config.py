@@ -563,13 +563,36 @@ class RegistrySettings(BaseSettings):
 ModelRegistrySettings = RegistrySettings
 
 
+class JudgeSettings(BaseModel):
+    """Resolved LLM-as-judge transport and model configuration."""
+
+    backend: Literal["local_vllm", "openai_compatible"]
+    model: str
+    base_url: str
+    api_key: str | None = None
+    timeout: float = Field(
+        default=60.0,
+        ge=1.0,
+        description="Timeout for one judge request in seconds",
+    )
+    request_delay_seconds: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Optional delay inserted between consecutive judge requests",
+    )
+
+
 class EvalSettings(BaseSettings):
     """Settings for the evaluation runner.
 
     Environment Variables:
         EVAL_GATEWAY_URL: Gateway URL for generation evals.
-        EVAL_JUDGE_MODEL: Gemini model name for LLM-as-Judge.
-        EVAL_GOOGLE_AI_API_KEY: Google AI Studio API key (Gemini).
+        EVAL_JUDGE_BACKEND: Judge backend (local_vllm or openai_compatible).
+        EVAL_JUDGE_MODEL: Judge model name.
+        EVAL_JUDGE_BASE_URL: Base URL for external OpenAI-compatible judge backends.
+        EVAL_JUDGE_API_KEY: Optional API key for external OpenAI-compatible backends.
+        EVAL_JUDGE_TIMEOUT: Timeout for judge HTTP requests.
+        EVAL_JUDGE_REQUEST_DELAY_SECONDS: Optional delay between judge requests.
         EVAL_BERT_SCORE_MODEL: Model for BERTScore computation.
         EVAL_TEMPERATURE: Temperature for generation requests.
     """
@@ -583,13 +606,42 @@ class EvalSettings(BaseSettings):
         default="http://localhost:9001",
         description="Gateway URL for generation evals",
     )
-    judge_model: str = Field(
-        default="gemini-2.0-flash",
-        description="Gemini model name for LLM-as-Judge",
+    judge_backend: Literal["local_vllm", "openai_compatible"] = Field(
+        default="local_vllm",
+        description=(
+            "Backend used for LLM-as-judge scoring. local_vllm talks directly to the "
+            "project's canonical vLLM endpoint."
+        ),
     )
-    google_ai_api_key: str = Field(
+    judge_model: str = Field(
+        description=(
+            "Judge model name. This setting is mandatory so the eval backend does not "
+            "silently inherit or reassign models at runtime."
+        ),
+    )
+    judge_base_url: str = Field(
         default="",
-        description="Google AI Studio API key for Gemini judge",
+        description=(
+            "Base URL for external OpenAI-compatible judge backends. Ignored when "
+            "judge_backend=local_vllm."
+        ),
+    )
+    judge_api_key: str = Field(
+        default="",
+        description=(
+            "Optional API key for external OpenAI-compatible judge backends. Ignored "
+            "when judge_backend=local_vllm."
+        ),
+    )
+    judge_timeout: float = Field(
+        default=60.0,
+        description="Timeout for judge HTTP requests in seconds",
+        ge=1.0,
+    )
+    judge_request_delay_seconds: float = Field(
+        default=0.0,
+        description="Optional delay inserted between judge requests in seconds",
+        ge=0.0,
     )
     bert_score_model: str = Field(
         default="microsoft/deberta-v3-base",
@@ -634,6 +686,39 @@ class EvalSettings(BaseSettings):
         default=None,
         description="PostgreSQL connection URL for eval results (sync: postgresql://...)",
     )
+
+    @model_validator(mode="after")
+    def _validate_judge_backend_config(self) -> "EvalSettings":
+        if not self.judge_model.strip():
+            raise ValueError("EVAL_JUDGE_MODEL must be set")
+        if self.judge_backend == "openai_compatible":
+            if not self.judge_base_url.strip():
+                raise ValueError(
+                    "EVAL_JUDGE_BASE_URL must be set when "
+                    "EVAL_JUDGE_BACKEND=openai_compatible"
+                )
+        return self
+
+    def resolve_judge_settings(self) -> JudgeSettings:
+        """Resolve backend-specific judge settings to a concrete transport config."""
+        if self.judge_backend == "local_vllm":
+            return JudgeSettings(
+                backend="local_vllm",
+                model=self.judge_model.strip(),
+                base_url=get_platform_settings().vllm_base_url,
+                api_key=get_settings().api_key,
+                timeout=self.judge_timeout,
+                request_delay_seconds=self.judge_request_delay_seconds,
+            )
+
+        return JudgeSettings(
+            backend="openai_compatible",
+            model=self.judge_model.strip(),
+            base_url=self.judge_base_url.strip(),
+            api_key=self.judge_api_key.strip() or None,
+            timeout=self.judge_timeout,
+            request_delay_seconds=self.judge_request_delay_seconds,
+        )
 
 
 @lru_cache

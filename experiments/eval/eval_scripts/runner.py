@@ -83,9 +83,11 @@ from rag.retriever import Retriever
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
 from shared.config import (
+    JudgeSettings,
     bootstrap_local_settings_env,
     get_eval_settings,
     get_kb_config,
+    get_platform_settings,
     get_registry_settings,
     get_settings,
 )
@@ -124,7 +126,7 @@ _TASK_METRICS: dict[str, list[str]] = {
     "retrieval": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
 }
 
-# LLM-judge metrics (need Gemini API)
+# LLM-judge metrics (need a configured judge backend)
 _JUDGE_METRICS = {"relevance", "correctness", "faithfulness", "coverage", "groundedness"}
 
 # Automatic metrics (computed locally, no external API needed)
@@ -470,6 +472,7 @@ def _log_to_db(
             Column("qdrant_snapshot_id", Text),
             Column("dataset_dvc_hash", Text),
             Column("reranking_strategy", Text),
+            Column("judge_backend", Text),
             Column("judge_model", Text),
             Column("bert_score_model", Text),
             Column("temperature", Float),
@@ -522,6 +525,79 @@ def _log_to_db(
 # ---------------------------------------------------------------------------
 
 
+def _object_attr(obj: Any, name: str, default: Any = None) -> Any:
+    values = getattr(obj, "__dict__", None)
+    if isinstance(values, dict) and name in values:
+        return values[name]
+    return default
+
+
+def _resolve_judge_settings(
+    *,
+    eval_settings: Any,
+    eval_context: dict[str, Any] | None = None,
+) -> JudgeSettings:
+    resolve = getattr(type(eval_settings), "resolve_judge_settings", None)
+    if callable(resolve):
+        base = eval_settings.resolve_judge_settings()
+    else:
+        base = JudgeSettings(
+            backend=_object_attr(eval_settings, "judge_backend", "local_vllm"),
+            model=_object_attr(eval_settings, "judge_model", ""),
+            base_url=(
+                _object_attr(eval_settings, "judge_base_url", "")
+                or _object_attr(eval_settings, "vllm_base_url", "")
+            ),
+            api_key=_object_attr(eval_settings, "judge_api_key", None),
+            timeout=float(_object_attr(eval_settings, "judge_timeout", 60.0)),
+            request_delay_seconds=float(
+                _object_attr(eval_settings, "judge_request_delay_seconds", 0.0)
+            ),
+        )
+
+    context = eval_context or {}
+    backend = context.get("judge_backend", base.backend)
+    model = context.get("judge_model", base.model)
+    base_url = context.get("judge_base_url", base.base_url)
+    api_key = context.get("judge_api_key", base.api_key)
+    timeout = float(context.get("judge_timeout", base.timeout))
+    request_delay_seconds = float(
+        context.get("judge_request_delay_seconds", base.request_delay_seconds)
+    )
+
+    if backend == "local_vllm":
+        if not base_url:
+            base_url = (
+                _object_attr(eval_settings, "vllm_base_url", "")
+                or get_platform_settings().vllm_base_url
+            )
+    elif backend == "openai_compatible":
+        if not model:
+            raise RuntimeError(
+                "LLM-as-Judge backend 'openai_compatible' requires judge_model"
+            )
+        if not base_url:
+            raise RuntimeError(
+                "LLM-as-Judge backend 'openai_compatible' requires judge_base_url"
+            )
+    else:
+        raise RuntimeError(f"Unsupported judge backend: {backend!r}")
+
+    if not model:
+        raise RuntimeError(f"LLM-as-Judge backend {backend!r} could not resolve a model")
+    if not base_url:
+        raise RuntimeError(f"LLM-as-Judge backend {backend!r} could not resolve a base URL")
+
+    return JudgeSettings(
+        backend=backend,
+        model=model,
+        base_url=base_url,
+        api_key=api_key.strip() or None if isinstance(api_key, str) else api_key,
+        timeout=timeout,
+        request_delay_seconds=request_delay_seconds,
+    )
+
+
 def _build_common_fields(
     *,
     task: str,
@@ -538,6 +614,10 @@ def _build_common_fields(
 ) -> dict[str, Any]:
     """Build the common fields shared by all metric rows in one eval."""
     eval_context = eval_context or {}
+    judge_settings = _resolve_judge_settings(
+        eval_settings=eval_settings,
+        eval_context=eval_context,
+    )
     return {
         "id": uuid.uuid4(),
         "created_at": now,
@@ -552,7 +632,8 @@ def _build_common_fields(
         "rag_enabled": rag_enabled,
         "rag_alias": rag_alias if rag_alias != "none" else None,
         "knowledge_base": kb_name if rag_enabled else None,
-        "judge_model": eval_context.get("judge_model", eval_settings.judge_model),
+        "judge_backend": judge_settings.backend,
+        "judge_model": judge_settings.model,
         "bert_score_model": eval_context.get(
             "bert_score_model",
             eval_settings.bert_score_model,
@@ -641,6 +722,7 @@ def fetch_predictions(
     eval_settings = get_eval_settings()
     settings = get_settings()
     base_model = settings.default_model
+    judge_settings = _resolve_judge_settings(eval_settings=eval_settings)
 
     if task not in _TASK_METRICS:
         raise ValueError(f"Unknown task: {task!r}")
@@ -719,11 +801,16 @@ def fetch_predictions(
         "kb_name": kb_name,
         "base_model": base_model,
         "temperature": eval_settings.temperature,
-        "judge_model": eval_settings.judge_model,
+        "judge_backend": judge_settings.backend,
+        "judge_model": judge_settings.model,
         "bert_score_model": eval_settings.bert_score_model,
         "eval_context": {
             "temperature": eval_settings.temperature,
-            "judge_model": eval_settings.judge_model,
+            "judge_backend": judge_settings.backend,
+            "judge_model": judge_settings.model,
+            "judge_base_url": judge_settings.base_url,
+            "judge_timeout": judge_settings.timeout,
+            "judge_request_delay_seconds": judge_settings.request_delay_seconds,
             "bert_score_model": eval_settings.bert_score_model,
             "max_tokens": eval_settings.max_completion_tokens,
         },
@@ -1305,18 +1392,14 @@ def _compute_generation_metric(
         if metric_value is not None:
             rows.append({**common, "metric_name": metric, "metric_value": metric_value})
     elif metric in _JUDGE_METRICS:
-        google_ai_api_key = (eval_context or {}).get(
-            "google_ai_api_key",
-            eval_settings.google_ai_api_key,
+        judge_settings = _resolve_judge_settings(
+            eval_settings=eval_settings,
+            eval_context=eval_context,
         )
-        judge_model = (eval_context or {}).get("judge_model", eval_settings.judge_model)
-        if not google_ai_api_key:
-            raise RuntimeError(f"LLM-as-Judge metric {metric!r} requires EVAL_GOOGLE_AI_API_KEY")
         result = judge_batch(
             metric,
             samples=judge_samples,
-            api_key=google_ai_api_key,
-            model=judge_model,
+            judge_settings=judge_settings,
         )
         rows.append({**common, "metric_name": metric, "metric_value": result[metric]})
 
