@@ -1236,10 +1236,10 @@ class TestFetchPredictionsRagSelection:
                 lora_aliases=["none"],
             )
 
-        assert prediction_data["kb_name"] == "arxiv"
+        assert prediction_data["kb_name"] is None
         assert prediction_data["judge_backend"] == "local_vllm"
         assert prediction_data["judge_model"] == "judge-model"
-        assert mock_fetch_generation.call_args.kwargs["kb_name"] == "arxiv"
+        assert mock_fetch_generation.call_args.kwargs["kb_name"] is None
 
     def test_fetch_predictions_rejects_auto_mode_for_retrieval(self):
         from experiments.eval.eval_scripts.runner import fetch_predictions
