@@ -109,8 +109,8 @@ bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[3])
 # ---------------------------------------------------------------------------
 
 _SUITE_KB: dict[tuple[str, str], str | None] = {
-    ("chat", "hotpotqa"): "arxiv",
-    ("chat", "nq"): "arxiv",
+    ("chat", "hotpotqa"): None,
+    ("chat", "nq"): None,
     ("code", "humaneval"): "pytorch_docs",
     ("summarize", "arxiv_summarization"): None,
     ("retrieval", "beir_scifact"): None,  # KB set via --kb flag
@@ -151,12 +151,27 @@ _CODE_EVAL_SYSTEM_PROMPT = (
     "repetition of the signature. Indentation must use 4 spaces."
 )
 
+_CHAT_EVAL_SYSTEM_PROMPT = (
+    "You are answering a benchmark question. "
+    "Reply with the shortest correct answer only. "
+    "Do not ask for clarification, do not explain, and do not preface the answer. "
+    "If the answer is unknown, say 'unknown'."
+)
+
 
 def _build_code_eval_messages(prompt: str) -> list[dict[str, str]]:
     """Build the chat messages list for a single HumanEval sample."""
     return [
         {"role": "system", "content": _CODE_EVAL_SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
+    ]
+
+
+def _build_chat_eval_messages(question: str) -> list[dict[str, str]]:
+    """Build the chat messages list for a single chat benchmark sample."""
+    return [
+        {"role": "system", "content": _CHAT_EVAL_SYSTEM_PROMPT},
+        {"role": "user", "content": question},
     ]
 
 
@@ -247,7 +262,7 @@ def _call_gateway(
     }
     if model:
         payload["model"] = model
-    if rag_sources:
+    if rag_sources is not None:
         payload["rag_sources"] = rag_sources
     if max_completion_tokens is not None:
         payload["max_completion_tokens"] = max_completion_tokens
@@ -832,6 +847,9 @@ def _fetch_generation_predictions(
     if rag_alias != "none" and kb_name:
         rag_sources = [{"knowledge_base": kb_name, "alias": rag_alias}]
         rag_enabled = True
+    elif task == "chat":
+        # Explicitly disable gateway auto-selection for chat benchmarks.
+        rag_sources = []
 
     samples = _load_dataset_samples(task, dataset_name)
     if not samples:
@@ -860,7 +878,10 @@ def _fetch_generation_predictions(
         question = sample["question"]
         reference = sample.get("answer", "")
 
-        messages = [{"role": "user", "content": question}]
+        if task == "chat":
+            messages = _build_chat_eval_messages(question)
+        else:
+            messages = [{"role": "user", "content": question}]
         try:
             response = _call_gateway(
                 messages=messages,

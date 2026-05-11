@@ -377,6 +377,58 @@ class TestAutomaticMetrics:
         retrieved = ["doc1", "doc2", "doc3"]
         assert compute_mrr_at_k(retrieved, relevant, k=10) == pytest.approx(0.0)
 
+
+class TestNqDatasetParsing:
+    """Tests for Natural Questions sample parsing."""
+
+    def test_extract_nq_answer_from_list_of_dict_short_answers(self):
+        from experiments.eval.eval_scripts.datasets import _extract_nq_answer
+
+        item = {
+            "annotations": {
+                "short_answers": [
+                    {"text": []},
+                    {"text": ["enabled European empire expansion"]},
+                ]
+            }
+        }
+
+        assert _extract_nq_answer(item) == "enabled European empire expansion"
+
+    def test_extract_nq_answer_from_nested_short_answers(self):
+        from experiments.eval.eval_scripts.datasets import _extract_nq_answer
+
+        item = {
+            "annotations": {
+                "short_answers": [
+                    [
+                        {"text": []},
+                        {"text": ["nested answer"]},
+                    ]
+                ]
+            }
+        }
+
+        assert _extract_nq_answer(item) == "nested answer"
+
+    def test_extract_nq_answer_from_token_span_fallback(self):
+        from experiments.eval.eval_scripts.datasets import _extract_nq_answer
+
+        item = {
+            "document": {"tokens": {"token": ["a", "b", "enabled", "trade", "routes", "x"]}},
+            "annotations": {
+                "short_answers": [
+                    {
+                        "text": [],
+                        "start_token": [2],
+                        "end_token": [5],
+                    }
+                ]
+            },
+        }
+
+        assert _extract_nq_answer(item) == "enabled trade routes"
+
     def test_mrr_at_k_deduplicates_chunk_ids(self):
         from experiments.eval.eval_scripts.metrics.automatic import compute_mrr_at_k
 

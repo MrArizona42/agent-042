@@ -32,6 +32,76 @@ DATASET_LOCAL: dict[str, tuple[str, str]] = {
 }
 
 
+def _extract_text_from_nq_span(item: dict, start_token: int, end_token: int) -> str:
+    """Best-effort token-span to text conversion for Natural Questions."""
+    if start_token < 0 or end_token <= start_token:
+        return ""
+
+    document = item.get("document")
+    if not isinstance(document, dict):
+        return ""
+    tokens_obj = document.get("tokens")
+    if not isinstance(tokens_obj, dict):
+        return ""
+    tokens = tokens_obj.get("token")
+    if not isinstance(tokens, list):
+        return ""
+
+    safe_start = max(0, start_token)
+    safe_end = min(len(tokens), end_token)
+    if safe_start >= safe_end:
+        return ""
+
+    span_tokens = [str(t).strip() for t in tokens[safe_start:safe_end] if str(t).strip()]
+    return " ".join(span_tokens).strip()
+
+
+def _extract_nq_answer(item: dict) -> str:
+    """Extract a short answer from an NQ sample across known schema variants."""
+    answer = item.get("answer", "")
+    if isinstance(answer, str) and answer.strip():
+        return answer.strip()
+
+    annotations = item.get("annotations", {})
+    if not isinstance(annotations, dict):
+        return ""
+    short_answers_col = annotations.get("short_answers", [])
+
+    # Some NQ exports use list[dict], while others may use list[list[dict]].
+    if isinstance(short_answers_col, list):
+        flattened: list[dict] = []
+        for entry in short_answers_col:
+            if isinstance(entry, dict):
+                flattened.append(entry)
+            elif isinstance(entry, list):
+                flattened.extend(x for x in entry if isinstance(x, dict))
+    else:
+        flattened = []
+
+    for sa in flattened:
+        texts = sa.get("text", []) if isinstance(sa, dict) else []
+        if isinstance(texts, list):
+            for txt in texts:
+                if isinstance(txt, str) and txt.strip():
+                    return txt.strip()
+        elif isinstance(texts, str) and texts.strip():
+            return texts.strip()
+
+        starts = sa.get("start_token", []) if isinstance(sa, dict) else []
+        ends = sa.get("end_token", []) if isinstance(sa, dict) else []
+        if not isinstance(starts, list):
+            starts = [starts]
+        if not isinstance(ends, list):
+            ends = [ends]
+        for s, e in zip(starts, ends):
+            if isinstance(s, int) and isinstance(e, int):
+                span_text = _extract_text_from_nq_span(item, s, e)
+                if span_text:
+                    return span_text
+
+    return ""
+
+
 def load_dataset_samples(task: str, dataset_name: str) -> list[dict[str, str]]:
     """Load evaluation dataset samples from local Arrow files.
 
@@ -221,22 +291,8 @@ def load_dataset_samples(task: str, dataset_name: str) -> list[dict[str, str]]:
             if isinstance(question, dict):
                 question = question.get("text", "")
 
-            # NQ has no top-level "answer" — extract from annotations.short_answers
-            answer = item.get("answer", "")
-            if not answer:
-                annotations = item.get("annotations", {})
-
-                short_answers_col = (
-                    annotations.get("short_answers", []) if isinstance(annotations, dict) else []
-                )
-                for sa_list in short_answers_col:
-                    for sa in sa_list if isinstance(sa_list, list) else []:
-                        texts = sa.get("text", []) if isinstance(sa, dict) else []
-                        if texts:
-                            answer = texts[0]
-                            break
-                    if answer:
-                        break
+            # NQ has no reliable top-level "answer" field across exports.
+            answer = _extract_nq_answer(item)
 
             samples.append(
                 {
