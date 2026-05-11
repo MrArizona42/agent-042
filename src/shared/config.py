@@ -705,7 +705,7 @@ class EvalSettings(BaseSettings):
                 backend="local_vllm",
                 model=self.judge_model.strip(),
                 base_url=get_platform_settings().vllm_base_url,
-                api_key=get_settings().api_key,
+                api_key=self.judge_api_key.strip() or None,
                 timeout=self.judge_timeout,
                 request_delay_seconds=self.judge_request_delay_seconds,
             )
