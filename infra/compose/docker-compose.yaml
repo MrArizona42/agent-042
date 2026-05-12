@@ -721,6 +721,52 @@ services:
       - backend_net
 
   # =====================
+  # Node Exporter (Host CPU / RAM / Disk / Network)
+  # =====================
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+
+    command:
+      - '--path.rootfs=/host'
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)'
+
+    volumes:
+      - /:/host:ro,rslave
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # NVIDIA DCGM Exporter (Host GPU metrics)
+  # =====================
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.4.1-4.6.0-ubuntu22.04
+
+    cap_add:
+      - SYS_ADMIN
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
   # Prometheus (metrics collection)
   # =====================
   prometheus:
