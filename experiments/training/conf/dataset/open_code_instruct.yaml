@@ -1,0 +1,13 @@
+defaults:
+  - base_dataset
+  - _self_
+
+name: open-code-instruct
+local_path: "${paths.project_root}/assets/datasets/open-code-instruct"
+train_split: train
+validation_split: null
+validation_fraction: 0.01
+split_seed: 42
+prompt_field_map:
+  instruction: input
+target_field: output

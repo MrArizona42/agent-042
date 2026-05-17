@@ -1,0 +1,10 @@
+defaults:
+  - base_data
+  - _self_
+
+max_seq_length: 768
+source_max_length: 511
+target_max_length: 256
+train_on_inputs: false
+batch_size: 1
+num_workers: 2

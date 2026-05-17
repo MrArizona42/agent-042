@@ -1,0 +1,12 @@
+defaults:
+  - base_scheduler
+  - _self_
+
+enabled: true
+type: linear_warmup
+warmup_steps: 100
+start_factor: 0.05
+interval: step
+frequency: 1
+T_max: 100
+eta_min: 0.0

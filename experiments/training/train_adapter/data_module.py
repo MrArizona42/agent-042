@@ -9,23 +9,27 @@ from datasets import load_from_disk
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizerBase
 
-from .config import DataConfig
+from .config import DataConfig, DatasetConfig, TaskConfig
 
 logger = logging.getLogger(__name__)
 
 
-class ArxivDataModule(pl.LightningDataModule):
-    """LightningDataModule that tokenizes ArXiv article/abstract pairs on the fly."""
+class PromptTargetDataModule(pl.LightningDataModule):
+    """LightningDataModule for prompt-target CausalLM supervision."""
 
     def __init__(
         self,
         tokenizer: PreTrainedTokenizerBase,
+        task_cfg: TaskConfig,
+        dataset_cfg: DatasetConfig,
         data_cfg: DataConfig,
         shuffle: bool = True,
     ) -> None:
         super().__init__()
         self.tokenizer = tokenizer
-        self.cfg = data_cfg
+        self.task_cfg = task_cfg
+        self.dataset_cfg = dataset_cfg
+        self.data_cfg = data_cfg
         self.shuffle = shuffle
         self.ds_train = None
         self.ds_val = None
@@ -43,18 +47,62 @@ class ArxivDataModule(pl.LightningDataModule):
             )
 
     def setup(self, stage: Optional[str] = None) -> None:
-        dataset = load_from_disk(self.cfg.local_path)
-        self.ds_train = self._with_transform(dataset["train"])
-        self.ds_val = self._with_transform(dataset["validation"])
+        dataset = load_from_disk(self.dataset_cfg.local_path)
+        train_split = self.dataset_cfg.train_split
+        validation_split = self.dataset_cfg.validation_split
+
+        if train_split not in dataset:
+            available_splits = sorted(dataset.keys())
+            raise KeyError(
+                f"Dataset {self.dataset_cfg.local_path} is missing train split {train_split!r}; "
+                f"available splits: {available_splits}"
+            )
+
+        train_dataset = dataset[train_split]
+        if validation_split:
+            if validation_split not in dataset:
+                available_splits = sorted(dataset.keys())
+                raise KeyError(
+                    f"Dataset {self.dataset_cfg.local_path} is missing validation split "
+                    f"{validation_split!r}; available splits: {available_splits}"
+                )
+            val_dataset = dataset[validation_split]
+        else:
+            validation_fraction = float(self.dataset_cfg.validation_fraction)
+            if not 0 < validation_fraction < 1:
+                raise ValueError(
+                    "Dataset config must provide validation_split or set "
+                    "validation_fraction to a value between 0 and 1."
+                )
+            split_dataset = train_dataset.train_test_split(
+                test_size=validation_fraction,
+                seed=int(self.dataset_cfg.split_seed),
+                shuffle=True,
+            )
+            train_dataset = split_dataset["train"]
+            val_dataset = split_dataset["test"]
+            logger.info(
+                "Created validation split from %s using validation_fraction=%s",
+                train_split,
+                validation_fraction,
+            )
+
+        self.ds_train = self._with_transform(train_dataset)
+        self.ds_val = self._with_transform(val_dataset)
 
     def _with_transform(self, dataset):
-        max_len = self.cfg.max_seq_length
-        source_max = self.cfg.source_max_length
-        target_max = self.cfg.target_max_length
-        prompt_template = self.cfg.prompt_template
+        max_len = self.data_cfg.max_seq_length
+        source_max = self.data_cfg.source_max_length
+        target_max = self.data_cfg.target_max_length
+        prompt_template = self.task_cfg.prompt_template
+        prompt_field_map = dict(self.dataset_cfg.prompt_field_map)
+        target_field = self.dataset_cfg.target_field
 
         def transform(example: Dict[str, Any]) -> Dict[str, Any]:
-            is_batched = isinstance(example.get("article"), list)
+            is_batched = any(
+                isinstance(example.get(field_name), list)
+                for field_name in (*prompt_field_map.values(), target_field)
+            )
 
             def build(prompt_text: str, target_text: str) -> Tuple[List[int], int]:
                 prompt_ids = self.tokenizer(
@@ -73,27 +121,58 @@ class ArxivDataModule(pl.LightningDataModule):
                 prompt_len = len(prompt_ids)
                 return input_ids, prompt_len
 
+            def normalize_text(value: Any) -> str:
+                if value is None:
+                    return ""
+                if isinstance(value, str):
+                    return value
+                return str(value)
+
+            def build_prompt(record: Dict[str, Any]) -> str:
+                return prompt_template.format(
+                    **{
+                        template_var: normalize_text(record.get(dataset_field))
+                        for template_var, dataset_field in prompt_field_map.items()
+                    }
+                )
+
+            def iter_records(batch: Dict[str, Any]) -> List[Dict[str, Any]]:
+                field_names = {target_field, *prompt_field_map.values()}
+                columns: Dict[str, List[Any]] = {}
+                record_count = 0
+                for field_name in field_names:
+                    value = batch.get(field_name)
+                    if isinstance(value, list):
+                        columns[field_name] = value
+                        record_count = max(record_count, len(value))
+                    elif value is None:
+                        columns[field_name] = []
+                    else:
+                        columns[field_name] = [value]
+                        record_count = max(record_count, 1)
+
+                records: List[Dict[str, Any]] = []
+                for index in range(record_count):
+                    record = {}
+                    for field_name, values in columns.items():
+                        record[field_name] = values[index] if index < len(values) else ""
+                    records.append(record)
+                return records
+
             if is_batched:
-                arts = example.get("article") or []
-                abs_ = example.get("abstract") or []
-                n = max(len(arts), len(abs_))
-                if len(arts) < n:
-                    arts += [""] * (n - len(arts))
-                if len(abs_) < n:
-                    abs_ += [""] * (n - len(abs_))
                 ids_list: List[List[int]] = []
                 prompt_lens: List[int] = []
-                for art, summ in zip(arts, abs_):
-                    prompt = prompt_template.format(article=art)
-                    ids, plen = build(prompt, summ)
+                for record in iter_records(example):
+                    prompt = build_prompt(record)
+                    target_text = normalize_text(record.get(target_field))
+                    ids, plen = build(prompt, target_text)
                     ids_list.append(ids)
                     prompt_lens.append(plen)
                 return {"input_ids": ids_list, "prompt_len": prompt_lens}
 
-            article = example.get("article", "")
-            summary = example.get("abstract", "")
-            prompt = prompt_template.format(article=article)
-            ids, plen = build(prompt, summary)
+            prompt = build_prompt(example)
+            target_text = normalize_text(example.get(target_field))
+            ids, plen = build(prompt, target_text)
             return {"input_ids": ids, "prompt_len": plen}
 
         dataset.set_transform(transform)
@@ -103,7 +182,7 @@ class ArxivDataModule(pl.LightningDataModule):
         padded = self.tokenizer.pad(
             {"input_ids": [ex["input_ids"] for ex in batch]},
             padding=True,
-            max_length=self.cfg.max_seq_length,
+            max_length=self.data_cfg.max_seq_length,
             return_tensors="pt",
         )
         input_ids = padded["input_ids"]
@@ -115,7 +194,7 @@ class ArxivDataModule(pl.LightningDataModule):
             non_pad_target = int(attention_mask[idx, prompt_tokens:].sum().item())
             if non_pad_target <= 1:
                 zero_target_count += 1
-            if prompt_tokens > 0 and not self.cfg.train_on_inputs:
+            if prompt_tokens > 0 and not self.data_cfg.train_on_inputs:
                 labels[idx, :prompt_tokens] = -100
         if zero_target_count > 0:
             logger.warning(
@@ -134,9 +213,9 @@ class ArxivDataModule(pl.LightningDataModule):
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
             self.ds_train,
-            batch_size=self.cfg.batch_size,
+            batch_size=self.data_cfg.batch_size,
             shuffle=self.shuffle,
-            num_workers=self.cfg.num_workers,
+            num_workers=self.data_cfg.num_workers,
             collate_fn=self._collate,
             pin_memory=torch.cuda.is_available(),
         )
@@ -144,9 +223,12 @@ class ArxivDataModule(pl.LightningDataModule):
     def val_dataloader(self) -> DataLoader:
         return DataLoader(
             self.ds_val,
-            batch_size=self.cfg.batch_size,
+            batch_size=self.data_cfg.batch_size,
             shuffle=False,
-            num_workers=self.cfg.num_workers,
+            num_workers=self.data_cfg.num_workers,
             collate_fn=self._collate,
             pin_memory=torch.cuda.is_available(),
         )
+
+
+ArxivDataModule = PromptTargetDataModule

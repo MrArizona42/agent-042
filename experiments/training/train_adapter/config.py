@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 from hydra.core.config_store import ConfigStore
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import MISSING, DictConfig, OmegaConf
 
 # ---------------------------------------------------------------------------
 # Domain configs — no _target_, used via typed Python access
@@ -11,71 +11,95 @@ from omegaconf import DictConfig, OmegaConf
 
 @dataclass
 class PathsConfig:
-    project_root: str
+    project_root: str = MISSING
+
+
+@dataclass
+class TaskConfig:
+    name: str = MISSING
+    run_name_prefix: str = MISSING
+    prompt_template: str = MISSING
+    tags: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class DatasetConfig:
+    local_path: str = MISSING
+    train_split: str = MISSING
+    validation_split: Optional[str] = None
+    validation_fraction: float = 0.0
+    split_seed: int = 42
+    prompt_field_map: dict[str, str] = MISSING
+    target_field: str = MISSING
+    name: Optional[str] = None
 
 
 @dataclass
 class ModelConfig:
-    dtype: str
-    device_map: str
-    load_in_4bit: bool
-    bnb_4bit_use_double_quant: bool
-    bnb_4bit_quant_type: str
-    bnb_4bit_compute_dtype: Optional[str]
-    gradient_checkpointing: bool
-    local_path: str
-    offload_folder: Optional[str]
+    dtype: str = "float16"
+    device_map: str = "auto"
+    load_in_4bit: bool = True
+    bnb_4bit_use_double_quant: bool = True
+    bnb_4bit_quant_type: str = "nf4"
+    bnb_4bit_compute_dtype: Optional[str] = "float16"
+    gradient_checkpointing: bool = True
+    tokenizer_use_fast: bool = True
+    local_files_only: bool = True
+    trust_remote_code: bool = False
+    local_path: str = MISSING
+    name: Optional[str] = None
+    offload_folder: Optional[str] = "${paths.project_root}/assets/models/offload"
 
 
 @dataclass
 class LoraSection:
-    r: int
-    lora_alpha: float
-    lora_dropout: float
-    target_modules: List[str]
+    r: int = MISSING
+    lora_alpha: float = MISSING
+    lora_dropout: float = MISSING
+    target_modules: List[str] = field(default_factory=list)
 
 
 @dataclass
 class DataConfig:
-    max_seq_length: int
-    source_max_length: int
-    target_max_length: int
-    train_on_inputs: bool
-    batch_size: int
-    num_workers: int
-    local_path: str
-    prompt_template: str
+    max_seq_length: int = MISSING
+    source_max_length: int = MISSING
+    target_max_length: int = MISSING
+    train_on_inputs: bool = MISSING
+    batch_size: int = MISSING
+    num_workers: int = MISSING
 
 
 @dataclass
 class TrainingConfig:
-    lr: float
-    weight_decay: float
+    seed: Optional[int] = MISSING
+    lr: float = MISSING
+    weight_decay: float = MISSING
 
 
 @dataclass
 class SchedulerConfig:
-    enabled: bool
-    type: str
-    warmup_steps: int
-    start_factor: float
-    interval: str
-    frequency: int
-    T_max: int
-    eta_min: float
+    enabled: bool = MISSING
+    type: str = MISSING
+    warmup_steps: int = MISSING
+    start_factor: float = MISSING
+    interval: str = MISSING
+    frequency: int = MISSING
+    T_max: int = MISSING
+    eta_min: float = MISSING
 
 
 @dataclass
 class TrackingConfig:
-    log_artifacts: bool
-    log_metrics: bool
-    log_params: bool
-    env_path: Optional[str]
+    pipeline_name: str = "train_adapter"
+    log_artifacts: bool = True
+    log_metrics: bool = True
+    log_params: bool = True
+    env_path: Optional[str] = ".env"
 
 
 @dataclass
 class DataModuleConf:
-    _target_: str = "experiments.training.train_adapter.data_module.ArxivDataModule"
+    _target_: str = "experiments.training.train_adapter.data_module.PromptTargetDataModule"
     shuffle: bool = True
 
 
@@ -96,11 +120,11 @@ class MLFlowLoggerConf:
 @dataclass
 class CheckpointConf:
     _target_: str = "pytorch_lightning.callbacks.ModelCheckpoint"
-    filename: str = "adapter-{epoch:02d}-{val_loss:.4f}"
-    save_top_k: int = 3
-    monitor: str = "val_loss"
-    mode: str = "min"
-    save_last: bool = True
+    filename: str = MISSING
+    save_top_k: int = MISSING
+    monitor: str = MISSING
+    mode: str = MISSING
+    save_last: bool = MISSING
 
 
 @dataclass
@@ -120,18 +144,18 @@ class CallbacksConf:
 @dataclass
 class TrainerConf:
     _target_: str = "pytorch_lightning.Trainer"
-    max_epochs: int = 1
-    devices: int = 1
-    accelerator: str = "gpu"
-    precision: str = "16-mixed"
-    gradient_clip_val: float = 1.0
-    accumulate_grad_batches: int = 8
-    log_every_n_steps: int = 10
-    val_check_interval: Any = 0.25
-    num_sanity_val_steps: int = 0
-    limit_train_batches: Any = 1.0
-    limit_val_batches: Any = 1.0
-    enable_progress_bar: bool = True
+    max_epochs: int = MISSING
+    devices: int = MISSING
+    accelerator: str = MISSING
+    precision: str = MISSING
+    gradient_clip_val: float = MISSING
+    accumulate_grad_batches: int = MISSING
+    log_every_n_steps: int = MISSING
+    val_check_interval: Any = MISSING
+    num_sanity_val_steps: int = MISSING
+    limit_train_batches: Any = MISSING
+    limit_val_batches: Any = MISSING
+    enable_progress_bar: bool = MISSING
 
 
 # ---------------------------------------------------------------------------
@@ -140,24 +164,20 @@ class TrainerConf:
 
 
 @dataclass
-class ExperimentConfig:
-    seed: Optional[int]
-    model: ModelConfig
-    lora: LoraSection
-    data: DataConfig
-    data_module: DataModuleConf
-    training: TrainingConfig
-    trainer: TrainerConf
-    callbacks: CallbacksConf
-    logger: MLFlowLoggerConf
-    tracking: TrackingConfig
-    scheduler: Optional[SchedulerConfig] = None
-
-
-@dataclass
 class AppConfig:
-    paths: PathsConfig
-    experiment: ExperimentConfig
+    paths: PathsConfig = field(default_factory=PathsConfig)
+    task: TaskConfig = field(default_factory=TaskConfig)
+    dataset: DatasetConfig = field(default_factory=DatasetConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+    lora: LoraSection = field(default_factory=LoraSection)
+    data: DataConfig = field(default_factory=DataConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
+    scheduler: Optional[SchedulerConfig] = None
+    tracking: TrackingConfig = field(default_factory=TrackingConfig)
+    data_module: DataModuleConf = field(default_factory=DataModuleConf)
+    trainer: TrainerConf = field(default_factory=TrainerConf)
+    callbacks: CallbacksConf = field(default_factory=CallbacksConf)
+    logger: MLFlowLoggerConf = field(default_factory=MLFlowLoggerConf)
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +197,16 @@ def register_configs() -> None:
     cs = ConfigStore.instance()
     cs.store(name="base_config", node=AppConfig)
     cs.store(group="paths", name="base_paths", node=PathsConfig)
-    cs.store(group="experiment", name="base_experiment", node=ExperimentConfig)
+    cs.store(group="task", name="base_task", node=TaskConfig)
+    cs.store(group="dataset", name="base_dataset", node=DatasetConfig)
+    cs.store(group="model", name="base_model", node=ModelConfig)
+    cs.store(group="lora", name="base_lora", node=LoraSection)
+    cs.store(group="data", name="base_data", node=DataConfig)
+    cs.store(group="training", name="base_training", node=TrainingConfig)
+    cs.store(group="scheduler", name="base_scheduler", node=SchedulerConfig)
+    cs.store(group="trainer", name="base_trainer", node=TrainerConf)
+    cs.store(group="callbacks", name="base_callbacks", node=CallbacksConf)
+    cs.store(group="logger", name="base_logger", node=MLFlowLoggerConf)
     _CONFIGS_REGISTERED = True
 
 

@@ -1,0 +1,15 @@
+defaults:
+  - base_task
+  - _self_
+
+name: code_generation
+run_name_prefix: codegen
+tags:
+  task.family: code_generation
+prompt_template: |
+  Solve the following coding task.
+
+  Task:
+  {instruction}
+
+  Solution:

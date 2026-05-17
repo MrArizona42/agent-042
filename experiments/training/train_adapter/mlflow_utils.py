@@ -5,7 +5,7 @@ import logging
 import os
 import platform
 import subprocess
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,14 +18,14 @@ from pytorch_lightning.loggers import MLFlowLogger
 
 from shared.local_env import load_local_env, resolve_local_env_path
 
-from .config import AppConfig
+from .config import AppConfig, MLFlowLoggerConf
 
 logger = logging.getLogger(__name__)
 
 
 def configure_mlflow_tracking(cfg: AppConfig) -> str:
     """Load MLflow environment settings and return the active tracking URI."""
-    tracking_cfg = cfg.experiment.tracking
+    tracking_cfg = cfg.tracking
     project_root = Path(cfg.paths.project_root)
 
     env_path = tracking_cfg.env_path
@@ -52,16 +52,15 @@ def configure_mlflow_tracking(cfg: AppConfig) -> str:
     return mlflow.get_tracking_uri()
 
 
-def setup_mlflow(cfg: AppConfig, raw_cfg: DictConfig) -> MLFlowLogger:
+def setup_mlflow(cfg: AppConfig, logger_factory_cfg: MLFlowLoggerConf) -> MLFlowLogger:
     """Prepare environment and return a Lightning MLFlowLogger."""
     configure_mlflow_tracking(cfg)
 
-    configured_run_name = OmegaConf.select(raw_cfg, "experiment.logger.run_name")
-    configured_tags = OmegaConf.select(raw_cfg, "experiment.logger.tags") or {}
-    configured_tags = _to_plain_dict(configured_tags)
+    configured_run_name = cfg.logger.run_name
+    configured_tags = _to_plain_dict(cfg.logger.tags)
 
     return instantiate(
-        raw_cfg.experiment.logger,
+        logger_factory_cfg,
         tracking_uri=mlflow.get_tracking_uri(),
         run_name=configured_run_name or build_default_run_name(cfg),
         tags={**build_default_tags(cfg), **configured_tags},
@@ -70,26 +69,27 @@ def setup_mlflow(cfg: AppConfig, raw_cfg: DictConfig) -> MLFlowLogger:
 
 def build_default_run_name(cfg: AppConfig) -> str:
     """Build a non-static MLflow run name from the training config."""
-    dataset_name = Path(cfg.experiment.data.local_path).name
-    lr = format(float(cfg.experiment.training.lr), ".0e")
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    return f"summarize-{dataset_name}-r{cfg.experiment.lora.r}-lr{lr}-{timestamp}"
+    dataset_name = _dataset_name(cfg)
+    lr = format(float(cfg.training.lr), ".0e")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    return f"{cfg.task.run_name_prefix}-{dataset_name}-r{cfg.lora.r}-lr{lr}-{timestamp}"
 
 
 def build_default_tags(cfg: AppConfig) -> dict[str, str]:
     """Return stable low-cardinality tags for every training run."""
     return {
-        "pipeline": "train_adapter",
-        "training.task": "summarize",
-        "training.dataset": Path(cfg.experiment.data.local_path).name,
-        "training.base_model": Path(cfg.experiment.model.local_path).name,
+        "pipeline": cfg.tracking.pipeline_name,
+        "training.task": cfg.task.name,
+        "training.dataset": _dataset_name(cfg),
+        "training.base_model": _model_name(cfg),
+        **dict(cfg.task.tags),
     }
 
 
 def log_training_lineage(
     mlf_logger: MLFlowLogger,
     cfg: AppConfig,
-    raw_cfg: DictConfig,
+    config_snapshot: DictConfig | dict[str, Any],
     *,
     dataset_path: Path,
     run_artifacts_dir: Path,
@@ -97,8 +97,13 @@ def log_training_lineage(
 ) -> dict[str, Any]:
     """Log resolved config and runtime lineage for later audit/debugging."""
     project_root = Path(cfg.paths.project_root)
-    tracking_cfg = cfg.experiment.tracking
-    resolved_cfg = OmegaConf.to_container(raw_cfg, resolve=True)
+    tracking_cfg = cfg.tracking
+    if OmegaConf.is_config(config_snapshot):
+        resolved_cfg = OmegaConf.to_container(config_snapshot, resolve=True)
+    else:
+        resolved_cfg = config_snapshot
+    if not isinstance(resolved_cfg, dict):
+        raise TypeError(f"Expected resolved config snapshot to be a mapping, got {type(resolved_cfg)!r}")
     effective_batch_size = _effective_batch_size(cfg)
     dataset_dvc_hash = _find_dataset_dvc_hash(dataset_path, project_root)
     git_sha, git_dirty = _git_context(project_root)
@@ -151,7 +156,7 @@ def log_training_lineage(
             "dataset_dvc_hash": dataset_dvc_hash or "",
             "effective_batch_size": effective_batch_size,
             "trainable_param_count": int(trainable_param_count),
-            "model_path": str(cfg.experiment.model.local_path),
+            "model_path": str(cfg.model.local_path),
             "dataset_path": str(dataset_path),
             "git_sha": git_sha or "",
             "hardware.cuda_available": hardware_info["cuda_available"],
@@ -190,7 +195,7 @@ def teardown_mlflow() -> None:
 
 
 def _effective_batch_size(cfg: AppConfig) -> int:
-    devices = cfg.experiment.trainer.devices
+    devices = cfg.trainer.devices
     if isinstance(devices, int):
         num_devices = max(1, devices)
     elif isinstance(devices, (list, tuple)):
@@ -198,10 +203,18 @@ def _effective_batch_size(cfg: AppConfig) -> int:
     else:
         num_devices = 1
     return (
-        int(cfg.experiment.data.batch_size)
-        * int(cfg.experiment.trainer.accumulate_grad_batches)
+        int(cfg.data.batch_size)
+        * int(cfg.trainer.accumulate_grad_batches)
         * num_devices
     )
+
+
+def _dataset_name(cfg: AppConfig) -> str:
+    return cfg.dataset.name or Path(cfg.dataset.local_path).name
+
+
+def _model_name(cfg: AppConfig) -> str:
+    return cfg.model.name or Path(cfg.model.local_path).name
 
 
 def _to_plain_dict(value: Any) -> dict[str, Any]:

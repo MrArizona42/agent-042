@@ -87,8 +87,10 @@ Remote хранилище называется ycloud
 - Группы конфигов:
     - `training/conf/paths/paths_config.yaml` — ключ `paths.project_root` (по умолчанию проставлен
       Linux-путь, на своей машине лучше переопределять через CLI)
-    - `training/conf/experiment/train_adapter.yaml` — все параметры обучения (
-      model/lora/data/trainer/scheduler/logger/tracking/evaluation)
+    - `training/conf/experiment/arxiv_summarization.yaml` — experiment-specific дельты
+    - `training/conf/trainer/*.yaml` — пресеты `pytorch_lightning.Trainer`
+    - `training/conf/callbacks/*.yaml` — пресеты callbacks
+    - `training/conf/logger/*.yaml` — пресеты MLflow logger
 
 Про пути и рабочие директории в этом проекте
 
@@ -146,18 +148,29 @@ python -m experiments.training.train_adapter.start_train --info
 
 2) **Обучение адаптера (training/train_adapter/start_train.py)**
 
-- Использует `config.yaml` -> `experiment: train_adapter`
+ - Использует `config.yaml` -> top-level Hydra groups:
+   `task=summarization`, `dataset=arxiv_summarization`, `model=qwen3_0_6b`,
+   `lora=qwen_attention_mlp`, `data=sft_768_tokens`, `training=adapter_default`,
+   `scheduler=linear_warmup`
 - Основные секции, которые можно переопределять из CLI:
-    - `experiment.model.*` (dtype, 4-bit, gradient_checkpointing, local_path, и т.д.)
-    - `experiment.lora.*` (r, lora_alpha, target_modules, ...)
-    - `experiment.data.*` (max_seq_length, batch_size, local_path, prompt_template)
-  - `experiment.data_module.*` (например, `shuffle`)
-    - `experiment.training.*` (lr, weight_decay)
-    - `experiment.scheduler.*` (enabled, warmup_steps, type, ...)
-    - `experiment.trainer.*` (max_epochs, devices, accelerator, precision, ...)
-    - `experiment.callbacks.checkpoint.*` (save_top_k, monitor, ...)
-  - `experiment.logger.*` (параметры Lightning MLflow logger)
-  - `experiment.tracking.*` (поведение MLflow tracking и env path)
+    - `task.*` (имя задачи, шаблон промпта, MLflow task tags)
+    - `dataset.*` (local_path, split names, field mapping, validation_fraction)
+    - `model.*` (обычно достаточно `local_path`; стабильные runtime defaults берутся из dataclass)
+    - `lora.*` (r, lora_alpha, target_modules, ...)
+    - `data.*` (лимиты токенов, batch size, num_workers, train_on_inputs)
+  - `data_module.*` (например, `shuffle`)
+    - `training.*` (seed, lr, weight_decay)
+    - `scheduler.*` (enabled, warmup_steps, type, ...)
+    - `trainer.*` (max_epochs, devices, accelerator, precision, ...)
+    - `callbacks.checkpoint.*` (save_top_k, monitor, ...)
+  - `logger.*` (параметры Lightning MLflow logger)
+  - `tracking.*` (поведение MLflow tracking и env path)
+
+  Отдельно:
+  - `trainer=single_gpu`, `callbacks=checkpoint_only`, `logger=mlflow_train_adapter` выбираются в `config.yaml`
+    через Hydra defaults и могут быть заменены на другие пресеты без вложенных package override-ов
+  - `+experiment=<preset>` — optional convenience preset, который переопределяет top-level groups
+    одной строкой. Например: `+experiment=open_code_instruct_qwen`.
 
   Отдельно:
   - evaluation запускается через dedicated eval DAG, а не через training config
@@ -173,13 +186,18 @@ python -m experiments.training.train_adapter.start_train \
 # Изменить число эпох и LR
 python -m experiments.training.train_adapter.start_train \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  experiment.trainer.max_epochs=3 \
-  experiment.training.lr=5e-5
+  trainer.max_epochs=3 \
+  training.lr=5e-5
 
 # Переопределить модель на локальный путь (если скачали в другое место)
 python -m experiments.training.train_adapter.start_train \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  experiment.model.local_path="C:/data/models/Qwen/Qwen3-0.6B"
+  model.local_path="C:/data/models/Qwen/Qwen3-0.6B"
+
+# Переключиться на coding SFT preset одной строкой
+python -m experiments.training.train_adapter.start_train \
+  paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
+  +experiment=open_code_instruct_qwen
 ```
 
 ### Мультизапуски (sweeps) Hydra
@@ -190,8 +208,8 @@ python -m experiments.training.train_adapter.start_train \
 # Перебор LR и accumulate_grad_batches (2×2 = 4 запуска)
 python -m experiments.training.train_adapter.start_train -m \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  experiment.training.lr=1e-4,5e-5 \
-  experiment.trainer.accumulate_grad_batches=4,8
+  training.lr=1e-4,5e-5 \
+  trainer.accumulate_grad_batches=4,8
 ```
 
 - Каждый запуск получит собственную папку `hydra.run.dir` и запись логов.

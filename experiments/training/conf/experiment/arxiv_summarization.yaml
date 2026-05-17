@@ -1,0 +1,10 @@
+# @package _global_
+
+defaults:
+  - override /task: summarization
+  - override /dataset: arxiv_summarization
+  - override /model: qwen3_0_6b
+  - override /lora: qwen_attention_mlp
+  - override /data: sft_768_tokens
+  - override /training: adapter_default
+  - override /scheduler: linear_warmup

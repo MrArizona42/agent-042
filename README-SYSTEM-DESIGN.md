@@ -336,15 +336,34 @@ Fine-tuning реализован поверх следующего стека:
 
 ```
 conf/
-  config.yaml              # Базовый config (defaults: experiment, paths)
+  config.yaml              # Базовый config (defaults: task, dataset, model, lora, data, training, ...)
   experiment/
-    train_adapter.yaml     # Параметры конкретного эксперимента
-    base_experiment.yaml   # Общие значения по умолчанию
+    arxiv_summarization.yaml   # Optional thin preset: overrides top-level groups
+    open_code_instruct_qwen.yaml
+  task/
+    summarization.yaml
+    coding_sft.yaml
+  dataset/
+    arxiv_summarization.yaml
+    open_code_instruct.yaml
+  model/
+    qwen3_0_6b.yaml
+  lora/
+    qwen_attention_mlp.yaml
+  data/
+    sft_768_tokens.yaml
+  training/
+    adapter_default.yaml
+  scheduler/
+    linear_warmup.yaml
   paths/
     paths_config.yaml      # Пути проекта (project_root)
 ```
 
-Все параметры эксперимента — модель, LoRA, данные, trainer, scheduler, логирование — описаны в одном YAML-файле. Переопределение через CLI: `python -m ... experiment=train_adapter lora.r=16`.
+Параметры теперь разделены по ответственности: задача, датасет, модель, LoRA, data budget,
+training и scheduler выбираются как top-level Hydra groups. Optional `experiment/*.yaml`
+пресеты лишь переопределяют эти группы одной строкой. Переопределение через CLI:
+`python -m ... training.lr=2e-5 lora.r=16` или `python -m ... +experiment=open_code_instruct_qwen`.
 
 Scheduler: linear warmup (100 шагов, start_factor=0.05) с последующим линейным decay. Gradient accumulation: 8 шагов (effective batch size = 8 при batch_size=1). Gradient clipping: 1.0.
 
@@ -352,7 +371,7 @@ Scheduler: linear warmup (100 шагов, start_factor=0.05) с последую
 
 Обучение можно запустить двумя способами:
 
-**Через Airflow DAG** (`dags/train_lora.py`) — основной production-способ. Обучение LoRA на GPU занимает значительное время, и держать открытую консоль или JupyterLab-сессию на всё это время непрактично. Airflow DAG работает по принципу «запустил и забыл»: задача ставится в очередь GPU worker'а через RabbitMQ, выполняется в фоне, а результаты (путь к `training_summary.json`, `run_id`) доступны в Airflow UI после завершения. Параметры передаются через интерфейс Airflow: имя конфига эксперимента и произвольные Hydra-переопределения в виде JSON-списка. Если DAG завершается с ошибкой, полный лог тренировки сохраняется в Airflow.
+**Через Airflow DAG** (`dags/train_lora.py`) — основной production-способ. Обучение LoRA на GPU занимает значительное время, и держать открытую консоль или JupyterLab-сессию на всё это время непрактично. Airflow DAG работает по принципу «запустил и забыл»: задача ставится в очередь GPU worker'а через RabbitMQ, выполняется в фоне, а результаты (путь к `training_summary.json`, `run_id`) доступны в Airflow UI после завершения. Параметры передаются через интерфейс Airflow: optional experiment preset и произвольные Hydra-переопределения в виде JSON-списка. Если DAG завершается с ошибкой, полный лог тренировки сохраняется в Airflow.
 
 **Через CLI** (`python -m experiments.training.train_adapter.start_train ...`) — вспомогательный способ для быстрых локальных экспериментов. Удобен при отладке конфигурации или запуске на локальной машине с GPU, когда нет доступа к Airflow.
 
