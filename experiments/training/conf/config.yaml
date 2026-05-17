@@ -1,13 +1,13 @@
 defaults:
   - base_config
   - paths: paths_config
-  - task: summarization
-  - dataset: arxiv_summarization
-  - model: qwen3_0_6b
-  - lora: qwen_attention_mlp
-  - data: sft_768_tokens
-  - training: adapter_default
-  - scheduler: linear_warmup
+  - task: ???
+  - dataset: ???
+  - model: ???
+  - lora: ???
+  - data: ???
+  - training: ???
+  - scheduler: ???
   - trainer: single_gpu
   - callbacks: checkpoint_only
   - logger: mlflow_train_adapter

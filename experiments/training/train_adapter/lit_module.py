@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional
 import torch
 from pytorch_lightning import LightningModule
 
+from .config import SchedulerConfig
+
 
 class PeftCausalLMModule(LightningModule):
     """Lightning wrapper for PEFT causal LM training with MLflow logging via Lightning logger."""
@@ -15,7 +17,7 @@ class PeftCausalLMModule(LightningModule):
         model: Any,
         lr: float,
         weight_decay: float,
-        scheduler_cfg: Optional[Dict[str, Any]] = None,
+        scheduler_cfg: Optional[SchedulerConfig] = None,
     ) -> None:
         super().__init__()
         self.model = model
@@ -100,32 +102,32 @@ class PeftCausalLMModule(LightningModule):
             lr=self.hparams.lr,
             weight_decay=self.hparams.weight_decay,
         )
-        if not self.scheduler_cfg or not self.scheduler_cfg.get("enabled", False):
+        if self.scheduler_cfg is None or not self.scheduler_cfg.enabled:
             return optimizer
 
-        sched_type = self.scheduler_cfg.get("type", "linear_warmup")
+        sched_type = self.scheduler_cfg.type
         if sched_type == "cosine":
             from torch.optim.lr_scheduler import CosineAnnealingLR
 
             scheduler = CosineAnnealingLR(
                 optimizer,
-                T_max=self.scheduler_cfg.get("T_max", 100),
-                eta_min=self.scheduler_cfg.get("eta_min", 0.0),
+                T_max=self.scheduler_cfg.T_max,
+                eta_min=self.scheduler_cfg.eta_min,
             )
         else:
             from torch.optim.lr_scheduler import LinearLR
 
             scheduler = LinearLR(
                 optimizer,
-                start_factor=self.scheduler_cfg.get("start_factor", 1.0),
-                total_iters=self.scheduler_cfg.get("warmup_steps", 100),
+                start_factor=self.scheduler_cfg.start_factor,
+                total_iters=self.scheduler_cfg.warmup_steps,
             )
 
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "interval": self.scheduler_cfg.get("interval", "step"),
-                "frequency": self.scheduler_cfg.get("frequency", 1),
+                "interval": self.scheduler_cfg.interval,
+                "frequency": self.scheduler_cfg.frequency,
             },
         }

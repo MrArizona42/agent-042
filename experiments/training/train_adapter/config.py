@@ -52,7 +52,7 @@ class ModelConfig:
 
 
 @dataclass
-class LoraSection:
+class LoraConfig:
     r: int = MISSING
     lora_alpha: float = MISSING
     lora_dropout: float = MISSING
@@ -78,14 +78,14 @@ class TrainingConfig:
 
 @dataclass
 class SchedulerConfig:
-    enabled: bool = MISSING
+    enabled: bool = True
     type: str = MISSING
-    warmup_steps: int = MISSING
-    start_factor: float = MISSING
-    interval: str = MISSING
-    frequency: int = MISSING
-    T_max: int = MISSING
-    eta_min: float = MISSING
+    warmup_steps: int = 100
+    start_factor: float = 0.1
+    interval: str = "step"
+    frequency: int = 1
+    T_max: int = 100  # cosine only
+    eta_min: float = 0.0  # cosine only
 
 
 @dataclass
@@ -169,10 +169,10 @@ class AppConfig:
     task: TaskConfig = field(default_factory=TaskConfig)
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
-    lora: LoraSection = field(default_factory=LoraSection)
+    lora: LoraConfig = field(default_factory=LoraConfig)
     data: DataConfig = field(default_factory=DataConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
-    scheduler: Optional[SchedulerConfig] = None
+    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
     data_module: DataModuleConf = field(default_factory=DataModuleConf)
     trainer: TrainerConf = field(default_factory=TrainerConf)
@@ -200,7 +200,7 @@ def register_configs() -> None:
     cs.store(group="task", name="base_task", node=TaskConfig)
     cs.store(group="dataset", name="base_dataset", node=DatasetConfig)
     cs.store(group="model", name="base_model", node=ModelConfig)
-    cs.store(group="lora", name="base_lora", node=LoraSection)
+    cs.store(group="lora", name="base_lora", node=LoraConfig)
     cs.store(group="data", name="base_data", node=DataConfig)
     cs.store(group="training", name="base_training", node=TrainingConfig)
     cs.store(group="scheduler", name="base_scheduler", node=SchedulerConfig)

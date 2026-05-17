@@ -150,12 +150,11 @@ def run_training(
             data_cfg=data_cfg,
         )
 
-        scheduler_cfg = app_cfg.scheduler
         lightning_module = PeftCausalLMModule(
             model=model,
             lr=app_cfg.training.lr,
             weight_decay=app_cfg.training.weight_decay,
-            scheduler_cfg=scheduler_cfg.__dict__ if scheduler_cfg else None,
+            scheduler_cfg=app_cfg.scheduler,
         )
 
         artifacts_dir = project_root / "artifacts" / "training"
