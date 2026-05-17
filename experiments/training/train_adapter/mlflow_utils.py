@@ -18,7 +18,7 @@ from pytorch_lightning.loggers import MLFlowLogger
 
 from shared.local_env import load_local_env, resolve_local_env_path
 
-from .config import AppConfig, MLFlowLoggerConf
+from .config import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def configure_mlflow_tracking(cfg: AppConfig) -> str:
     return mlflow.get_tracking_uri()
 
 
-def setup_mlflow(cfg: AppConfig, logger_factory_cfg: MLFlowLoggerConf) -> MLFlowLogger:
+def setup_mlflow(cfg: AppConfig) -> MLFlowLogger:
     """Prepare environment and return a Lightning MLFlowLogger."""
     configure_mlflow_tracking(cfg)
 
@@ -60,7 +60,7 @@ def setup_mlflow(cfg: AppConfig, logger_factory_cfg: MLFlowLoggerConf) -> MLFlow
     configured_tags = _to_plain_dict(cfg.logger.tags)
 
     return instantiate(
-        logger_factory_cfg,
+        cfg.logger,
         tracking_uri=mlflow.get_tracking_uri(),
         run_name=configured_run_name or build_default_run_name(cfg),
         tags={**build_default_tags(cfg), **configured_tags},

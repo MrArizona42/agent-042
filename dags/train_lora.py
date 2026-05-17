@@ -47,13 +47,19 @@ def _train_adapter(**context) -> str:
     task_instance = context["ti"]
     dag_run = context.get("dag_run")
 
+    if not experiment_config:
+        raise ValueError(
+            "experiment_config is required. Provide a preset name "
+            "(e.g. 'arxiv_summarization') or set all required Hydra groups "
+            "via hydra_overrides."
+        )
+
     cmd = [
         "python",
         "-m",
         "experiments.training.train_adapter.start_train",
     ]
-    if experiment_config:
-        cmd.append(f"+experiment={experiment_config}")
+    cmd.append(f"+experiment={experiment_config}")
     cmd.extend(overrides)
 
     env = {
@@ -70,7 +76,7 @@ def _train_adapter(**context) -> str:
         f"  dag={context['dag'].dag_id} \n"
         f"  run_id={env['AIRFLOW_CTX_DAG_RUN_ID']}"
     )
-    print(f"Experiment preset: {experiment_config or '<root defaults>'}")
+    print(f"Experiment preset: {experiment_config}")
     if overrides:
         print("Hydra overrides:")
         for item in overrides:
@@ -118,8 +124,10 @@ with DAG(
             default="arxiv_summarization",
             type="string",
             description=(
-                "Optional Hydra experiment preset under experiments/training/conf/experiment/. "
-                "It overrides the top-level task/dataset/model/lora/data/training groups."
+                "Hydra experiment preset under experiments/training/conf/experiment/. "
+                "Selects the task/dataset/model/lora/data/training/scheduler groups in one "
+                "argument. Required — all seven groups must be satisfied either by this preset "
+                "or via explicit entries in hydra_overrides."
             ),
         ),
         "hydra_overrides": Param(

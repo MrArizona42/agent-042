@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any, NamedTuple
 
 import pytorch_lightning as pl
 import torch
@@ -21,6 +22,14 @@ from .mlflow_utils import (
     teardown_mlflow,
 )
 from .modeling import build_model_and_tokenizer
+
+
+class TrainingResult(NamedTuple):
+    run_id: str
+    save_dir: str
+    run_artifacts_dir: str
+    summary_path: str
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +118,7 @@ def _restore_best_checkpoint_for_export(
 
 def run_training(
     cfg: DictConfig,
-) -> Tuple[str, str, str, str]:
+) -> TrainingResult:
     """Run a full training loop.
 
     Accepts the raw Hydra ``DictConfig`` at the composition boundary, then
@@ -124,7 +133,7 @@ def run_training(
         pl.seed_everything(app_cfg.training.seed, workers=True)
 
     # Create MLflow logger for Lightning
-    mlf_logger = setup_mlflow(app_cfg, app_cfg.logger)
+    mlf_logger = setup_mlflow(app_cfg)
 
     try:
         # Upload Hydra config as artifacts early
@@ -134,13 +143,12 @@ def run_training(
         model, tokenizer = build_model_and_tokenizer(app_cfg)
 
         data_cfg = app_cfg.data
-        dataset_cfg = app_cfg.dataset
-        dataset_path = Path(dataset_cfg.local_path)
+        dataset_path = Path(app_cfg.dataset.local_path)
         if not dataset_path.is_absolute():
             dataset_path = project_root / dataset_path
         if not dataset_path.exists():
             raise FileNotFoundError(f"Dataset path not found: {dataset_path}")
-        dataset_cfg.local_path = str(dataset_path)
+        dataset_cfg = dataclasses.replace(app_cfg.dataset, local_path=str(dataset_path))
 
         datamodule = instantiate(
             app_cfg.data_module,
@@ -231,11 +239,11 @@ def run_training(
             best_model_score if best_model_score is not None else "n/a",
         )
 
-        return (
-            mlf_logger.run_id,
-            str(save_dir),
-            str(run_artifacts_dir),
-            str(summary_path),
+        return TrainingResult(
+            run_id=mlf_logger.run_id,
+            save_dir=str(save_dir),
+            run_artifacts_dir=str(run_artifacts_dir),
+            summary_path=str(summary_path),
         )
     finally:
         teardown_mlflow()
