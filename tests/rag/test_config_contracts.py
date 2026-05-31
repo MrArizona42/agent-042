@@ -273,6 +273,78 @@ class TestDuplicateKBNames:
             _load_knowledge_bases(path)
 
 
+class TestKnowledgeBaseRegistryResolution:
+    def test_get_knowledge_bases_reloads_when_settings_path_changes(self, tmp_path: Path):
+        from shared.config import Settings, get_knowledge_bases, get_kb_names
+
+        first = tmp_path / "kb-first.json"
+        first.write_text(
+            json.dumps(
+                [
+                    {
+                        "task": "chat",
+                        "routing_description": "General chat about ML research.",
+                        "adapter": {"name": "", "alias": "", "enabled": False},
+                        "knowledge_bases": [
+                            {
+                                "name": "arxiv",
+                                "default_alias": "champion",
+                                "aliases": {
+                                    "champion": {
+                                        "top_k": 5,
+                                        "score_threshold": 0.35,
+                                        "reranker": None,
+                                        "retrieval_strategy": "dense",
+                                        "reranker_multiplier": 4,
+                                    },
+                                },
+                                "selection_description": "Research papers and theory.",
+                            },
+                        ],
+                    },
+                ]
+            )
+        )
+
+        second = tmp_path / "kb-second.json"
+        second.write_text(
+            json.dumps(
+                [
+                    {
+                        "task": "code",
+                        "routing_description": "Programming help for ML systems.",
+                        "adapter": {"name": "", "alias": "", "enabled": False},
+                        "knowledge_bases": [
+                            {
+                                "name": "pytorch_docs",
+                                "default_alias": "champion",
+                                "aliases": {
+                                    "champion": {
+                                        "top_k": 5,
+                                        "score_threshold": 0.35,
+                                        "reranker": None,
+                                        "retrieval_strategy": "dense",
+                                        "reranker_multiplier": 4,
+                                    },
+                                },
+                                "selection_description": "PyTorch API reference.",
+                            },
+                        ],
+                    },
+                ]
+            )
+        )
+
+        first_registry = get_knowledge_bases(settings=Settings(knowledge_bases_path=str(first)))
+        second_registry = get_knowledge_bases(settings=Settings(knowledge_bases_path=str(second)))
+
+        assert list(first_registry) == ["chat"]
+        assert list(second_registry) == ["code"]
+        assert get_kb_names(settings=Settings(knowledge_bases_path=str(second))) == [
+            "pytorch_docs"
+        ]
+
+
 # ---------------------------------------------------------------------------
 # validate_kb_alias() error messages
 # ---------------------------------------------------------------------------

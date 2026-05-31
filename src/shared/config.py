@@ -26,7 +26,7 @@ from typing import Literal, Optional
 from pydantic import AliasChoices, BaseModel, Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from shared.local_env import load_local_env
+from shared.local_env import get_repo_root, load_local_env
 
 logger = logging.getLogger(__name__)
 
@@ -138,55 +138,93 @@ def _load_knowledge_bases(
 # Module-level caches (populated lazily via get_knowledge_bases())
 _KB_REGISTRY: dict[str, TaskConfig] | None = None
 _KB_INDEX: dict[str, KBConfig] | None = None
+_KB_SOURCE_PATH: Path | None = None
 
 
-def get_knowledge_bases() -> dict[str, TaskConfig]:
+def _resolve_knowledge_bases_path(settings: GatewaySettings | None = None) -> Path:
+    """Resolve the active knowledge-base registry path.
+
+    Explicit overrides support absolute paths or repository-root-relative paths.
+    Falling back to the bundled registry keeps local scripts and container runs
+    aligned when no override is configured.
+    """
+    configured_path = (
+        str(settings.knowledge_bases_path).strip()
+        if settings is not None
+        else get_settings().knowledge_bases_path.strip()
+    )
+    if not configured_path:
+        return _DEFAULT_KB_PATH
+
+    path = Path(configured_path).expanduser()
+    if path.is_absolute():
+        return path
+
+    try:
+        return get_repo_root() / path
+    except FileNotFoundError:
+        return path
+
+
+def get_knowledge_bases(*, settings: GatewaySettings | None = None) -> dict[str, TaskConfig]:
     """Return the knowledge-base registry (cached after first call).
 
-    Path is resolved from ``GATEWAY_KNOWLEDGE_BASES_PATH`` env var or
-    the bundled default ``knowledge_bases.json``.
+    Path is resolved from ``GatewaySettings.knowledge_bases_path`` or the
+    bundled default ``knowledge_bases.json``. The cache is keyed by the
+    resolved source path so an override change reloads the registry.
 
     Returns:
         Mapping of ``task_name`` → ``TaskConfig``.
     """
-    global _KB_REGISTRY, _KB_INDEX  # noqa: PLW0603
-    if _KB_REGISTRY is None:
-        import os
+    global _KB_REGISTRY, _KB_INDEX, _KB_SOURCE_PATH  # noqa: PLW0603
 
-        env_path = os.environ.get("GATEWAY_KNOWLEDGE_BASES_PATH", "").strip()
-        path = Path(env_path) if env_path else _DEFAULT_KB_PATH
-        _KB_REGISTRY, _KB_INDEX = _load_knowledge_bases(path)
+    path = _resolve_knowledge_bases_path(settings).resolve()
+    if _KB_REGISTRY is not None and _KB_INDEX is not None:
+        if _KB_SOURCE_PATH is None or _KB_SOURCE_PATH == path:
+            return _KB_REGISTRY
+
+    _KB_REGISTRY, _KB_INDEX = _load_knowledge_bases(path)
+    _KB_SOURCE_PATH = path
     return _KB_REGISTRY
 
 
-def get_kb_config(kb_name: str) -> KBConfig | None:
+def get_kb_config(
+    kb_name: str,
+    *,
+    settings: GatewaySettings | None = None,
+) -> KBConfig | None:
     """Look up a KB by name (O(1) dict lookup).
 
     Returns the ``KBConfig`` for *kb_name* or ``None`` if not found.
     """
     # Ensure registry is loaded
-    get_knowledge_bases()
+    get_knowledge_bases(settings=settings)
     if _KB_INDEX is None:
         return None
     return _KB_INDEX.get(kb_name)
 
 
-def get_kb_names() -> list[str]:
+def get_kb_names(*, settings: GatewaySettings | None = None) -> list[str]:
     """Flat list of all KB names across all tasks."""
-    get_knowledge_bases()
+    get_knowledge_bases(settings=settings)
     if _KB_INDEX is None:
         return []
     return list(_KB_INDEX.keys())
 
 
-def validate_kb_alias(kb: str, alias: str | None = None) -> None:
+def validate_kb_alias(
+    kb: str,
+    alias: str | None = None,
+    *,
+    settings: GatewaySettings | None = None,
+) -> None:
     """Raise ValueError with a consistent message if kb or alias is unknown.
 
     When *alias* is ``None`` only the KB name is validated.
     """
-    kb_cfg = get_kb_config(kb)
+    kb_cfg = get_kb_config(kb, settings=settings)
     if kb_cfg is None:
-        raise ValueError(f"KB '{kb}' not found. Available: {get_kb_names()}")
+        raise ValueError(f"KB '{kb}' not found. Available: {get_kb_names(settings=settings)}")
     if alias is not None and alias not in kb_cfg.aliases:
         raise ValueError(
             f"Alias '{alias}' not valid for KB '{kb}'. Available: {list(kb_cfg.aliases.keys())}"
@@ -366,7 +404,10 @@ class RagSettings(BaseModel):
 
     knowledge_bases_path: str = Field(
         default="",
-        description="Override path to knowledge_bases.json (leave empty to use bundled default)",
+        description=(
+            "Override path to knowledge_bases.json; relative paths resolve from the "
+            "repository root, empty uses the bundled default"
+        ),
     )
     rag_enabled: bool = Field(
         default=True,
@@ -844,9 +885,10 @@ def get_worker_settings() -> WorkerSettings:
 
 def clear_knowledge_base_caches() -> None:
     """Reset KB registry and index so the next access re-reads from disk."""
-    global _KB_REGISTRY, _KB_INDEX  # noqa: PLW0603
+    global _KB_REGISTRY, _KB_INDEX, _KB_SOURCE_PATH  # noqa: PLW0603
     _KB_REGISTRY = None
     _KB_INDEX = None
+    _KB_SOURCE_PATH = None
 
 
 def clear_settings_caches() -> None:
@@ -914,6 +956,7 @@ def validate_settings_on_startup() -> None:
     logger.info(f"  Embeddings URL: {settings.embeddings_url}")
     logger.info(f"  Embedding model: {settings.embedding_model}")
     logger.info(f"  Embedding device: {settings.embedding_device}")
+    logger.info(f"  Knowledge-base registry path: {_resolve_knowledge_bases_path(settings)}")
     kb_names = [kb.name for tc in kb_registry.values() for kb in tc.knowledge_bases]
     logger.info(f"  Knowledge bases: {kb_names or '(none)'}")
     logger.info(f"  Gateway URL (for UI): {settings.url}")
