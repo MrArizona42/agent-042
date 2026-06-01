@@ -17,11 +17,11 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import logging
+import tomllib
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -31,16 +31,16 @@ from shared.local_env import get_repo_root, load_local_env
 logger = logging.getLogger(__name__)
 
 # =========================================================================
-# Knowledge Base Registry (loaded from JSON config file)
+# Knowledge Base Registry / operator registry
 # =========================================================================
 
-_DEFAULT_KB_PATH = Path(__file__).resolve().parent / "knowledge_bases.json"
+_DEFAULT_OPERATOR_REGISTRY_PATH = Path(__file__).resolve().parent / "operator_registry.toml"
 
 
 class AliasConfig(BaseModel):
     """Per-alias query-time RAG configuration.
 
-    No defaults — every field must be explicit in ``knowledge_bases.json``.
+    No defaults — every field must be explicit in the operator registry.
     Adding a new field forces updating every alias entry; Pydantic will
     reject incomplete entries at load time.
     """
@@ -88,7 +88,7 @@ class KBConfig(BaseModel):
 
 
 class TaskConfig(BaseModel):
-    """Top-level task entry from shared/knowledge_bases.json."""
+    """Materialized task entry used at runtime."""
 
     task: str
     label: str = ""
@@ -97,64 +97,217 @@ class TaskConfig(BaseModel):
     knowledge_bases: list[KBConfig] = Field(default_factory=list)
 
 
+class AliasProfileRefConfig(BaseModel):
+    """Reference to a reusable alias profile declared at the registry root."""
+
+    profile: str
+
+
+class AliasProfileConfig(BaseModel):
+    """Reusable alias profile declared at the registry root of the TOML file."""
+
+    top_k: int
+    score_threshold: float
+    reranker: Optional[str] = None
+    retrieval_strategy: Literal["dense", "hybrid", "sparse"]
+    reranker_multiplier: int
+
+
+class RegistryTaskConfig(BaseModel):
+    """Normalized task entry in the TOML operator registry."""
+
+    enabled: bool = True
+    label: str = ""
+    routing_description: str
+    kb_refs: list[str] = Field(default_factory=list)
+    adapter: AdapterConfig = Field(default_factory=AdapterConfig)
+
+
+class RegistryKBConfig(BaseModel):
+    """Normalized knowledge-base entry in the TOML operator registry."""
+
+    enabled: bool = True
+    default_alias: str
+    aliases: dict[str, AliasProfileRefConfig]
+    update_strategy: Literal["incremental", "replace"] = "replace"
+    label: str = ""
+    description: str = ""
+    selection_description: str
+
+
+class OperatorRegistryConfig(BaseModel):
+    """Root model for the TOML-based operator registry."""
+
+    schema_version: int = 1
+    tasks: dict[str, RegistryTaskConfig] = Field(default_factory=dict)
+    knowledge_bases: dict[str, RegistryKBConfig] = Field(default_factory=dict)
+    alias_profiles: dict[str, AliasProfileConfig] = Field(default_factory=dict)
+
+
+def _materialize_operator_registry(
+    registry_cfg: OperatorRegistryConfig,
+) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
+    """Build the runtime task registry from the normalized TOML shape."""
+
+    kb_index: dict[str, KBConfig] = {}
+    for kb_name, kb_cfg in registry_cfg.knowledge_bases.items():
+        if not kb_cfg.enabled:
+            continue
+
+        aliases: dict[str, AliasConfig] = {}
+        for alias_name, alias_ref in kb_cfg.aliases.items():
+            profile_cfg = registry_cfg.alias_profiles.get(alias_ref.profile)
+            if profile_cfg is None:
+                raise ValueError(
+                    f"KB '{kb_name}' alias '{alias_name}' references unknown "
+                    f"alias profile '{alias_ref.profile}'"
+                )
+            aliases[alias_name] = AliasConfig(
+                top_k=profile_cfg.top_k,
+                score_threshold=profile_cfg.score_threshold,
+                reranker=profile_cfg.reranker,
+                retrieval_strategy=profile_cfg.retrieval_strategy,
+                reranker_multiplier=profile_cfg.reranker_multiplier,
+            )
+
+        kb_index[kb_name] = KBConfig(
+            name=kb_name,
+            default_alias=kb_cfg.default_alias,
+            aliases=aliases,
+            update_strategy=kb_cfg.update_strategy,
+            label=kb_cfg.label,
+            description=kb_cfg.description,
+            selection_description=kb_cfg.selection_description,
+        )
+
+    task_registry: dict[str, TaskConfig] = {}
+    for task_name, task_cfg in registry_cfg.tasks.items():
+        if not task_cfg.enabled:
+            continue
+
+        task_knowledge_bases: list[KBConfig] = []
+        for kb_name in task_cfg.kb_refs:
+            if kb_name not in registry_cfg.knowledge_bases:
+                raise ValueError(f"Task '{task_name}' references unknown KB '{kb_name}'")
+            kb_runtime_cfg = kb_index.get(kb_name)
+            if kb_runtime_cfg is not None:
+                task_knowledge_bases.append(kb_runtime_cfg)
+
+        task_registry[task_name] = TaskConfig(
+            task=task_name,
+            label=task_cfg.label,
+            routing_description=task_cfg.routing_description,
+            adapter=task_cfg.adapter.model_copy(deep=True),
+            knowledge_bases=task_knowledge_bases,
+        )
+
+    return task_registry, kb_index
+
+
 def _load_knowledge_bases(
     path: Path | str,
 ) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
-    """Load the knowledge-bases registry from a JSON file.
+    """Load the operator registry from a TOML file.
 
     Args:
-        path: Path to the ``knowledge_bases.json`` file.
+        path: Path to the operator registry file.
 
     Returns:
         Tuple of (task registry, flat KB index keyed by KB name).
 
     Raises:
-        ValueError: If duplicate KB names are found across tasks.
+        ValueError: If the registry path is not a TOML file.
     """
     path = Path(path)
 
     if not path.exists():
-        logger.warning("Knowledge-bases config not found at %s — using empty registry", path)
+        logger.warning("Operator registry not found at %s — using empty registry", path)
         return {}, {}
 
-    with open(path, encoding="utf-8") as fh:
-        raw = json.load(fh)
+    if path.suffix.lower() != ".toml":
+        raise ValueError(f"Operator registry must be a TOML file (got '{path.name}')")
 
-    registry: dict[str, TaskConfig] = {}
+    with path.open("rb") as fh:
+        raw = tomllib.load(fh)
+    return _materialize_operator_registry(OperatorRegistryConfig(**raw))
+
+
+@lru_cache(maxsize=None)
+def _load_knowledge_bases_cached(
+    path: str,
+) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
+    """Cached path-based loader for the materialized runtime registry."""
+
+    return _load_knowledge_bases(path)
+
+
+# Registry loader state
+_KB_OVERRIDE_REGISTRY: dict[str, TaskConfig] | None = None
+_KB_OVERRIDE_INDEX: dict[str, KBConfig] | None = None
+
+
+def _build_kb_index(registry: dict[str, TaskConfig]) -> dict[str, KBConfig]:
+    """Build a flat KB index from a task-scoped runtime registry."""
+
     index: dict[str, KBConfig] = {}
-    for entry in raw:
-        cfg = TaskConfig(**entry)
-        registry[cfg.task] = cfg
-        for kb_cfg in cfg.knowledge_bases:
+    for task_cfg in registry.values():
+        for kb_cfg in task_cfg.knowledge_bases:
             if kb_cfg.name in index:
-                raise ValueError(
-                    f"Duplicate KB name '{kb_cfg.name}' found across tasks. "
-                    f"KB names must be unique."
-                )
+                if index[kb_cfg.name] is not kb_cfg:
+                    raise ValueError(
+                        f"Duplicate KB name '{kb_cfg.name}' found across tasks. "
+                        f"KB names must be unique."
+                    )
+                continue
             index[kb_cfg.name] = kb_cfg
-    return registry, index
+    return index
 
 
-# Module-level caches (populated lazily via get_knowledge_bases())
-_KB_REGISTRY: dict[str, TaskConfig] | None = None
-_KB_INDEX: dict[str, KBConfig] | None = None
-_KB_SOURCE_PATH: Path | None = None
+def set_knowledge_base_registry_override(
+    registry: dict[str, TaskConfig],
+    *,
+    index: dict[str, KBConfig] | None = None,
+) -> None:
+    """Install an in-memory registry override used ahead of disk-backed loading.
+
+    This is intended for tests that need deterministic registry contents without
+    touching on-disk config files.
+    """
+
+    global _KB_OVERRIDE_REGISTRY, _KB_OVERRIDE_INDEX  # noqa: PLW0603
+
+    _KB_OVERRIDE_REGISTRY = registry
+    _KB_OVERRIDE_INDEX = index if index is not None else _build_kb_index(registry)
 
 
-def _resolve_knowledge_bases_path(settings: GatewaySettings | None = None) -> Path:
+def clear_knowledge_base_registry_override() -> None:
+    """Remove any installed in-memory registry override."""
+
+    global _KB_OVERRIDE_REGISTRY, _KB_OVERRIDE_INDEX  # noqa: PLW0603
+
+    _KB_OVERRIDE_REGISTRY = None
+    _KB_OVERRIDE_INDEX = None
+
+
+def _configured_operator_registry_path(settings: RegistrySettings | None = None) -> str:
+    """Resolve the configured operator registry path before path normalization."""
+
+    if settings is None:
+        return get_registry_settings().operator_registry_path.strip()
+
+    return settings.operator_registry_path.strip()
+
+
+def _resolve_knowledge_bases_path(settings: RegistrySettings | None = None) -> Path:
     """Resolve the active knowledge-base registry path.
 
     Explicit overrides support absolute paths or repository-root-relative paths.
     Falling back to the bundled registry keeps local scripts and container runs
     aligned when no override is configured.
     """
-    configured_path = (
-        str(settings.knowledge_bases_path).strip()
-        if settings is not None
-        else get_settings().knowledge_bases_path.strip()
-    )
+    configured_path = _configured_operator_registry_path(settings)
     if not configured_path:
-        return _DEFAULT_KB_PATH
+        return _DEFAULT_OPERATOR_REGISTRY_PATH
 
     path = Path(configured_path).expanduser()
     if path.is_absolute():
@@ -166,57 +319,62 @@ def _resolve_knowledge_bases_path(settings: GatewaySettings | None = None) -> Pa
         return path
 
 
-def get_knowledge_bases(*, settings: GatewaySettings | None = None) -> dict[str, TaskConfig]:
+def _get_loaded_knowledge_base_state(
+    *, settings: RegistrySettings | None = None
+) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
+    """Return the effective runtime registry and flat index.
+
+    The returned data comes from the explicit in-memory override when installed,
+    otherwise from the cached path-based loader.
+    """
+
+    if _KB_OVERRIDE_REGISTRY is not None and _KB_OVERRIDE_INDEX is not None:
+        return _KB_OVERRIDE_REGISTRY, _KB_OVERRIDE_INDEX
+
+    path = _resolve_knowledge_bases_path(settings).resolve()
+    return _load_knowledge_bases_cached(str(path))
+
+
+def get_knowledge_bases(
+    *, settings: RegistrySettings | None = None
+) -> dict[str, TaskConfig]:
     """Return the knowledge-base registry (cached after first call).
 
-    Path is resolved from ``GatewaySettings.knowledge_bases_path`` or the
-    bundled default ``knowledge_bases.json``. The cache is keyed by the
-    resolved source path so an override change reloads the registry.
+    Path is resolved from ``RegistrySettings.operator_registry_path`` when
+    provided, or from the cached registry settings root otherwise. The cache is
+    keyed by the resolved source path so an override change reloads the registry.
 
     Returns:
         Mapping of ``task_name`` → ``TaskConfig``.
     """
-    global _KB_REGISTRY, _KB_INDEX, _KB_SOURCE_PATH  # noqa: PLW0603
-
-    path = _resolve_knowledge_bases_path(settings).resolve()
-    if _KB_REGISTRY is not None and _KB_INDEX is not None:
-        if _KB_SOURCE_PATH is None or _KB_SOURCE_PATH == path:
-            return _KB_REGISTRY
-
-    _KB_REGISTRY, _KB_INDEX = _load_knowledge_bases(path)
-    _KB_SOURCE_PATH = path
-    return _KB_REGISTRY
+    registry, _ = _get_loaded_knowledge_base_state(settings=settings)
+    return registry
 
 
 def get_kb_config(
     kb_name: str,
     *,
-    settings: GatewaySettings | None = None,
+    settings: RegistrySettings | None = None,
 ) -> KBConfig | None:
     """Look up a KB by name (O(1) dict lookup).
 
     Returns the ``KBConfig`` for *kb_name* or ``None`` if not found.
     """
-    # Ensure registry is loaded
-    get_knowledge_bases(settings=settings)
-    if _KB_INDEX is None:
-        return None
-    return _KB_INDEX.get(kb_name)
+    _, index = _get_loaded_knowledge_base_state(settings=settings)
+    return index.get(kb_name)
 
 
-def get_kb_names(*, settings: GatewaySettings | None = None) -> list[str]:
+def get_kb_names(*, settings: RegistrySettings | None = None) -> list[str]:
     """Flat list of all KB names across all tasks."""
-    get_knowledge_bases(settings=settings)
-    if _KB_INDEX is None:
-        return []
-    return list(_KB_INDEX.keys())
+    _, index = _get_loaded_knowledge_base_state(settings=settings)
+    return list(index.keys())
 
 
 def validate_kb_alias(
     kb: str,
     alias: str | None = None,
     *,
-    settings: GatewaySettings | None = None,
+    settings: RegistrySettings | None = None,
 ) -> None:
     """Raise ValueError with a consistent message if kb or alias is unknown.
 
@@ -553,6 +711,7 @@ class RegistrySettings(BaseSettings):
         MLFLOW_TRACKING_URI: Preferred MLflow tracking server URL.
         VLLM_BASE_URL: Preferred shared vLLM server URL.
         REGISTRY_ADAPTERS_DIR: Local directory for downloaded LoRA adapters.
+        REGISTRY_OPERATOR_REGISTRY_PATH: Optional override path to the operator registry file.
         REGISTRY_AUTO_SYNC: Pull production adapters on service startup.
     """
 
@@ -569,6 +728,13 @@ class RegistrySettings(BaseSettings):
     adapters_dir: str = Field(
         default="./adapters",
         description="Local directory for downloaded LoRA adapters",
+    )
+    operator_registry_path: str = Field(
+        default="",
+        description=(
+            "Override path to the operator registry file (JSON or TOML); relative "
+            "paths resolve from the repository root, empty uses the bundled default"
+        ),
     )
     production_alias: str | None = Field(
         default=None,
@@ -598,6 +764,28 @@ class RegistrySettings(BaseSettings):
         default=False,
         description="Automatically sync production adapters on startup",
     )
+
+    @property
+    def platform(self) -> RegistryPlatformSettings:
+        return RegistryPlatformSettings(
+            mlflow_tracking_uri=self.mlflow_tracking_uri,
+            vllm_base_url=self.vllm_base_url,
+        )
+
+    @property
+    def storage(self) -> RegistryStorageSettings:
+        return RegistryStorageSettings(
+            adapters_dir=self.adapters_dir,
+            operator_registry_path=self.operator_registry_path,
+        )
+
+    @property
+    def sync(self) -> RegistrySyncSettings:
+        return RegistrySyncSettings(
+            production_alias=self.production_alias,
+            sync_aliases_csv=self.sync_aliases_csv,
+            auto_sync=self.auto_sync,
+        )
 
 
 # Backward compatibility alias used across the existing codebase.
@@ -885,10 +1073,9 @@ def get_worker_settings() -> WorkerSettings:
 
 def clear_knowledge_base_caches() -> None:
     """Reset KB registry and index so the next access re-reads from disk."""
-    global _KB_REGISTRY, _KB_INDEX, _KB_SOURCE_PATH  # noqa: PLW0603
-    _KB_REGISTRY = None
-    _KB_INDEX = None
-    _KB_SOURCE_PATH = None
+    clear_knowledge_base_registry_override()
+    get_registry_settings.cache_clear()
+    _load_knowledge_bases_cached.cache_clear()
 
 
 def clear_settings_caches() -> None:

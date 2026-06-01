@@ -108,7 +108,7 @@
 После аутентификации Gateway определяет тип задачи: `chat`, `code` или `summarize`. Это влияет на выбор RAG-коллекции и LoRA-адаптера.
 
 **Embedding-based routing:**
-Основной метод — `EmbeddingTaskRouter`. Для каждой задачи в `knowledge_bases.json` задано `routing_description` — текстовое описание задачи. При инициализации Gateway вычисляет эмбеддинги всех `routing_description` и кэширует их. При запросе:
+Основной метод — `EmbeddingTaskRouter`. Для каждой задачи в operator registry (`src/shared/operator_registry.toml`) задано `routing_description` — текстовое описание задачи. При инициализации Gateway вычисляет эмбеддинги всех `routing_description` и кэширует их. При запросе:
 
 1. Вычисляется эмбеддинг последнего сообщения пользователя.
 2. Считается косинусное сходство с эмбеддингами каждой задачи.
@@ -289,7 +289,7 @@ Qdrant Collections:
   arxiv-20250201  ◄── alias "champion"  (переключение мгновенное)
 ```
 
-Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В конфигурации `knowledge_bases.json` каждый alias имеет собственный набор параметров retrieval (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Gateway читает параметры по активному alias в runtime.
+Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В operator registry каждый alias ссылается на профиль retrieval-параметров (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Gateway читает эффективные параметры по активному alias в runtime.
 
 **Lifecycle коллекции:**
 
@@ -301,7 +301,7 @@ Qdrant Collections:
 
 ### 5.4 Валидация конфигурации при старте
 
-При запуске Gateway автоматически валидирует `knowledge_bases.json`: проверяется наличие Qdrant-коллекций для всех объявленных aliases. Если коллекция не найдена, Gateway либо завершается с ошибкой (при `RAG_STRICT_STARTUP=true`), либо логирует предупреждение и продолжает работу.
+При запуске Gateway автоматически валидирует operator registry: проверяется наличие Qdrant-коллекций для всех объявленных aliases. Если коллекция не найдена, Gateway либо завершается с ошибкой (при `RAG_STRICT_STARTUP=true`), либо логирует предупреждение и продолжает работу.
 
 ---
 
@@ -417,19 +417,20 @@ registry.promote("lora-summarize", version=2, alias="champion")
 |---|---|
 | `.env` | Секреты, URL-адреса внешних сервисов и feature flags. Единственный файл с чувствительными данными; не коммитится в репозиторий |
 | `src/shared/config.py` | Все runtime-настройки Python-сервисов (gateway, worker, UI) — читаются из переменных окружения через Pydantic Settings |
-| `src/shared/knowledge_bases.json` | Реестр задач, баз знаний и aliases: routing descriptions, параметры retrieval, LoRA-адаптеры по задачам |
+| `src/shared/operator_registry.toml` | Operator registry задач и баз знаний: routing descriptions, связи task→KB, alias profiles и LoRA-адаптеры по задачам |
 | `infra/compose/docker-compose.yaml` | Topology всей системы: сети, port bindings, volumes, health checks, зависимости между сервисами |
 | `infra/docker/**/Dockerfile` | Определения образов: базовые образы, установка зависимостей, process defaults |
 | `infra/nginx/*.conf` | TLS termination, reverse proxy rules и маршрутизация между UI и Gateway |
 | `experiments/training/conf/**` | Иерархические Hydra-конфиги для LoRA-экспериментов: модель, LoRA, данные, trainer, scheduler |
 | `pyproject.toml` | Зависимости Python-пакета, настройки linting (ruff, mypy) и dev-tooling |
 
-### 7.2 `knowledge_bases.json` — реестр задач и баз знаний
+### 7.2 `operator_registry.toml` — operator registry задач и баз знаний
 
 Этот файл является единственным источником истины для:
 - Списка задач и их `routing_description` (используется task router'ом).
-- Списка баз знаний для каждой задачи.
-- Параметров каждого alias (retrieval strategy, top_k, score_threshold, reranker).
+- Списка баз знаний и их metadata.
+- Связей `task -> kb_refs`.
+- Общих alias profiles и task-level adapter routing.
 - LoRA-адаптера для каждой задачи (name, alias, enabled).
 
 Файл загружается при старте Gateway и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте.
@@ -444,7 +445,7 @@ Python-конфигурация реализована через `pydantic-sett
 - `AuthSettings` — Google OAuth credentials.
 - `InferenceSettings` — URL vLLM, модель, температура.
 
-Функция `get_settings()` кэширует инстанс через `@lru_cache` — настройки создаются один раз при первом вызове. Для локального запуска вне Docker вызывается `bootstrap_local_settings_env()`, который загружает `.env` из корня репозитория.
+Функция `get_settings()` кэширует инстанс через `@lru_cache` — настройки создаются один раз при первом вызове. Runtime-сервисы читают конфигурацию напрямую из переменных окружения, которые передаёт Compose.
 
 ---
 
@@ -676,7 +677,7 @@ agent-042/
 │   │   └── vector_store.py     # Qdrant абстракция
 │   ├── shared/                 # Общий код для всех сервисов
 │   │   ├── config.py           # Pydantic settings
-│   │   ├── knowledge_bases.json # RAG registry
+│   │   ├── operator_registry.toml # Operator registry / RAG registry
 │   │   ├── model_registry.py   # MLflow adapter sync
 │   │   └── db/                 # SQLAlchemy модели и engine
 │   ├── embeddings/             # Embeddings microservice
