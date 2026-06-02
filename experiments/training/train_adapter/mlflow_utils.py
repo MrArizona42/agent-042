@@ -103,7 +103,9 @@ def log_training_lineage(
     else:
         resolved_cfg = config_snapshot
     if not isinstance(resolved_cfg, dict):
-        raise TypeError(f"Expected resolved config snapshot to be a mapping, got {type(resolved_cfg)!r}")
+        raise TypeError(
+            f"Expected resolved config snapshot to be a mapping, got {type(resolved_cfg)!r}"
+        )
     effective_batch_size = _effective_batch_size(cfg)
     dataset_dvc_hash = _find_dataset_dvc_hash(dataset_path, project_root)
     git_sha, git_dirty = _git_context(project_root)

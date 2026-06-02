@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from rag.embeddings import EmbeddingService
-from shared.config import TaskConfig, get_knowledge_bases, get_settings
+from shared.config import get_settings
+from shared.operator_registry import TaskConfig, get_knowledge_bases
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class EmbeddingTaskRouter:
     def _threshold(self) -> float:
         if self._task_classification_threshold is not None:
             return self._task_classification_threshold
-        return float(get_settings().task_classification_threshold)
+        return float(get_settings().rag.task_classification_threshold)
 
     def _build_task_embeddings(self) -> dict[str, list[float]]:
         if self._task_embeddings:

@@ -50,7 +50,9 @@ def load_base_model_and_tokenizer(
     project_root = Path(cfg.paths.project_root)
     model_source = _resolve_model_source(cfg, model_cfg.local_path)
     resolved_model_path = Path(model_source)
-    if (model_cfg.local_files_only or resolved_model_path.is_absolute()) and not resolved_model_path.exists():
+    if (
+        model_cfg.local_files_only or resolved_model_path.is_absolute()
+    ) and not resolved_model_path.exists():
         raise FileNotFoundError(f"Model path not found: {resolved_model_path}")
 
     tokenizer = _load_tokenizer(model_source, model_cfg)

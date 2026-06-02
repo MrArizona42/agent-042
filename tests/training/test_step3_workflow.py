@@ -218,7 +218,10 @@ def test_prompt_target_datamodule_supports_custom_fields_and_train_split_validat
                     "output": [
                         "def double(n):\n    return n * 2",
                         "def square(n):\n    return n ** 2",
-                        "def count_vowels(text):\n    return sum(ch in 'aeiou' for ch in text.lower())",
+                        (
+                            "def count_vowels(text):\n    "
+                            "return sum(ch in 'aeiou' for ch in text.lower())"
+                        ),
                         "def reverse_in_place(items):\n    items.reverse()",
                     ],
                 }

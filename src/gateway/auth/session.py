@@ -22,7 +22,7 @@ class SessionManager:
 
     def __init__(self, redis: aioredis.Redis) -> None:
         self._redis = redis
-        self._ttl = get_settings().session_ttl_seconds
+        self._ttl = get_settings().auth.session_ttl_seconds
 
     # ------------------------------------------------------------------
     # Auth sessions

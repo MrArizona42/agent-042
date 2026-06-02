@@ -69,21 +69,21 @@ def _install_airflow_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "airflow.operators.python", python_module)
 
 
-def _override_loaded_kb_registry(path: Path) -> None:
-    import shared.config as cfg
-    from shared.config import _load_knowledge_bases
+@pytest.fixture()
+def loaded_kb_registry(kb_json_file: Path):
+    from shared.operator_registry import load_knowledge_bases, registry_override
 
-    registry, index = _load_knowledge_bases(path)
-    cfg.set_knowledge_base_registry_override(registry, index=index)
+    registry, index = load_knowledge_bases(kb_json_file)
+    with registry_override(registry, index=index):
+        yield registry
 
 
 def test_eval_dags_kb_options_use_shared_registry(
     monkeypatch: pytest.MonkeyPatch,
-    kb_json_file: Path,
+    loaded_kb_registry,
 ):
     monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
-    _override_loaded_kb_registry(kb_json_file)
 
     sys.modules.pop("dags.eval_dags", None)
     eval_dags = importlib.import_module("dags.eval_dags")
@@ -93,13 +93,28 @@ def test_eval_dags_kb_options_use_shared_registry(
     assert eval_dags._kb_options == ["arxiv", "pytorch_docs"]
 
 
+def test_eval_dags_alias_options_prefer_nested_registry_env(
+    monkeypatch: pytest.MonkeyPatch,
+    loaded_kb_registry,
+):
+    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("REGISTRY__SYNC_ALIASES", "champion,shadow")
+    _install_airflow_stubs(monkeypatch)
+
+    sys.modules.pop("dags.eval_dags", None)
+    eval_dags = importlib.import_module("dags.eval_dags")
+    eval_dags = importlib.reload(eval_dags)
+
+    assert eval_dags._sync_aliases == ["champion", "shadow"]
+    assert eval_dags._alias_options == ["none", "champion", "shadow"]
+
+
 def test_eval_dags_resolve_params_supports_auto_kb_mode(
     monkeypatch: pytest.MonkeyPatch,
-    kb_json_file: Path,
+    loaded_kb_registry,
 ):
     monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
-    _override_loaded_kb_registry(kb_json_file)
 
     sys.modules.pop("dags.eval_dags", None)
     eval_dags = importlib.import_module("dags.eval_dags")
@@ -124,11 +139,10 @@ def test_eval_dags_resolve_params_supports_auto_kb_mode(
 
 def test_eval_dags_resolve_params_requires_kb_for_explicit_mode(
     monkeypatch: pytest.MonkeyPatch,
-    kb_json_file: Path,
+    loaded_kb_registry,
 ):
     monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
-    _override_loaded_kb_registry(kb_json_file)
 
     sys.modules.pop("dags.eval_dags", None)
     eval_dags = importlib.import_module("dags.eval_dags")
@@ -151,11 +165,10 @@ def test_eval_dags_resolve_params_requires_kb_for_explicit_mode(
 
 def test_generation_dag_params_expose_kb_mode_controls(
     monkeypatch: pytest.MonkeyPatch,
-    kb_json_file: Path,
+    loaded_kb_registry,
 ):
     monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
-    _override_loaded_kb_registry(kb_json_file)
 
     sys.modules.pop("dags.eval_dags", None)
     eval_dags = importlib.import_module("dags.eval_dags")
@@ -176,11 +189,10 @@ def test_generation_dag_params_expose_kb_mode_controls(
 
 def test_fetch_predictions_task_forwards_use_auto_rag(
     monkeypatch: pytest.MonkeyPatch,
-    kb_json_file: Path,
+    loaded_kb_registry,
 ):
     monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
-    _override_loaded_kb_registry(kb_json_file)
 
     sys.modules.pop("dags.eval_dags", None)
     eval_dags = importlib.import_module("dags.eval_dags")

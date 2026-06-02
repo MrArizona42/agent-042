@@ -42,8 +42,11 @@ class EmbeddingService:
             embeddings_url: Override for the embeddings service URL.
         """
         settings = get_settings()
-        base_url = (embeddings_url or settings.embeddings_url).rstrip("/")
-        self._client = httpx.Client(base_url=base_url, timeout=settings.embeddings_timeout)
+        base_url = (embeddings_url or settings.platform.embeddings_url).rstrip("/")
+        self._client = httpx.Client(
+            base_url=base_url,
+            timeout=settings.gateway.embeddings_timeout,
+        )
 
         logger.info(f"Connecting to embeddings service at {base_url}")
         resp = self._client.get("/v1/dimension")

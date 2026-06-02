@@ -9,18 +9,15 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import AsyncIterator, List
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
-from shared.config import bootstrap_local_settings_env, get_settings
+from shared.config import get_settings
 
 logger = logging.getLogger(__name__)
-
-bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[2])
 
 # ---------------------------------------------------------------------------
 # Request / response schemas
@@ -53,8 +50,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load the cross-encoder model on startup."""
     global _model
     settings = get_settings()
-    logger.info(f"Loading reranker model: {settings.reranker_model}")
-    _model = CrossEncoder(settings.reranker_model)
+    logger.info(f"Loading reranker model: {settings.rag.reranker_model}")
+    _model = CrossEncoder(settings.rag.reranker_model)
     logger.info("Reranker model loaded")
     yield
     _model = None
@@ -77,11 +74,12 @@ def rerank(request: RerankRequest) -> RerankResponse:
     if _model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
     settings = get_settings()
+    rag = settings.rag
 
     if not request.passages:
-        return RerankResponse(scores=[], model=settings.reranker_model)
+        return RerankResponse(scores=[], model=rag.reranker_model)
 
     pairs = [[request.query, passage] for passage in request.passages]
     scores: list[float] = _model.predict(pairs).tolist()
 
-    return RerankResponse(scores=scores, model=settings.reranker_model)
+    return RerankResponse(scores=scores, model=rag.reranker_model)

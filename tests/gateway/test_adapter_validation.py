@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import logging
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import shared.config as cfg
 from gateway.services.rag_service import RAGService
-from shared.config import AdapterConfig, KBConfig, TaskConfig
+from shared.config import Settings
+from shared.operator_registry import AdapterConfig, KBConfig, TaskConfig, registry_override
 
 
 def _alias_config() -> dict[str, object]:
@@ -19,28 +18,47 @@ def _alias_config() -> dict[str, object]:
     }
 
 
-def _settings(**overrides: object) -> SimpleNamespace:
-    data = {
+def _settings(
+    *,
+    platform: dict[str, object] | None = None,
+    behavior: dict[str, object] | None = None,
+    rag: dict[str, object] | None = None,
+) -> Settings:
+    platform_values = {
+        "embeddings_url": "http://embeddings:8100",
+        "qdrant_host": "localhost",
+        "qdrant_port": 6333,
+        "vllm_base_url": "http://localhost:8000",
+    }
+    gateway_values = {
+        "embeddings_timeout": 10.0,
+        "vllm_timeout": 30.0,
+        "api_key": None,
+        "default_model": "base-model",
+    }
+    rag_values = {
         "rag_enabled": True,
         "embedding_model": "test-embedding",
         "embedding_device": "cpu",
         "embedding_batch_size": 32,
-        "embeddings_url": "http://embeddings:8100",
-        "embeddings_timeout": 10.0,
         "kb_selection_threshold": 0.3,
-        "qdrant_host": "localhost",
-        "qdrant_port": 6333,
         "rag_strict_startup": False,
         "sparse_encoder_model": "Qdrant/bm25",
-        "vllm_base_url": "http://localhost:8000",
-        "vllm_timeout": 30.0,
-        "api_key": None,
     }
-    data.update(overrides)
-    return SimpleNamespace(**data)
+    if platform is not None:
+        platform_values.update(platform)
+    if behavior is not None:
+        gateway_values.update(behavior)
+    if rag is not None:
+        rag_values.update(rag)
+    return Settings(
+        platform=platform_values,
+        gateway=gateway_values,
+        rag=rag_values,
+    )
 
 
-def _load_registry(*, summarize_adapter_enabled: bool) -> None:
+def _build_registry(*, summarize_adapter_enabled: bool) -> dict[str, TaskConfig]:
     arxiv = KBConfig(
         name="arxiv",
         default_alias="champion",
@@ -50,7 +68,7 @@ def _load_registry(*, summarize_adapter_enabled: bool) -> None:
         selection_description="Research papers and literature-grounded answers.",
     )
 
-    cfg._KB_REGISTRY = {
+    return {
         "chat": TaskConfig(
             task="chat",
             label="General knowledge",
@@ -70,12 +88,10 @@ def _load_registry(*, summarize_adapter_enabled: bool) -> None:
             knowledge_bases=[],
         ),
     }
-    cfg._KB_INDEX = {"arxiv": arxiv}
 
 
 def test_validate_knowledge_bases_warns_for_missing_enabled_adapter(caplog) -> None:
-    _load_registry(summarize_adapter_enabled=True)
-    try:
+    with registry_override(_build_registry(summarize_adapter_enabled=True)):
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
             patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
@@ -110,14 +126,10 @@ def test_validate_knowledge_bases_warns_for_missing_enabled_adapter(caplog) -> N
 
             assert "lora-summarize-champion" in caplog.text
             assert "fall back to default_model" in caplog.text
-    finally:
-        cfg._KB_REGISTRY = None
-        cfg._KB_INDEX = None
 
 
 def test_validate_knowledge_bases_accepts_present_enabled_adapter() -> None:
-    _load_registry(summarize_adapter_enabled=True)
-    try:
+    with registry_override(_build_registry(summarize_adapter_enabled=True)):
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
             patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
@@ -152,14 +164,10 @@ def test_validate_knowledge_bases_accepts_present_enabled_adapter() -> None:
                 return_value={"base-model", "lora-summarize-champion"},
             ):
                 service.validate_knowledge_bases()
-    finally:
-        cfg._KB_REGISTRY = None
-        cfg._KB_INDEX = None
 
 
 def test_invalidate_caches_clears_available_vllm_model_snapshot() -> None:
-    _load_registry(summarize_adapter_enabled=False)
-    try:
+    with registry_override(_build_registry(summarize_adapter_enabled=False)):
         with patch("gateway.services.rag_service.EmbeddingService"):
             service = RAGService(settings=_settings())
 
@@ -168,6 +176,3 @@ def test_invalidate_caches_clears_available_vllm_model_snapshot() -> None:
         service.invalidate_caches()
 
         assert service._available_vllm_models is None
-    finally:
-        cfg._KB_REGISTRY = None
-        cfg._KB_INDEX = None

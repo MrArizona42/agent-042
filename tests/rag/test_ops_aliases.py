@@ -1,97 +1,35 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+
+from shared.config import Settings
+from tests.operator_registry_samples import write_chat_and_code_operator_registry
 
 
 @pytest.fixture(autouse=True)
 def _reset_kb_registry():
     import shared.config as cfg
 
-    cfg._KB_REGISTRY = None
-    cfg._KB_INDEX = None
+    cfg.clear_knowledge_base_caches()
     yield
-    cfg._KB_REGISTRY = None
-    cfg._KB_INDEX = None
+    cfg.clear_knowledge_base_caches()
 
 
 @pytest.fixture()
 def kb_json_file(tmp_path: Path) -> Path:
-    data = [
-        {
-            "task": "chat",
-            "label": "General knowledge",
-            "routing_description": "General ML research discussion.",
-            "adapter": {"name": "", "alias": "", "enabled": False},
-            "knowledge_bases": [
-                {
-                    "name": "arxiv",
-                    "default_alias": "champion",
-                    "aliases": {
-                        "champion": {
-                            "top_k": 5,
-                            "score_threshold": 0.35,
-                            "reranker": None,
-                            "retrieval_strategy": "dense",
-                            "reranker_multiplier": 4,
-                        },
-                        "challenger": {
-                            "top_k": 5,
-                            "score_threshold": 0.35,
-                            "reranker": None,
-                            "retrieval_strategy": "dense",
-                            "reranker_multiplier": 4,
-                        },
-                    },
-                    "update_strategy": "incremental",
-                    "label": "ArXiv papers",
-                    "description": "ML papers",
-                    "selection_description": "Research papers and literature-grounded answers.",
-                },
-            ],
-        },
-        {
-            "task": "code",
-            "label": "Coding assistance",
-            "routing_description": "Programming help for ML systems.",
-            "adapter": {"name": "", "alias": "", "enabled": False},
-            "knowledge_bases": [
-                {
-                    "name": "pytorch_docs",
-                    "default_alias": "champion",
-                    "aliases": {
-                        "champion": {
-                            "top_k": 5,
-                            "score_threshold": 0.35,
-                            "reranker": None,
-                            "retrieval_strategy": "dense",
-                            "reranker_multiplier": 4,
-                        },
-                    },
-                    "update_strategy": "replace",
-                    "label": "PyTorch docs",
-                    "description": "Coding docs",
-                    "selection_description": "PyTorch API reference and implementation guidance.",
-                },
-            ],
-        },
-    ]
-    path = tmp_path / "knowledge_bases.json"
-    path.write_text(json.dumps(data))
-    return path
+    return write_chat_and_code_operator_registry(tmp_path / "operator_registry.toml")
 
 
 @pytest.fixture()
 def loaded_kb_registry(kb_json_file: Path):
-    import shared.config as cfg
-    from shared.config import _load_knowledge_bases
+    from shared.operator_registry import load_knowledge_bases, registry_override
 
-    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
-    return cfg._KB_REGISTRY
+    registry, index = load_knowledge_bases(kb_json_file)
+    with registry_override(registry, index=index):
+        yield registry
 
 
 def _collection_meta_payload(kb_name: str = "arxiv") -> dict[str, object]:
@@ -109,15 +47,19 @@ def _collection_meta_payload(kb_name: str = "arxiv") -> dict[str, object]:
     }
 
 
+def _gateway_settings() -> Settings:
+    return Settings(platform={"qdrant_host": "qdrant", "qdrant_port": 6333})
+
+
 class TestValidateKbAlias:
     def test_rejects_unknown_knowledge_base(self, loaded_kb_registry):
-        from shared.config import validate_kb_alias
+        from shared.operator_registry import validate_kb_alias
 
         with pytest.raises(ValueError, match="KB 'missing' not found"):
             validate_kb_alias("missing", "champion")
 
     def test_rejects_disallowed_alias(self, loaded_kb_registry):
-        from shared.config import validate_kb_alias
+        from shared.operator_registry import validate_kb_alias
 
         with pytest.raises(ValueError, match="Alias 'production' not valid"):
             validate_kb_alias("arxiv", "production")
@@ -133,7 +75,7 @@ class TestAssignAliasToCollection:
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
             patch("rag.ops.aliases.read_collection_meta", return_value=meta),
@@ -165,7 +107,7 @@ class TestAssignAliasToCollection:
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
             patch("rag.ops.aliases.read_collection_meta") as read_meta,
@@ -194,7 +136,7 @@ class TestAssignAliasToCollection:
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
             patch("rag.ops.aliases.read_collection_meta", return_value=meta),
@@ -219,7 +161,7 @@ class TestPromoteAlias:
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
             patch(
@@ -257,7 +199,7 @@ class TestPromoteAlias:
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
             patch("rag.ops.aliases.assign_alias_to_collection") as assign_alias,
@@ -278,7 +220,7 @@ class TestDetachAlias:
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
         ):

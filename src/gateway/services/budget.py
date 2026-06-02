@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping, Sequence
 
+from shared.config import BudgetSettings
+
 
 class BudgetValidationError(ValueError):
     """Raised when a request cannot satisfy configured prompt budget rules."""
@@ -32,11 +34,11 @@ def compute_effective_history_budget(
     return min_budget_history + (budget_turn - current_turn_tokens)
 
 
-def build_budget_meta(settings: Any) -> dict[str, int]:
+def build_budget_meta(budget_settings: BudgetSettings) -> dict[str, int]:
     return {
-        "model_max_tokens": int(settings.model_max_tokens),
-        "budget_guard": int(settings.budget_guard),
-        "min_response_budget": int(settings.min_response_budget),
+        "model_max_tokens": int(budget_settings.model_max_tokens),
+        "budget_guard": int(budget_settings.budget_guard),
+        "min_response_budget": int(budget_settings.min_response_budget),
     }
 
 

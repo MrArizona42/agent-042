@@ -301,7 +301,7 @@ Qdrant Collections:
 
 ### 5.4 Валидация конфигурации при старте
 
-При запуске Gateway автоматически валидирует operator registry: проверяется наличие Qdrant-коллекций для всех объявленных aliases. Если коллекция не найдена, Gateway либо завершается с ошибкой (при `RAG_STRICT_STARTUP=true`), либо логирует предупреждение и продолжает работу.
+При запуске Gateway автоматически валидирует operator registry: проверяется наличие Qdrant-коллекций для всех объявленных aliases. Если коллекция не найдена, Gateway либо завершается с ошибкой (при `RAG__RAG_STRICT_STARTUP=true`), либо логирует предупреждение и продолжает работу.
 
 ---
 
@@ -415,9 +415,9 @@ registry.promote("lora-summarize", version=2, alias="champion")
 
 | Конфиг | Назначение |
 |---|---|
-| `.env` | Секреты, URL-адреса внешних сервисов и feature flags. Единственный файл с чувствительными данными; не коммитится в репозиторий |
-| `src/shared/config.py` | Все runtime-настройки Python-сервисов (gateway, worker, UI) — читаются из переменных окружения через Pydantic Settings |
-| `src/shared/operator_registry.toml` | Operator registry задач и баз знаний: routing descriptions, связи task→KB, alias profiles и LoRA-адаптеры по задачам |
+| `.env` | Операторский env-файл. Runtime settings используют nested имена вида `SECTION__FIELD`; инфраструктурные bootstrap/env-переменные Compose могут оставаться flat |
+| `src/shared/config.py` | Root runtime settings loader: `Settings(BaseSettings)`, cache helpers и safe startup logging для Python-сервисов |
+| `src/shared/operator_registry.py` + `src/shared/operator_registry.toml` | Operator registry schema, loader и override helpers для задач и баз знаний |
 | `infra/compose/docker-compose.yaml` | Topology всей системы: сети, port bindings, volumes, health checks, зависимости между сервисами |
 | `infra/docker/**/Dockerfile` | Определения образов: базовые образы, установка зависимостей, process defaults |
 | `infra/nginx/*.conf` | TLS termination, reverse proxy rules и маршрутизация между UI и Gateway |
@@ -426,26 +426,69 @@ registry.promote("lora-summarize", version=2, alias="champion")
 
 ### 7.2 `operator_registry.toml` — operator registry задач и баз знаний
 
-Этот файл является единственным источником истины для:
+Этот registry-layer является единственным источником истины для:
 - Списка задач и их `routing_description` (используется task router'ом).
 - Списка баз знаний и их metadata.
 - Связей `task -> kb_refs`.
 - Общих alias profiles и task-level adapter routing.
 - LoRA-адаптера для каждой задачи (name, alias, enabled).
 
-Файл загружается при старте Gateway и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте.
+Файл загружается через `src/shared/operator_registry.py` и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте.
 
 ### 7.3 Pydantic Settings (`src/shared/config.py`)
 
-Python-конфигурация реализована через `pydantic-settings`. Настройки читаются из переменных окружения (с поддержкой AliasChoices для нескольких имён переменных). Настройки сгруппированы в dataclass-подобные модели:
+Python-конфигурация реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/shared/config.py`.
 
-- `ServiceSettings` — имя сервиса, URL gateway.
-- `BudgetSettings` — бюджеты токенов для prompt building.
-- `RagSettings` — параметры RAG (embedding model, enabled, strict startup).
-- `AuthSettings` — Google OAuth credentials.
-- `InferenceSettings` — URL vLLM, модель, температура.
+Ключевые свойства текущей схемы:
 
-Функция `get_settings()` кэширует инстанс через `@lru_cache` — настройки создаются один раз при первом вызове. Runtime-сервисы читают конфигурацию напрямую из переменных окружения, которые передаёт Compose.
+- env читает только root `Settings`, а nested sections являются plain `BaseModel`
+- canonical runtime env names используют nested contract с delimiter `__`
+- flat compatibility aliases для runtime env names больше не поддерживаются
+- operator registry models/loaders больше не реэкспортируются через `shared.config`; они живут в `shared.operator_registry`
+
+Основные секции runtime settings:
+
+- `PlatformSettings` — shared platform endpoints и broker URLs
+- `GatewayConfig` + `BudgetSettings` — gateway behavior и budgeting knobs
+- `RagSettings` — embedding/retrieval runtime knobs
+- `AuthSettings` — OAuth/session/database auth settings
+- `RegistryConfig` — путь к operator registry и alias sync policy
+- `EvalConfig` — judge, metrics и sandbox settings
+- `WorkerConfig` — Celery worker runtime defaults
+- `UIConfig` — UI timeouts и related knobs
+
+Примеры canonical env names:
+
+- `PLATFORM__VLLM_BASE_URL`
+- `PLATFORM__CELERY_BROKER_URL`
+- `GATEWAY__DEFAULT_MODEL`
+- `GATEWAY__CORS_ALLOW_ORIGINS`
+- `RAG__EMBEDDING_MODEL`
+- `AUTH__INTERNAL_API_KEY`
+- `REGISTRY__OPERATOR_REGISTRY_PATH`
+- `REGISTRY__SYNC_ALIASES`
+- `EVAL__JUDGE__MODEL`
+- `WORKER__CONCURRENCY`
+
+Функция `get_settings()` кэширует root settings через `@lru_cache`. Для settings-driven тестов и локальных override-сценариев используется `load_settings({...})`; для operator registry override используется `registry_override(...)` из `shared.operator_registry`.
+
+Финальное решение по naming convention: текущий mix class names `*Settings` / `*Config` сохраняется, чтобы не делать churn-only rename pass. Канонизирована именно field/env surface, а не имена всех классов.
+
+### 7.4 Maintainer Checklist
+
+При добавлении нового runtime settings field:
+
+1. объявите поле в существующей nested section или добавьте новую nested model под root `Settings`
+2. используйте canonical env shape `SECTION__FIELD`, если значение должно быть operator-facing
+3. обновите `.env.example`, `infra/README.md` и focused tests только если поле действительно должно настраиваться оператором
+4. не добавляйте flat compatibility alias
+
+При добавлении нового operator-registry field:
+
+1. меняйте schema/models в `src/shared/operator_registry.py`
+2. обновляйте `src/shared/operator_registry.toml` и sample/contract tests
+3. используйте `registry_override(...)` в тестах вместо manual global mutation
+4. не добавляйте registry helper re-exports обратно в `shared.config`
 
 ---
 
