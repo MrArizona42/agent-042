@@ -18,7 +18,7 @@ class RAGSource(BaseModel):
     alias: str | None = Field(
         default=None,
         description="Alias role to use (e.g. 'champion', 'challenger'). "
-        "None uses the KB's default_alias from knowledge_bases.json.",
+        "None uses the KB's default_alias from the operator registry.",
     )
 
 

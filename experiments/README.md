@@ -19,10 +19,14 @@
 
 ```bash
 python -m experiments.training.train_adapter.start_train \
-  paths.project_root="C:/Users/user/MyGitRepos/agent-042"
+  +experiment=arxiv_summarization \
+  paths.project_root="/home/user/agent-042"
 ```
 
-> ℹ️ На Windows в Git Bash удобнее использовать прямые слэши в путях: `C:/...`.
+`+experiment=arxiv_summarization` — обязательный аргумент: говорит Hydra, какой набор конфигов
+использовать. Без него команда завершится с ошибкой (подробнее — в разделе ниже).
+
+> ℹ️ На Windows в Git Bash удобнее использовать прямые слэши в путях: `C:/Users/user/MyGitRepos/agent-042`.
 
 ## 🗂️ Структура директории
 
@@ -50,6 +54,8 @@ python -m experiments.training.train_adapter.start_train \
   и notebook wrappers `assign_alias(...)`, `promote(...)`, `detach(...)`, `inspect_kb_alias(...)`.
 - `experiments/rag/rag_ops.ipynb` должен вызывать только `experiments.rag.notebook_ops`, чтобы
   notebook и Airflow использовали один и тот же production runtime.
+- Если notebook или helper всё же импортирует registry-specific schema/loader напрямую, их источник
+  должен быть `src/shared/operator_registry.py`, а не `shared.config`.
 - `experiments/rag/sandboxes/` предназначен только для notebook-only experiments. Если sandbox
   эксперимент нужно продвигать в champion, код сначала переносится в `src/rag/` или
   `src/rag/ops/`, а уже потом пересобирается и промоутится коллекция.
@@ -77,18 +83,66 @@ Remote хранилище называется ycloud
 
 ## ⚙️ Hydra и конфигурирование
 
-- Конфиги лежат в `experiments/training/conf` и используются для обучения адаптера:
-    - Обучение адаптера: `config.yaml`
-- Скрипт обучения читает конфиги через декоратор `@hydra.main(..., config_path="../conf", ...)` и
+### Как Hydra собирает конфиг (если видите её впервые)
+
+Hydra не читает один большой `config.yaml` — она *компонует* итоговый конфиг из нескольких
+файлов. Каждый файл — это **группа конфигов** (config group), отвечающая за одну «ось»:
+модель, датасет, тренер, планировщик LR и т.д.
+
+Итоговый конфиг строится в четыре уровня; каждый следующий перекрывает предыдущий:
+
+```
+1. Dataclass-defaults   ← config.py: типы полей и стабильные runtime defaults
+         ↓ перекрывается
+2. YAML-файлы групп     ← conf/<group>/*.yaml: конкретные значения (lr, пути, параметры LoRA…)
+         ↓ перекрывается
+3. Experiment preset    ← +experiment=arxiv_summarization: выбирает нужные YAML одним аргументом
+         ↓ перекрывается
+4. CLI-аргументы        ← trainer.max_epochs=3 training.lr=5e-5: правки для одного запуска
+```
+
+**Ключевое правило проекта:** настройки, специфичные для эксперимента (`task`, `dataset`, `model`,
+`lora`, `data`, `training`, `scheduler`), в `config.yaml` помечены как обязательные (`???`).
+Это гарантирует, что каждый запуск явно выбирает эксперимент — никаких «магических умолчаний».
+
+Запустить обучение можно двумя способами:
+
+- **Через пресет** (рекомендуется): `+experiment=arxiv_summarization` — задаёт все обязательные
+  группы одним аргументом.
+- **Вручную**: явно указать каждую группу: `task=summarization dataset=arxiv_summarization …`
+
+Готовые пресеты (`conf/experiment/`):
+
+| Аргумент | Задача | Датасет |
+|----------|--------|---------|
+| `+experiment=arxiv_summarization` | Суммаризация | arXiv |
+| `+experiment=open_code_instruct_qwen` | Кодогенерация | Open Code Instruct |
+
+---
+
+### Файлы конфигов
+
+- Конфиги лежат в `experiments/training/conf`; точка входа — `config.yaml`.
+- Скрипт обучения читает конфиги через `@hydra.main(..., config_path="../conf", ...)` и
   принимает оверрайды из CLI.
 - Скачивание датасетов и моделей выполняется интерактивно через ноутбук
   `experiments/misc_ops/prefetch_assets.ipynb` (без Hydra).
 
 - Группы конфигов:
-    - `training/conf/paths/paths_config.yaml` — ключ `paths.project_root` (по умолчанию проставлен
-      Linux-путь, на своей машине лучше переопределять через CLI)
-    - `training/conf/experiment/train_adapter.yaml` — все параметры обучения (
-      model/lora/data/trainer/scheduler/logger/tracking/evaluation)
+    - `conf/paths/paths_config.yaml` — ключ `paths.project_root`; по умолчанию Linux-путь, на
+      своей машине переопределяйте через CLI
+    - `conf/task/*.yaml` — имя задачи, шаблон промпта, MLflow-теги
+    - `conf/dataset/*.yaml` — путь к датасету, имена сплитов, маппинг полей
+    - `conf/model/*.yaml` — `local_path` и `name`; стабильные runtime defaults (квантизация и т.д.)
+      берутся из dataclass и не дублируются в YAML
+    - `conf/lora/*.yaml` — ранг адаптера `r`, alpha, dropout, целевые модули
+    - `conf/data/*.yaml` — бюджеты токенов, batch size, num_workers
+    - `conf/training/*.yaml` — seed, lr, weight_decay
+    - `conf/scheduler/*.yaml` — тип планировщика LR и его параметры
+    - `conf/trainer/*.yaml` — пресеты `pytorch_lightning.Trainer`
+    - `conf/callbacks/*.yaml` — пресеты callbacks
+    - `conf/logger/*.yaml` — пресеты MLflow logger
+    - `conf/experiment/*.yaml` — тонкие оверлеи, выбирающие несколько групп одним аргументом
 
 Про пути и рабочие директории в этом проекте
 
@@ -110,13 +164,15 @@ python -m experiments.training.train_adapter.start_train --help
   `${...}`):
 
 ```bash
-python -m experiments.training.train_adapter.start_train --cfg job --resolve
+python -m experiments.training.train_adapter.start_train \
+  +experiment=arxiv_summarization --cfg job --resolve
 ```
 
-- Показать только поддерево (например, секцию `experiment`):
+- Показать только поддерево (например, секцию `model`):
 
 ```bash
-python -m experiments.training.train_adapter.start_train --cfg job --resolve -p experiment
+python -m experiments.training.train_adapter.start_train \
+  +experiment=arxiv_summarization --cfg job --resolve -p model
 ```
 
 - Посмотреть конфиг самой Hydra (логгирование, каталоги и т.п.):
@@ -146,18 +202,29 @@ python -m experiments.training.train_adapter.start_train --info
 
 2) **Обучение адаптера (training/train_adapter/start_train.py)**
 
-- Использует `config.yaml` -> `experiment: train_adapter`
+ - `config.yaml` задаёт инфраструктурные дефолты: `trainer=single_gpu`,
+   `callbacks=checkpoint_only`, `logger=mlflow_train_adapter`. Experiment-specific
+   группы обязательны — укажите `+experiment=<name>` или задайте каждую вручную.
 - Основные секции, которые можно переопределять из CLI:
-    - `experiment.model.*` (dtype, 4-bit, gradient_checkpointing, local_path, и т.д.)
-    - `experiment.lora.*` (r, lora_alpha, target_modules, ...)
-    - `experiment.data.*` (max_seq_length, batch_size, local_path, prompt_template)
-  - `experiment.data_module.*` (например, `shuffle`)
-    - `experiment.training.*` (lr, weight_decay)
-    - `experiment.scheduler.*` (enabled, warmup_steps, type, ...)
-    - `experiment.trainer.*` (max_epochs, devices, accelerator, precision, ...)
-    - `experiment.callbacks.checkpoint.*` (save_top_k, monitor, ...)
-  - `experiment.logger.*` (параметры Lightning MLflow logger)
-  - `experiment.tracking.*` (поведение MLflow tracking и env path)
+    - `task.*` (имя задачи, шаблон промпта, MLflow task tags)
+    - `dataset.*` (local_path, split names, field mapping, validation_fraction)
+    - `model.*` (обычно достаточно `local_path`; стабильные runtime defaults берутся из dataclass)
+    - `lora.*` (r, lora_alpha, target_modules, ...)
+    - `data.*` (лимиты токенов, batch size, num_workers, train_on_inputs)
+  - `data_module.*` (например, `shuffle`)
+    - `training.*` (seed, lr, weight_decay)
+    - `scheduler.*` (enabled, warmup_steps, type, ...)
+    - `trainer.*` (max_epochs, devices, accelerator, precision, ...)
+    - `callbacks.checkpoint.*` (save_top_k, monitor, ...)
+  - `logger.*` (параметры Lightning MLflow logger)
+  - `tracking.*` (поведение MLflow tracking и env path)
+
+  Отдельно:
+  - `trainer=single_gpu`, `callbacks=checkpoint_only`, `logger=mlflow_train_adapter` выбираются в `config.yaml`
+    через Hydra defaults и могут быть заменены на другие пресеты без вложенных package override-ов
+  - `+experiment=<preset>` — задаёт все обязательные experiment-specific группы одним
+    аргументом. Например: `+experiment=open_code_instruct_qwen`.
+    Без пресета каждую группу нужно указать явно.
 
   Отдельно:
   - evaluation запускается через dedicated eval DAG, а не через training config
@@ -166,20 +233,28 @@ python -m experiments.training.train_adapter.start_train --info
   Примеры:
 
 ```bash
-# Базовый запуск (использует значения по умолчанию из конфигов)
+# Стандартный запуск суммаризации
 python -m experiments.training.train_adapter.start_train \
+  +experiment=arxiv_summarization \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042"
 
-# Изменить число эпох и LR
+# Изменить число эпох и LR поверх experiment preset
 python -m experiments.training.train_adapter.start_train \
+  +experiment=arxiv_summarization \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  experiment.trainer.max_epochs=3 \
-  experiment.training.lr=5e-5
+  trainer.max_epochs=3 \
+  training.lr=5e-5
 
-# Переопределить модель на локальный путь (если скачали в другое место)
+# Переопределить путь к модели (если скачали в другое место)
 python -m experiments.training.train_adapter.start_train \
+  +experiment=arxiv_summarization \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  experiment.model.local_path="C:/data/models/Qwen/Qwen3-0.6B"
+  model.local_path="C:/data/models/Qwen/Qwen3-0.6B"
+
+# Запустить coding SFT preset
+python -m experiments.training.train_adapter.start_train \
+  +experiment=open_code_instruct_qwen \
+  paths.project_root="C:/Users/user/MyGitRepos/agent-042"
 ```
 
 ### Мультизапуски (sweeps) Hydra
@@ -189,9 +264,10 @@ python -m experiments.training.train_adapter.start_train \
 ```bash
 # Перебор LR и accumulate_grad_batches (2×2 = 4 запуска)
 python -m experiments.training.train_adapter.start_train -m \
+  +experiment=arxiv_summarization \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042" \
-  experiment.training.lr=1e-4,5e-5 \
-  experiment.trainer.accumulate_grad_batches=4,8
+  training.lr=1e-4,5e-5 \
+  trainer.accumulate_grad_batches=4,8
 ```
 
 - Каждый запуск получит собственную папку `hydra.run.dir` и запись логов.
@@ -284,6 +360,7 @@ python -m experiments.training.train_adapter.start_train -m \
 ```bash
 # 1. Обучить адаптер (без регистрации в Registry)
 python -m experiments.training.train_adapter.start_train \
+  +experiment=arxiv_summarization \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042"
 
 # 2. Просмотреть результаты в MLflow UI, выбрать лучший run
@@ -365,6 +442,7 @@ assets/adapters/
 ```bash
 # 1. Обучить адаптер (метрики и артефакты логируются в MLflow)
 python -m experiments.training.train_adapter.start_train \
+  +experiment=arxiv_summarization \
   paths.project_root="C:/Users/user/MyGitRepos/agent-042"
 
 # 2. Посмотреть версии, метрики в MLflow UI, выбрать лучший run

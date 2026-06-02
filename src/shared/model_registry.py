@@ -36,15 +36,15 @@ Typical flow
 
 Environment variables
 ---------------------
-``MLFLOW_TRACKING_URI``
+``PLATFORM__MLFLOW_TRACKING_URI``
     MLflow tracking server URL (e.g. ``http://mlflow:5000``).
 ``MLFLOW_S3_ENDPOINT_URL``, ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``
     Credentials for downloading artifacts from S3.
-``REGISTRY_ADAPTERS_DIR``
+``REGISTRY__ADAPTERS_DIR``
     Where to store downloaded adapters (default ``./adapters``).
-``REGISTRY_SYNC_ALIASES``
+``REGISTRY__SYNC_ALIASES``
     Comma-separated list of MLflow aliases to sync (default ``champion,challenger``).
-``VLLM_BASE_URL``
+``PLATFORM__VLLM_BASE_URL``
     Canonical vLLM server URL for the hot-load API (default ``http://localhost:8000``).
 """
 
@@ -259,14 +259,14 @@ class AdapterRegistry:
 
         Args:
             alias: MLflow alias to look up.  When *None*, reads the default
-                from ``ModelRegistrySettings.production_alias``.  If the
+                from ``settings.registry.production_alias``.  If the
                 config value is also *None*, returns an empty dict (no
                 production adapters).
         """
         if alias is None:
-            from shared.config import get_registry_settings
+            from shared.config import get_settings
 
-            alias = get_registry_settings().production_alias
+            alias = get_settings().registry.production_alias
         if not alias:
             return {}
         try:
@@ -335,8 +335,9 @@ class AdapterSyncer:
     4. Loads desired adapters via the vLLM hot-load API.
 
     Args:
-        tracking_uri: MLflow tracking URI. Falls back to ``MLFLOW_TRACKING_URI``
-            from settings/env, then to the MLflow default.
+        tracking_uri: MLflow tracking URI. Falls back to
+            ``settings.platform.mlflow_tracking_uri`` /
+            ``PLATFORM__MLFLOW_TRACKING_URI``, then to the MLflow default.
         adapters_dir: Local root for downloaded adapter files.
         sync_aliases: List of MLflow aliases to iterate over.
         vllm_base_url: vLLM OpenAI-compatible server base URL.
@@ -350,16 +351,18 @@ class AdapterSyncer:
         sync_aliases: list[str] | None = None,
         vllm_base_url: str | None = None,
     ):
-        from shared.config import get_registry_settings
+        from shared.config import get_settings
 
-        cfg = get_registry_settings()
+        settings = get_settings()
+        registry = settings.registry
+        platform = settings.platform
 
         if sync_aliases is None:
-            sync_aliases = cfg.sync_aliases
+            sync_aliases = registry.sync_aliases
         if vllm_base_url is None:
-            vllm_base_url = cfg.vllm_base_url
+            vllm_base_url = platform.vllm_base_url
 
-        uri = tracking_uri or cfg.mlflow_tracking_uri
+        uri = tracking_uri or platform.mlflow_tracking_uri
         if uri:
             mlflow.set_tracking_uri(uri)
 
@@ -546,14 +549,14 @@ def _load_env(env_file: str | None) -> None:
 
 def _resolve_aliases(aliases: str | list | tuple | None):
     """Parse comma-separated aliases or fall back to config default."""
-    from shared.config import get_registry_settings
+    from shared.config import get_settings
 
-    cfg = get_registry_settings()
+    registry = get_settings().registry
     if aliases:
         if isinstance(aliases, (list, tuple)):
             return [a.strip() for a in aliases if a.strip()]
         return [a.strip() for a in aliases.split(",") if a.strip()]
-    return cfg.sync_aliases
+    return registry.sync_aliases
 
 
 def _cmd_sync(
@@ -563,15 +566,17 @@ def _cmd_sync(
     env_file: str | None = None,
 ) -> None:
     """Download and hot-load aliased adapters."""
-    from shared.config import get_registry_settings
+    from shared.config import get_settings
 
-    cfg = get_registry_settings()
+    settings = get_settings()
+    registry = settings.registry
+    platform = settings.platform
     _load_env(env_file)
 
     syncer = AdapterSyncer(
-        adapters_dir=adapters_dir or cfg.adapters_dir,
+        adapters_dir=adapters_dir or registry.adapters_dir,
         sync_aliases=_resolve_aliases(aliases),
-        vllm_base_url=vllm_url or cfg.vllm_base_url,
+        vllm_base_url=vllm_url or platform.vllm_base_url,
     )
     infos = syncer.sync()
     if infos:
@@ -587,15 +592,17 @@ def _cmd_list(
     env_file: str | None = None,
 ) -> None:
     """List aliased adapters in MLflow (no download)."""
-    from shared.config import get_registry_settings
+    from shared.config import get_settings
 
-    cfg = get_registry_settings()
+    settings = get_settings()
+    registry = settings.registry
+    platform = settings.platform
     _load_env(env_file)
 
     syncer = AdapterSyncer(
-        adapters_dir=cfg.adapters_dir,
+        adapters_dir=registry.adapters_dir,
         sync_aliases=_resolve_aliases(aliases),
-        vllm_base_url=cfg.vllm_base_url,
+        vllm_base_url=platform.vllm_base_url,
     )
     adapters = syncer.discover_aliased_adapters()
     if adapters:

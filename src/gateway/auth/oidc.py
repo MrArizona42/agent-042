@@ -11,7 +11,7 @@ import time
 import httpx
 import jwt
 
-from shared.config import Settings
+from shared.config import Settings, secret_value
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +25,10 @@ class OIDCClient:
     """Thin wrapper around Google's OIDC endpoints."""
 
     def __init__(self, settings: Settings) -> None:
-        self.client_id = settings.google_client_id
-        self.client_secret = settings.google_client_secret
-        self.redirect_uri = settings.google_redirect_uri
-        self.discovery_url = settings.google_discovery_url
+        self.client_id = settings.auth.google_client_id
+        self.client_secret = secret_value(settings.auth.google_client_secret) or ""
+        self.redirect_uri = settings.auth.google_redirect_uri
+        self.discovery_url = settings.auth.google_discovery_url
 
         # Cache for JWKS public keys
         self._jwks_client: jwt.PyJWKClient | None = None

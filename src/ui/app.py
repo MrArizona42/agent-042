@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import streamlit as st
 
-from shared.config import bootstrap_local_settings_env, get_settings
+from shared.config import get_settings
 from shared.vllm_payloads import canonicalize_assistant_content
 from ui.client import GatewayClient
-
-bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[2])
 
 st.set_page_config(page_title="agent-042", layout="wide")
 
@@ -60,7 +57,7 @@ st.caption("Streamlit UI → FastAPI Gateway → vLLM (OpenAI-compatible)")
 # Get settings (cached)
 settings = get_settings()
 
-gateway_url = settings.url
+gateway_url = settings.gateway.url
 
 # Forward the browser's session cookie to the Gateway backend
 _browser_session_id = st.context.cookies.get("session_id")

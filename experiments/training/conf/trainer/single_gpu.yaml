@@ -1,0 +1,17 @@
+defaults:
+  - base_trainer
+  - _self_
+
+# Single-GPU Lightning preset for the default local training environment.
+max_epochs: 1
+devices: 1
+accelerator: "gpu"  # Forces Lightning to stay on the CUDA device instead of falling back to CPU
+precision: "16-mixed"  # fp16 mixed precision for RTX 3060; matches model dtype and compute dtype
+gradient_clip_val: 1.0
+accumulate_grad_batches: 8  # Keeps effective batch reasonable while fitting VRAM
+log_every_n_steps: 10  # Frequent logs help monitor short experiments
+val_check_interval: 0.25  # Validate four times per epoch to catch divergence early
+num_sanity_val_steps: 0
+limit_train_batches: 1.0
+limit_val_batches: 1.0
+enable_progress_bar: true

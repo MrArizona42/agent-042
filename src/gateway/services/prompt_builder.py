@@ -11,6 +11,7 @@ from gateway.services.budget import (
     trim_history_pairs,
     trim_rag_chunks,
 )
+from shared.config import BudgetSettings
 
 
 @dataclass(frozen=True)
@@ -48,7 +49,7 @@ class PromptBuilder:
         request_messages: Sequence[Mapping[str, Any]],
         rag_chunks_by_source: Mapping[str, Sequence[Mapping[str, Any]]],
         rag_requested: bool,
-        settings: Any,
+        budget_settings: BudgetSettings,
     ) -> PromptBuildResult:
         base_system_prompt = self.build_base_system_prompt(task)
         system_messages = [
@@ -70,34 +71,34 @@ class PromptBuilder:
 
         current_turn_tokens = estimate_tokens(
             str(current_turn.get("content", "")),
-            settings.chars_per_token,
+            budget_settings.chars_per_token,
         )
         history_budget = compute_effective_history_budget(
-            min_budget_history=settings.min_budget_history,
-            budget_turn=settings.budget_turn,
+            min_budget_history=budget_settings.min_budget_history,
+            budget_turn=budget_settings.budget_turn,
             current_turn_tokens=current_turn_tokens,
         )
         trimmed_history = trim_history_pairs(
             history_messages,
             history_budget,
-            settings.chars_per_token,
+            budget_settings.chars_per_token,
         )
 
         system_prompt = base_system_prompt
         if system_messages:
             system_prompt += "\n\nAdditional caller instructions:\n" + "\n\n".join(system_messages)
 
-        system_prompt_tokens = estimate_tokens(system_prompt, settings.chars_per_token)
-        if system_prompt_tokens > settings.budget_system:
+        system_prompt_tokens = estimate_tokens(system_prompt, budget_settings.chars_per_token)
+        if system_prompt_tokens > budget_settings.budget_system:
             raise BudgetValidationError(
                 "System prompt exceeds the configured request budget. "
-                f"Estimated={system_prompt_tokens}, budget_system={settings.budget_system}."
+                f"Estimated={system_prompt_tokens}, budget_system={budget_settings.budget_system}."
             )
 
         trimmed_rag = trim_rag_chunks(
             rag_chunks_by_source,
-            settings.budget_rag,
-            settings.chars_per_token,
+            budget_settings.budget_rag,
+            budget_settings.chars_per_token,
         )
         rag_context = render_rag_sections(trimmed_rag)
         if rag_context:
@@ -118,11 +119,11 @@ class PromptBuilder:
         ]
 
         history_tokens = sum(
-            estimate_tokens(str(message.get("content", "")), settings.chars_per_token)
+            estimate_tokens(str(message.get("content", "")), budget_settings.chars_per_token)
             for message in trimmed_history
         )
         rag_tokens = sum(
-            estimate_tokens(str(chunk.get("content", "")), settings.chars_per_token)
+            estimate_tokens(str(chunk.get("content", "")), budget_settings.chars_per_token)
             for chunk in trimmed_rag_chunks
         )
 

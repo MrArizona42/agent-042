@@ -17,8 +17,8 @@ def list_alias_mappings(
 ) -> list[dict[str, str]]:
     """List alias-to-collection mappings visible in Qdrant."""
     settings = get_settings()
-    qdrant_host = qdrant_host or settings.qdrant_host
-    qdrant_port = qdrant_port or settings.qdrant_port
+    qdrant_host = qdrant_host or settings.platform.qdrant_host
+    qdrant_port = qdrant_port or settings.platform.qdrant_port
     vector_store = QdrantVectorStore(
         host=qdrant_host,
         port=qdrant_port,
@@ -39,8 +39,8 @@ def inspect_collection(
 ) -> dict[str, Any]:
     """Inspect a concrete collection and its metadata."""
     settings = get_settings()
-    qdrant_host = qdrant_host or settings.qdrant_host
-    qdrant_port = qdrant_port or settings.qdrant_port
+    qdrant_host = qdrant_host or settings.platform.qdrant_host
+    qdrant_port = qdrant_port or settings.platform.qdrant_port
     vector_store = QdrantVectorStore(
         host=qdrant_host,
         port=qdrant_port,
@@ -64,8 +64,8 @@ def inspect_alias(
 ) -> dict[str, Any]:
     """Inspect an alias, its resolved collection, and metadata."""
     settings = get_settings()
-    qdrant_host = qdrant_host or settings.qdrant_host
-    qdrant_port = qdrant_port or settings.qdrant_port
+    qdrant_host = qdrant_host or settings.platform.qdrant_host
+    qdrant_port = qdrant_port or settings.platform.qdrant_port
     alias_name = f"{kb_name}_{alias}"
     vector_store = QdrantVectorStore(
         host=qdrant_host,

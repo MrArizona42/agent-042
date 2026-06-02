@@ -7,10 +7,10 @@
 set -euo pipefail
 
 echo "=== adapter-sync: starting ==="
-echo "  MLflow URI       : ${MLFLOW_TRACKING_URI:-<not set>}"
-echo "  Adapters dir env : ${REGISTRY_ADAPTERS_DIR:-<shared default>}"
-echo "  vLLM URL env     : ${VLLM_BASE_URL:-<shared default>}"
-echo "  Sync aliases env : ${REGISTRY_SYNC_ALIASES:-<shared default>}"
+echo "  MLflow URI env   : ${PLATFORM__MLFLOW_TRACKING_URI:-<not set>}"
+echo "  Adapters dir env : ${REGISTRY__ADAPTERS_DIR:-<shared default>}"
+echo "  vLLM URL env     : ${PLATFORM__VLLM_BASE_URL:-<shared default>}"
+echo "  Sync aliases env : ${REGISTRY__SYNC_ALIASES:-<shared default>}"
 
 python -m shared.model_registry sync
 

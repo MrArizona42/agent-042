@@ -1,0 +1,4 @@
+# Base training configuration.
+# Common training hyperparameters can be defined here.
+
+seed: 42

@@ -12,22 +12,23 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from gateway.auth.oidc import OIDCClient
+from shared.config import Settings
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_settings(**overrides):
-    """Return a minimal Settings-like object for OIDCClient."""
-    defaults = {
+def _make_settings(**overrides) -> Settings:
+    """Return gateway settings with the auth section configured for OIDCClient."""
+    auth_values = {
         "google_client_id": "test-client-id.apps.googleusercontent.com",
         "google_client_secret": "test-client-secret",
         "google_redirect_uri": "https://example.com/auth/callback",
-        "google_discovery_url": "https://accounts.google.com/.well-known/openid-configuration",
+        "google_discovery_url": ("https://accounts.google.com/.well-known/openid-configuration"),
     }
-    defaults.update(overrides)
-    return MagicMock(**defaults)
+    auth_values.update(overrides.pop("auth", {}))
+    return Settings(auth=auth_values, **overrides)
 
 
 def _generate_rsa_keypair():

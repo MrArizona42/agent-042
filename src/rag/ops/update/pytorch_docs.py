@@ -17,7 +17,8 @@ from rag.ops.meta import build_collection_meta
 from rag.ops.update.common import load_update_collection_meta
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_kb_config, get_settings, validate_kb_alias
+from shared.config import get_settings
+from shared.operator_registry import get_kb_config, validate_kb_alias
 
 
 def update_pytorch_docs_collection(
@@ -33,8 +34,8 @@ def update_pytorch_docs_collection(
     settings = get_settings()
     alias = alias or get_kb_config(kb).default_alias
     validate_kb_alias(kb, alias)
-    qdrant_host = qdrant_host or settings.qdrant_host
-    qdrant_port = qdrant_port or settings.qdrant_port
+    qdrant_host = qdrant_host or settings.platform.qdrant_host
+    qdrant_port = qdrant_port or settings.platform.qdrant_port
 
     docs_path = Path(pytorch_docs_file)
     if not docs_path.exists():

@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from celery import Celery
 
-from shared.config import bootstrap_local_settings_env, get_worker_settings
+from shared.config import get_settings
 
-bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[2])
+settings = get_settings()
+platform = settings.platform
+worker = settings.worker
 
-settings = get_worker_settings()
+if not platform.celery_broker_url:
+    raise RuntimeError(
+        "PLATFORM__CELERY_BROKER_URL must be set for the worker process. "
+        "Set it as an environment variable."
+    )
 
 celery_app = Celery(
     "worker",
-    broker=settings.celery_broker_url,
+    broker=platform.celery_broker_url,
     # No result backend needed - we use Redis Pub/Sub for streaming
     include=["worker.tasks"],
 )
@@ -29,24 +33,24 @@ celery_app.conf.update(
     enable_utc=True,
     # Worker settings
     worker_prefetch_multiplier=1,  # Keep queue fairness when eval and UI share one broker queue
-    worker_concurrency=settings.worker_concurrency,
-    worker_pool=settings.worker_pool,
-    worker_send_task_events=settings.worker_send_task_events,
+    worker_concurrency=worker.concurrency,
+    worker_pool=worker.pool,
+    worker_send_task_events=worker.send_task_events,
     task_track_started=True,
     task_send_sent_event=True,
     worker_cancel_long_running_tasks_on_connection_loss=(
-        settings.worker_cancel_long_running_tasks_on_connection_loss
+        worker.cancel_long_running_tasks_on_connection_loss
     ),
     # Task acknowledgment
     task_acks_late=True,  # Ack after completion (allows retry on crash)
     task_reject_on_worker_lost=True,
     # Retry settings
-    task_default_retry_delay=settings.task_retry_delay,
-    task_max_retries=settings.task_max_retries,
+    task_default_retry_delay=worker.retry_delay,
+    task_max_retries=worker.max_retries,
     # Timeouts
-    task_soft_time_limit=settings.task_default_timeout - 10,
-    task_time_limit=settings.task_default_timeout,
+    task_soft_time_limit=worker.default_timeout - 10,
+    task_time_limit=worker.default_timeout,
     # Keep the broker connection alive for the full task duration.
-    broker_heartbeat=settings.task_default_timeout,
-    broker_transport_options={"heartbeat": settings.task_default_timeout},
+    broker_heartbeat=worker.default_timeout,
+    broker_transport_options={"heartbeat": worker.default_timeout},
 )

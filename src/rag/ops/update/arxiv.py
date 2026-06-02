@@ -13,7 +13,8 @@ from rag.ops.materialize import batch_embed_and_upsert
 from rag.ops.update.common import load_update_collection_meta
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_kb_config, get_settings, validate_kb_alias
+from shared.config import get_settings
+from shared.operator_registry import get_kb_config, validate_kb_alias
 
 _POINT_ID_NS = uuid.UUID("b8c9d0e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e")
 
@@ -31,8 +32,8 @@ def update_arxiv_collection(
     settings = get_settings()
     alias = alias or get_kb_config(kb).default_alias
     validate_kb_alias(kb, alias)
-    qdrant_host = qdrant_host or settings.qdrant_host
-    qdrant_port = qdrant_port or settings.qdrant_port
+    qdrant_host = qdrant_host or settings.platform.qdrant_host
+    qdrant_port = qdrant_port or settings.platform.qdrant_port
 
     arxiv_path = Path(arxiv_file)
     if not arxiv_path.exists():

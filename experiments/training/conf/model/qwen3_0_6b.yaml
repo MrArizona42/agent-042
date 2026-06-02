@@ -1,0 +1,6 @@
+defaults:
+  - base_model
+  - _self_
+
+name: Qwen3-0.6B
+local_path: "${paths.project_root}/assets/models/Qwen/Qwen3-0.6B"

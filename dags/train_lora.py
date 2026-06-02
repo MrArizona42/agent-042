@@ -11,7 +11,7 @@ validation score recorded in ``training_summary.json``.
 in ``experiments/training/lora_ops.ipynb`` after inspecting the training run.
 
 Params (Airflow UI):
-    experiment_config : Hydra experiment config name (default: train_adapter)
+    experiment_config : optional Hydra experiment preset name (default: arxiv_summarization)
     hydra_overrides   : JSON list of Hydra override strings
 """
 
@@ -47,13 +47,20 @@ def _train_adapter(**context) -> str:
     task_instance = context["ti"]
     dag_run = context.get("dag_run")
 
+    if not experiment_config:
+        raise ValueError(
+            "experiment_config is required. Provide a preset name "
+            "(e.g. 'arxiv_summarization') or set all required Hydra groups "
+            "via hydra_overrides."
+        )
+
     cmd = [
         "python",
         "-m",
         "experiments.training.train_adapter.start_train",
-        f"experiment={experiment_config}",
-        *overrides,
     ]
+    cmd.append(f"+experiment={experiment_config}")
+    cmd.extend(overrides)
 
     env = {
         **os.environ,
@@ -69,7 +76,7 @@ def _train_adapter(**context) -> str:
         f"  dag={context['dag'].dag_id} \n"
         f"  run_id={env['AIRFLOW_CTX_DAG_RUN_ID']}"
     )
-    print(f"Experiment config: {experiment_config}")
+    print(f"Experiment preset: {experiment_config}")
     if overrides:
         print("Hydra overrides:")
         for item in overrides:
@@ -114,10 +121,13 @@ with DAG(
     tags=["training", "lora"],
     params={
         "experiment_config": Param(
-            default="train_adapter",
+            default="arxiv_summarization",
             type="string",
             description=(
-                "Hydra experiment config name under experiments/training/conf/experiment/"
+                "Hydra experiment preset under experiments/training/conf/experiment/. "
+                "Selects the task/dataset/model/lora/data/training/scheduler groups in one "
+                "argument. Required — all seven groups must be satisfied either by this preset "
+                "or via explicit entries in hydra_overrides."
             ),
         ),
         "hydra_overrides": Param(
@@ -126,9 +136,9 @@ with DAG(
             description=(
                 "JSON list of Hydra override strings in key=value format. "
                 "Example: "
-                '["experiment.training.lr=2e-5", '
-                '"experiment.lora.r=16", '
-                '"experiment.trainer.max_epochs=3"]'
+                '["training.lr=2e-5", '
+                '"lora.r=16", '
+                '"trainer.max_epochs=3"]'
             ),
         ),
     },

@@ -1,0 +1,13 @@
+defaults:
+  - base_dataset
+  - _self_
+
+name: arxiv-summarization
+local_path: "${paths.project_root}/assets/datasets/arxiv-summarization"
+train_split: train
+validation_split: validation
+validation_fraction: 0.0
+split_seed: 42
+prompt_field_map:
+  article: article
+target_field: abstract

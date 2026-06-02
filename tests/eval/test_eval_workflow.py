@@ -18,8 +18,8 @@ from qdrant_client.models import SparseVector
 from rag.vector_store import Document
 
 # Ensure settings don't require live services
-os.environ.setdefault("GATEWAY_RAG_ENABLED", "false")
-os.environ.setdefault("EVAL_JUDGE_MODEL", "/models/Qwen/Qwen3-0.6B")
+os.environ.setdefault("RAG__RAG_ENABLED", "false")
+os.environ.setdefault("EVAL__JUDGE__MODEL", "/models/Qwen/Qwen3-0.6B")
 
 
 # ---------------------------------------------------------------------------
@@ -33,14 +33,10 @@ def _reset_settings_caches():
     import shared.config as cfg
 
     cfg.get_settings.cache_clear()
-    cfg.get_eval_settings.cache_clear()
-    cfg._KB_REGISTRY = None
-    cfg._KB_INDEX = None
+    cfg.clear_knowledge_base_caches()
     yield
     cfg.get_settings.cache_clear()
-    cfg.get_eval_settings.cache_clear()
-    cfg._KB_REGISTRY = None
-    cfg._KB_INDEX = None
+    cfg.clear_knowledge_base_caches()
 
 
 # ---------------------------------------------------------------------------
@@ -127,40 +123,47 @@ class TestEvalSettings:
     """Tests for the EvalSettings configuration."""
 
     def test_defaults(self):
-        from shared.config import get_eval_settings
+        from shared.config import get_settings
 
-        s = get_eval_settings()
-        resolved_judge = s.resolve_judge_settings()
+        settings = get_settings()
+        s = settings.eval
+        resolved_judge = s.resolve_judge_settings(settings.platform)
 
-        assert s.judge_backend == "local_vllm"
-        assert s.judge_model == "/models/Qwen/Qwen3-0.6B"
+        assert s.judge.backend == "local_vllm"
+        assert s.judge.model == "/models/Qwen/Qwen3-0.6B"
         assert resolved_judge.backend == "local_vllm"
         assert resolved_judge.model == "/models/Qwen/Qwen3-0.6B"
         assert resolved_judge.base_url == "http://localhost:8000"
-        assert s.temperature == 0.0
-        assert s.max_completion_tokens == 2048
-        assert s.code_exec_timeout == 30
-        assert s.code_exec_mem_limit == "512m"
-        assert s.bert_score_model == "microsoft/deberta-v3-base"
+        assert s.metrics.temperature == 0.0
+        assert s.metrics.max_completion_tokens == 2048
+        assert s.sandbox.code_exec_timeout == 30
+        assert s.sandbox.code_exec_mem_limit == "512m"
+        assert s.metrics.bert_score_model == "microsoft/deberta-v3-base"
+        assert s.judge.backend == "local_vllm"
+        assert s.metrics.max_completion_tokens == 2048
+        assert s.sandbox.code_exec_timeout == 30
 
     def test_env_override(self, monkeypatch):
-        from shared.config import EvalSettings
+        from shared.config import load_settings
 
-        monkeypatch.setenv("EVAL_JUDGE_MODEL", "judge-model")
-        monkeypatch.setenv("EVAL_JUDGE_BACKEND", "openai_compatible")
-        monkeypatch.setenv("EVAL_JUDGE_BASE_URL", "https://judge.example")
-        monkeypatch.setenv("EVAL_JUDGE_API_KEY", "secret")
-        monkeypatch.setenv("EVAL_TEMPERATURE", "0.7")
-        s = EvalSettings()
-        resolved_judge = s.resolve_judge_settings()
+        monkeypatch.setenv("EVAL__JUDGE__MODEL", "judge-model")
+        monkeypatch.setenv("EVAL__JUDGE__BACKEND", "openai_compatible")
+        monkeypatch.setenv("EVAL__JUDGE__BASE_URL", "https://judge.example")
+        monkeypatch.setenv("EVAL__JUDGE__API_KEY", "secret")
+        monkeypatch.setenv("EVAL__METRICS__TEMPERATURE", "0.7")
+        settings = load_settings()
+        s = settings.eval
+        resolved_judge = s.resolve_judge_settings(settings.platform)
 
-        assert s.judge_backend == "openai_compatible"
-        assert s.judge_model == "judge-model"
+        assert s.judge.backend == "openai_compatible"
+        assert s.judge.model == "judge-model"
         assert resolved_judge.backend == "openai_compatible"
         assert resolved_judge.model == "judge-model"
         assert resolved_judge.base_url == "https://judge.example"
         assert resolved_judge.api_key == "secret"
-        assert s.temperature == 0.7
+        assert s.metrics.temperature == 0.7
+        assert s.judge.base_url == "https://judge.example"
+        assert s.metrics.temperature == 0.7
 
 
 # ---------------------------------------------------------------------------
@@ -1149,18 +1152,22 @@ class TestFetchPredictionsRagSelection:
         from experiments.eval.eval_scripts.runner import fetch_predictions
 
         eval_settings = types.SimpleNamespace(
-            temperature=0.0,
+            metrics=types.SimpleNamespace(
+                temperature=0.0,
+                bert_score_model="bert-model",
+                max_completion_tokens=256,
+            ),
             judge_backend="local_vllm",
             judge_model="judge-model",
-            bert_score_model="bert-model",
-            max_completion_tokens=256,
+            vllm_base_url="http://localhost:8000",
         )
-        settings = types.SimpleNamespace(default_model="base-model")
+        settings = types.SimpleNamespace(
+            platform=types.SimpleNamespace(vllm_base_url="http://localhost:8000"),
+            gateway=types.SimpleNamespace(default_model="base-model"),
+            eval=eval_settings,
+        )
 
         with (
-            patch(
-                "experiments.eval.eval_scripts.runner.get_eval_settings", return_value=eval_settings
-            ),
             patch("experiments.eval.eval_scripts.runner.get_settings", return_value=settings),
             patch(
                 "experiments.eval.eval_scripts.runner._fetch_generation_predictions",
@@ -1198,18 +1205,22 @@ class TestFetchPredictionsRagSelection:
         from experiments.eval.eval_scripts.runner import fetch_predictions
 
         eval_settings = types.SimpleNamespace(
-            temperature=0.0,
+            metrics=types.SimpleNamespace(
+                temperature=0.0,
+                bert_score_model="bert-model",
+                max_completion_tokens=256,
+            ),
             judge_backend="local_vllm",
             judge_model="judge-model",
-            bert_score_model="bert-model",
-            max_completion_tokens=256,
+            vllm_base_url="http://localhost:8000",
         )
-        settings = types.SimpleNamespace(default_model="base-model")
+        settings = types.SimpleNamespace(
+            platform=types.SimpleNamespace(vllm_base_url="http://localhost:8000"),
+            gateway=types.SimpleNamespace(default_model="base-model"),
+            eval=eval_settings,
+        )
 
         with (
-            patch(
-                "experiments.eval.eval_scripts.runner.get_eval_settings", return_value=eval_settings
-            ),
             patch("experiments.eval.eval_scripts.runner.get_settings", return_value=settings),
             patch(
                 "experiments.eval.eval_scripts.runner._fetch_generation_predictions",
@@ -1394,10 +1405,12 @@ class TestRetrievalEvalParity:
             reranker_multiplier=4,
         )
         mock_settings = types.SimpleNamespace(
-            qdrant_host="localhost",
-            qdrant_port=6333,
-            embeddings_url="http://embeddings:8100",
-            sparse_encoder_model="Qdrant/bm25",
+            platform=types.SimpleNamespace(
+                qdrant_host="localhost",
+                qdrant_port=6333,
+                embeddings_url="http://embeddings:8100",
+            ),
+            rag=types.SimpleNamespace(sparse_encoder_model="Qdrant/bm25"),
         )
         mock_retriever = MagicMock()
         mock_retriever.retrieve.return_value = [

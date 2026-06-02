@@ -114,8 +114,6 @@ def load_dataset_samples(task: str, dataset_name: str) -> list[dict[str, str]]:
         List of sample dicts with at least ``question`` and ``answer`` keys
         (or ``prompt`` and ``test`` for code tasks).
     """
-    from datasets import load_from_disk
-
     if dataset_name not in DATASET_LOCAL:
         logger.warning("Unknown dataset: %s", dataset_name)
         return []
@@ -130,6 +128,8 @@ def load_dataset_samples(task: str, dataset_name: str) -> list[dict[str, str]]:
             dataset_path,
         )
         return []
+
+    from datasets import load_from_disk
 
     ds_dict = load_from_disk(str(dataset_path))
 

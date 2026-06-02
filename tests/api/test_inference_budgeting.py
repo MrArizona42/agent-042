@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from gateway.services.budget import (
@@ -10,6 +8,7 @@ from gateway.services.budget import (
     trim_rag_chunks,
 )
 from gateway.services.prompt_builder import PromptBuilder
+from shared.config import BudgetSettings
 from shared.vllm_payloads import (
     ResponseBudgetExceededError,
     apply_response_token_budget,
@@ -18,8 +17,8 @@ from shared.vllm_payloads import (
 )
 
 
-def _settings(**overrides):
-    return SimpleNamespace(
+def _budget_settings(**overrides):
+    return BudgetSettings(
         chars_per_token=4.0,
         budget_guard=8,
         budget_system=200,
@@ -127,7 +126,7 @@ def test_prompt_builder_trims_history_and_rag_into_messages() -> None:
             ]
         },
         rag_requested=True,
-        settings=_settings(),
+        budget_settings=_budget_settings(),
     )
 
     assert result.messages[0]["role"] == "system"

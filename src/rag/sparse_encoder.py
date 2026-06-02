@@ -25,8 +25,11 @@ class SparseEncoderService:
 
     def __init__(self, embeddings_url: str | None = None) -> None:
         settings = get_settings()
-        base_url = (embeddings_url or settings.embeddings_url).rstrip("/")
-        self._client = httpx.Client(base_url=base_url, timeout=settings.embeddings_timeout)
+        base_url = (embeddings_url or settings.platform.embeddings_url).rstrip("/")
+        self._client = httpx.Client(
+            base_url=base_url,
+            timeout=settings.gateway.embeddings_timeout,
+        )
         logger.info(f"SparseEncoderService connecting to {base_url}")
 
     def encode_documents(self, texts: list[str]) -> list[SparseVector]:

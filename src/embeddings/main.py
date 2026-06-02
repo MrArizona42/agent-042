@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import AsyncIterator, List
 
 from fastapi import FastAPI, HTTPException
@@ -18,11 +17,9 @@ from fastembed.sparse import SparseTextEmbedding
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
-from shared.config import bootstrap_local_settings_env, get_settings
+from shared.config import get_settings
 
 logger = logging.getLogger(__name__)
-
-bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[2])
 
 # ---------------------------------------------------------------------------
 # Request / response schemas
@@ -85,15 +82,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load the embedding model on startup."""
     global _model, _sparse_model
     settings = get_settings()
-    logger.info(
-        f"Loading embedding model: {settings.embedding_model} on device: "
-        f"{settings.embedding_device}"
-    )
-    _model = SentenceTransformer(settings.embedding_model, device=settings.embedding_device)
+    rag = settings.rag
+    logger.info(f"Loading embedding model: {rag.embedding_model} on device: {rag.embedding_device}")
+    _model = SentenceTransformer(rag.embedding_model, device=rag.embedding_device)
     dimension = _model.get_sentence_embedding_dimension()
     logger.info(f"Embedding model loaded — dimension: {dimension}")
-    logger.info(f"Loading sparse encoder model: {settings.sparse_encoder_model}")
-    _sparse_model = SparseTextEmbedding(settings.sparse_encoder_model)
+    logger.info(f"Loading sparse encoder model: {rag.sparse_encoder_model}")
+    _sparse_model = SparseTextEmbedding(rag.sparse_encoder_model)
     logger.info("Sparse encoder model loaded")
     yield
     _model = None
@@ -118,7 +113,7 @@ def dimension() -> DimensionResponse:
         raise HTTPException(status_code=503, detail="Model not loaded")
     settings = get_settings()
     dim = _model.get_sentence_embedding_dimension()
-    return DimensionResponse(dimension=dim, model=settings.embedding_model)
+    return DimensionResponse(dimension=dim, model=settings.rag.embedding_model)
 
 
 @app.post("/v1/embeddings", response_model=EmbeddingsResponse)
@@ -127,17 +122,18 @@ def embed(request: EmbeddingsRequest) -> EmbeddingsResponse:
     if _model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
     settings = get_settings()
+    rag = settings.rag
 
     if not request.input:
         return EmbeddingsResponse(
             data=[],
-            model=settings.embedding_model,
+            model=rag.embedding_model,
             dimension=_model.get_sentence_embedding_dimension(),
         )
 
     vectors = _model.encode(
         request.input,
-        batch_size=settings.embedding_batch_size,
+        batch_size=rag.embedding_batch_size,
         show_progress_bar=False,
         convert_to_numpy=True,
     )
@@ -146,7 +142,7 @@ def embed(request: EmbeddingsRequest) -> EmbeddingsResponse:
 
     return EmbeddingsResponse(
         data=data,
-        model=settings.embedding_model,
+        model=rag.embedding_model,
         dimension=_model.get_sentence_embedding_dimension(),
     )
 
@@ -157,9 +153,10 @@ def sparse_embed(request: EmbeddingsRequest) -> SparseEmbeddingsResponse:
     if _sparse_model is None:
         raise HTTPException(status_code=503, detail="Sparse model not loaded")
     settings = get_settings()
+    rag = settings.rag
 
     if not request.input:
-        return SparseEmbeddingsResponse(data=[], model=settings.sparse_encoder_model)
+        return SparseEmbeddingsResponse(data=[], model=rag.sparse_encoder_model)
 
     sparse_vecs = list(_sparse_model.embed(request.input))
     data = [
@@ -170,4 +167,4 @@ def sparse_embed(request: EmbeddingsRequest) -> SparseEmbeddingsResponse:
         )
         for i, vec in enumerate(sparse_vecs)
     ]
-    return SparseEmbeddingsResponse(data=data, model=settings.sparse_encoder_model)
+    return SparseEmbeddingsResponse(data=data, model=rag.sparse_encoder_model)

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any, NamedTuple
 
 import pytorch_lightning as pl
 import torch
 from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from .config import load_app_config
 from .lit_module import PeftCausalLMModule
@@ -21,6 +22,14 @@ from .mlflow_utils import (
     teardown_mlflow,
 )
 from .modeling import build_model_and_tokenizer
+
+
+class TrainingResult(NamedTuple):
+    run_id: str
+    save_dir: str
+    run_artifacts_dir: str
+    summary_path: str
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,50 +118,51 @@ def _restore_best_checkpoint_for_export(
 
 def run_training(
     cfg: DictConfig,
-) -> Tuple[str, str, str, str]:
+) -> TrainingResult:
     """Run a full training loop.
 
-    Accepts a raw Hydra ``DictConfig`` so that ``hydra.utils.instantiate``
-    can build the trainer and callbacks from ``_target_`` entries.  Domain
-    configs (model, data, lora …) are still accessed through the typed
-    ``AppConfig`` produced by :func:`load_app_config`.
+    Accepts the raw Hydra ``DictConfig`` at the composition boundary, then
+    converts it into a typed ``AppConfig`` for domain logic and factory
+    instantiation.  The raw config is retained only to capture an exact
+    resolved snapshot for lineage metadata.
     """
     app_cfg = load_app_config(cfg)
     project_root = Path(app_cfg.paths.project_root)
 
-    if app_cfg.experiment.seed is not None:
-        pl.seed_everything(app_cfg.experiment.seed, workers=True)
+    if app_cfg.training.seed is not None:
+        pl.seed_everything(app_cfg.training.seed, workers=True)
 
     # Create MLflow logger for Lightning
-    mlf_logger = setup_mlflow(app_cfg, cfg)
+    mlf_logger = setup_mlflow(app_cfg)
 
     try:
         # Upload Hydra config as artifacts early
-        if app_cfg.experiment.tracking.log_artifacts:
+        if app_cfg.tracking.log_artifacts:
             log_hydra_artifacts_via_logger(mlf_logger)
 
         model, tokenizer = build_model_and_tokenizer(app_cfg)
 
-        data_cfg = app_cfg.experiment.data
-        dataset_path = Path(data_cfg.local_path)
+        data_cfg = app_cfg.data
+        dataset_path = Path(app_cfg.dataset.local_path)
         if not dataset_path.is_absolute():
             dataset_path = project_root / dataset_path
         if not dataset_path.exists():
             raise FileNotFoundError(f"Dataset path not found: {dataset_path}")
-        data_cfg.local_path = str(dataset_path)
+        dataset_cfg = dataclasses.replace(app_cfg.dataset, local_path=str(dataset_path))
 
         datamodule = instantiate(
-            cfg.experiment.data_module,
+            app_cfg.data_module,
             tokenizer=tokenizer,
+            task_cfg=app_cfg.task,
+            dataset_cfg=dataset_cfg,
             data_cfg=data_cfg,
         )
 
-        scheduler_cfg = app_cfg.experiment.scheduler
         lightning_module = PeftCausalLMModule(
             model=model,
-            lr=app_cfg.experiment.training.lr,
-            weight_decay=app_cfg.experiment.training.weight_decay,
-            scheduler_cfg=scheduler_cfg.__dict__ if scheduler_cfg else None,
+            lr=app_cfg.training.lr,
+            weight_decay=app_cfg.training.weight_decay,
+            scheduler_cfg=app_cfg.scheduler,
         )
 
         artifacts_dir = project_root / "artifacts" / "training"
@@ -172,20 +182,19 @@ def run_training(
             trainable_param_count=trainable_param_count,
         )
 
-        # ── Instantiate callbacks from config ──────────────────────────
+        # ── Instantiate callbacks from typed factory config ────────────
         checkpoint_cb = instantiate(
-            cfg.experiment.callbacks.checkpoint,
+            app_cfg.callbacks.checkpoint,
             dirpath=str(run_artifacts_dir / "checkpoints"),
         )
         callbacks = [checkpoint_cb]
 
-        es_cfg = OmegaConf.select(cfg, "experiment.callbacks.early_stopping")
-        if es_cfg is not None:
-            callbacks.append(instantiate(es_cfg))
+        if app_cfg.callbacks.early_stopping is not None:
+            callbacks.append(instantiate(app_cfg.callbacks.early_stopping))
 
-        # ── Instantiate trainer from config ────────────────────────────
+        # ── Instantiate trainer from typed factory config ──────────────
         trainer = instantiate(
-            cfg.experiment.trainer,
+            app_cfg.trainer,
             callbacks=callbacks,
             logger=mlf_logger,
             default_root_dir=str(run_artifacts_dir),
@@ -214,7 +223,7 @@ def run_training(
         )
 
         # Upload saved adapter/tokenizer as MLflow artifacts
-        if app_cfg.experiment.tracking.log_artifacts:
+        if app_cfg.tracking.log_artifacts:
             try:
                 mlf_logger.experiment.log_artifacts(
                     mlf_logger.run_id, str(save_dir), artifact_path="model"
@@ -230,11 +239,11 @@ def run_training(
             best_model_score if best_model_score is not None else "n/a",
         )
 
-        return (
-            mlf_logger.run_id,
-            str(save_dir),
-            str(run_artifacts_dir),
-            str(summary_path),
+        return TrainingResult(
+            run_id=mlf_logger.run_id,
+            save_dir=str(save_dir),
+            run_artifacts_dir=str(run_artifacts_dir),
+            summary_path=str(summary_path),
         )
     finally:
         teardown_mlflow()

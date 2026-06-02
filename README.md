@@ -4,7 +4,21 @@
 
 * `./infra/README.md` - настройка окружения и инфраструктуры
 * `./experiments/README.md` - как проводить эксперименты и operator workflows
-* `./CONFIG-CONTRACT.md` - краткое описание конфигов
+* `./CONFIG-REFACTOR-PLAN.md` - план упрощения и перестройки runtime-конфигов
+
+## Контракт конфигурации
+
+Runtime-конфигурация Python-сервисов теперь фиксируется так:
+
+* единственная env-loading boundary - root `Settings(BaseSettings)` в `src/shared/config.py`
+* канонические runtime env names используют nested shape `SECTION__FIELD`
+* operator registry schema и loader живут в `src/shared/operator_registry.py`, а не в `shared.config`
+
+Практически это означает:
+
+* для runtime-настроек используйте имена вроде `GATEWAY__DEFAULT_MODEL`, `RAG__EMBEDDING_MODEL`, `REGISTRY__SYNC_ALIASES`, `EVAL__JUDGE__MODEL`
+* flat compatibility aliases для runtime env больше не поддерживаются
+* если нужен operator-facing env key, он должен быть задокументирован в `.env.example` и `infra/README.md`
 
 ## Цель проекта и позиционирование
 

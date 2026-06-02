@@ -1,3 +1,11 @@
+# quick reminder
+# optional dependencies - published with the package
+# dependency groups - for local development workflows
+# uv sync -> sync base + dev dependency group
+# uv sync --no-dev -> sync base without dev group
+# uv sync --group test (or --all-groups) -> sync with groups
+# uv sync --extra foo (or --all-extras) -> sync with optional deps
+
 [project]
 name = "agent-042"
 version = "0.1.0"
