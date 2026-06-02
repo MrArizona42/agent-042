@@ -1094,9 +1094,7 @@ class TestLegacyMetadataHandling:
             patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
             patch("gateway.services.rag_service.get_settings") as mock_get_settings,
         ):
-            mock_settings = _make_gateway_settings(
-                rag={"sparse_encoder_model": "other/model"}
-            )
+            mock_settings = _make_gateway_settings(rag={"sparse_encoder_model": "other/model"})
             mock_get_settings.return_value = mock_settings
 
             mock_embedding = mock_embedding_cls.return_value

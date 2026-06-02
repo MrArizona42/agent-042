@@ -204,11 +204,7 @@ def _effective_batch_size(cfg: AppConfig) -> int:
         num_devices = max(1, len(devices))
     else:
         num_devices = 1
-    return (
-        int(cfg.data.batch_size)
-        * int(cfg.trainer.accumulate_grad_batches)
-        * num_devices
-    )
+    return int(cfg.data.batch_size) * int(cfg.trainer.accumulate_grad_batches) * num_devices
 
 
 def _dataset_name(cfg: AppConfig) -> str:

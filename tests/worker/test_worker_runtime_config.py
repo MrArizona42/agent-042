@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-os.environ.setdefault("CELERY_BROKER_URL", "amqp://guest:guest@localhost:5672//")
+os.environ.setdefault("PLATFORM__CELERY_BROKER_URL", "amqp://guest:guest@localhost:5672//")
 
 from gateway.services.celery_client import CeleryClient
 from shared.config import load_settings
@@ -19,7 +19,9 @@ def test_celery_client_emits_sent_events_for_flower() -> None:
 
 
 def test_worker_settings_default_to_observable_prefork_runtime() -> None:
-    settings = load_settings(overrides={"platform": {"celery_broker_url": "amqp://guest:guest@localhost:5672//"}})
+    settings = load_settings(
+        overrides={"platform": {"celery_broker_url": "amqp://guest:guest@localhost:5672//"}}
+    )
     worker = settings.worker
 
     assert worker.pool == "prefork"

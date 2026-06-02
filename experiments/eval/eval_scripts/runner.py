@@ -559,9 +559,7 @@ def _resolve_judge_settings(
     resolve = getattr(type(eval_settings), "resolve_judge_settings", None)
     if callable(resolve):
         effective_platform = (
-            platform
-            or _object_attr(eval_settings, "platform", None)
-            or get_settings().platform
+            platform or _object_attr(eval_settings, "platform", None) or get_settings().platform
         )
         base = eval_settings.resolve_judge_settings(effective_platform)
     else:

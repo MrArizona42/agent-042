@@ -25,9 +25,7 @@ def _make_settings(**overrides) -> Settings:
         "google_client_id": "test-client-id.apps.googleusercontent.com",
         "google_client_secret": "test-client-secret",
         "google_redirect_uri": "https://example.com/auth/callback",
-        "google_discovery_url": (
-            "https://accounts.google.com/.well-known/openid-configuration"
-        ),
+        "google_discovery_url": ("https://accounts.google.com/.well-known/openid-configuration"),
     }
     auth_values.update(overrides.pop("auth", {}))
     return Settings(auth=auth_values, **overrides)

@@ -109,10 +109,12 @@ def test_compose_training_cfg_supports_code_generation_preset():
 
 
 def test_compose_training_cfg_supports_long_context_data_preset():
-    raw_cfg = _compose_training_cfg([
-        "+experiment=open_code_instruct_qwen",
-        "data=sft_1536_tokens",
-    ])
+    raw_cfg = _compose_training_cfg(
+        [
+            "+experiment=open_code_instruct_qwen",
+            "data=sft_1536_tokens",
+        ]
+    )
 
     assert raw_cfg.task.name == "code_generation"
     assert raw_cfg.data.max_seq_length == 1536
@@ -137,8 +139,7 @@ def test_setup_mlflow_instantiates_from_typed_logger_config():
             return_value=fake_logger,
         ) as mock_instantiate,
     ):
-        result = setup_mlflow(app_cfg, app_cfg.logger)
-
+        result = setup_mlflow(app_cfg)
     assert result is fake_logger
     args, kwargs = mock_instantiate.call_args
     assert args[0] == app_cfg.logger

@@ -6,7 +6,7 @@ import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-os.environ.setdefault("CELERY_BROKER_URL", "amqp://guest:guest@localhost//")
+os.environ.setdefault("PLATFORM__CELERY_BROKER_URL", "amqp://guest:guest@localhost//")
 
 from gateway.schemas.openai_chat import ChatCompletionRequest
 from gateway.services.processing import PreparedChatRequest, _ProcessChat
@@ -157,7 +157,7 @@ def test_async_chat_threads_request_id_and_new_event_types() -> None:
 
         with patch(
             "gateway.services.processing.get_settings",
-            return_value=SimpleNamespace(streaming_timeout=1.0),
+            return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
                 stream = await process.stream_chat(req, request_id="req-from-route")
@@ -193,7 +193,7 @@ def test_async_stream_timeout_revokes_stalled_task() -> None:
 
         with patch(
             "gateway.services.processing.get_settings",
-            return_value=SimpleNamespace(streaming_timeout=1.0),
+            return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
                 generator = await process.stream_chat(req, request_id="req-timeout")
@@ -231,7 +231,7 @@ def test_async_stream_close_revokes_inflight_task() -> None:
 
         with patch(
             "gateway.services.processing.get_settings",
-            return_value=SimpleNamespace(streaming_timeout=1.0),
+            return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
                 generator = await process.stream_chat(req, request_id="req-close")

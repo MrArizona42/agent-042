@@ -83,10 +83,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _model, _sparse_model
     settings = get_settings()
     rag = settings.rag
-    logger.info(
-        f"Loading embedding model: {rag.embedding_model} on device: "
-        f"{rag.embedding_device}"
-    )
+    logger.info(f"Loading embedding model: {rag.embedding_model} on device: {rag.embedding_device}")
     _model = SentenceTransformer(rag.embedding_model, device=rag.embedding_device)
     dimension = _model.get_sentence_embedding_dimension()
     logger.info(f"Embedding model loaded — dimension: {dimension}")

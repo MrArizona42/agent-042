@@ -79,7 +79,7 @@ def test_async_streaming_emits_answer_only_chunks_and_persists_on_done() -> None
 
         with patch(
             "gateway.services.processing.get_settings",
-            return_value=SimpleNamespace(streaming_timeout=1.0),
+            return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
                 generator = await process.stream_chat(
@@ -153,7 +153,7 @@ def test_async_streaming_error_emits_error_chunk_and_skips_persistence() -> None
 
         with patch(
             "gateway.services.processing.get_settings",
-            return_value=SimpleNamespace(streaming_timeout=1.0),
+            return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
                 generator = await process.stream_chat(
@@ -193,7 +193,7 @@ def test_async_rich_stream_emits_named_events_and_persists_on_done() -> None:
 
         with patch(
             "gateway.services.processing.get_settings",
-            return_value=SimpleNamespace(streaming_timeout=1.0),
+            return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
                 generator = await process.stream_chat(
@@ -254,7 +254,7 @@ def test_async_rich_stream_error_emits_named_error_event() -> None:
 
         with patch(
             "gateway.services.processing.get_settings",
-            return_value=SimpleNamespace(streaming_timeout=1.0),
+            return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
                 generator = await process.stream_chat(

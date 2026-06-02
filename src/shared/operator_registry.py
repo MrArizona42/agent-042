@@ -333,9 +333,7 @@ def _get_loaded_knowledge_base_state(
     return _load_knowledge_bases_cached(str(path))
 
 
-def get_knowledge_bases(
-    *, settings: RegistryPathSettings | None = None
-) -> dict[str, TaskConfig]:
+def get_knowledge_bases(*, settings: RegistryPathSettings | None = None) -> dict[str, TaskConfig]:
     """Return the knowledge-base registry (cached after first call)."""
 
     registry, _ = _get_loaded_knowledge_base_state(settings=settings)

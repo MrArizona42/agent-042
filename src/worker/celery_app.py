@@ -11,7 +11,10 @@ platform = settings.platform
 worker = settings.worker
 
 if not platform.celery_broker_url:
-    raise RuntimeError("CELERY_BROKER_URL must be set for the worker process")
+    raise RuntimeError(
+        "PLATFORM__CELERY_BROKER_URL must be set for the worker process. "
+        "Set it as an environment variable."
+    )
 
 celery_app = Celery(
     "worker",

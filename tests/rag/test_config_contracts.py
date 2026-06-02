@@ -317,8 +317,10 @@ class TestKnowledgeBaseRegistryResolution:
         settings = RegistryConfig(operator_registry_path="configs/operator_registry.toml")
 
         assert settings.operator_registry_path == Path("configs/operator_registry.toml")
-        assert resolve_knowledge_bases_path(settings).as_posix().endswith(
-            "configs/operator_registry.toml"
+        assert (
+            resolve_knowledge_bases_path(settings)
+            .as_posix()
+            .endswith("configs/operator_registry.toml")
         )
 
     def test_get_knowledge_bases_prefers_registry_settings_path(self, tmp_path: Path, monkeypatch):
@@ -531,9 +533,7 @@ class TestKnowledgeBaseRegistryResolution:
 
         assert list(first_registry) == ["chat"]
         assert list(second_registry) == ["code"]
-        assert get_kb_names(
-            settings=RegistryConfig(operator_registry_path=str(second))
-        ) == [
+        assert get_kb_names(settings=RegistryConfig(operator_registry_path=str(second))) == [
             "pytorch_docs"
         ]
 
@@ -594,8 +594,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert registry["chat"].knowledge_bases[0].name == "arxiv"
         assert registry["code"].knowledge_bases[0].name == "arxiv"
         assert (
-            index["arxiv"].aliases["challenger"].reranker
-            == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            index["arxiv"].aliases["challenger"].reranker == "cross-encoder/ms-marco-MiniLM-L-6-v2"
         )
 
 
