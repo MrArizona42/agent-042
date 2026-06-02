@@ -117,7 +117,6 @@ gateway = [
     { name = "langchain-text-splitters", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "prometheus-fastapi-instrumentator", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "pydantic-settings", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-    { name = "pyjwt", extra = ["crypto"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "qdrant-client", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "redis", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "sqlalchemy", extra = ["asyncio"], marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -179,6 +178,7 @@ worker = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "anyio", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "ipykernel", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "ipywidgets", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "pre-commit", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -194,6 +194,7 @@ notebook = [
     { name = "ipywidgets", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 test = [
+    { name = "anyio", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "pytest", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 
@@ -271,7 +272,6 @@ requires-dist = [
     { name = "pydantic-settings", marker = "extra == 'reranker'", specifier = ">=2.10.1" },
     { name = "pydantic-settings", marker = "extra == 'ui'", specifier = ">=2.0.0" },
     { name = "pydantic-settings", marker = "extra == 'worker'", specifier = ">=2.10.1" },
-    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'gateway'", specifier = ">=2.8" },
     { name = "pypdf", marker = "extra == 'airflow-worker'", specifier = ">=5.2.0" },
     { name = "pypdf", marker = "extra == 'airflow-worker-gpu'", specifier = ">=5.2.0" },
     { name = "pypdf", marker = "extra == 'rag'", specifier = ">=5.2.0" },
@@ -310,6 +310,7 @@ provides-extras = ["gateway", "ui", "worker", "airflow", "airflow-worker", "airf
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "anyio", specifier = "<4.12" },
     { name = "ipykernel", specifier = ">=7.1.0" },
     { name = "ipywidgets", specifier = ">=8.1.0" },
     { name = "pre-commit", specifier = ">=4.5.1" },
@@ -324,7 +325,10 @@ notebook = [
     { name = "ipykernel", specifier = ">=7.1.0" },
     { name = "ipywidgets", specifier = ">=8.1.0" },
 ]
-test = [{ name = "pytest", specifier = ">=8.4.2" }]
+test = [
+    { name = "anyio", specifier = "<4.12" },
+    { name = "pytest", specifier = ">=8.4.2" },
+]
 
 [[package]]
 name = "aiobotocore"
@@ -511,15 +515,16 @@ sdist = { url = "https://files.pythonhosted.org/packages/3e/38/7859ff46355f76f8d
 
 [[package]]
 name = "anyio"
-version = "4.12.1"
+version = "4.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "idna", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "sniffio", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/96/f0/5eb65b2bb0d09ac6776f2eb54adee6abe8228ea05b20a5ad0e4945de8aac/anyio-4.12.1.tar.gz", hash = "sha256:41cfcc3a4c85d3f05c932da7c26d0201ac36f72abd4435ba90d0464a3ffed703", size = 228685, upload-time = "2026-01-06T11:45:21.246Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/78/7d432127c41b50bccba979505f272c16cbcadcc33645d5fa3a738110ae75/anyio-4.11.0.tar.gz", hash = "sha256:82a8d0b81e318cc5ce71a5f1f8b5c4e63619620b63141ef8c995fa0db95a57c4", size = 219094, upload-time = "2025-09-23T09:19:12.58Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/0e/27be9fdef66e72d64c0cdc3cc2823101b80585f8119b5c112c2e8f5f7dab/anyio-4.12.1-py3-none-any.whl", hash = "sha256:d405828884fc140aa80a3c667b8beed277f1dfedec42ba031bd6ac3db606ab6c", size = 113592, upload-time = "2026-01-06T11:45:19.497Z" },
+    { url = "https://files.pythonhosted.org/packages/15/b3/9b1a8074496371342ec1e796a96f99c82c945a339cd81a8e73de28b4cf9e/anyio-4.11.0-py3-none-any.whl", hash = "sha256:0287e96f4d26d4149305414d4e3bc32f0dcd0862365a4bddea19d7a1ec38c4fc", size = 109097, upload-time = "2025-09-23T09:19:10.601Z" },
 ]
 
 [[package]]
@@ -3906,20 +3911,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pyjwt"
-version = "2.12.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c2/27/a3b6e5bf6ff856d2509292e95c8f57f0df7017cf5394921fc4e4ef40308a/pyjwt-2.12.1.tar.gz", hash = "sha256:c74a7a2adf861c04d002db713dd85f84beb242228e671280bf709d765b03672b", size = 102564, upload-time = "2026-03-13T19:27:37.25Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/7a/8dd906bd22e79e47397a61742927f6747fe93242ef86645ee9092e610244/pyjwt-2.12.1-py3-none-any.whl", hash = "sha256:28ca37c070cad8ba8cd9790cd940535d40274d22f80ab87f3ac6a713e6e8454c", size = 29726, upload-time = "2026-03-13T19:27:35.677Z" },
-]
-
-[package.optional-dependencies]
-crypto = [
-    { name = "cryptography", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
-]
-
-[[package]]
 name = "pyopenssl"
 version = "24.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4588,6 +4579,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/44/cd/a040c4b3119bbe532e5b0732286f805445375489fceaec1f48306068ee3b/smmap-5.0.2.tar.gz", hash = "sha256:26ea65a03958fa0c8a1c7e8c7a58fdc77221b8910f6be2131affade476898ad5", size = 22329, upload-time = "2025-01-02T07:14:40.909Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/be/d09147ad1ec7934636ad912901c5fd7667e1c858e19d355237db0d0cd5e4/smmap-5.0.2-py3-none-any.whl", hash = "sha256:b30115f0def7d7531d22a0fb6502488d879e75b260a9db4d0819cfb25403af5e", size = 24303, upload-time = "2025-01-02T07:14:38.724Z" },
+]
+
+[[package]]
+name = "sniffio"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e041b6ae58d80074f81b7d5121207425c964ddf5cfdbd/sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc", size = 20372, upload-time = "2024-02-25T23:20:04.057Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235, upload-time = "2024-02-25T23:20:01.196Z" },
 ]
 
 [[package]]

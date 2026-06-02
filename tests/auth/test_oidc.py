@@ -5,10 +5,11 @@ from __future__ import annotations
 import hashlib
 import time
 from base64 import urlsafe_b64encode
-from unittest.mock import MagicMock
 
-import jwt
 import pytest
+from authlib.jose import JsonWebKey, JsonWebToken
+from authlib.jose.errors import ExpiredTokenError, InvalidClaimError
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from gateway.auth.oidc import OIDCClient
@@ -35,6 +36,24 @@ def _generate_rsa_keypair():
     """Generate an RSA key pair for testing JWT signing/verification."""
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     return private_key
+
+
+def _public_jwks(private_key, *, kid: str = "test-kid"):
+    public_pem = private_key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    public_jwk = JsonWebKey.import_key(public_pem, {"kid": kid})
+    return JsonWebKey.import_key_set({"keys": [public_jwk.as_dict()]})
+
+
+def _encode_token(private_key, claims: dict, *, kid: str = "test-kid") -> str:
+    token = JsonWebToken(["RS256"]).encode(
+        {"alg": "RS256", "kid": kid},
+        claims,
+        private_key,
+    )
+    return token.decode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -110,16 +129,10 @@ class TestIDTokenValidation:
             "iat": int(time.time()),
         }
 
-        token = jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "test-kid"})
+        token = _encode_token(private_key, claims)
 
         client = OIDCClient(_make_settings())
-
-        # Mock the JWKS client to return our test key
-        mock_jwk = MagicMock()
-        mock_jwk.key = private_key.public_key()
-        mock_jwks_client = MagicMock()
-        mock_jwks_client.get_signing_key_from_jwt.return_value = mock_jwk
-        client._jwks_client = mock_jwks_client
+        client._jwks_key_set = _public_jwks(private_key)
 
         result = client.validate_id_token(token)
         assert result["sub"] == "123456789"
@@ -136,16 +149,12 @@ class TestIDTokenValidation:
             "iat": int(time.time()) - 7200,
         }
 
-        token = jwt.encode(claims, private_key, algorithm="RS256")
+        token = _encode_token(private_key, claims)
 
         client = OIDCClient(_make_settings())
-        mock_jwk = MagicMock()
-        mock_jwk.key = private_key.public_key()
-        mock_jwks_client = MagicMock()
-        mock_jwks_client.get_signing_key_from_jwt.return_value = mock_jwk
-        client._jwks_client = mock_jwks_client
+        client._jwks_key_set = _public_jwks(private_key)
 
-        with pytest.raises(jwt.ExpiredSignatureError):
+        with pytest.raises(ExpiredTokenError):
             client.validate_id_token(token)
 
     def test_wrong_audience_is_rejected(self):
@@ -159,16 +168,12 @@ class TestIDTokenValidation:
             "iat": int(time.time()),
         }
 
-        token = jwt.encode(claims, private_key, algorithm="RS256")
+        token = _encode_token(private_key, claims)
 
         client = OIDCClient(_make_settings())
-        mock_jwk = MagicMock()
-        mock_jwk.key = private_key.public_key()
-        mock_jwks_client = MagicMock()
-        mock_jwks_client.get_signing_key_from_jwt.return_value = mock_jwk
-        client._jwks_client = mock_jwks_client
+        client._jwks_key_set = _public_jwks(private_key)
 
-        with pytest.raises(jwt.InvalidAudienceError):
+        with pytest.raises(InvalidClaimError, match="aud"):
             client.validate_id_token(token)
 
     def test_wrong_issuer_is_rejected(self):
@@ -182,16 +187,12 @@ class TestIDTokenValidation:
             "iat": int(time.time()),
         }
 
-        token = jwt.encode(claims, private_key, algorithm="RS256")
+        token = _encode_token(private_key, claims)
 
         client = OIDCClient(_make_settings())
-        mock_jwk = MagicMock()
-        mock_jwk.key = private_key.public_key()
-        mock_jwks_client = MagicMock()
-        mock_jwks_client.get_signing_key_from_jwt.return_value = mock_jwk
-        client._jwks_client = mock_jwks_client
+        client._jwks_key_set = _public_jwks(private_key)
 
-        with pytest.raises(jwt.InvalidIssuerError):
+        with pytest.raises(InvalidClaimError, match="iss"):
             client.validate_id_token(token)
 
 
