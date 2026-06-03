@@ -9,7 +9,13 @@ from rag.sources.artifacts import (
     read_extracted_artifact,
     write_extracted_artifact,
 )
-from rag.sources.build import SourceBuildStatus, SourceBuildSummary, build_source_instance
+from rag.sources.build import (
+    CatalogSourceBuildSummary,
+    SourceBuildStatus,
+    SourceBuildSummary,
+    build_catalog_source,
+    build_source_instance,
+)
 from rag.sources.chunks import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
@@ -63,6 +69,7 @@ __all__ = [
     "ArxivPdfExtractor",
     "ChunkArtifact",
     "ChunkingConfig",
+    "CatalogSourceBuildSummary",
     "ExtractedDocumentArtifact",
     "ExtractionArtifactMeta",
     "HtmlDocsEntry",
@@ -83,6 +90,7 @@ __all__ = [
     "SourceProcessingFailure",
     "SourceProcessingSummary",
     "SourceType",
+    "build_catalog_source",
     "build_source_instance",
     "chunk_artifact_path",
     "chunk_extracted_artifact",

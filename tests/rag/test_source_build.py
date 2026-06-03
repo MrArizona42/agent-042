@@ -5,7 +5,7 @@ from textwrap import dedent
 
 import httpx
 
-from rag.sources import ChunkingConfig, build_source_instance
+from rag.sources import ChunkingConfig, build_catalog_source, build_source_instance
 from rag.sources.chunks import chunk_artifact_path, read_chunk_artifact
 from rag.sources.fetchers import HtmlDocsFetcher
 
@@ -50,6 +50,61 @@ def _manifest(tmp_path: Path) -> Path:
         id = "broken"
         title = "Broken"
         url = "https://docs.test/broken.html"
+        """,
+    )
+
+
+def _catalog(tmp_path: Path, manifest_path: Path) -> Path:
+    return _write_manifest(
+        tmp_path / "catalog.toml",
+        f"""
+        schema_version = 2
+
+        [[tasks]]
+        id = "code"
+        enabled = true
+        label = "Code"
+        routing_description = "Coding help"
+        kb_refs = ["pytorch_reference"]
+        adapter = {{ enabled = false }}
+
+        [[knowledge_bases]]
+        id = "pytorch_reference"
+        enabled = true
+        label = "PyTorch reference"
+        description = "PyTorch documentation"
+        selection_description = "PyTorch docs"
+        update_strategy = "replace"
+        default_alias = "champion"
+        aliases.champion.top_k = 5
+        aliases.champion.score_threshold = 0.35
+        aliases.champion.retrieval_strategy = "dense"
+        aliases.champion.reranker_multiplier = 1
+
+        [[knowledge_bases]]
+        id = "other_reference"
+        enabled = true
+        label = "Other reference"
+        description = "Other documentation"
+        selection_description = "Other docs"
+        update_strategy = "replace"
+        default_alias = "champion"
+        aliases.champion.top_k = 5
+        aliases.champion.score_threshold = 0.35
+        aliases.champion.retrieval_strategy = "dense"
+        aliases.champion.reranker_multiplier = 1
+
+        [[sources]]
+        type = "html_docs"
+        kb = "pytorch_reference"
+        id = "docs"
+        manifest = "{manifest_path.as_posix()}"
+
+        [[sources]]
+        type = "html_docs"
+        kb = "other_reference"
+        id = "docs"
+        manifest = "{manifest_path.as_posix()}"
         """,
     )
 
@@ -162,3 +217,42 @@ def test_build_source_instance_reports_empty_selection(tmp_path: Path) -> None:
     assert summary.processing.total_selected == 0
     assert summary.chunking.total_selected == 0
 
+
+def test_build_catalog_source_uses_kb_and_source_instance_pair(tmp_path: Path) -> None:
+    manifest_path = _manifest(tmp_path)
+    catalog_path = _catalog(tmp_path, manifest_path)
+
+    summary = build_catalog_source(
+        catalog_path=catalog_path,
+        kb_id="pytorch_reference",
+        source_instance_id="docs",
+        rag_data_root=tmp_path,
+        document_ids=["html:tensors"],
+        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
+        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
+    )
+
+    assert summary.catalog_path == catalog_path.as_posix()
+    assert summary.source.kb == "pytorch_reference"
+    assert summary.source.id == "docs"
+    assert summary.build.status == "success"
+    assert summary.build.kb_id == "pytorch_reference"
+    assert summary.build.source_instance_id == "docs"
+
+
+def test_build_catalog_source_rejects_missing_kb_source_pair(tmp_path: Path) -> None:
+    manifest_path = _manifest(tmp_path)
+    catalog_path = _catalog(tmp_path, manifest_path)
+
+    try:
+        build_catalog_source(
+            catalog_path=catalog_path,
+            kb_id="missing_reference",
+            source_instance_id="docs",
+            rag_data_root=tmp_path,
+        )
+    except ValueError as exc:
+        assert "kb_id='missing_reference'" in str(exc)
+        assert "source_instance_id='docs'" in str(exc)
+    else:
+        raise AssertionError("expected missing catalog source pair to fail")
