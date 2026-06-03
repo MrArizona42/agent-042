@@ -188,6 +188,23 @@ class GatewayConfig(BaseModel):
         return value
 
 
+class RagBuildSettings(BaseModel):
+    """RAG build-time batching settings."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    embedding_batch_size: int = Field(
+        default=32,
+        description="Batch size for embedding generation during RAG builds",
+        ge=1,
+    )
+    qdrant_upsert_batch_size: int = Field(
+        default=128,
+        description="Batch size for Qdrant upserts during RAG materialization",
+        ge=1,
+    )
+
+
 class RagSettings(BaseModel):
     """Gateway RAG behavior and embedding model settings."""
 
@@ -205,11 +222,7 @@ class RagSettings(BaseModel):
         default="cpu",
         description="Device for embedding model",
     )
-    embedding_batch_size: int = Field(
-        default=32,
-        description="Batch size for embedding generation",
-        ge=1,
-    )
+    build: RagBuildSettings = Field(default_factory=RagBuildSettings)
     kb_selection_threshold: float = Field(
         default=0.3,
         description="Cosine similarity threshold for automatic KB selection",

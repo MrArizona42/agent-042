@@ -93,7 +93,7 @@ def _make_gateway_settings(
         "rag_enabled": True,
         "embedding_model": "test-model",
         "embedding_device": "cpu",
-        "embedding_batch_size": 32,
+        "build": {"embedding_batch_size": 32, "qdrant_upsert_batch_size": 128},
         "rag_strict_startup": False,
         "sparse_encoder_model": "Qdrant/bm25",
     }

@@ -16,6 +16,7 @@ from rag.sources.build import (
     build_catalog_source,
     build_source_instance,
 )
+from rag.sources.bundles import SourceChunkBundle, collect_source_chunks
 from rag.sources.chunks import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
@@ -43,6 +44,18 @@ from rag.sources.fetchers import (
     SourceFetchResult,
 )
 from rag.sources.manifests import load_source_manifest
+from rag.sources.materialize import (
+    AliasPromotionResult,
+    MaterializationResult,
+    MaterializationSummary,
+    collection_name_for_build,
+    materialize_kb_collection,
+    promote_materialized_alias,
+    qdrant_alias_name,
+    retrieval_capability_for_strategy,
+    source_snapshot_id,
+    validate_strategy_supported,
+)
 from rag.sources.models import (
     ArxivPaperEntry,
     HtmlDocsEntry,
@@ -67,6 +80,7 @@ __all__ = [
     "ArxivPaperEntry",
     "ArxivPaperFetcher",
     "ArxivPdfExtractor",
+    "AliasPromotionResult",
     "ChunkArtifact",
     "ChunkingConfig",
     "CatalogSourceBuildSummary",
@@ -77,9 +91,12 @@ __all__ = [
     "HtmlDocsExtractor",
     "LLAMAINDEX_SENTENCE_SPLITTER",
     "ManifestOnlyConnector",
+    "MaterializationResult",
+    "MaterializationSummary",
     "RawArtifactRef",
     "SourceBuildStatus",
     "SourceBuildSummary",
+    "SourceChunkBundle",
     "SourceConnector",
     "SourceConnectorRegistry",
     "SourceExtractor",
@@ -95,13 +112,21 @@ __all__ = [
     "chunk_artifact_path",
     "chunk_extracted_artifact",
     "chunk_source_instance",
+    "collect_source_chunks",
+    "collection_name_for_build",
     "extracted_artifact_from_result",
     "extracted_artifact_path",
     "load_source_manifest",
+    "materialize_kb_collection",
+    "promote_materialized_alias",
     "process_source_instance",
+    "qdrant_alias_name",
     "read_chunk_artifact",
     "read_extracted_artifact",
     "source_manifest_from_raw",
+    "source_snapshot_id",
+    "retrieval_capability_for_strategy",
+    "validate_strategy_supported",
     "write_extracted_artifact",
     "write_chunk_artifact",
 ]

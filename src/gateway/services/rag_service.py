@@ -15,8 +15,8 @@ from rag.reranker import Reranker, get_reranker
 from rag.retriever import Retriever
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
+from shared.catalog import get_catalog, get_kb_config
 from shared.config import get_settings, secret_value
-from shared.catalog import get_kb_config, get_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class RAGService:
         self.embedding_service = EmbeddingService(
             model_name=self.rag_settings.embedding_model,
             device=self.rag_settings.embedding_device,
-            batch_size=self.rag_settings.embedding_batch_size,
+            batch_size=self.rag_settings.build.embedding_batch_size,
         )
 
         logger.info("RAG service initialized (retrievers will be created lazily)")

@@ -133,7 +133,7 @@ def embed(request: EmbeddingsRequest) -> EmbeddingsResponse:
 
     vectors = _model.encode(
         request.input,
-        batch_size=rag.embedding_batch_size,
+        batch_size=rag.build.embedding_batch_size,
         show_progress_bar=False,
         convert_to_numpy=True,
     )

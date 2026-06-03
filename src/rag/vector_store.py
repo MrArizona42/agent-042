@@ -104,6 +104,7 @@ class QdrantVectorStore:
         metadatas: Optional[List[Dict[str, Any]]] = None,
         ids: Optional[List[str]] = None,
         sparse_vectors: Optional[List[SparseVector]] = None,
+        upsert_batch_size: int = 500,
     ):
         """Add documents with their embeddings to the collection.
 
@@ -156,9 +157,8 @@ class QdrantVectorStore:
                 )
             )
 
-        batch_size = 500
-        for start in range(0, len(points), batch_size):
-            batch = points[start : start + batch_size]
+        for start in range(0, len(points), upsert_batch_size):
+            batch = points[start : start + upsert_batch_size]
             self.client.upsert(
                 collection_name=self.collection_name,
                 points=batch,
