@@ -39,7 +39,7 @@ def test_arxiv_source_manifest_loads_source_documents(tmp_path: Path) -> None:
     assert manifest.source_type == "arxiv_paper"
     assert isinstance(manifest.documents[0], ArxivPaperEntry)
     assert documents[0].id == "arxiv:1706.03762"
-    assert documents[0].uri == "https://arxiv.org/abs/1706.03762"
+    assert documents[0].uri == "arxiv:1706.03762"
     assert documents[0].metadata["arxiv_id"] == "1706.03762"
 
 
@@ -67,7 +67,7 @@ def test_html_docs_manifest_loads_source_documents(tmp_path: Path) -> None:
     assert documents[0].metadata["page_id"] == "tensors"
 
 
-def test_arxiv_source_manifest_allows_blank_url_and_derives_uri(tmp_path: Path) -> None:
+def test_arxiv_source_manifest_allows_blank_url_and_uses_arxiv_uri(tmp_path: Path) -> None:
     path = _write_manifest(
         tmp_path / "sources.toml",
         """
@@ -85,7 +85,7 @@ def test_arxiv_source_manifest_allows_blank_url_and_derives_uri(tmp_path: Path) 
     documents = manifest.to_source_documents()
 
     assert manifest.documents[0].url is None
-    assert documents[0].uri == "https://arxiv.org/abs/1706.03762"
+    assert documents[0].uri == "arxiv:1706.03762"
 
 
 def test_source_manifest_rejects_duplicate_document_ids(tmp_path: Path) -> None:

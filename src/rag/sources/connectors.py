@@ -16,6 +16,7 @@ class SourceConnector(Protocol):
 
     def list_documents(self, manifest: SourceManifest) -> list[SourceDocument]:
         """Return source document contracts declared by a manifest."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

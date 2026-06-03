@@ -37,11 +37,10 @@ class ArxivPaperEntry(BaseModel):
 
     def to_source_document(self) -> SourceDocument:
         """Convert the manifest entry to a source document contract."""
-        uri = self.url or f"https://arxiv.org/abs/{self.id}"
         return SourceDocument(
             id=f"arxiv:{self.id}",
             source_type="arxiv_paper",
-            uri=uri,
+            uri=self.url or f"arxiv:{self.id}",
             title=self.title,
             metadata={"arxiv_id": self.id},
         )
