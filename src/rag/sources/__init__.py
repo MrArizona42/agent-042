@@ -30,9 +30,18 @@ from rag.sources.models import (
     SourceType,
     source_manifest_from_raw,
 )
+from rag.sources.processing import (
+    DEFAULT_SOURCE_EXTRACTORS,
+    DEFAULT_SOURCE_FETCHERS,
+    SourceProcessingFailure,
+    SourceProcessingSummary,
+    process_source_instance,
+)
 
 __all__ = [
     "DEFAULT_SOURCE_CONNECTORS",
+    "DEFAULT_SOURCE_EXTRACTORS",
+    "DEFAULT_SOURCE_FETCHERS",
     "ArxivPaperEntry",
     "ArxivPaperFetcher",
     "ArxivPdfExtractor",
@@ -49,10 +58,13 @@ __all__ = [
     "SourceFetcher",
     "SourceFetchResult",
     "SourceManifest",
+    "SourceProcessingFailure",
+    "SourceProcessingSummary",
     "SourceType",
     "extracted_artifact_from_result",
     "extracted_artifact_path",
     "load_source_manifest",
+    "process_source_instance",
     "read_extracted_artifact",
     "source_manifest_from_raw",
     "write_extracted_artifact",
