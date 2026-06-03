@@ -5,6 +5,12 @@ from unittest.mock import patch
 import httpx
 
 from rag.domain import SourceDocument
+from rag.sources.artifacts import (
+    extracted_artifact_from_result,
+    extracted_artifact_path,
+    read_extracted_artifact,
+    write_extracted_artifact,
+)
 from rag.sources.extractors import ArxivPdfExtractor, HtmlDocsExtractor
 from rag.sources.fetchers import ArxivPaperFetcher, HtmlDocsFetcher, SourceFetchResult
 
@@ -157,3 +163,53 @@ def test_arxiv_pdf_extractor_uses_pypdf_reader(tmp_path) -> None:
     assert extracted.text == "Attention text"
     assert extracted.sections[0].title == "Page 1"
     assert extracted.extraction_warnings == ["Page 2 produced no text"]
+
+
+def test_extracted_artifact_round_trips_immutably(tmp_path) -> None:
+    source = SourceDocument(
+        id="html:tensors",
+        source_type="html_docs",
+        uri="https://pytorch.org/docs/stable/tensors.html",
+        title="Tensors",
+    )
+    fetcher = HtmlDocsFetcher(
+        client=_client(
+            b"<html><body><h1>Tensors</h1><p>Tensor text.</p></body></html>",
+            content_type="text/html",
+        )
+    )
+    fetch_result = fetcher.fetch(
+        source,
+        kb_id="pytorch_reference",
+        source_instance_id="docs",
+        rag_data_root=tmp_path,
+    )
+    extracted = HtmlDocsExtractor().extract(fetch_result)
+    artifact = extracted_artifact_from_result(
+        kb_id="pytorch_reference",
+        source_instance_id="docs",
+        fetch_result=fetch_result,
+        extracted_document=extracted,
+    )
+    path = extracted_artifact_path(
+        rag_data_root=tmp_path,
+        kb_id="pytorch_reference",
+        source_instance_id="docs",
+        source_document_id=source.id,
+    )
+
+    write_extracted_artifact(path, artifact)
+    path.write_text('{"schema_version": 1, "sentinel": true}\n', encoding="utf-8")
+    write_extracted_artifact(path, artifact)
+    assert "sentinel" in path.read_text(encoding="utf-8")
+
+    write_extracted_artifact(path, artifact, force=True)
+    restored = read_extracted_artifact(path)
+
+    assert path.as_posix().endswith("pytorch_reference/extracted/docs/html_tensors.json")
+    assert restored.kb_id == "pytorch_reference"
+    assert restored.source_instance_id == "docs"
+    assert restored.raw.path == fetch_result.raw_path.as_posix()
+    assert restored.raw.checksum == fetch_result.checksum
+    assert restored.extraction.method == "html_bs4"
+    assert restored.document.text == "Tensor text."

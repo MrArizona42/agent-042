@@ -1,5 +1,14 @@
 """RAG source manifest contracts and connector registry."""
 
+from rag.sources.artifacts import (
+    ExtractedDocumentArtifact,
+    ExtractionArtifactMeta,
+    RawArtifactRef,
+    extracted_artifact_from_result,
+    extracted_artifact_path,
+    read_extracted_artifact,
+    write_extracted_artifact,
+)
 from rag.sources.connectors import (
     DEFAULT_SOURCE_CONNECTORS,
     ManifestOnlyConnector,
@@ -27,10 +36,13 @@ __all__ = [
     "ArxivPaperEntry",
     "ArxivPaperFetcher",
     "ArxivPdfExtractor",
+    "ExtractedDocumentArtifact",
+    "ExtractionArtifactMeta",
     "HtmlDocsEntry",
     "HtmlDocsFetcher",
     "HtmlDocsExtractor",
     "ManifestOnlyConnector",
+    "RawArtifactRef",
     "SourceConnector",
     "SourceConnectorRegistry",
     "SourceExtractor",
@@ -38,6 +50,10 @@ __all__ = [
     "SourceFetchResult",
     "SourceManifest",
     "SourceType",
+    "extracted_artifact_from_result",
+    "extracted_artifact_path",
     "load_source_manifest",
+    "read_extracted_artifact",
     "source_manifest_from_raw",
+    "write_extracted_artifact",
 ]
