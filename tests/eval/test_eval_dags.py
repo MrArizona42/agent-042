@@ -89,8 +89,8 @@ def test_eval_dags_kb_options_use_shared_registry(
     eval_dags = importlib.import_module("dags.eval_dags")
     eval_dags = importlib.reload(eval_dags)
 
-    assert eval_dags._list_knowledge_base_names() == ["arxiv", "pytorch_docs"]
-    assert eval_dags._kb_options == ["arxiv", "pytorch_docs"]
+    assert eval_dags._list_knowledge_base_names() == ["ml_papers_core", "pytorch_reference"]
+    assert eval_dags._kb_options == ["ml_papers_core", "pytorch_reference"]
 
 
 def test_eval_dags_alias_options_prefer_nested_registry_env(

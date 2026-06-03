@@ -3,70 +3,65 @@
 from __future__ import annotations
 
 from pathlib import Path
+from textwrap import dedent
 
 
-def _write_registry(path: Path, lines: list[str]) -> Path:
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+def _write_registry(path: Path, content: str) -> Path:
+    path.write_text(dedent(content).strip() + "\n", encoding="utf-8")
     return path
 
 
 def write_chat_and_code_operator_registry(path: Path) -> Path:
     return _write_registry(
         path,
-        [
-            "schema_version = 2",
-            "",
-            "[tasks.chat]",
-            'label = "General knowledge"',
-            'routing_description = "General ML research discussion."',
-            'kb_refs = ["arxiv"]',
-            "",
-            "[tasks.chat.adapter]",
-            "enabled = false",
-            "",
-            "[tasks.code]",
-            'label = "Coding assistance"',
-            'routing_description = "Programming help for ML systems."',
-            'kb_refs = ["pytorch_docs"]',
-            "",
-            "[tasks.code.adapter]",
-            "enabled = false",
-            "",
-            "[knowledge_bases.arxiv]",
-            'default_alias = "champion"',
-            'update_strategy = "incremental"',
-            'label = "ArXiv papers"',
-            'description = "ML papers"',
-            'selection_description = "Research papers and literature-grounded answers."',
-            "",
-            "[knowledge_bases.arxiv.aliases.champion]",
-            'profile = "champion"',
-            "",
-            "[knowledge_bases.arxiv.aliases.challenger]",
-            'profile = "challenger"',
-            "",
-            "[knowledge_bases.pytorch_docs]",
-            'default_alias = "champion"',
-            'update_strategy = "replace"',
-            'label = "PyTorch docs"',
-            'description = "Coding docs"',
-            'selection_description = "PyTorch API reference and implementation guidance."',
-            "",
-            "[knowledge_bases.pytorch_docs.aliases.champion]",
-            'profile = "champion"',
-            "",
-            "[alias_profiles.champion]",
-            "top_k = 5",
-            "score_threshold = 0.35",
-            'retrieval_strategy = "dense"',
-            "reranker_multiplier = 4",
-            "",
-            "[alias_profiles.challenger]",
-            "top_k = 5",
-            "score_threshold = 0.35",
-            'retrieval_strategy = "dense"',
-            "reranker_multiplier = 4",
-        ],
+        """
+        schema_version = 2
+
+        [[tasks]]
+        id = "chat"
+        label = "General knowledge"
+        routing_description = "General ML research discussion."
+        kb_refs = ["ml_papers_core"]
+        adapter = { enabled = false }
+
+        [[tasks]]
+        id = "code"
+        label = "Coding assistance"
+        routing_description = "Programming help for ML systems."
+        kb_refs = ["pytorch_reference"]
+        adapter = { enabled = false }
+
+        [[knowledge_bases]]
+        id = "ml_papers_core"
+        default_alias = "champion"
+        update_strategy = "replace"
+        label = "Core ML papers"
+        description = "ML papers"
+        selection_description = "Research papers and literature-grounded answers."
+        source_ref = "ml_papers_core"
+        aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
+        aliases.challenger = { top_k = 5, score_threshold = 0.01, reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2", retrieval_strategy = "hybrid", reranker_multiplier = 4 }
+
+        [[knowledge_bases]]
+        id = "pytorch_reference"
+        default_alias = "champion"
+        update_strategy = "replace"
+        label = "PyTorch reference"
+        description = "Coding docs"
+        selection_description = "PyTorch API reference and implementation guidance."
+        source_ref = "pytorch_reference"
+        aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
+
+        [[sources]]
+        id = "ml_papers_core"
+        type = "arxiv_paper"
+        manifest = "assets/rag_data/ml_papers_core/sources.toml"
+
+        [[sources]]
+        id = "pytorch_reference"
+        type = "html_docs"
+        manifest = "assets/rag_data/pytorch_reference/sources.toml"
+        """,
     )
 
 
@@ -77,60 +72,56 @@ def write_chat_only_operator_registry(
 ) -> Path:
     return _write_registry(
         path,
-        [
-            "schema_version = 2",
-            "",
-            "[tasks.chat]",
-            'label = "General knowledge"',
-            'routing_description = "General ML research discussion."',
-            'kb_refs = ["arxiv"]',
-            "",
-            "[tasks.chat.adapter]",
-            "enabled = false",
-            "",
-            "[knowledge_bases.arxiv]",
-            'default_alias = "champion"',
-            'update_strategy = "incremental"',
-            'label = "ArXiv papers"',
-            'description = "ML papers"',
-            'selection_description = "Research papers and literature-grounded answers."',
-            "",
-            "[knowledge_bases.arxiv.aliases.champion]",
-            'profile = "champion"',
-            "",
-            "[alias_profiles.champion]",
-            "top_k = 5",
-            "score_threshold = 0.35",
-            f'retrieval_strategy = "{retrieval_strategy}"',
-            "reranker_multiplier = 4",
-        ],
+        f"""
+        schema_version = 2
+
+        [[tasks]]
+        id = "chat"
+        label = "General knowledge"
+        routing_description = "General ML research discussion."
+        kb_refs = ["ml_papers_core"]
+        adapter = {{ enabled = false }}
+
+        [[knowledge_bases]]
+        id = "ml_papers_core"
+        default_alias = "champion"
+        update_strategy = "replace"
+        label = "Core ML papers"
+        description = "ML papers"
+        selection_description = "Research papers and literature-grounded answers."
+        source_ref = "ml_papers_core"
+        aliases.champion = {{ top_k = 5, score_threshold = 0.35, retrieval_strategy = "{retrieval_strategy}", reranker_multiplier = 1 }}
+
+        [[sources]]
+        id = "ml_papers_core"
+        type = "arxiv_paper"
+        manifest = "assets/rag_data/ml_papers_core/sources.toml"
+        """,
     )
 
 
 def write_code_only_operator_registry(path: Path) -> Path:
     return _write_registry(
         path,
-        [
-            "schema_version = 2",
-            "",
-            "[tasks.code]",
-            'routing_description = "Programming help for ML systems."',
-            'kb_refs = ["pytorch_docs"]',
-            "",
-            "[tasks.code.adapter]",
-            "enabled = false",
-            "",
-            "[knowledge_bases.pytorch_docs]",
-            'default_alias = "champion"',
-            'selection_description = "PyTorch API reference."',
-            "",
-            "[knowledge_bases.pytorch_docs.aliases.champion]",
-            'profile = "champion"',
-            "",
-            "[alias_profiles.champion]",
-            "top_k = 5",
-            "score_threshold = 0.35",
-            'retrieval_strategy = "dense"',
-            "reranker_multiplier = 4",
-        ],
+        """
+        schema_version = 2
+
+        [[tasks]]
+        id = "code"
+        routing_description = "Programming help for ML systems."
+        kb_refs = ["pytorch_reference"]
+        adapter = { enabled = false }
+
+        [[knowledge_bases]]
+        id = "pytorch_reference"
+        default_alias = "champion"
+        selection_description = "PyTorch API reference."
+        source_ref = "pytorch_reference"
+        aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
+
+        [[sources]]
+        id = "pytorch_reference"
+        type = "html_docs"
+        manifest = "assets/rag_data/pytorch_reference/sources.toml"
+        """,
     )

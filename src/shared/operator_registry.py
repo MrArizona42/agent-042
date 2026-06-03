@@ -13,7 +13,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -30,7 +30,7 @@ class AliasValueConfig(BaseModel):
 
     top_k: int
     score_threshold: float
-    reranker: str | None
+    reranker: str | None = None
     retrieval_strategy: Literal["dense", "hybrid", "sparse"]
     reranker_multiplier: int
 
@@ -63,6 +63,7 @@ class KBConfig(BaseModel):
     label: str = ""
     description: str = ""
     selection_description: str
+    source_ref: str | None = None
 
     @model_validator(mode="after")
     def _default_alias_must_exist(self) -> "KBConfig":
@@ -84,21 +85,23 @@ class TaskConfig(BaseModel):
     knowledge_bases: list[KBConfig] = Field(default_factory=list)
 
 
-class AliasProfileRefConfig(BaseModel):
-    """Reference to a reusable alias profile declared at the registry root."""
+class SourceConfig(BaseModel):
+    """Source metadata for a knowledge base build pipeline."""
 
-    profile: str
+    id: str
+    type: str
+    manifest: str | None = None
+    settings: dict[str, object] = Field(default_factory=dict)
 
 
-class AliasProfileConfig(AliasValueConfig):
-    """Reusable alias profile declared at the registry root of the TOML file."""
-
-    reranker: str | None = None
+class RegistryAliasConfig(AliasValueConfig):
+    """Explicit per-KB alias configuration in the operator registry."""
 
 
 class RegistryTaskConfig(BaseModel):
     """Normalized task entry in the TOML operator registry."""
 
+    id: str
     enabled: bool = True
     label: str = ""
     routing_description: str
@@ -109,22 +112,43 @@ class RegistryTaskConfig(BaseModel):
 class RegistryKBConfig(BaseModel):
     """Normalized knowledge-base entry in the TOML operator registry."""
 
+    id: str
     enabled: bool = True
     default_alias: str
-    aliases: dict[str, AliasProfileRefConfig]
+    aliases: dict[str, RegistryAliasConfig]
     update_strategy: Literal["incremental", "replace"] = "replace"
     label: str = ""
     description: str = ""
     selection_description: str
+    source_ref: str | None = None
 
 
 class OperatorRegistryConfig(BaseModel):
     """Root model for the TOML-based operator registry."""
 
     schema_version: int = 1
-    tasks: dict[str, RegistryTaskConfig] = Field(default_factory=dict)
-    knowledge_bases: dict[str, RegistryKBConfig] = Field(default_factory=dict)
-    alias_profiles: dict[str, AliasProfileConfig] = Field(default_factory=dict)
+    tasks: list[RegistryTaskConfig] = Field(default_factory=list)
+    knowledge_bases: list[RegistryKBConfig] = Field(default_factory=list)
+    sources: list[SourceConfig] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_mapping_sections(cls, value: object) -> object:
+        """Accept older mapping-style sections while canonical TOML uses arrays."""
+        if not isinstance(value, dict):
+            return value
+
+        normalized = dict(value)
+        for key in ("tasks", "knowledge_bases", "sources"):
+            section = normalized.get(key)
+            if not isinstance(section, dict):
+                continue
+            normalized[key] = [
+                {"id": item_id, **item_payload}
+                for item_id, item_payload in section.items()
+                if isinstance(item_payload, dict)
+            ]
+        return normalized
 
 
 class RegistryPathSettings(Protocol):
@@ -133,30 +157,48 @@ class RegistryPathSettings(Protocol):
     operator_registry_path: Path | None
 
 
+_RegistryItem = TypeVar("_RegistryItem", RegistryTaskConfig, RegistryKBConfig, SourceConfig)
+
+
+def _index_by_id(items: list[_RegistryItem], section: str) -> dict[str, _RegistryItem]:
+    """Return items keyed by id, preserving TOML order and rejecting duplicates."""
+    index: dict[str, _RegistryItem] = {}
+    for item in items:
+        item_id = item.id.strip()
+        if not item_id:
+            raise ValueError(f"{section} entries require non-empty id")
+        if item_id in index:
+            raise ValueError(f"Duplicate {section} id '{item_id}'")
+        index[item_id] = item
+    return index
+
+
 def _materialize_operator_registry(
     registry_cfg: OperatorRegistryConfig,
 ) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
     """Build the runtime task registry from the normalized TOML shape."""
 
+    registry_kbs = _index_by_id(registry_cfg.knowledge_bases, "knowledge_bases")
+    registry_tasks = _index_by_id(registry_cfg.tasks, "tasks")
+    registry_sources = _index_by_id(registry_cfg.sources, "sources")
+
     kb_index: dict[str, KBConfig] = {}
-    for kb_name, kb_cfg in registry_cfg.knowledge_bases.items():
+    for kb_name, kb_cfg in registry_kbs.items():
         if not kb_cfg.enabled:
             continue
+        if kb_cfg.source_ref is not None and kb_cfg.source_ref not in registry_sources:
+            raise ValueError(
+                f"KB '{kb_name}' references unknown source '{kb_cfg.source_ref}'"
+            )
 
         aliases: dict[str, AliasConfig] = {}
-        for alias_name, alias_ref in kb_cfg.aliases.items():
-            profile_cfg = registry_cfg.alias_profiles.get(alias_ref.profile)
-            if profile_cfg is None:
-                raise ValueError(
-                    f"KB '{kb_name}' alias '{alias_name}' references unknown "
-                    f"alias profile '{alias_ref.profile}'"
-                )
+        for alias_name, alias_cfg in kb_cfg.aliases.items():
             aliases[alias_name] = AliasConfig(
-                top_k=profile_cfg.top_k,
-                score_threshold=profile_cfg.score_threshold,
-                reranker=profile_cfg.reranker,
-                retrieval_strategy=profile_cfg.retrieval_strategy,
-                reranker_multiplier=profile_cfg.reranker_multiplier,
+                top_k=alias_cfg.top_k,
+                score_threshold=alias_cfg.score_threshold,
+                reranker=alias_cfg.reranker,
+                retrieval_strategy=alias_cfg.retrieval_strategy,
+                reranker_multiplier=alias_cfg.reranker_multiplier,
             )
 
         kb_index[kb_name] = KBConfig(
@@ -167,16 +209,17 @@ def _materialize_operator_registry(
             label=kb_cfg.label,
             description=kb_cfg.description,
             selection_description=kb_cfg.selection_description,
+            source_ref=kb_cfg.source_ref,
         )
 
     task_registry: dict[str, TaskConfig] = {}
-    for task_name, task_cfg in registry_cfg.tasks.items():
+    for task_name, task_cfg in registry_tasks.items():
         if not task_cfg.enabled:
             continue
 
         task_knowledge_bases: list[KBConfig] = []
         for kb_name in task_cfg.kb_refs:
-            if kb_name not in registry_cfg.knowledge_bases:
+            if kb_name not in registry_kbs:
                 raise ValueError(f"Task '{task_name}' references unknown KB '{kb_name}'")
             kb_runtime_cfg = kb_index.get(kb_name)
             if kb_runtime_cfg is not None:
@@ -390,11 +433,11 @@ _resolve_knowledge_bases_path = resolve_knowledge_bases_path
 __all__ = [
     "AdapterConfig",
     "AliasConfig",
-    "AliasProfileConfig",
-    "AliasProfileRefConfig",
     "KBConfig",
     "OperatorRegistryConfig",
     "RegistryKBConfig",
+    "RegistryAliasConfig",
+    "SourceConfig",
     "RegistryTaskConfig",
     "TaskConfig",
     "clear_knowledge_base_registry_override",

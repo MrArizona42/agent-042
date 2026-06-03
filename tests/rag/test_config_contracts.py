@@ -53,13 +53,17 @@ class TestAliasConfigValidation:
         with pytest.raises(ValidationError, match="score_threshold"):
             AliasConfig(top_k=5, reranker=None)
 
-    def test_missing_reranker_raises(self):
-        from pydantic import ValidationError
-
+    def test_missing_reranker_defaults_to_off(self):
         from shared.operator_registry import AliasConfig
 
-        with pytest.raises(ValidationError, match="reranker"):
-            AliasConfig(top_k=5, score_threshold=0.35)
+        cfg = AliasConfig(
+            top_k=5,
+            score_threshold=0.35,
+            retrieval_strategy="dense",
+            reranker_multiplier=1,
+        )
+
+        assert cfg.reranker is None
 
     def test_complete_alias_config_ok(self):
         from shared.operator_registry import AliasConfig
@@ -235,11 +239,6 @@ class TestRegistryReferenceValidation:
                     "[tasks.chat.adapter]",
                     "enabled = false",
                     "",
-                    "[alias_profiles.champion]",
-                    "top_k = 5",
-                    "score_threshold = 0.35",
-                    'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 4",
                 ]
             ),
             encoding="utf-8",
@@ -335,23 +334,25 @@ class TestKnowledgeBaseRegistryResolution:
                     "",
                     "[tasks.code]",
                     'routing_description = "Programming help for ML systems."',
-                    'kb_refs = ["pytorch_docs"]',
+                    'kb_refs = ["pytorch_reference"]',
                     "",
                     "[tasks.code.adapter]",
                     "enabled = false",
                     "",
-                    "[knowledge_bases.pytorch_docs]",
+                    "[knowledge_bases.pytorch_reference]",
                     'default_alias = "champion"',
                     'selection_description = "PyTorch API reference."',
+                    'source_ref = "pytorch_reference"',
                     "",
-                    "[knowledge_bases.pytorch_docs.aliases.champion]",
-                    'profile = "champion"',
-                    "",
-                    "[alias_profiles.champion]",
+                    "[knowledge_bases.pytorch_reference.aliases.champion]",
                     "top_k = 5",
                     "score_threshold = 0.35",
                     'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 4",
+                    "reranker_multiplier = 1",
+                    "",
+                    "[[sources]]",
+                    'id = "pytorch_reference"',
+                    'type = "html_docs"',
                 ]
             ),
             encoding="utf-8",
@@ -363,7 +364,7 @@ class TestKnowledgeBaseRegistryResolution:
         registry = get_knowledge_bases()
 
         assert list(registry) == ["code"]
-        assert get_kb_names() == ["pytorch_docs"]
+        assert get_kb_names() == ["pytorch_reference"]
 
     def test_clear_knowledge_base_caches_refreshes_registry_settings_path(
         self, tmp_path: Path, monkeypatch
@@ -379,23 +380,25 @@ class TestKnowledgeBaseRegistryResolution:
                     "",
                     "[tasks.chat]",
                     'routing_description = "General chat about ML research."',
-                    'kb_refs = ["arxiv"]',
+                    'kb_refs = ["ml_papers_core"]',
                     "",
                     "[tasks.chat.adapter]",
                     "enabled = false",
                     "",
-                    "[knowledge_bases.arxiv]",
+                    "[knowledge_bases.ml_papers_core]",
                     'default_alias = "champion"',
                     'selection_description = "Research papers and theory."',
+                    'source_ref = "ml_papers_core"',
                     "",
-                    "[knowledge_bases.arxiv.aliases.champion]",
-                    'profile = "champion"',
-                    "",
-                    "[alias_profiles.champion]",
+                    "[knowledge_bases.ml_papers_core.aliases.champion]",
                     "top_k = 5",
                     "score_threshold = 0.35",
                     'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 4",
+                    "reranker_multiplier = 1",
+                    "",
+                    "[[sources]]",
+                    'id = "ml_papers_core"',
+                    'type = "arxiv_paper"',
                 ]
             ),
             encoding="utf-8",
@@ -409,23 +412,25 @@ class TestKnowledgeBaseRegistryResolution:
                     "",
                     "[tasks.code]",
                     'routing_description = "Programming help for ML systems."',
-                    'kb_refs = ["pytorch_docs"]',
+                    'kb_refs = ["pytorch_reference"]',
                     "",
                     "[tasks.code.adapter]",
                     "enabled = false",
                     "",
-                    "[knowledge_bases.pytorch_docs]",
+                    "[knowledge_bases.pytorch_reference]",
                     'default_alias = "champion"',
                     'selection_description = "PyTorch API reference."',
+                    'source_ref = "pytorch_reference"',
                     "",
-                    "[knowledge_bases.pytorch_docs.aliases.champion]",
-                    'profile = "champion"',
-                    "",
-                    "[alias_profiles.champion]",
+                    "[knowledge_bases.pytorch_reference.aliases.champion]",
                     "top_k = 5",
                     "score_threshold = 0.35",
                     'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 4",
+                    "reranker_multiplier = 1",
+                    "",
+                    "[[sources]]",
+                    'id = "pytorch_reference"',
+                    'type = "html_docs"',
                 ]
             ),
             encoding="utf-8",
@@ -433,11 +438,11 @@ class TestKnowledgeBaseRegistryResolution:
 
         monkeypatch.setenv("REGISTRY__OPERATOR_REGISTRY_PATH", str(first))
         cfg.clear_knowledge_base_caches()
-        assert get_kb_names() == ["arxiv"]
+        assert get_kb_names() == ["ml_papers_core"]
 
         monkeypatch.setenv("REGISTRY__OPERATOR_REGISTRY_PATH", str(second))
         cfg.clear_knowledge_base_caches()
-        assert get_kb_names() == ["pytorch_docs"]
+        assert get_kb_names() == ["pytorch_reference"]
 
     def test_legacy_registry_env_name_is_ignored(self, tmp_path: Path, monkeypatch):
         from shared.operator_registry import resolve_knowledge_bases_path
@@ -450,23 +455,25 @@ class TestKnowledgeBaseRegistryResolution:
                     "",
                     "[tasks.chat]",
                     'routing_description = "General chat about ML research."',
-                    'kb_refs = ["arxiv"]',
+                    'kb_refs = ["ml_papers_core"]',
                     "",
                     "[tasks.chat.adapter]",
                     "enabled = false",
                     "",
-                    "[knowledge_bases.arxiv]",
+                    "[knowledge_bases.ml_papers_core]",
                     'default_alias = "champion"',
                     'selection_description = "Research papers and theory."',
+                    'source_ref = "ml_papers_core"',
                     "",
-                    "[knowledge_bases.arxiv.aliases.champion]",
-                    'profile = "champion"',
-                    "",
-                    "[alias_profiles.champion]",
+                    "[knowledge_bases.ml_papers_core.aliases.champion]",
                     "top_k = 5",
                     "score_threshold = 0.35",
                     'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 4",
+                    "reranker_multiplier = 1",
+                    "",
+                    "[[sources]]",
+                    'id = "ml_papers_core"',
+                    'type = "arxiv_paper"',
                 ]
             ),
             encoding="utf-8",
@@ -487,8 +494,8 @@ class TestKnowledgeBaseRegistryResolution:
             registry_override,
         )
 
-        arxiv = KBConfig(
-            name="arxiv",
+        ml_papers_core = KBConfig(
+            name="ml_papers_core",
             default_alias="champion",
             aliases={
                 "champion": {
@@ -506,15 +513,15 @@ class TestKnowledgeBaseRegistryResolution:
                 task="chat",
                 routing_description="General chat about ML research.",
                 adapter=AdapterConfig(name="", alias="", enabled=False),
-                knowledge_bases=[arxiv],
+                knowledge_bases=[ml_papers_core],
             )
         }
 
         with registry_override(registry):
-            assert get_kb_names() == ["arxiv"]
-            assert get_kb_config("arxiv") is arxiv
+            assert get_kb_names() == ["ml_papers_core"]
+            assert get_kb_config("ml_papers_core") is ml_papers_core
 
-        assert get_kb_names() != ["arxiv"]
+        assert get_kb_names() != ["ml_papers_core"]
 
     def test_get_knowledge_bases_reloads_when_settings_path_changes(self, tmp_path: Path):
         from shared.config import RegistryConfig
@@ -534,7 +541,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert list(first_registry) == ["chat"]
         assert list(second_registry) == ["code"]
         assert get_kb_names(settings=RegistryConfig(operator_registry_path=str(second))) == [
-            "pytorch_docs"
+            "pytorch_reference"
         ]
 
     def test_load_knowledge_bases_from_normalized_toml(self, tmp_path: Path):
@@ -549,40 +556,39 @@ class TestKnowledgeBaseRegistryResolution:
                     "[tasks.chat]",
                     'label = "General knowledge"',
                     'routing_description = "General chat about ML research."',
-                    'kb_refs = ["arxiv"]',
+                    'kb_refs = ["ml_papers_core"]',
                     "",
                     "[tasks.chat.adapter]",
                     "enabled = false",
                     "",
                     "[tasks.code]",
                     'routing_description = "Programming help for ML systems."',
-                    'kb_refs = ["arxiv"]',
+                    'kb_refs = ["ml_papers_core"]',
                     "",
                     "[tasks.code.adapter]",
                     "enabled = false",
                     "",
-                    "[knowledge_bases.arxiv]",
+                    "[knowledge_bases.ml_papers_core]",
                     'default_alias = "champion"',
                     'selection_description = "Research papers and theory."',
+                    'source_ref = "ml_papers_core"',
                     "",
-                    "[knowledge_bases.arxiv.aliases.champion]",
-                    'profile = "champion"',
-                    "",
-                    "[knowledge_bases.arxiv.aliases.challenger]",
-                    'profile = "challenger"',
-                    "",
-                    "[alias_profiles.champion]",
+                    "[knowledge_bases.ml_papers_core.aliases.champion]",
                     "top_k = 5",
                     "score_threshold = 0.35",
                     'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 4",
+                    "reranker_multiplier = 1",
                     "",
-                    "[alias_profiles.challenger]",
+                    "[knowledge_bases.ml_papers_core.aliases.challenger]",
                     "top_k = 5",
                     "score_threshold = 0.01",
                     'retrieval_strategy = "hybrid"',
                     'reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2"',
                     "reranker_multiplier = 4",
+                    "",
+                    "[[sources]]",
+                    'id = "ml_papers_core"',
+                    'type = "arxiv_paper"',
                 ]
             ),
             encoding="utf-8",
@@ -591,10 +597,12 @@ class TestKnowledgeBaseRegistryResolution:
         registry, index = load_knowledge_bases(path)
 
         assert list(registry) == ["chat", "code"]
-        assert registry["chat"].knowledge_bases[0].name == "arxiv"
-        assert registry["code"].knowledge_bases[0].name == "arxiv"
+        assert registry["chat"].knowledge_bases[0].name == "ml_papers_core"
+        assert registry["code"].knowledge_bases[0].name == "ml_papers_core"
+        assert index["ml_papers_core"].source_ref == "ml_papers_core"
         assert (
-            index["arxiv"].aliases["challenger"].reranker == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            index["ml_papers_core"].aliases["challenger"].reranker
+            == "cross-encoder/ms-marco-MiniLM-L-6-v2"
         )
 
 
@@ -623,17 +631,17 @@ class TestValidateKbAlias:
         from shared.operator_registry import validate_kb_alias
 
         with pytest.raises(ValueError, match="not valid"):
-            validate_kb_alias("arxiv", "nonexistent")
+            validate_kb_alias("ml_papers_core", "nonexistent")
 
     def test_valid_kb_and_alias_passes(self, _loaded_registry):
         from shared.operator_registry import validate_kb_alias
 
-        validate_kb_alias("arxiv", "champion")  # no exception
+        validate_kb_alias("ml_papers_core", "champion")  # no exception
 
     def test_kb_only_validation(self, _loaded_registry):
         from shared.operator_registry import validate_kb_alias
 
-        validate_kb_alias("arxiv")  # alias=None is fine
+        validate_kb_alias("ml_papers_core")  # alias=None is fine
 
 
 # ---------------------------------------------------------------------------
