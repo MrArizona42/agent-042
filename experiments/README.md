@@ -54,8 +54,8 @@ python -m experiments.training.train_adapter.start_train \
   и notebook wrappers `assign_alias(...)`, `promote(...)`, `detach(...)`, `inspect_kb_alias(...)`.
 - `experiments/rag/rag_ops.ipynb` должен вызывать только `experiments.rag.notebook_ops`, чтобы
   notebook и Airflow использовали один и тот же production runtime.
-- Если notebook или helper всё же импортирует registry-specific schema/loader напрямую, их источник
-  должен быть `src/shared/operator_registry.py`, а не `shared.config`.
+- Если notebook или helper всё же импортирует catalog-specific schema/loader напрямую, их источник
+  должен быть `src/shared/catalog/`, а не `shared.config`.
 - `experiments/rag/sandboxes/` предназначен только для notebook-only experiments. Если sandbox
   эксперимент нужно продвигать в champion, код сначала переносится в `src/rag/` или
   `src/rag/ops/`, а уже потом пересобирается и промоутится коллекция.

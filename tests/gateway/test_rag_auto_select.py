@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from gateway.services.rag_service import RAGService
 from shared.config import Settings
-from shared.operator_registry import AdapterConfig, KBConfig, TaskConfig, registry_override
+from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
 
 
 def _alias_config() -> dict[str, object]:
@@ -118,7 +118,7 @@ def _build_registry() -> dict[str, TaskConfig]:
 
 
 def test_select_knowledge_bases_returns_task_scoped_match() -> None:
-    with registry_override(_build_registry()):
+    with catalog_override(_build_registry()):
         embedding_service = _FakeEmbeddingService()
         with patch("gateway.services.rag_service.EmbeddingService", return_value=embedding_service):
             service = RAGService(settings=_settings())
@@ -132,7 +132,7 @@ def test_select_knowledge_bases_returns_task_scoped_match() -> None:
 
 
 def test_select_knowledge_bases_returns_empty_below_threshold() -> None:
-    with registry_override(_build_registry()):
+    with catalog_override(_build_registry()):
         with patch(
             "gateway.services.rag_service.EmbeddingService",
             return_value=_FakeEmbeddingService(),
@@ -145,7 +145,7 @@ def test_select_knowledge_bases_returns_empty_below_threshold() -> None:
 
 
 def test_select_knowledge_bases_skips_tasks_without_kbs() -> None:
-    with registry_override(_build_registry()):
+    with catalog_override(_build_registry()):
         with patch(
             "gateway.services.rag_service.EmbeddingService",
             return_value=_FakeEmbeddingService(),
@@ -160,7 +160,7 @@ def test_select_knowledge_bases_skips_tasks_without_kbs() -> None:
 
 
 def test_select_knowledge_bases_caches_kb_prototypes_until_invalidated() -> None:
-    with registry_override(_build_registry()):
+    with catalog_override(_build_registry()):
         embedding_service = _FakeEmbeddingService()
         with patch("gateway.services.rag_service.EmbeddingService", return_value=embedding_service):
             service = RAGService(settings=_settings())

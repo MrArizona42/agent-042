@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from gateway.services.task_router import EmbeddingTaskRouter
-from shared.operator_registry import TaskConfig
+from shared.catalog import TaskConfig
 
 
-def _registry() -> dict[str, TaskConfig]:
+def _catalog() -> dict[str, TaskConfig]:
     return {
         "chat": TaskConfig(
             task="chat",
@@ -49,7 +49,7 @@ class _FakeEmbeddingService:
 def test_embedding_task_router_selects_code_for_debug_queries() -> None:
     router = EmbeddingTaskRouter(
         embedding_service=_FakeEmbeddingService(),
-        registry_loader=_registry,
+        catalog_loader=_catalog,
     )
 
     decision = router.decide("How do I fix this traceback?")
@@ -60,7 +60,7 @@ def test_embedding_task_router_selects_code_for_debug_queries() -> None:
 def test_embedding_task_router_selects_summarize_for_summary_queries() -> None:
     router = EmbeddingTaskRouter(
         embedding_service=_FakeEmbeddingService(),
-        registry_loader=_registry,
+        catalog_loader=_catalog,
     )
 
     decision = router.decide("Please summarize this paper")
@@ -72,7 +72,7 @@ def test_embedding_task_router_caches_task_embeddings_until_invalidated() -> Non
     embedding_service = _FakeEmbeddingService()
     router = EmbeddingTaskRouter(
         embedding_service=embedding_service,
-        registry_loader=_registry,
+        catalog_loader=_catalog,
     )
 
     router.decide("How do I fix this traceback?")
@@ -89,7 +89,7 @@ def test_embedding_task_router_caches_task_embeddings_until_invalidated() -> Non
 def test_embedding_task_router_falls_back_to_chat_below_threshold() -> None:
     router = EmbeddingTaskRouter(
         embedding_service=_FakeEmbeddingService(),
-        registry_loader=_registry,
+        catalog_loader=_catalog,
         task_classification_threshold=0.8,
     )
 
@@ -104,7 +104,7 @@ def test_embedding_task_router_falls_back_to_chat_when_embeddings_unavailable() 
 
     router = EmbeddingTaskRouter(
         embedding_service_factory=_raise_embedding_service,
-        registry_loader=_registry,
+        catalog_loader=_catalog,
     )
 
     decision = router.decide("How do I fix this traceback?")

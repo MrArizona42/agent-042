@@ -1,4 +1,4 @@
-"""Helpers for writing small operator-registry TOML fixtures in tests."""
+"""Helpers for writing small catalog TOML fixtures in tests."""
 
 from __future__ import annotations
 
@@ -6,13 +6,13 @@ from pathlib import Path
 from textwrap import dedent
 
 
-def _write_registry(path: Path, content: str) -> Path:
+def _write_catalog(path: Path, content: str) -> Path:
     path.write_text(dedent(content).strip() + "\n", encoding="utf-8")
     return path
 
 
-def write_chat_and_code_operator_registry(path: Path) -> Path:
-    return _write_registry(
+def write_chat_and_code_catalog(path: Path) -> Path:
+    return _write_catalog(
         path,
         """
         schema_version = 2
@@ -65,12 +65,12 @@ def write_chat_and_code_operator_registry(path: Path) -> Path:
     )
 
 
-def write_chat_only_operator_registry(
+def write_chat_only_catalog(
     path: Path,
     *,
     retrieval_strategy: str = "dense",
 ) -> Path:
-    return _write_registry(
+    return _write_catalog(
         path,
         f"""
         schema_version = 2
@@ -100,8 +100,8 @@ def write_chat_only_operator_registry(
     )
 
 
-def write_code_only_operator_registry(path: Path) -> Path:
-    return _write_registry(
+def write_code_only_catalog(path: Path) -> Path:
+    return _write_catalog(
         path,
         """
         schema_version = 2

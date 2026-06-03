@@ -1,7 +1,7 @@
 """Tests for config contract validation.
 
-Covers AliasConfig completeness, AdapterConfig validation, KB / task registry
-requirements, registry reference validation, and validate_kb_alias() error
+Covers AliasConfig completeness, AdapterConfig validation, KB / task catalog
+requirements, catalog reference validation, and validate_kb_alias() error
 messages.
 """
 
@@ -11,14 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from tests.operator_registry_samples import (
-    write_chat_only_operator_registry,
-    write_code_only_operator_registry,
+from tests.catalog_samples import (
+    write_chat_only_catalog,
+    write_code_only_catalog,
 )
 
 
 @pytest.fixture(autouse=True)
-def _reset_kb_registry():
+def _reset_kb_catalog():
     import shared.config as cfg
 
     cfg.clear_knowledge_base_caches()
@@ -37,7 +37,7 @@ class TestAliasConfigValidation:
     def test_missing_top_k_raises(self):
         from pydantic import ValidationError
 
-        from shared.operator_registry import AliasConfig
+        from shared.catalog import AliasConfig
 
         with pytest.raises(ValidationError, match="top_k"):
             AliasConfig(
@@ -48,13 +48,13 @@ class TestAliasConfigValidation:
     def test_missing_score_threshold_raises(self):
         from pydantic import ValidationError
 
-        from shared.operator_registry import AliasConfig
+        from shared.catalog import AliasConfig
 
         with pytest.raises(ValidationError, match="score_threshold"):
             AliasConfig(top_k=5, reranker=None)
 
     def test_missing_reranker_defaults_to_off(self):
-        from shared.operator_registry import AliasConfig
+        from shared.catalog import AliasConfig
 
         cfg = AliasConfig(
             top_k=5,
@@ -66,7 +66,7 @@ class TestAliasConfigValidation:
         assert cfg.reranker is None
 
     def test_complete_alias_config_ok(self):
-        from shared.operator_registry import AliasConfig
+        from shared.catalog import AliasConfig
 
         cfg = AliasConfig(
             top_k=5,
@@ -79,7 +79,7 @@ class TestAliasConfigValidation:
         assert cfg.reranker is None
 
     def test_sparse_alias_config_ok(self):
-        from shared.operator_registry import AliasConfig
+        from shared.catalog import AliasConfig
 
         cfg = AliasConfig(
             top_k=5,
@@ -94,7 +94,7 @@ class TestAliasConfigValidation:
 
 class TestAdapterConfigValidation:
     def test_disabled_adapter_allows_empty_strings(self):
-        from shared.operator_registry import AdapterConfig
+        from shared.catalog import AdapterConfig
 
         cfg = AdapterConfig(name="", alias="", enabled=False)
 
@@ -105,7 +105,7 @@ class TestAdapterConfigValidation:
     def test_enabled_adapter_requires_name(self):
         from pydantic import ValidationError
 
-        from shared.operator_registry import AdapterConfig
+        from shared.catalog import AdapterConfig
 
         with pytest.raises(ValidationError, match="enabled adapter"):
             AdapterConfig(name="", alias="champion", enabled=True)
@@ -113,7 +113,7 @@ class TestAdapterConfigValidation:
     def test_enabled_adapter_requires_alias(self):
         from pydantic import ValidationError
 
-        from shared.operator_registry import AdapterConfig
+        from shared.catalog import AdapterConfig
 
         with pytest.raises(ValidationError, match="enabled adapter"):
             AdapterConfig(name="lora-chat", alias="", enabled=True)
@@ -128,7 +128,7 @@ class TestKBConfigDefaultAlias:
     def test_default_alias_must_be_declared(self):
         from pydantic import ValidationError
 
-        from shared.operator_registry import KBConfig
+        from shared.catalog import KBConfig
 
         with pytest.raises(ValidationError, match="default_alias"):
             KBConfig(
@@ -148,7 +148,7 @@ class TestKBConfigDefaultAlias:
             )
 
     def test_valid_default_alias_ok(self):
-        from shared.operator_registry import KBConfig
+        from shared.catalog import KBConfig
 
         cfg = KBConfig(
             name="test_kb",
@@ -170,7 +170,7 @@ class TestKBConfigDefaultAlias:
     def test_selection_description_is_required(self):
         from pydantic import ValidationError
 
-        from shared.operator_registry import KBConfig
+        from shared.catalog import KBConfig
 
         with pytest.raises(ValidationError, match="selection_description"):
             KBConfig(
@@ -191,7 +191,7 @@ class TestKBConfigDefaultAlias:
 
 class TestTaskConfigValidation:
     def test_task_config_allows_empty_knowledge_bases(self):
-        from shared.operator_registry import TaskConfig
+        from shared.catalog import TaskConfig
 
         cfg = TaskConfig(
             task="summarize",
@@ -207,7 +207,7 @@ class TestTaskConfigValidation:
     def test_task_config_requires_routing_description(self):
         from pydantic import ValidationError
 
-        from shared.operator_registry import TaskConfig
+        from shared.catalog import TaskConfig
 
         with pytest.raises(ValidationError, match="routing_description"):
             TaskConfig(
@@ -224,7 +224,7 @@ class TestTaskConfigValidation:
 
 class TestRegistryReferenceValidation:
     def test_unknown_kb_ref_is_rejected(self, tmp_path: Path):
-        from shared.operator_registry import load_knowledge_bases
+        from shared.catalog import load_catalog
 
         path = tmp_path / "invalid.toml"
         path.write_text(
@@ -232,12 +232,11 @@ class TestRegistryReferenceValidation:
                 [
                     "schema_version = 2",
                     "",
-                    "[tasks.chat]",
+                    "[[tasks]]",
+                    'id = "chat"',
                     'routing_description = "General chat about ML research."',
                     'kb_refs = ["missing_kb"]',
-                    "",
-                    "[tasks.chat.adapter]",
-                    "enabled = false",
+                    "adapter = { enabled = false }",
                     "",
                 ]
             ),
@@ -245,7 +244,7 @@ class TestRegistryReferenceValidation:
         )
 
         with pytest.raises(ValueError, match="references unknown KB 'missing_kb'"):
-            load_knowledge_bases(path)
+            load_catalog(path)
 
 
 class TestKnowledgeBaseRegistryResolution:
@@ -285,11 +284,11 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.gateway.budget.model_max_tokens == 4096
         assert settings.gateway.budget.min_response_budget == 1024
 
-    def test_gateway_cors_and_registry_aliases_use_canonical_nested_names(self, monkeypatch):
+    def test_gateway_cors_and_adapter_aliases_use_canonical_nested_names(self, monkeypatch):
         from shared.config import load_settings
 
         monkeypatch.setenv("GATEWAY__CORS_ALLOW_ORIGINS", "https://a.example, https://b.example")
-        monkeypatch.setenv("REGISTRY__SYNC_ALIASES", "champion,shadow")
+        monkeypatch.setenv("ADAPTER_REGISTRY__SYNC_ALIASES", "champion,shadow")
 
         settings = load_settings()
 
@@ -297,7 +296,7 @@ class TestKnowledgeBaseRegistryResolution:
             "https://a.example",
             "https://b.example",
         )
-        assert settings.registry.sync_aliases == ("champion", "shadow")
+        assert settings.adapter_registry.sync_aliases == ("champion", "shadow")
 
     def test_legacy_flat_env_names_are_ignored(self, monkeypatch):
         from shared.config import load_settings
@@ -309,189 +308,64 @@ class TestKnowledgeBaseRegistryResolution:
 
         assert settings.platform.vllm_base_url == "http://localhost:8000"
 
-    def test_registry_settings_own_operator_registry_path(self):
-        from shared.config import RegistryConfig
-        from shared.operator_registry import resolve_knowledge_bases_path
+    def test_catalog_settings_own_catalog_path(self):
+        from shared.config import CatalogConfig
+        from shared.catalog import resolve_catalog_path
 
-        settings = RegistryConfig(operator_registry_path="configs/operator_registry.toml")
+        settings = CatalogConfig(path="configs/catalog.toml")
 
-        assert settings.operator_registry_path == Path("configs/operator_registry.toml")
-        assert (
-            resolve_knowledge_bases_path(settings)
-            .as_posix()
-            .endswith("configs/operator_registry.toml")
-        )
+        assert settings.path == Path("configs/catalog.toml")
+        assert resolve_catalog_path(settings).as_posix().endswith("configs/catalog.toml")
 
-    def test_get_knowledge_bases_prefers_registry_settings_path(self, tmp_path: Path, monkeypatch):
+    def test_get_catalog_prefers_catalog_settings_path(self, tmp_path: Path, monkeypatch):
         import shared.config as cfg
-        from shared.operator_registry import get_kb_names, get_knowledge_bases
+        from shared.catalog import get_kb_names, get_catalog
 
-        path = tmp_path / "operator-registry.toml"
-        path.write_text(
-            "\n".join(
-                [
-                    "schema_version = 2",
-                    "",
-                    "[tasks.code]",
-                    'routing_description = "Programming help for ML systems."',
-                    'kb_refs = ["pytorch_reference"]',
-                    "",
-                    "[tasks.code.adapter]",
-                    "enabled = false",
-                    "",
-                    "[knowledge_bases.pytorch_reference]",
-                    'default_alias = "champion"',
-                    'selection_description = "PyTorch API reference."',
-                    'source_ref = "pytorch_reference"',
-                    "",
-                    "[knowledge_bases.pytorch_reference.aliases.champion]",
-                    "top_k = 5",
-                    "score_threshold = 0.35",
-                    'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 1",
-                    "",
-                    "[[sources]]",
-                    'id = "pytorch_reference"',
-                    'type = "html_docs"',
-                ]
-            ),
-            encoding="utf-8",
-        )
+        path = write_code_only_catalog(tmp_path / "catalog.toml")
 
-        monkeypatch.setenv("REGISTRY__OPERATOR_REGISTRY_PATH", str(path))
+        monkeypatch.setenv("CATALOG__PATH", str(path))
         cfg.clear_knowledge_base_caches()
 
-        registry = get_knowledge_bases()
+        catalog = get_catalog()
 
-        assert list(registry) == ["code"]
+        assert list(catalog) == ["code"]
         assert get_kb_names() == ["pytorch_reference"]
 
     def test_clear_knowledge_base_caches_refreshes_registry_settings_path(
         self, tmp_path: Path, monkeypatch
     ):
         import shared.config as cfg
-        from shared.operator_registry import get_kb_names
+        from shared.catalog import get_kb_names
 
-        first = tmp_path / "registry-first.toml"
-        first.write_text(
-            "\n".join(
-                [
-                    "schema_version = 2",
-                    "",
-                    "[tasks.chat]",
-                    'routing_description = "General chat about ML research."',
-                    'kb_refs = ["ml_papers_core"]',
-                    "",
-                    "[tasks.chat.adapter]",
-                    "enabled = false",
-                    "",
-                    "[knowledge_bases.ml_papers_core]",
-                    'default_alias = "champion"',
-                    'selection_description = "Research papers and theory."',
-                    'source_ref = "ml_papers_core"',
-                    "",
-                    "[knowledge_bases.ml_papers_core.aliases.champion]",
-                    "top_k = 5",
-                    "score_threshold = 0.35",
-                    'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 1",
-                    "",
-                    "[[sources]]",
-                    'id = "ml_papers_core"',
-                    'type = "arxiv_paper"',
-                ]
-            ),
-            encoding="utf-8",
-        )
+        first = write_chat_only_catalog(tmp_path / "catalog-first.toml")
+        second = write_code_only_catalog(tmp_path / "catalog-second.toml")
 
-        second = tmp_path / "registry-second.toml"
-        second.write_text(
-            "\n".join(
-                [
-                    "schema_version = 2",
-                    "",
-                    "[tasks.code]",
-                    'routing_description = "Programming help for ML systems."',
-                    'kb_refs = ["pytorch_reference"]',
-                    "",
-                    "[tasks.code.adapter]",
-                    "enabled = false",
-                    "",
-                    "[knowledge_bases.pytorch_reference]",
-                    'default_alias = "champion"',
-                    'selection_description = "PyTorch API reference."',
-                    'source_ref = "pytorch_reference"',
-                    "",
-                    "[knowledge_bases.pytorch_reference.aliases.champion]",
-                    "top_k = 5",
-                    "score_threshold = 0.35",
-                    'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 1",
-                    "",
-                    "[[sources]]",
-                    'id = "pytorch_reference"',
-                    'type = "html_docs"',
-                ]
-            ),
-            encoding="utf-8",
-        )
-
-        monkeypatch.setenv("REGISTRY__OPERATOR_REGISTRY_PATH", str(first))
+        monkeypatch.setenv("CATALOG__PATH", str(first))
         cfg.clear_knowledge_base_caches()
         assert get_kb_names() == ["ml_papers_core"]
 
-        monkeypatch.setenv("REGISTRY__OPERATOR_REGISTRY_PATH", str(second))
+        monkeypatch.setenv("CATALOG__PATH", str(second))
         cfg.clear_knowledge_base_caches()
         assert get_kb_names() == ["pytorch_reference"]
 
-    def test_legacy_registry_env_name_is_ignored(self, tmp_path: Path, monkeypatch):
-        from shared.operator_registry import resolve_knowledge_bases_path
+    def test_legacy_flat_catalog_env_name_is_ignored(self, tmp_path: Path, monkeypatch):
+        from shared.catalog import resolve_catalog_path
 
-        path = tmp_path / "operator-registry.toml"
-        path.write_text(
-            "\n".join(
-                [
-                    "schema_version = 2",
-                    "",
-                    "[tasks.chat]",
-                    'routing_description = "General chat about ML research."',
-                    'kb_refs = ["ml_papers_core"]',
-                    "",
-                    "[tasks.chat.adapter]",
-                    "enabled = false",
-                    "",
-                    "[knowledge_bases.ml_papers_core]",
-                    'default_alias = "champion"',
-                    'selection_description = "Research papers and theory."',
-                    'source_ref = "ml_papers_core"',
-                    "",
-                    "[knowledge_bases.ml_papers_core.aliases.champion]",
-                    "top_k = 5",
-                    "score_threshold = 0.35",
-                    'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 1",
-                    "",
-                    "[[sources]]",
-                    'id = "ml_papers_core"',
-                    'type = "arxiv_paper"',
-                ]
-            ),
-            encoding="utf-8",
-        )
+        path = write_chat_only_catalog(tmp_path / "catalog.toml")
 
-        monkeypatch.setenv("REGISTRY_OPERATOR_REGISTRY_PATH", str(path))
-        resolved = resolve_knowledge_bases_path()
+        monkeypatch.setenv("CATALOG_PATH", str(path))
+        resolved = resolve_catalog_path()
 
         assert resolved != path
 
-    def test_in_memory_registry_override_bypasses_disk_loading(self):
-        from shared.operator_registry import (
+    def test_in_memory_catalog_override_bypasses_disk_loading(self):
+        from shared.catalog import (
             AdapterConfig,
             KBConfig,
             TaskConfig,
             get_kb_config,
             get_kb_names,
-            registry_override,
+            catalog_override,
         )
 
         ml_papers_core = KBConfig(
@@ -508,7 +382,7 @@ class TestKnowledgeBaseRegistryResolution:
             },
             selection_description="Research papers and theory.",
         )
-        registry = {
+        catalog = {
             "chat": TaskConfig(
                 task="chat",
                 routing_description="General chat about ML research.",
@@ -517,74 +391,56 @@ class TestKnowledgeBaseRegistryResolution:
             )
         }
 
-        with registry_override(registry):
+        with catalog_override(catalog):
             assert get_kb_names() == ["ml_papers_core"]
             assert get_kb_config("ml_papers_core") is ml_papers_core
 
         assert get_kb_names() != ["ml_papers_core"]
 
-    def test_get_knowledge_bases_reloads_when_settings_path_changes(self, tmp_path: Path):
-        from shared.config import RegistryConfig
-        from shared.operator_registry import get_kb_names, get_knowledge_bases
+    def test_get_catalog_reloads_when_settings_path_changes(self, tmp_path: Path):
+        from shared.config import CatalogConfig
+        from shared.catalog import get_kb_names, get_catalog
 
-        first = write_chat_only_operator_registry(tmp_path / "kb-first.toml")
+        first = write_chat_only_catalog(tmp_path / "kb-first.toml")
 
-        second = write_code_only_operator_registry(tmp_path / "kb-second.toml")
+        second = write_code_only_catalog(tmp_path / "kb-second.toml")
 
-        first_registry = get_knowledge_bases(
-            settings=RegistryConfig(operator_registry_path=str(first))
-        )
-        second_registry = get_knowledge_bases(
-            settings=RegistryConfig(operator_registry_path=str(second))
-        )
+        first_registry = get_catalog(settings=CatalogConfig(path=str(first)))
+        second_registry = get_catalog(settings=CatalogConfig(path=str(second)))
 
         assert list(first_registry) == ["chat"]
         assert list(second_registry) == ["code"]
-        assert get_kb_names(settings=RegistryConfig(operator_registry_path=str(second))) == [
-            "pytorch_reference"
-        ]
+        assert get_kb_names(settings=CatalogConfig(path=str(second))) == ["pytorch_reference"]
 
-    def test_load_knowledge_bases_from_normalized_toml(self, tmp_path: Path):
-        from shared.operator_registry import load_knowledge_bases
+    def test_load_catalog_from_canonical_toml(self, tmp_path: Path):
+        from shared.catalog import load_catalog
 
-        path = tmp_path / "registry.toml"
+        path = tmp_path / "catalog.toml"
         path.write_text(
             "\n".join(
                 [
                     "schema_version = 2",
                     "",
-                    "[tasks.chat]",
+                    "[[tasks]]",
+                    'id = "chat"',
                     'label = "General knowledge"',
                     'routing_description = "General chat about ML research."',
                     'kb_refs = ["ml_papers_core"]',
+                    "adapter = { enabled = false }",
                     "",
-                    "[tasks.chat.adapter]",
-                    "enabled = false",
-                    "",
-                    "[tasks.code]",
+                    "[[tasks]]",
+                    'id = "code"',
                     'routing_description = "Programming help for ML systems."',
                     'kb_refs = ["ml_papers_core"]',
+                    "adapter = { enabled = false }",
                     "",
-                    "[tasks.code.adapter]",
-                    "enabled = false",
-                    "",
-                    "[knowledge_bases.ml_papers_core]",
+                    "[[knowledge_bases]]",
+                    'id = "ml_papers_core"',
                     'default_alias = "champion"',
                     'selection_description = "Research papers and theory."',
                     'source_ref = "ml_papers_core"',
-                    "",
-                    "[knowledge_bases.ml_papers_core.aliases.champion]",
-                    "top_k = 5",
-                    "score_threshold = 0.35",
-                    'retrieval_strategy = "dense"',
-                    "reranker_multiplier = 1",
-                    "",
-                    "[knowledge_bases.ml_papers_core.aliases.challenger]",
-                    "top_k = 5",
-                    "score_threshold = 0.01",
-                    'retrieval_strategy = "hybrid"',
-                    'reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2"',
-                    "reranker_multiplier = 4",
+                    'aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }',
+                    'aliases.challenger = { top_k = 5, score_threshold = 0.01, retrieval_strategy = "hybrid", reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2", reranker_multiplier = 4 }',
                     "",
                     "[[sources]]",
                     'id = "ml_papers_core"',
@@ -594,11 +450,11 @@ class TestKnowledgeBaseRegistryResolution:
             encoding="utf-8",
         )
 
-        registry, index = load_knowledge_bases(path)
+        catalog, index = load_catalog(path)
 
-        assert list(registry) == ["chat", "code"]
-        assert registry["chat"].knowledge_bases[0].name == "ml_papers_core"
-        assert registry["code"].knowledge_bases[0].name == "ml_papers_core"
+        assert list(catalog) == ["chat", "code"]
+        assert catalog["chat"].knowledge_bases[0].name == "ml_papers_core"
+        assert catalog["code"].knowledge_bases[0].name == "ml_papers_core"
         assert index["ml_papers_core"].source_ref == "ml_papers_core"
         assert (
             index["ml_papers_core"].aliases["challenger"].reranker
@@ -614,32 +470,32 @@ class TestKnowledgeBaseRegistryResolution:
 class TestValidateKbAlias:
     @pytest.fixture()
     def _loaded_registry(self, tmp_path: Path):
-        from shared.operator_registry import load_knowledge_bases, registry_override
+        from shared.catalog import load_catalog, catalog_override
 
-        path = write_chat_only_operator_registry(tmp_path / "kb.toml")
-        registry, index = load_knowledge_bases(path)
-        with registry_override(registry, index=index):
+        path = write_chat_only_catalog(tmp_path / "kb.toml")
+        catalog, index = load_catalog(path)
+        with catalog_override(catalog, index=index):
             yield
 
     def test_unknown_kb_raises_valueerror(self, _loaded_registry):
-        from shared.operator_registry import validate_kb_alias
+        from shared.catalog import validate_kb_alias
 
         with pytest.raises(ValueError, match="not found"):
             validate_kb_alias("nonexistent", "champion")
 
     def test_unknown_alias_raises_valueerror(self, _loaded_registry):
-        from shared.operator_registry import validate_kb_alias
+        from shared.catalog import validate_kb_alias
 
         with pytest.raises(ValueError, match="not valid"):
             validate_kb_alias("ml_papers_core", "nonexistent")
 
     def test_valid_kb_and_alias_passes(self, _loaded_registry):
-        from shared.operator_registry import validate_kb_alias
+        from shared.catalog import validate_kb_alias
 
         validate_kb_alias("ml_papers_core", "champion")  # no exception
 
     def test_kb_only_validation(self, _loaded_registry):
-        from shared.operator_registry import validate_kb_alias
+        from shared.catalog import validate_kb_alias
 
         validate_kb_alias("ml_papers_core")  # alias=None is fine
 

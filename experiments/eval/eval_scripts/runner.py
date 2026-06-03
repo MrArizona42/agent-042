@@ -88,7 +88,7 @@ from shared.config import (
     secret_value,
 )
 from shared.model_registry import AdapterRegistry
-from shared.operator_registry import get_kb_config
+from shared.catalog import get_kb_config
 
 logger = logging.getLogger(__name__)
 
@@ -1097,7 +1097,7 @@ def _fetch_retrieval_predictions(
 
     kb_config = get_kb_config(kb_name)
     if kb_config is None:
-        raise RuntimeError(f"KB '{kb_name}' not found in the operator registry")
+        raise RuntimeError(f"KB '{kb_name}' not found in the catalog")
     alias_config = kb_config.aliases.get(rag_alias)
     if alias_config is None:
         raise RuntimeError(f"Alias '{rag_alias}' not found for KB '{kb_name}'")

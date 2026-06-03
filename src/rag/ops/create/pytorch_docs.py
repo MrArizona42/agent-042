@@ -17,7 +17,7 @@ from rag.ops.materialize import (
 from rag.ops.meta import BuildConfig, ImplementationInfo, build_collection_meta
 from rag.sparse_encoder import SparseEncoderService
 from shared.config import get_settings
-from shared.operator_registry import validate_kb_alias
+from shared.catalog import validate_kb_alias
 
 
 def create_pytorch_docs_collection(

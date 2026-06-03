@@ -108,7 +108,7 @@
 После аутентификации Gateway определяет тип задачи: `chat`, `code` или `summarize`. Это влияет на выбор RAG-коллекции и LoRA-адаптера.
 
 **Embedding-based routing:**
-Основной метод — `EmbeddingTaskRouter`. Для каждой задачи в operator registry (`src/shared/operator_registry.toml`) задано `routing_description` — текстовое описание задачи. При инициализации Gateway вычисляет эмбеддинги всех `routing_description` и кэширует их. При запросе:
+Основной метод — `EmbeddingTaskRouter`. Для каждой задачи в catalog (`src/shared/catalog.toml`) задано `routing_description` — текстовое описание задачи. При инициализации Gateway вычисляет эмбеддинги всех `routing_description` и кэширует их. При запросе:
 
 1. Вычисляется эмбеддинг последнего сообщения пользователя.
 2. Считается косинусное сходство с эмбеддингами каждой задачи.
@@ -289,7 +289,7 @@ Qdrant Collections:
   arxiv-20250201  ◄── alias "champion"  (переключение мгновенное)
 ```
 
-Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В operator registry каждый alias ссылается на профиль retrieval-параметров (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Gateway читает эффективные параметры по активному alias в runtime.
+Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В catalog каждый KB alias ссылается на профиль retrieval-параметров (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Gateway читает эффективные параметры по активному alias в runtime.
 
 **Lifecycle коллекции:**
 
@@ -301,7 +301,7 @@ Qdrant Collections:
 
 ### 5.4 Валидация конфигурации при старте
 
-При запуске Gateway автоматически валидирует operator registry: проверяется наличие Qdrant-коллекций для всех объявленных aliases. Если коллекция не найдена, Gateway либо завершается с ошибкой (при `RAG__RAG_STRICT_STARTUP=true`), либо логирует предупреждение и продолжает работу.
+При запуске Gateway автоматически валидирует catalog: проверяется наличие Qdrant-коллекций для всех объявленных aliases. Если коллекция не найдена, Gateway либо завершается с ошибкой (при `RAG__RAG_STRICT_STARTUP=true`), либо логирует предупреждение и продолжает работу.
 
 ---
 
@@ -417,23 +417,24 @@ registry.promote("lora-summarize", version=2, alias="champion")
 |---|---|
 | `.env` | Операторский env-файл. Runtime settings используют nested имена вида `SECTION__FIELD`; инфраструктурные bootstrap/env-переменные Compose могут оставаться flat |
 | `src/shared/config.py` | Root runtime settings loader: `Settings(BaseSettings)`, cache helpers и safe startup logging для Python-сервисов |
-| `src/shared/operator_registry.py` + `src/shared/operator_registry.toml` | Operator registry schema, loader и override helpers для задач и баз знаний |
+| `src/shared/catalog/` + `src/shared/catalog.toml` | Catalog schema, loader и override helpers для задач, баз знаний и источников |
 | `infra/compose/docker-compose.yaml` | Topology всей системы: сети, port bindings, volumes, health checks, зависимости между сервисами |
 | `infra/docker/**/Dockerfile` | Определения образов: базовые образы, установка зависимостей, process defaults |
 | `infra/nginx/*.conf` | TLS termination, reverse proxy rules и маршрутизация между UI и Gateway |
 | `experiments/training/conf/**` | Иерархические Hydra-конфиги для LoRA-экспериментов: модель, LoRA, данные, trainer, scheduler |
 | `pyproject.toml` | Зависимости Python-пакета, настройки linting (ruff, mypy) и dev-tooling |
 
-### 7.2 `operator_registry.toml` — operator registry задач и баз знаний
+### 7.2 `catalog.toml` — catalog задач, баз знаний и источников
 
-Этот registry-layer является единственным источником истины для:
+Этот catalog-layer является единственным источником истины для:
 - Списка задач и их `routing_description` (используется task router'ом).
 - Списка баз знаний и их metadata.
 - Связей `task -> kb_refs`.
-- Общих alias profiles и task-level adapter routing.
+- Per-KB alias retrieval profiles (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`).
 - LoRA-адаптера для каждой задачи (name, alias, enabled).
+- Source metadata для build/update пайплайнов.
 
-Файл загружается через `src/shared/operator_registry.py` и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте.
+Файл загружается через `src/shared/catalog/` и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте. Канонический TOML использует list sections `[[tasks]]`, `[[knowledge_bases]]`, `[[sources]]` с явными `id`; legacy mapping sections не поддерживаются.
 
 ### 7.3 Pydantic Settings (`src/shared/config.py`)
 
@@ -444,7 +445,7 @@ Python-конфигурация реализована через `pydantic-sett
 - env читает только root `Settings`, а nested sections являются plain `BaseModel`
 - canonical runtime env names используют nested contract с delimiter `__`
 - flat compatibility aliases для runtime env names больше не поддерживаются
-- operator registry models/loaders больше не реэкспортируются через `shared.config`; они живут в `shared.operator_registry`
+- catalog models/loaders больше не реэкспортируются через `shared.config`; они живут в `shared.catalog`
 
 Основные секции runtime settings:
 
@@ -452,7 +453,8 @@ Python-конфигурация реализована через `pydantic-sett
 - `GatewayConfig` + `BudgetSettings` — gateway behavior и budgeting knobs
 - `RagSettings` — embedding/retrieval runtime knobs
 - `AuthSettings` — OAuth/session/database auth settings
-- `RegistryConfig` — путь к operator registry и alias sync policy
+- `CatalogConfig` — путь к task/KB catalog
+- `AdapterRegistryConfig` — MLflow adapter materialization и alias sync policy
 - `EvalConfig` — judge, metrics и sandbox settings
 - `WorkerConfig` — Celery worker runtime defaults
 - `UIConfig` — UI timeouts и related knobs
@@ -465,12 +467,12 @@ Python-конфигурация реализована через `pydantic-sett
 - `GATEWAY__CORS_ALLOW_ORIGINS`
 - `RAG__EMBEDDING_MODEL`
 - `AUTH__INTERNAL_API_KEY`
-- `REGISTRY__OPERATOR_REGISTRY_PATH`
-- `REGISTRY__SYNC_ALIASES`
+- `CATALOG__PATH`
+- `ADAPTER_REGISTRY__SYNC_ALIASES`
 - `EVAL__JUDGE__MODEL`
 - `WORKER__CONCURRENCY`
 
-Функция `get_settings()` кэширует root settings через `@lru_cache`. Для settings-driven тестов и локальных override-сценариев используется `load_settings({...})`; для operator registry override используется `registry_override(...)` из `shared.operator_registry`.
+Функция `get_settings()` кэширует root settings через `@lru_cache`. Для settings-driven тестов и локальных override-сценариев используется `load_settings({...})`; для catalog override используется `catalog_override(...)` из `shared.catalog`.
 
 Финальное решение по naming convention: текущий mix class names `*Settings` / `*Config` сохраняется, чтобы не делать churn-only rename pass. Канонизирована именно field/env surface, а не имена всех классов.
 
@@ -483,12 +485,12 @@ Python-конфигурация реализована через `pydantic-sett
 3. обновите `.env.example`, `infra/README.md` и focused tests только если поле действительно должно настраиваться оператором
 4. не добавляйте flat compatibility alias
 
-При добавлении нового operator-registry field:
+При добавлении нового catalog field:
 
-1. меняйте schema/models в `src/shared/operator_registry.py`
-2. обновляйте `src/shared/operator_registry.toml` и sample/contract tests
-3. используйте `registry_override(...)` в тестах вместо manual global mutation
-4. не добавляйте registry helper re-exports обратно в `shared.config`
+1. меняйте schema/models в `src/shared/catalog/`
+2. обновляйте `src/shared/catalog.toml` и sample/contract tests
+3. используйте `catalog_override(...)` в тестах вместо manual global mutation
+4. не добавляйте catalog helper re-exports обратно в `shared.config`
 
 ---
 
@@ -720,7 +722,7 @@ agent-042/
 │   │   └── vector_store.py     # Qdrant абстракция
 │   ├── shared/                 # Общий код для всех сервисов
 │   │   ├── config.py           # Pydantic settings
-│   │   ├── operator_registry.toml # Operator registry / RAG registry
+│   │   ├── catalog.toml       # Task / KB / source catalog
 │   │   ├── model_registry.py   # MLflow adapter sync
 │   │   └── db/                 # SQLAlchemy модели и engine
 │   ├── embeddings/             # Embeddings microservice

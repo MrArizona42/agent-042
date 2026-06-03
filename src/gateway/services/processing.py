@@ -16,7 +16,7 @@ from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
 from shared.config import get_settings, secret_value
-from shared.operator_registry import get_kb_config, get_knowledge_bases
+from shared.catalog import get_kb_config, get_catalog
 from shared.vllm_payloads import (
     canonicalize_assistant_content,
 )
@@ -170,7 +170,7 @@ class _ProcessChat:
 
     @staticmethod
     def _task_has_knowledge_bases(task: str) -> bool:
-        task_cfg = get_knowledge_bases().get(task)
+        task_cfg = get_catalog().get(task)
         return bool(task_cfg and task_cfg.knowledge_bases)
 
     def _resolve_rag_request(
@@ -226,7 +226,7 @@ class _ProcessChat:
 
     @staticmethod
     def _resolve_task_model(task: str, *, settings: Any) -> str:
-        task_cfg = get_knowledge_bases().get(task)
+        task_cfg = get_catalog().get(task)
         if task_cfg is not None and task_cfg.adapter.enabled:
             return f"{task_cfg.adapter.name}-{task_cfg.adapter.alias}"
         return settings.gateway.default_model

@@ -7,7 +7,7 @@ from typing import Callable
 
 from rag.embeddings import EmbeddingService
 from shared.config import get_settings
-from shared.operator_registry import TaskConfig, get_knowledge_bases
+from shared.catalog import TaskConfig, get_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +43,12 @@ class EmbeddingTaskRouter:
         *,
         embedding_service: EmbeddingService | None = None,
         embedding_service_factory: Callable[[], EmbeddingService] = EmbeddingService,
-        registry_loader: Callable[[], dict[str, TaskConfig]] = get_knowledge_bases,
+        catalog_loader: Callable[[], dict[str, TaskConfig]] = get_catalog,
         task_classification_threshold: float | None = None,
     ) -> None:
         self._embedding_service = embedding_service
         self._embedding_service_factory = embedding_service_factory
-        self._registry_loader = registry_loader
+        self._catalog_loader = catalog_loader
         self._task_classification_threshold = task_classification_threshold
         self._task_embeddings: dict[str, list[float]] = {}
 
@@ -72,10 +72,10 @@ class EmbeddingTaskRouter:
         if self._task_embeddings:
             return self._task_embeddings
 
-        registry = self._registry_loader()
+        catalog = self._catalog_loader()
         task_items = [
             (task_cfg.task, task_cfg.routing_description)
-            for task_cfg in registry.values()
+            for task_cfg in catalog.values()
             if task_cfg.routing_description.strip()
         ]
         if not task_items:
