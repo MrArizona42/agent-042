@@ -41,7 +41,6 @@ class KBConfig(BaseModel):
     label: str = ""
     description: str = ""
     selection_description: str
-    source_ref: str | None = None
 
     @model_validator(mode="after")
     def _default_alias_must_exist(self) -> "KBConfig":

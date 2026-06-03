@@ -35,15 +35,15 @@ class CatalogKBConfig(BaseModel):
     label: str = ""
     description: str = ""
     selection_description: str
-    source_ref: str | None = None
 
 
 class SourceConfig(BaseModel):
-    """Source metadata for a knowledge-base build pipeline."""
+    """Source instance metadata for a knowledge-base build pipeline."""
 
-    id: str
     type: str
-    manifest: str | None = None
+    kb: str
+    id: str
+    manifest: str
     settings: dict[str, object] = Field(default_factory=dict)
 
 

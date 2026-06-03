@@ -246,6 +246,67 @@ class TestRegistryReferenceValidation:
         with pytest.raises(ValueError, match="references unknown KB 'missing_kb'"):
             load_catalog(path)
 
+    def test_source_instance_unknown_kb_is_rejected(self, tmp_path: Path):
+        from shared.catalog import load_catalog
+
+        path = tmp_path / "invalid.toml"
+        path.write_text(
+            "\n".join(
+                [
+                    "schema_version = 2",
+                    "",
+                    "[[sources]]",
+                    'type = "html_docs"',
+                    'kb = "missing_kb"',
+                    'id = "docs"',
+                    'manifest = "assets/rag_data/missing/sources.toml"',
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="references unknown KB 'missing_kb'"):
+            load_catalog(path)
+
+    def test_source_instance_id_is_unique_within_kb(self, tmp_path: Path):
+        from shared.catalog import load_catalog
+
+        path = tmp_path / "invalid.toml"
+        path.write_text(
+            "\n".join(
+                [
+                    "schema_version = 2",
+                    "",
+                    "[[knowledge_bases]]",
+                    'id = "pytorch_reference"',
+                    'default_alias = "champion"',
+                    'selection_description = "PyTorch API reference."',
+                    "",
+                    "[knowledge_bases.aliases.champion]",
+                    "top_k = 5",
+                    "score_threshold = 0.35",
+                    'retrieval_strategy = "dense"',
+                    "reranker_multiplier = 1",
+                    "",
+                    "[[sources]]",
+                    'type = "html_docs"',
+                    'kb = "pytorch_reference"',
+                    'id = "docs"',
+                    'manifest = "assets/rag_data/pytorch_reference/docs.sources.toml"',
+                    "",
+                    "[[sources]]",
+                    'type = "html_docs"',
+                    'kb = "pytorch_reference"',
+                    'id = "docs"',
+                    'manifest = "assets/rag_data/pytorch_reference/tutorials.sources.toml"',
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="Duplicate source id 'docs' for KB"):
+            load_catalog(path)
+
 
 class TestKnowledgeBaseRegistryResolution:
     def test_gateway_settings_expose_grouped_sections(self, monkeypatch):
@@ -309,8 +370,8 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.platform.vllm_base_url == "http://localhost:8000"
 
     def test_catalog_settings_own_catalog_path(self):
-        from shared.config import CatalogConfig
         from shared.catalog import resolve_catalog_path
+        from shared.config import CatalogConfig
 
         settings = CatalogConfig(path="configs/catalog.toml")
 
@@ -319,7 +380,7 @@ class TestKnowledgeBaseRegistryResolution:
 
     def test_get_catalog_prefers_catalog_settings_path(self, tmp_path: Path, monkeypatch):
         import shared.config as cfg
-        from shared.catalog import get_kb_names, get_catalog
+        from shared.catalog import get_catalog, get_kb_names
 
         path = write_code_only_catalog(tmp_path / "catalog.toml")
 
@@ -363,9 +424,9 @@ class TestKnowledgeBaseRegistryResolution:
             AdapterConfig,
             KBConfig,
             TaskConfig,
+            catalog_override,
             get_kb_config,
             get_kb_names,
-            catalog_override,
         )
 
         ml_papers_core = KBConfig(
@@ -398,8 +459,8 @@ class TestKnowledgeBaseRegistryResolution:
         assert get_kb_names() != ["ml_papers_core"]
 
     def test_get_catalog_reloads_when_settings_path_changes(self, tmp_path: Path):
+        from shared.catalog import get_catalog, get_kb_names
         from shared.config import CatalogConfig
-        from shared.catalog import get_kb_names, get_catalog
 
         first = write_chat_only_catalog(tmp_path / "kb-first.toml")
 
@@ -438,13 +499,25 @@ class TestKnowledgeBaseRegistryResolution:
                     'id = "ml_papers_core"',
                     'default_alias = "champion"',
                     'selection_description = "Research papers and theory."',
-                    'source_ref = "ml_papers_core"',
-                    'aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }',
-                    'aliases.challenger = { top_k = 5, score_threshold = 0.01, retrieval_strategy = "hybrid", reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2", reranker_multiplier = 4 }',
+                    "",
+                    "[knowledge_bases.aliases.champion]",
+                    "top_k = 5",
+                    "score_threshold = 0.35",
+                    'retrieval_strategy = "dense"',
+                    "reranker_multiplier = 1",
+                    "",
+                    "[knowledge_bases.aliases.challenger]",
+                    "top_k = 5",
+                    "score_threshold = 0.01",
+                    'retrieval_strategy = "hybrid"',
+                    'reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2"',
+                    "reranker_multiplier = 4",
                     "",
                     "[[sources]]",
-                    'id = "ml_papers_core"',
                     'type = "arxiv_paper"',
+                    'kb = "ml_papers_core"',
+                    'id = "papers"',
+                    'manifest = "assets/rag_data/ml_papers_core/sources.toml"',
                 ]
             ),
             encoding="utf-8",
@@ -455,7 +528,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert list(catalog) == ["chat", "code"]
         assert catalog["chat"].knowledge_bases[0].name == "ml_papers_core"
         assert catalog["code"].knowledge_bases[0].name == "ml_papers_core"
-        assert index["ml_papers_core"].source_ref == "ml_papers_core"
+        assert not hasattr(index["ml_papers_core"], "source_ref")
         assert (
             index["ml_papers_core"].aliases["challenger"].reranker
             == "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -470,7 +543,7 @@ class TestKnowledgeBaseRegistryResolution:
 class TestValidateKbAlias:
     @pytest.fixture()
     def _loaded_registry(self, tmp_path: Path):
-        from shared.catalog import load_catalog, catalog_override
+        from shared.catalog import catalog_override, load_catalog
 
         path = write_chat_only_catalog(tmp_path / "kb.toml")
         catalog, index = load_catalog(path)

@@ -34,14 +34,23 @@ def materialize_catalog(
     """Build the runtime task catalog and flat KB index from TOML schema."""
     catalog_kbs = _index_by_id(catalog_cfg.knowledge_bases, "knowledge_bases")
     catalog_tasks = _index_by_id(catalog_cfg.tasks, "tasks")
-    catalog_sources = _index_by_id(catalog_cfg.sources, "sources")
+    source_keys: set[tuple[str, str]] = set()
+    for source_cfg in catalog_cfg.sources:
+        source_kb = source_cfg.kb.strip()
+        source_id = source_cfg.id.strip()
+        if not source_kb or not source_id:
+            raise ValueError("sources entries require non-empty kb and id")
+        if source_kb not in catalog_kbs:
+            raise ValueError(f"Source '{source_id}' references unknown KB '{source_kb}'")
+        source_key = (source_kb, source_id)
+        if source_key in source_keys:
+            raise ValueError(f"Duplicate source id '{source_id}' for KB '{source_kb}'")
+        source_keys.add(source_key)
 
     kb_index: dict[str, KBConfig] = {}
     for kb_name, kb_cfg in catalog_kbs.items():
         if not kb_cfg.enabled:
             continue
-        if kb_cfg.source_ref is not None and kb_cfg.source_ref not in catalog_sources:
-            raise ValueError(f"KB '{kb_name}' references unknown source '{kb_cfg.source_ref}'")
 
         aliases = {
             alias_name: AliasConfig(
@@ -62,7 +71,6 @@ def materialize_catalog(
             label=kb_cfg.label,
             description=kb_cfg.description,
             selection_description=kb_cfg.selection_description,
-            source_ref=kb_cfg.source_ref,
         )
 
     task_catalog: dict[str, TaskConfig] = {}

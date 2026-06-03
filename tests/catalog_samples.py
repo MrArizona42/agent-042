@@ -38,9 +38,19 @@ def write_chat_and_code_catalog(path: Path) -> Path:
         label = "Core ML papers"
         description = "ML papers"
         selection_description = "Research papers and literature-grounded answers."
-        source_ref = "ml_papers_core"
-        aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
-        aliases.challenger = { top_k = 5, score_threshold = 0.01, reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2", retrieval_strategy = "hybrid", reranker_multiplier = 4 }
+
+        [knowledge_bases.aliases.champion]
+        top_k = 5
+        score_threshold = 0.35
+        retrieval_strategy = "dense"
+        reranker_multiplier = 1
+
+        [knowledge_bases.aliases.challenger]
+        top_k = 5
+        score_threshold = 0.01
+        reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        retrieval_strategy = "hybrid"
+        reranker_multiplier = 4
 
         [[knowledge_bases]]
         id = "pytorch_reference"
@@ -49,17 +59,23 @@ def write_chat_and_code_catalog(path: Path) -> Path:
         label = "PyTorch reference"
         description = "Coding docs"
         selection_description = "PyTorch API reference and implementation guidance."
-        source_ref = "pytorch_reference"
-        aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
+
+        [knowledge_bases.aliases.champion]
+        top_k = 5
+        score_threshold = 0.35
+        retrieval_strategy = "dense"
+        reranker_multiplier = 1
 
         [[sources]]
-        id = "ml_papers_core"
         type = "arxiv_paper"
+        kb = "ml_papers_core"
+        id = "papers"
         manifest = "assets/rag_data/ml_papers_core/sources.toml"
 
         [[sources]]
-        id = "pytorch_reference"
         type = "html_docs"
+        kb = "pytorch_reference"
+        id = "docs"
         manifest = "assets/rag_data/pytorch_reference/sources.toml"
         """,
     )
@@ -89,12 +105,17 @@ def write_chat_only_catalog(
         label = "Core ML papers"
         description = "ML papers"
         selection_description = "Research papers and literature-grounded answers."
-        source_ref = "ml_papers_core"
-        aliases.champion = {{ top_k = 5, score_threshold = 0.35, retrieval_strategy = "{retrieval_strategy}", reranker_multiplier = 1 }}
+
+        [knowledge_bases.aliases.champion]
+        top_k = 5
+        score_threshold = 0.35
+        retrieval_strategy = "{retrieval_strategy}"
+        reranker_multiplier = 1
 
         [[sources]]
-        id = "ml_papers_core"
         type = "arxiv_paper"
+        kb = "ml_papers_core"
+        id = "papers"
         manifest = "assets/rag_data/ml_papers_core/sources.toml"
         """,
     )
@@ -116,12 +137,17 @@ def write_code_only_catalog(path: Path) -> Path:
         id = "pytorch_reference"
         default_alias = "champion"
         selection_description = "PyTorch API reference."
-        source_ref = "pytorch_reference"
-        aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
+
+        [knowledge_bases.aliases.champion]
+        top_k = 5
+        score_threshold = 0.35
+        retrieval_strategy = "dense"
+        reranker_multiplier = 1
 
         [[sources]]
-        id = "pytorch_reference"
         type = "html_docs"
+        kb = "pytorch_reference"
+        id = "docs"
         manifest = "assets/rag_data/pytorch_reference/sources.toml"
         """,
     )

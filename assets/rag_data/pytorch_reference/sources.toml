@@ -1,0 +1,52 @@
+schema_version = 1
+source_type = "html_docs"
+
+[[documents]]
+id = "tensors"
+url = "https://pytorch.org/docs/stable/tensors.html"
+title = "Tensors"
+
+[[documents]]
+id = "torch"
+url = "https://pytorch.org/docs/stable/torch.html"
+title = "torch"
+
+[[documents]]
+id = "nn"
+url = "https://pytorch.org/docs/stable/nn.html"
+title = "torch.nn"
+
+[[documents]]
+id = "autograd"
+url = "https://pytorch.org/docs/stable/autograd.html"
+title = "Automatic Differentiation"
+
+[[documents]]
+id = "optim"
+url = "https://pytorch.org/docs/stable/optim.html"
+title = "torch.optim"
+
+[[documents]]
+id = "data"
+url = "https://pytorch.org/docs/stable/data.html"
+title = "torch.utils.data"
+
+[[documents]]
+id = "cuda"
+url = "https://pytorch.org/docs/stable/cuda.html"
+title = "CUDA semantics"
+
+[[documents]]
+id = "distributed"
+url = "https://pytorch.org/docs/stable/distributed.html"
+title = "Distributed package"
+
+[[documents]]
+id = "compile"
+url = "https://pytorch.org/docs/stable/generated/torch.compile.html"
+title = "torch.compile"
+
+[[documents]]
+id = "amp"
+url = "https://pytorch.org/docs/stable/amp.html"
+title = "Automatic Mixed Precision"
