@@ -182,4 +182,3 @@ def test_chunk_source_instance_records_failures(tmp_path: Path) -> None:
     assert summary.chunk_count == 0
     assert len(summary.failed) == 1
     assert summary.failed[0]["error_type"] == "ValidationError"
-

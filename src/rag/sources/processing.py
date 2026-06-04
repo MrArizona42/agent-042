@@ -169,4 +169,3 @@ def process_source_instance(
             )
 
     return summary
-

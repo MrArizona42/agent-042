@@ -76,9 +76,7 @@ def test_arxiv_fetcher_stores_pdf_bytes(tmp_path) -> None:
         title="Attention Is All You Need",
         metadata={"arxiv_id": "1706.03762"},
     )
-    fetcher = ArxivPaperFetcher(
-        client=_client(b"%PDF fake", content_type="application/pdf")
-    )
+    fetcher = ArxivPaperFetcher(client=_client(b"%PDF fake", content_type="application/pdf"))
 
     result = fetcher.fetch(
         source,

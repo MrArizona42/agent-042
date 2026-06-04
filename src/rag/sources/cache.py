@@ -43,10 +43,7 @@ def source_cache_paths(
     return SourceCachePaths(
         root_dir=root_dir,
         raw_path=root_dir / "raw" / source_instance_id / document_dir_name / raw_filename,
-        metadata_path=root_dir
-        / "metadata"
-        / source_instance_id
-        / f"{document_dir_name}.json",
+        metadata_path=root_dir / "metadata" / source_instance_id / f"{document_dir_name}.json",
     )
 
 

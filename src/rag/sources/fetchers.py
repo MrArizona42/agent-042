@@ -187,9 +187,7 @@ class ArxivPaperFetcher(HttpSourceFetcher):
     def _pdf_url(self, source_document: SourceDocument) -> str:
         arxiv_id = str(source_document.metadata.get("arxiv_id") or "").strip()
         if not arxiv_id:
-            raise ValueError(
-                f"ArXiv source document '{source_document.id}' is missing arxiv_id"
-            )
+            raise ValueError(f"ArXiv source document '{source_document.id}' is missing arxiv_id")
         return f"https://arxiv.org/pdf/{arxiv_id}"
 
     def fetch(

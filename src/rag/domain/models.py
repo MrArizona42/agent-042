@@ -186,8 +186,7 @@ class IndexManifest(BaseModel):
         expected_manifest_id = compute_manifest_id(self)
         if self.manifest_id != expected_manifest_id:
             raise ValueError(
-                f"manifest_id does not match manifest payload "
-                f"(expected {expected_manifest_id})"
+                f"manifest_id does not match manifest payload (expected {expected_manifest_id})"
             )
         return self
 

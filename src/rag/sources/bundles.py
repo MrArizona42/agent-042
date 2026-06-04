@@ -86,4 +86,3 @@ def collect_source_chunks(
         document_count=len(document_ids_seen),
         chunk_count=len(chunks),
     )
-

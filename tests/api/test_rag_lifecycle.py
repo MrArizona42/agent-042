@@ -400,10 +400,7 @@ class TestRAGServiceResolution:
     def test_qdrant_alias_construction(self):
         from gateway.services.rag_service import RAGService
 
-        assert (
-            RAGService._qdrant_alias("ml_papers_core", "champion")
-            == "ml_papers_core_champion"
-        )
+        assert RAGService._qdrant_alias("ml_papers_core", "champion") == "ml_papers_core_champion"
         assert (
             RAGService._qdrant_alias("pytorch_reference", "challenger")
             == "pytorch_reference_challenger"
@@ -617,8 +614,9 @@ class TestRetrieveDocumentsConfig:
 
             mock_read_meta.assert_called_once()
             assert svc._resolved_collections["ml_papers_core_champion"] == "ml_papers_core_20260401"
-            assert svc._resolved_collections["ml_papers_core_challenger"] == \
-                                                                        "ml_papers_core_20260401"
+            assert (
+                svc._resolved_collections["ml_papers_core_challenger"] == "ml_papers_core_20260401"
+            )
             assert "ml_papers_core_20260401" in svc._build_configs
 
     def test_alias_rebind_refreshes_retriever_and_build_config(self, catalog_file: Path):
@@ -707,9 +705,7 @@ class TestRetrieveDocumentsConfig:
             current_target["name"] = "ml_papers_core_20260402"
 
             svc.retrieve_documents(
-                query="second",
-                knowledge_base="ml_papers_core",
-                alias="champion"
+                query="second", knowledge_base="ml_papers_core", alias="champion"
             )
 
             assert mock_retriever_cls.call_count == 2

@@ -27,10 +27,7 @@ class _EmbeddingClient:
 
 class _SparseClient:
     def encode_documents(self, texts: list[str]) -> list[SparseVector]:
-        return [
-            SparseVector(indices=[index + 1], values=[1.0])
-            for index, _ in enumerate(texts)
-        ]
+        return [SparseVector(indices=[index + 1], values=[1.0]) for index, _ in enumerate(texts)]
 
 
 class _VectorStore:

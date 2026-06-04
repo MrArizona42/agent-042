@@ -102,7 +102,4 @@ def write_extracted_artifact(
 
 def read_extracted_artifact(path: Path) -> ExtractedDocumentArtifact:
     """Read a persisted extracted artifact."""
-    return ExtractedDocumentArtifact.model_validate(
-        json.loads(path.read_text(encoding="utf-8"))
-    )
-
+    return ExtractedDocumentArtifact.model_validate(json.loads(path.read_text(encoding="utf-8")))

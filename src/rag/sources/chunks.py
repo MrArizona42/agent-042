@@ -260,4 +260,3 @@ def chunk_source_instance(
                 }
             )
     return summary
-

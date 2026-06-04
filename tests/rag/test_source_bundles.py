@@ -83,8 +83,7 @@ def test_collect_source_chunks_returns_materialization_bundle(tmp_path: Path) ->
     assert bundle.chunk_count == len(bundle.chunks)
     assert len(bundle.chunk_artifact_paths) == 2
     assert all(
-        checksum.startswith("sha256:")
-        for checksum in bundle.chunk_artifact_checksums.values()
+        checksum.startswith("sha256:") for checksum in bundle.chunk_artifact_checksums.values()
     )
 
 

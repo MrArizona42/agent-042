@@ -95,8 +95,7 @@ class TestAssignAliasToCollection:
             collection_name="ml_papers_core_20260401",
         )
         mock_store.update_alias.assert_called_once_with(
-            "ml_papers_core_champion",
-            "ml_papers_core_20260401"
+            "ml_papers_core_champion", "ml_papers_core_20260401"
         )
         assert result == {
             "alias_name": "ml_papers_core_champion",
@@ -148,8 +147,7 @@ class TestAssignAliasToCollection:
             mock_store.collection_exists.return_value = True
 
             with pytest.raises(
-                RuntimeError,
-                match="belongs to 'pytorch_reference', not 'ml_papers_core'"
+                RuntimeError, match="belongs to 'pytorch_reference', not 'ml_papers_core'"
             ):
                 assign_alias_to_collection(
                     kb="ml_papers_core",
@@ -183,9 +181,7 @@ class TestPromoteAlias:
             mock_store.resolve_alias.return_value = "ml_papers_core_20260401"
 
             result = promote_alias(
-                kb="ml_papers_core",
-                from_alias="challenger",
-                to_alias="champion"
+                kb="ml_papers_core", from_alias="challenger", to_alias="champion"
             )
 
         mock_store_cls.assert_called_once_with(

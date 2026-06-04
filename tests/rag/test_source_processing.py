@@ -21,8 +21,7 @@ def _html_client() -> httpx.Client:
             return httpx.Response(500, content=b"broken", request=request)
         page_id = request.url.path.rsplit("/", 1)[-1].removesuffix(".html")
         content = (
-            f"<html><body><h1>{page_id.title()}</h1>"
-            f"<p>{page_id} body text.</p></body></html>"
+            f"<html><body><h1>{page_id.title()}</h1><p>{page_id} body text.</p></body></html>"
         ).encode("utf-8")
         return httpx.Response(
             200,
@@ -189,4 +188,3 @@ def test_process_source_instance_rejects_source_type_mismatch(tmp_path: Path) ->
         assert "expected 'arxiv_paper'" in str(exc)
     else:
         raise AssertionError("expected source_type mismatch to fail")
-

@@ -79,11 +79,7 @@ def _list_knowledge_base_names() -> list[str]:
     from shared.catalog import get_catalog
 
     return sorted(
-        {
-            kb_cfg.name
-            for task_cfg in get_catalog().values()
-            for kb_cfg in task_cfg.knowledge_bases
-        }
+        {kb_cfg.name for task_cfg in get_catalog().values() for kb_cfg in task_cfg.knowledge_bases}
     )
 
 

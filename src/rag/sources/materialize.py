@@ -330,8 +330,7 @@ def promote_materialized_alias(
         )
     if attestation.collection_name != collection_name:
         raise RuntimeError(
-            f"Collection attestation names '{attestation.collection_name}', "
-            f"not '{collection_name}'"
+            f"Collection attestation names '{attestation.collection_name}', not '{collection_name}'"
         )
 
     alias_name = qdrant_alias_name(kb_id=kb_id, alias=alias)
