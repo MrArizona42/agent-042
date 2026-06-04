@@ -82,8 +82,7 @@ so they execute inside the same Docker network and dependency image as Airflow
 worker tasks:
 
 ```bash
-docker compose --profile ops --env-file .env -f infra/compose/docker-compose.yaml run --rm rag-ops \
-  python -m rag.sources.cli build-source \
+bash scripts/rag_ops.sh python -m rag.sources.cli build-source \
   --catalog src/shared/catalog.toml \
   --kb pytorch_reference \
   --source docs \

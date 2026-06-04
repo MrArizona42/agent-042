@@ -430,6 +430,12 @@ promote_current_release
 log "Updating canonical PROJECT_ROOT in $env_file"
 upsert_env_value PROJECT_ROOT "$canonical_project_root" "$env_file"
 
+log "Persisting active IMAGE_TAG in $env_file"
+upsert_env_value IMAGE_TAG "$image_tag" "$env_file"
+
+log "Persisting COMPOSE_PROJECT_NAME in $env_file"
+upsert_env_value COMPOSE_PROJECT_NAME "$compose_project_name" "$env_file"
+
 log "Pruning old releases"
 prune_old_releases "$keep_releases"
 
