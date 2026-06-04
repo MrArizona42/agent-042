@@ -1023,6 +1023,46 @@ services:
     restart: unless-stopped
 
   # =====================
+  # RAG Operations Runner
+  # One-shot shell/CLI entry point for manual RAG lifecycle operations.
+  # Uses the same dependency image and mounted project/data roots as the
+  # Airflow worker, but does not run a worker process by default.
+  #
+  # Example:
+  #   docker compose --profile ops --env-file .env -f infra/compose/docker-compose.yaml run --rm rag-ops \
+  #     python -m rag.sources.cli build-source --catalog src/shared/catalog.toml \
+  #     --kb pytorch_reference --source docs --rag-data-root assets/rag_data --limit 1
+  # =====================
+  rag-ops:
+    profiles: ["ops"]
+    image: *airflow-worker-image
+    build: *airflow-worker-build
+    working_dir: /opt/airflow/project
+    entrypoint: /bin/bash
+    command: ["-lc", "python -m rag.sources.cli --help"]
+    environment:
+      <<: *airflow-common-env
+      PYTHONPATH: /opt/airflow/project:/opt/airflow/project/src
+    volumes: *airflow-common-volumes
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      embeddings:
+        condition: service_healthy
+      reranker:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - mlflow_db_net
+      - backend_net
+      - sandbox_net
+    logging: *default-logging
+    restart: "no"
+
+  # =====================
   # JupyterLab
   # =====================
   jupyter:
