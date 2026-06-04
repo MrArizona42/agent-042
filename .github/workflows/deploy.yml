@@ -3,10 +3,6 @@ name: Deploy Release
 on:
   workflow_dispatch:
     inputs:
-      branch:
-        description: Branch that should contain the target commit
-        required: true
-        type: string
       sha:
         description: Exact commit SHA to deploy
         required: true
@@ -41,7 +37,7 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
 
       - name: Resolve target release
@@ -50,11 +46,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          branch="${{ inputs.branch }}"
+          branch="${{ github.ref_name }}"
           raw_sha="${{ inputs.sha }}"
           release_root="${{ inputs.release_root }}"
 
           [[ "$branch" =~ ^[a-zA-Z0-9/_.-]+$ ]] || { echo "branch contains unsafe characters: $branch" >&2; exit 1; }
+          [[ "$raw_sha" =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "sha must be a short or full commit hash: $raw_sha" >&2; exit 1; }
           [[ "$release_root" =~ ^/[a-zA-Z0-9/_.-]+$ ]] || { echo "release_root contains unsafe characters: $release_root" >&2; exit 1; }
 
           git cat-file -e "$raw_sha^{commit}"
@@ -102,6 +99,7 @@ jobs:
             gateway
             jupyter
             mlflow
+            rag-ops
             reranker
             ui
           )

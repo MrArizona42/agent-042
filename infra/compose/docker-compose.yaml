@@ -70,6 +70,12 @@ x-airflow-worker-build: &airflow-worker-build
 
 x-airflow-worker-image: &airflow-worker-image "ghcr.io/${GITHUB_REPOSITORY}-airflow-worker:${IMAGE_TAG}"
 
+x-rag-ops-build: &rag-ops-build
+  context: ${PROJECT_ROOT}
+  dockerfile: infra/docker/airflow-worker/Dockerfile
+
+x-rag-ops-image: &rag-ops-image "ghcr.io/${GITHUB_REPOSITORY}-rag-ops:${IMAGE_TAG}"
+
 x-airflow-worker-gpu-build: &airflow-worker-gpu-build
   context: ${PROJECT_ROOT}
   dockerfile: infra/docker/airflow-worker-gpu/Dockerfile
@@ -1035,8 +1041,8 @@ services:
   # =====================
   rag-ops:
     profiles: ["ops"]
-    image: *airflow-worker-image
-    build: *airflow-worker-build
+    image: *rag-ops-image
+    build: *rag-ops-build
     working_dir: /opt/airflow/project
     entrypoint: /bin/bash
     command: ["-lc", "python -m rag.sources.cli --help"]
