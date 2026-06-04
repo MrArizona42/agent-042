@@ -17,13 +17,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from shared.config import Settings
 from shared.catalog import (
-    get_kb_config,
-    get_catalog,
-    load_catalog,
     catalog_override,
+    get_catalog,
+    get_kb_config,
+    load_catalog,
 )
+from shared.config import Settings
 from tests.catalog_samples import (
     write_chat_and_code_catalog,
     write_chat_only_catalog,

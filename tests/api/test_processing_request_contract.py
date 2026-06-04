@@ -9,8 +9,8 @@ import shared.config as cfg
 from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
 from gateway.services.processing import _ProcessChat
 from gateway.services.task_router import RouteDecision
-from shared.config import Settings
 from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
+from shared.config import Settings
 
 
 def _alias_config() -> dict[str, object]:

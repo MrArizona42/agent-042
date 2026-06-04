@@ -25,7 +25,7 @@ def catalog_file(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def loaded_kb_catalog(catalog_file: Path):
-    from shared.catalog import load_catalog, catalog_override
+    from shared.catalog import catalog_override, load_catalog
 
     catalog, index = load_catalog(catalog_file)
     with catalog_override(catalog, index=index):

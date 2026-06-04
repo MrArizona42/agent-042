@@ -82,13 +82,13 @@ from rag.reranker import get_reranker
 from rag.retriever import Retriever
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
+from shared.catalog import get_kb_config
 from shared.config import (
     JudgeSettings,
     get_settings,
     secret_value,
 )
 from shared.model_registry import AdapterRegistry
-from shared.catalog import get_kb_config
 
 logger = logging.getLogger(__name__)
 

@@ -17,8 +17,8 @@ from rag.ops.materialize import (
 )
 from rag.ops.meta import BuildConfig, ImplementationInfo, build_collection_meta
 from rag.sparse_encoder import SparseEncoderService
-from shared.config import get_settings
 from shared.catalog import validate_kb_alias
+from shared.config import get_settings
 
 _POINT_ID_NS = uuid.UUID("b8c9d0e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e")
 

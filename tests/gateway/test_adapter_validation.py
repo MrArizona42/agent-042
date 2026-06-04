@@ -4,8 +4,8 @@ import logging
 from unittest.mock import MagicMock, patch
 
 from gateway.services.rag_service import RAGService
-from shared.config import Settings
 from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
+from shared.config import Settings
 
 
 def _alias_config() -> dict[str, object]:
