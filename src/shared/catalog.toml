@@ -1,0 +1,70 @@
+# Canonical catalog for task routing, knowledge-base metadata,
+# per-KB alias retrieval setup, source metadata, and per-task adapter wiring.
+#
+# Conventions:
+# - ids are canonical task / knowledge-base ids
+# - each task owns an ordered list of KB refs
+# - each KB owns explicit per-alias retrieval settings
+# - each source instance declares type, owning KB, source id, and manifest
+# - omitted reranker means reranking is disabled for that alias
+# - omitted adapter.name / adapter.alias means defaults apply while enabled = false
+
+schema_version = 2
+
+[[tasks]]
+id = "chat"
+enabled = true
+label = "General knowledge"
+routing_description = "Open-ended ML/DL/AI/LLM research discussion, conceptual explanation, comparison, brainstorming, planning, and general Q&A that is not mainly code debugging and not a request to summarize provided text."
+kb_refs = ["ml_papers_core"]
+adapter = { enabled = false }
+
+[[tasks]]
+id = "code"
+enabled = true
+label = "Coding assistance"
+routing_description = "Programming help for ML systems: writing code, debugging tracebacks, refactoring, explaining APIs, fixing integration issues, and reasoning about implementation details."
+kb_refs = ["pytorch_reference"]
+adapter = { enabled = false }
+
+[[tasks]]
+id = "summarize"
+enabled = true
+label = "Summarization"
+routing_description = "Summarize or condense user-provided content into a shorter form such as TL;DR, bullets, outline, recap, or structured summary without relying on external knowledge retrieval."
+kb_refs = []
+adapter = { enabled = false }
+
+[[knowledge_bases]]
+id = "ml_papers_core"
+enabled = true
+label = "Core ML papers"
+description = "Curated full-text ML/AI papers for literature-grounded discussion"
+selection_description = "Research papers, recent ML/AI methods, architectures, experiments, benchmarks, theory, and literature-grounded answers."
+update_strategy = "replace"
+default_alias = "champion"
+aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
+aliases.challenger = { top_k = 5, score_threshold = 0.01, retrieval_strategy = "hybrid", reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2", reranker_multiplier = 4 }
+
+[[knowledge_bases]]
+id = "pytorch_reference"
+enabled = true
+label = "PyTorch reference"
+description = "PyTorch documentation for coding assistance"
+selection_description = "PyTorch API reference, tutorials, tensors, autograd, modules, distributed training, and library usage guidance for implementation questions."
+update_strategy = "replace"
+default_alias = "champion"
+aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
+aliases.challenger = { top_k = 5, score_threshold = 0.01, retrieval_strategy = "hybrid", reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2", reranker_multiplier = 4 }
+
+[[sources]]
+type = "arxiv_paper"
+kb = "ml_papers_core"
+id = "papers"
+manifest = "assets/rag_data/ml_papers_core/sources.toml"
+
+[[sources]]
+type = "html_docs"
+kb = "pytorch_reference"
+id = "docs"
+manifest = "assets/rag_data/pytorch_reference/sources.toml"

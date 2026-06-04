@@ -13,24 +13,32 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
-from .config import AppConfig
+from .config import AppConfig, ModelConfig
 
 logger = logging.getLogger(__name__)
 
 
-def _load_tokenizer(model_path: Path) -> PreTrainedTokenizerBase:
-    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True, local_files_only=True)
+def _load_tokenizer(model_source: str, model_cfg: ModelConfig) -> PreTrainedTokenizerBase:
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_source,
+        use_fast=model_cfg.tokenizer_use_fast,
+        local_files_only=model_cfg.local_files_only,
+        trust_remote_code=model_cfg.trust_remote_code,
+    )
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
     return tokenizer
 
 
-def _resolve_model_path(cfg: AppConfig, candidate: str | Path) -> Path:
+def _resolve_model_source(cfg: AppConfig, candidate: str | Path) -> str:
     project_root = Path(cfg.paths.project_root)
-    path = Path(candidate)
+    path = Path(str(candidate)).expanduser()
     if not path.is_absolute():
-        path = project_root / path
-    return path
+        project_relative = project_root / path
+        if cfg.model.local_files_only or project_relative.exists():
+            return str(project_relative)
+        return str(candidate)
+    return str(path)
 
 
 def load_base_model_and_tokenizer(
@@ -38,13 +46,16 @@ def load_base_model_and_tokenizer(
     *,
     for_training: bool,
 ) -> Tuple[Any, PreTrainedTokenizerBase]:
-    model_cfg = cfg.experiment.model
+    model_cfg = cfg.model
     project_root = Path(cfg.paths.project_root)
-    model_path = _resolve_model_path(cfg, model_cfg.local_path)
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model path not found: {model_path}")
+    model_source = _resolve_model_source(cfg, model_cfg.local_path)
+    resolved_model_path = Path(model_source)
+    if (
+        model_cfg.local_files_only or resolved_model_path.is_absolute()
+    ) and not resolved_model_path.exists():
+        raise FileNotFoundError(f"Model path not found: {resolved_model_path}")
 
-    tokenizer = _load_tokenizer(model_path)
+    tokenizer = _load_tokenizer(model_source, model_cfg)
 
     load_in_4bit = bool(model_cfg.load_in_4bit)
     dtype_str = model_cfg.dtype
@@ -83,11 +94,12 @@ def load_base_model_and_tokenizer(
         offload_path = None
 
     model = AutoModelForCausalLM.from_pretrained(
-        model_path,
+        model_source,
         device_map=device_map,
         torch_dtype=torch_dtype,
         quantization_config=quant_cfg,
-        local_files_only=True,
+        local_files_only=model_cfg.local_files_only,
+        trust_remote_code=model_cfg.trust_remote_code,
         offload_folder=str(offload_path) if offload_path else None,
     )
 
@@ -105,7 +117,7 @@ def load_base_model_and_tokenizer(
 
 
 def _attach_lora_adapter(model: Any, cfg: AppConfig) -> Any:
-    lora_cfg = cfg.experiment.lora
+    lora_cfg = cfg.lora
     peft_config = LoraConfig(
         r=lora_cfg.r,
         lora_alpha=lora_cfg.lora_alpha,

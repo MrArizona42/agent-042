@@ -47,8 +47,10 @@ class _FakeSession:
 def _make_client(fake_session: _FakeSession) -> GatewayClient:
     with patch("ui.client.requests.Session", return_value=fake_session):
         with patch(
-            "ui.client.get_ui_settings",
-            return_value=SimpleNamespace(chat_timeout=30.0, health_timeout=5.0, models_timeout=5.0),
+            "ui.client.get_settings",
+            return_value=SimpleNamespace(
+                ui=SimpleNamespace(chat_timeout=30.0, health_timeout=5.0, models_timeout=5.0)
+            ),
         ):
             return GatewayClient("http://gateway.test")
 

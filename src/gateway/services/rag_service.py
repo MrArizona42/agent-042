@@ -15,7 +15,8 @@ from rag.reranker import Reranker, get_reranker
 from rag.retriever import Retriever
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
-from shared.config import Settings, get_kb_config, get_knowledge_bases, get_settings
+from shared.catalog import get_catalog, get_kb_config
+from shared.config import get_settings, secret_value
 
 logger = logging.getLogger(__name__)
 
@@ -39,17 +40,21 @@ class RAGService:
     ``(knowledge_base, alias)`` → ``{kb}_{alias}`` → Qdrant alias.
     """
 
-    def __init__(self, settings: Optional[Settings] = None):
+    def __init__(self, settings: Any | None = None):
         """Initialize RAG service.
 
         Args:
-            settings: Settings instance (uses cached settings if None)
+            settings: Nested gateway settings object (uses cached settings if None)
         """
         if settings is None:
             settings = get_settings()
 
         self.settings = settings
-        self.enabled = settings.rag_enabled
+        self.platform_settings = settings.platform
+        self.gateway_settings = settings.gateway
+        self.rag_settings = settings.rag
+
+        self.enabled = self.rag_settings.rag_enabled
 
         # Always initialise caches so invalidate_caches() is safe even
         # when RAG is disabled.
@@ -68,9 +73,9 @@ class RAGService:
 
         # Initialize embedding service using config device
         self.embedding_service = EmbeddingService(
-            model_name=settings.embedding_model,
-            device=settings.embedding_device,
-            batch_size=settings.embedding_batch_size,
+            model_name=self.rag_settings.embedding_model,
+            device=self.rag_settings.embedding_device,
+            batch_size=self.rag_settings.build.embedding_batch_size,
         )
 
         logger.info("RAG service initialized (retrievers will be created lazily)")
@@ -111,7 +116,7 @@ class RAGService:
             return self._kb_embeddings
 
         kb_items: list[tuple[str, str]] = []
-        for task_cfg in get_knowledge_bases().values():
+        for task_cfg in get_catalog().values():
             for kb_cfg in task_cfg.knowledge_bases:
                 if kb_cfg.selection_description.strip():
                     kb_items.append((kb_cfg.name, kb_cfg.selection_description))
@@ -133,7 +138,7 @@ class RAGService:
 
     def _vllm_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
-        api_key = getattr(self.settings, "api_key", None)
+        api_key = secret_value(getattr(self.gateway_settings, "api_key", None))
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         return headers
@@ -143,8 +148,8 @@ class RAGService:
             return self._available_vllm_models
 
         try:
-            base_url = str(self.settings.vllm_base_url).rstrip("/")
-            timeout_s = float(getattr(self.settings, "vllm_timeout", 60.0))
+            base_url = str(self.platform_settings.vllm_base_url).rstrip("/")
+            timeout_s = float(getattr(self.gateway_settings, "vllm_timeout", 60.0))
             with httpx.Client(timeout=timeout_s) as client:
                 response = client.get(
                     f"{base_url}/v1/models",
@@ -171,7 +176,7 @@ class RAGService:
         if available_models is None:
             return
 
-        for task_cfg in get_knowledge_bases().values():
+        for task_cfg in get_catalog().values():
             adapter_cfg = task_cfg.adapter
             if not adapter_cfg.enabled:
                 continue
@@ -281,7 +286,7 @@ class RAGService:
             validate_query_compatibility(
                 query_strategy=query_strategy,
                 build_config=build_config,
-                runtime_sparse_encoder=getattr(self.settings, "sparse_encoder_model", None),
+                runtime_sparse_encoder=getattr(self.rag_settings, "sparse_encoder_model", None),
                 context=f"{cache_key} -> {collection_cache_key}",
             )
         except ValueError as exc:
@@ -299,7 +304,7 @@ class RAGService:
     def _get_retriever(self, kb_name: str, alias: str) -> Optional[Retriever]:
         """Return (and lazily create) a retriever for *(kb_name, alias)*.
 
-        Validates that the KB exists in the registry and that the alias
+        Validates that the KB exists in the catalog and that the alias
         is in the allowed list before attempting to connect.
         """
         cache_key = self._qdrant_alias(kb_name, alias)
@@ -316,8 +321,8 @@ class RAGService:
             return None
 
         alias_store = QdrantVectorStore(
-            host=self.settings.qdrant_host,
-            port=self.settings.qdrant_port,
+            host=self.platform_settings.qdrant_host,
+            port=self.platform_settings.qdrant_port,
             collection_name=qdrant_alias_name,
         )
 
@@ -341,8 +346,8 @@ class RAGService:
         vector_store = alias_store
         if resolved_collection != qdrant_alias_name:
             vector_store = QdrantVectorStore(
-                host=self.settings.qdrant_host,
-                port=self.settings.qdrant_port,
+                host=self.platform_settings.qdrant_host,
+                port=self.platform_settings.qdrant_port,
                 collection_name=resolved_collection,
             )
 
@@ -363,7 +368,7 @@ class RAGService:
         sparse_encoder_service: SparseEncoderService | None = None
         if alias_cfg and alias_cfg.retrieval_strategy in {"hybrid", "sparse"}:
             sparse_encoder_service = SparseEncoderService(
-                embeddings_url=self.settings.embeddings_url
+                embeddings_url=self.platform_settings.embeddings_url
             )
 
         retriever = Retriever(
@@ -386,14 +391,14 @@ class RAGService:
 
     @staticmethod
     def available_knowledge_bases() -> dict[str, dict[str, Any]]:
-        """Return the registry of available knowledge bases.
+        """Return the catalog of available knowledge bases.
 
         Returns a dict keyed by KB name with task metadata plus ``label``,
         ``description``, ``aliases`` (full config), ``default_alias``,
         and ``update_strategy``.
         """
         result: dict[str, dict[str, Any]] = {}
-        for task_cfg in get_knowledge_bases().values():
+        for task_cfg in get_catalog().values():
             for kb_cfg in task_cfg.knowledge_bases:
                 result[kb_cfg.name] = {
                     "task": task_cfg.task,
@@ -410,9 +415,9 @@ class RAGService:
 
     @staticmethod
     def available_knowledge_bases_by_task() -> list[dict[str, Any]]:
-        """Return the registry grouped by task for discovery endpoints."""
+        """Return the catalog grouped by task for discovery endpoints."""
         result: list[dict[str, Any]] = []
-        for task_cfg in get_knowledge_bases().values():
+        for task_cfg in get_catalog().values():
             result.append(
                 {
                     "task": task_cfg.task,
@@ -440,13 +445,13 @@ class RAGService:
         if not self.enabled or not query.strip():
             return []
 
-        task_cfg = get_knowledge_bases().get(task)
+        task_cfg = get_catalog().get(task)
         if task_cfg is None or not task_cfg.knowledge_bases:
             return []
 
         kb_embeddings = self._build_kb_embeddings()
         query_embedding = self.embedding_service.embed_query(query)
-        threshold = float(self.settings.kb_selection_threshold)
+        threshold = float(self.rag_settings.kb_selection_threshold)
 
         scored_candidates: list[tuple[float, str]] = []
         for kb_cfg in task_cfg.knowledge_bases:
@@ -472,15 +477,15 @@ class RAGService:
         if not self.enabled:
             return
 
-        strict = self.settings.rag_strict_startup
+        strict = self.rag_settings.rag_strict_startup
 
-        for task_cfg in get_knowledge_bases().values():
+        for task_cfg in get_catalog().values():
             for kb_cfg in task_cfg.knowledge_bases:
                 for alias, alias_cfg in kb_cfg.aliases.items():
                     cache_key = self._qdrant_alias(kb_cfg.name, alias)
                     alias_store = QdrantVectorStore(
-                        host=self.settings.qdrant_host,
-                        port=self.settings.qdrant_port,
+                        host=self.platform_settings.qdrant_host,
+                        port=self.platform_settings.qdrant_port,
                         collection_name=cache_key,
                     )
 
@@ -500,8 +505,8 @@ class RAGService:
                     vector_store = alias_store
                     if resolved_collection != cache_key:
                         vector_store = QdrantVectorStore(
-                            host=self.settings.qdrant_host,
-                            port=self.settings.qdrant_port,
+                            host=self.platform_settings.qdrant_host,
+                            port=self.platform_settings.qdrant_port,
                             collection_name=resolved_collection,
                         )
 

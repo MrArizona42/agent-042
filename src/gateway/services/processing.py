@@ -15,7 +15,8 @@ from gateway.services.rag_service import RAGService
 from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
-from shared.config import get_kb_config, get_knowledge_bases, get_settings
+from shared.catalog import get_catalog, get_kb_config
+from shared.config import get_settings, secret_value
 from shared.vllm_payloads import (
     canonicalize_assistant_content,
 )
@@ -72,8 +73,9 @@ class _ProcessChat:
         """Create or refresh the shared RAG service using current settings."""
         if settings is None:
             settings = get_settings()
+        rag_settings = settings.rag
 
-        if not settings.rag_enabled:
+        if not rag_settings.rag_enabled:
             self._rag_service = None
             return None
 
@@ -119,7 +121,12 @@ class _ProcessChat:
 
     def _client(self) -> VllmOpenAIClient:
         settings = get_settings()
-        return VllmOpenAIClient(base_url=settings.vllm_base_url, api_key=settings.api_key)
+        platform_settings = settings.platform
+        gateway_settings = settings.gateway
+        return VllmOpenAIClient(
+            base_url=platform_settings.vllm_base_url,
+            api_key=secret_value(gateway_settings.api_key),
+        )
 
     def _get_celery_client(self) -> CeleryClient:
         """Return the Celery client injected during lifespan startup."""
@@ -163,7 +170,7 @@ class _ProcessChat:
 
     @staticmethod
     def _task_has_knowledge_bases(task: str) -> bool:
-        task_cfg = get_knowledge_bases().get(task)
+        task_cfg = get_catalog().get(task)
         return bool(task_cfg and task_cfg.knowledge_bases)
 
     def _resolve_rag_request(
@@ -219,10 +226,10 @@ class _ProcessChat:
 
     @staticmethod
     def _resolve_task_model(task: str, *, settings: Any) -> str:
-        task_cfg = get_knowledge_bases().get(task)
+        task_cfg = get_catalog().get(task)
         if task_cfg is not None and task_cfg.adapter.enabled:
             return f"{task_cfg.adapter.name}-{task_cfg.adapter.alias}"
-        return settings.default_model
+        return settings.gateway.default_model
 
     def _retrieve_rag_chunks(
         self,
@@ -282,6 +289,9 @@ class _ProcessChat:
 
     def _prepare_request(self, req: ChatCompletionRequest) -> PreparedChatRequest:
         settings = get_settings()
+        gateway_settings = settings.gateway
+        budget_settings = settings.gateway.budget
+        rag_settings = settings.rag
         last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
         decision = self._router.decide(last_user)
         rag_request = self._resolve_rag_request(req, task=decision.task)
@@ -291,7 +301,7 @@ class _ProcessChat:
         if (
             rag_request.mode == "auto"
             and rag_request.task_has_knowledge_bases
-            and settings.rag_enabled
+            and rag_settings.rag_enabled
         ):
             rag_requested = True
             rag_sources = self._auto_select_rag_sources(query=last_user, task=decision.task)
@@ -305,9 +315,8 @@ class _ProcessChat:
             request_messages=[m.model_dump(exclude_none=True) for m in req.messages],
             rag_chunks_by_source=rag_chunks_by_source,
             rag_requested=rag_requested,
-            settings=settings,
+            budget_settings=budget_settings,
         )
-
         logger.info("Built budgeted prompt with %s message(s)", len(prompt.messages))
 
         generation_payload: dict[str, Any] = {
@@ -317,7 +326,7 @@ class _ProcessChat:
             "messages": prompt.messages,
             "temperature": req.temperature,
             "top_p": req.top_p,
-            "repetition_penalty": settings.repetition_penalty,
+            "repetition_penalty": gateway_settings.repetition_penalty,
         }
         requested_max_tokens = req.max_completion_tokens
         if requested_max_tokens is None:
@@ -331,7 +340,7 @@ class _ProcessChat:
 
         return PreparedChatRequest(
             generation_payload=generation_payload,
-            budget_meta=build_budget_meta(settings),
+            budget_meta=build_budget_meta(budget_settings),
             rag_context_chunks=prompt.rag_context_chunks,
             prompt_messages=prompt.messages,
         )
@@ -522,6 +531,7 @@ class _ProcessChat:
         rich_stream: bool = False,
     ) -> AsyncIterator[bytes]:
         settings = get_settings()
+        gateway_settings = settings.gateway
         conversation_id = str(_uuid.uuid4())
         request_id = request_id or str(_uuid.uuid4())
         celery_client = self._get_celery_client()
@@ -575,7 +585,7 @@ class _ProcessChat:
             try:
                 async for event in redis_stream.subscribe(
                     conversation_id,
-                    timeout=settings.streaming_timeout,
+                    timeout=gateway_settings.streaming_timeout,
                 ):
                     event_type = event.get("type")
 

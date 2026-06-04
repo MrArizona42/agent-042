@@ -4,7 +4,21 @@
 
 * `./infra/README.md` - настройка окружения и инфраструктуры
 * `./experiments/README.md` - как проводить эксперименты и operator workflows
-* `./CONFIG-CONTRACT.md` - краткое описание конфигов
+* `./CONFIG-REFACTOR-PLAN.md` - план упрощения и перестройки runtime-конфигов
+
+## Контракт конфигурации
+
+Runtime-конфигурация Python-сервисов теперь фиксируется так:
+
+* единственная env-loading boundary - root `Settings(BaseSettings)` в `src/shared/config.py`
+* канонические runtime env names используют nested shape `SECTION__FIELD`
+* task/KB catalog schema и loader живут в `src/shared/catalog/`, а не в `shared.config`
+
+Практически это означает:
+
+* для runtime-настроек используйте имена вроде `GATEWAY__DEFAULT_MODEL`, `RAG__EMBEDDING_MODEL`, `CATALOG__PATH`, `ADAPTER_REGISTRY__SYNC_ALIASES`, `EVAL__JUDGE__MODEL`
+* flat compatibility aliases для runtime env больше не поддерживаются
+* если нужен operator-facing env key, он должен быть задокументирован в `.env.example` и `infra/README.md`
 
 ## Цель проекта и позиционирование
 
@@ -42,6 +56,7 @@ UI с ИИ-ассистентом. Поддерживается Google-авто�
     * `airflow-webserver`, `airflow-scheduler`, `airflow-dag-processor` - основные Airflow сервисы.
     * `airflow-worker` - CPU-воркер для бенчмарков, обновления RAG и прочих тяжелых фоновых задач без GPU.
     * `airflow-worker-gpu` - GPU-воркер для обучения LoRA.
+    * `rag-ops` - одноразовый CLI-runner для ручных RAG-операций внутри docker network; использует тот же образ и маунты, что и `airflow-worker`.
     * `jupyter` - точка входа для ручных экспериментов, анализа результатов и точечных операций.
     * `mlflow` - трекинг экспериментов, model registry.
     * `code-sandbox` - изолированная среда выполнения кода для бенчмарков с запуском кода.
@@ -59,6 +74,25 @@ UI с ИИ-ассистентом. Поддерживается Google-авто�
     * Загрузка и подготовка данных, версионирование датасетов
     * Создание коллекций
     * Alias-based конфиги RAG-а
+
+**RAG operations entry point.**
+
+Manual RAG lifecycle commands should run through the `rag-ops` Compose service
+so they execute inside the same Docker network and dependency image as Airflow
+worker tasks:
+
+```bash
+docker compose --profile ops --env-file .env -f infra/compose/docker-compose.yaml run --rm rag-ops \
+  python -m rag.sources.cli build-source \
+  --catalog src/shared/catalog.toml \
+  --kb pytorch_reference \
+  --source docs \
+  --rag-data-root assets/rag_data \
+  --limit 1
+```
+
+Use Jupyter for artifact inspection and curation, and Airflow for scheduled
+orchestration; both should call the same Python/CLI lifecycle code.
     * Бенчмарки
     * Автоматическое обновление коллекций
 

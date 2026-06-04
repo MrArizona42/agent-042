@@ -7,11 +7,13 @@ import hashlib
 import logging
 import os
 import time
+from typing import Any
 
 import httpx
-import jwt
+from authlib.integrations.httpx_client import AsyncOAuth2Client
+from authlib.jose import JsonWebKey, JsonWebToken
 
-from shared.config import Settings
+from shared.config import Settings, secret_value
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +27,22 @@ class OIDCClient:
     """Thin wrapper around Google's OIDC endpoints."""
 
     def __init__(self, settings: Settings) -> None:
-        self.client_id = settings.google_client_id
-        self.client_secret = settings.google_client_secret
-        self.redirect_uri = settings.google_redirect_uri
-        self.discovery_url = settings.google_discovery_url
+        self.client_id = settings.auth.google_client_id
+        self.client_secret = secret_value(settings.auth.google_client_secret) or ""
+        self.redirect_uri = settings.auth.google_redirect_uri
+        self.discovery_url = settings.auth.google_discovery_url
 
-        # Cache for JWKS public keys
-        self._jwks_client: jwt.PyJWKClient | None = None
+        self._jwt = JsonWebToken(algorithms=["RS256"])
+        self._jwks_key_set: Any | None = None
+
+    def _oauth_client(self) -> AsyncOAuth2Client:
+        return AsyncOAuth2Client(
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            redirect_uri=self.redirect_uri,
+            scope="openid email profile",
+            token_endpoint_auth_method="client_secret_post",
+        )
 
     # ------------------------------------------------------------------
     # PKCE helpers
@@ -59,20 +70,16 @@ class OIDCClient:
 
     def build_authorization_url(self, state: str, code_challenge: str) -> str:
         """Return the full Google authorization URL."""
-        params = {
-            "client_id": self.client_id,
-            "redirect_uri": self.redirect_uri,
-            "response_type": "code",
-            "scope": "openid email profile",
-            "state": state,
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
-            "access_type": "offline",
-            "prompt": "consent",
-        }
-        # Use httpx URL builder
-        url = httpx.URL(_GOOGLE_AUTH_ENDPOINT, params=params)
-        return str(url)
+        client = self._oauth_client()
+        uri, _ = client.create_authorization_url(
+            _GOOGLE_AUTH_ENDPOINT,
+            state=state,
+            code_challenge=code_challenge,
+            code_challenge_method="S256",
+            access_type="offline",
+            prompt="consent",
+        )
+        return uri
 
     # ------------------------------------------------------------------
     # Token exchange
@@ -84,29 +91,26 @@ class OIDCClient:
         Returns:
             dict with keys ``access_token``, ``id_token``, ``refresh_token``, ``expires_in``.
         """
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
+        async with self._oauth_client() as client:
+            return await client.fetch_token(
                 _GOOGLE_TOKEN_ENDPOINT,
-                data={
-                    "code": code,
-                    "client_id": self.client_id,
-                    "client_secret": self.client_secret,
-                    "redirect_uri": self.redirect_uri,
-                    "grant_type": "authorization_code",
-                    "code_verifier": code_verifier,
-                },
+                grant_type="authorization_code",
+                code=code,
+                code_verifier=code_verifier,
+                redirect_uri=self.redirect_uri,
             )
-            resp.raise_for_status()
-            return resp.json()
 
     # ------------------------------------------------------------------
     # ID token validation
     # ------------------------------------------------------------------
 
-    def _get_jwks_client(self) -> jwt.PyJWKClient:
-        if self._jwks_client is None:
-            self._jwks_client = jwt.PyJWKClient(_GOOGLE_JWKS_URI)
-        return self._jwks_client
+    def _get_jwks_key_set(self) -> Any:
+        if self._jwks_key_set is None:
+            with httpx.Client(timeout=15) as client:
+                response = client.get(_GOOGLE_JWKS_URI)
+                response.raise_for_status()
+                self._jwks_key_set = JsonWebKey.import_key_set(response.json())
+        return self._jwks_key_set
 
     def validate_id_token(self, id_token: str) -> dict:
         """Validate and decode a Google ID token.
@@ -117,33 +121,26 @@ class OIDCClient:
             Claims dict (sub, email, name, picture, …).
 
         Raises:
-            jwt.InvalidTokenError on any validation failure.
+            authlib.jose.errors.JoseError on any validation failure.
         """
-        jwks_client = self._get_jwks_client()
-        signing_key = jwks_client.get_signing_key_from_jwt(id_token)
-
-        # Decode with signature and exp/aud verification.
-        # Issuer is checked manually because Google may use either
-        # "https://accounts.google.com" or "accounts.google.com",
-        # and older PyJWT versions don't accept a list for `issuer`.
-        claims = jwt.decode(
+        claims = self._jwt.decode(
             id_token,
-            signing_key.key,
-            algorithms=["RS256"],
-            audience=self.client_id,
-            options={
-                "verify_exp": True,
-                "verify_iss": False,  # Manual check below
-                "verify_aud": True,
+            self._get_jwks_key_set(),
+            claims_options={
+                "iss": {
+                    "essential": True,
+                    "values": ["https://accounts.google.com", "accounts.google.com"],
+                },
+                "aud": {
+                    "essential": True,
+                    "values": [self.client_id],
+                },
+                "exp": {"essential": True},
+                "sub": {"essential": True},
             },
         )
-
-        # Manual issuer validation
-        allowed_issuers = {"https://accounts.google.com", "accounts.google.com"}
-        if claims.get("iss") not in allowed_issuers:
-            raise jwt.InvalidIssuerError("Invalid issuer")
-
-        return claims
+        claims.validate()
+        return dict(claims)
 
     # ------------------------------------------------------------------
     # Token refresh
@@ -155,22 +152,15 @@ class OIDCClient:
         Returns:
             dict with ``access_token``, ``expires_in``, and optionally ``id_token``.
         """
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
+        async with self._oauth_client() as client:
+            data = await client.refresh_token(
                 _GOOGLE_TOKEN_ENDPOINT,
-                data={
-                    "client_id": self.client_id,
-                    "client_secret": self.client_secret,
-                    "refresh_token": refresh_token,
-                    "grant_type": "refresh_token",
-                },
+                refresh_token=refresh_token,
             )
-            resp.raise_for_status()
-            data = resp.json()
-            # Google may not return a new refresh_token; keep the original.
-            if "refresh_token" not in data:
-                data["refresh_token"] = refresh_token
-            return data
+        # Google may not return a new refresh_token; keep the original.
+        if "refresh_token" not in data:
+            data["refresh_token"] = refresh_token
+        return data
 
     # ------------------------------------------------------------------
     # Helpers

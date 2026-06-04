@@ -10,7 +10,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse
 
-from shared.config import get_settings
+from shared.config import get_settings, secret_value
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # --- Internal API key authentication ---
         api_key = request.headers.get("x-api-key")
         if api_key:
-            internal_key = get_settings().internal_api_key
+            internal_key = secret_value(get_settings().auth.internal_api_key)
             if internal_key and hmac.compare_digest(api_key, internal_key):
                 request.state.user_id = _SERVICE_USER_ID
                 request.state.session_id = None

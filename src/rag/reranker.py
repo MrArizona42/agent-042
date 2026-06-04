@@ -34,7 +34,10 @@ class CrossEncoderReranker(Reranker):
     def __init__(self, reranker_url: str) -> None:
         settings = get_settings()
         base_url = reranker_url.rstrip("/")
-        self._client = httpx.Client(base_url=base_url, timeout=settings.embeddings_timeout)
+        self._client = httpx.Client(
+            base_url=base_url,
+            timeout=settings.gateway.embeddings_timeout,
+        )
         logger.info(f"CrossEncoderReranker connecting to {base_url}")
 
     def rerank(self, query: str, docs: list[Document], top_k: int) -> list[Document]:
@@ -68,10 +71,10 @@ class CrossEncoderReranker(Reranker):
 
 
 def get_reranker(model_name: str) -> Reranker:
-    """Factory — returns a :class:`CrossEncoderReranker` using ``settings.reranker_url``.
+    """Factory — returns a :class:`CrossEncoderReranker` using ``settings.rag.reranker_url``.
 
     The *model_name* parameter is accepted for future dispatch but is currently
     unused; the reranker service reads its model from ``RERANKER_MODEL`` at startup.
     """
     settings = get_settings()
-    return CrossEncoderReranker(reranker_url=settings.reranker_url)
+    return CrossEncoderReranker(reranker_url=settings.rag.reranker_url)

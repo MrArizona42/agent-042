@@ -17,7 +17,8 @@ from rag.ops.materialize import (
 )
 from rag.ops.meta import BuildConfig, ImplementationInfo, build_collection_meta
 from rag.sparse_encoder import SparseEncoderService
-from shared.config import get_settings, validate_kb_alias
+from shared.catalog import validate_kb_alias
+from shared.config import get_settings
 
 _POINT_ID_NS = uuid.UUID("b8c9d0e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e")
 
@@ -37,8 +38,8 @@ def create_arxiv_collection(
     """Create a fresh ArXiv collection and optionally attach an alias."""
     validate_kb_alias(kb, alias)
     settings = get_settings()
-    qdrant_host = qdrant_host or settings.qdrant_host
-    qdrant_port = qdrant_port or settings.qdrant_port
+    qdrant_host = qdrant_host or settings.platform.qdrant_host
+    qdrant_port = qdrant_port or settings.platform.qdrant_port
 
     arxiv_path = Path(arxiv_file)
     if not arxiv_path.exists():

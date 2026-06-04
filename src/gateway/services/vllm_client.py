@@ -26,7 +26,7 @@ class VllmOpenAIClient:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         # Use config timeout if not explicitly provided
-        self._timeout = timeout_s if timeout_s is not None else get_settings().vllm_timeout
+        self._timeout = timeout_s if timeout_s is not None else get_settings().gateway.vllm_timeout
 
     def _headers(self) -> dict[str, str]:
         headers: dict[str, str] = {"Content-Type": "application/json"}

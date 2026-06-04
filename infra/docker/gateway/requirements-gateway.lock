@@ -42,9 +42,7 @@ click-plugins==1.1.1.2
 click-repl==0.3.0
     # via celery
 cryptography==46.0.5
-    # via
-    #   authlib
-    #   pyjwt
+    # via authlib
 fastapi==0.134.0
     # via agent-042 (pyproject.toml)
 fire==0.7.1
@@ -121,8 +119,6 @@ pydantic==2.12.5
 pydantic-core==2.41.5
     # via pydantic
 pydantic-settings==2.13.1
-    # via agent-042 (pyproject.toml)
-pyjwt==2.11.0
     # via agent-042 (pyproject.toml)
 python-dateutil==2.9.0.post0
     # via celery

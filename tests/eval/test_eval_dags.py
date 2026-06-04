@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import json
 import sys
 import types
 from pathlib import Path
@@ -9,77 +8,23 @@ from unittest.mock import mock_open, patch
 
 import pytest
 
+from tests.catalog_samples import write_chat_and_code_catalog
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(autouse=True)
-def _reset_kb_registry():
+def _reset_kb_catalog():
     import shared.config as cfg
 
-    cfg._KB_REGISTRY = None
-    cfg._KB_INDEX = None
+    cfg.clear_knowledge_base_caches()
     yield
-    cfg._KB_REGISTRY = None
-    cfg._KB_INDEX = None
+    cfg.clear_knowledge_base_caches()
 
 
 @pytest.fixture()
-def kb_json_file(tmp_path: Path) -> Path:
-    data = [
-        {
-            "task": "chat",
-            "label": "General knowledge",
-            "routing_description": "General ML research discussion.",
-            "adapter": {"name": "", "alias": "", "enabled": False},
-            "knowledge_bases": [
-                {
-                    "name": "arxiv",
-                    "default_alias": "champion",
-                    "aliases": {
-                        "champion": {
-                            "top_k": 5,
-                            "score_threshold": 0.35,
-                            "reranker": None,
-                            "retrieval_strategy": "dense",
-                            "reranker_multiplier": 4,
-                        }
-                    },
-                    "update_strategy": "incremental",
-                    "label": "ArXiv papers",
-                    "description": "ML papers",
-                    "selection_description": "Research papers and literature-grounded answers.",
-                }
-            ],
-        },
-        {
-            "task": "code",
-            "label": "Coding assistance",
-            "routing_description": "Programming help for ML systems.",
-            "adapter": {"name": "", "alias": "", "enabled": False},
-            "knowledge_bases": [
-                {
-                    "name": "pytorch_docs",
-                    "default_alias": "champion",
-                    "aliases": {
-                        "champion": {
-                            "top_k": 5,
-                            "score_threshold": 0.35,
-                            "reranker": None,
-                            "retrieval_strategy": "dense",
-                            "reranker_multiplier": 4,
-                        }
-                    },
-                    "update_strategy": "replace",
-                    "label": "PyTorch docs",
-                    "description": "PyTorch documentation",
-                    "selection_description": "PyTorch API reference and implementation guidance.",
-                }
-            ],
-        },
-    ]
-    path = tmp_path / "knowledge_bases.json"
-    path.write_text(json.dumps(data), encoding="utf-8")
-    return path
+def catalog_file(tmp_path: Path) -> Path:
+    return write_chat_and_code_catalog(tmp_path / "catalog.toml")
 
 
 def _install_airflow_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,35 +69,52 @@ def _install_airflow_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "airflow.operators.python", python_module)
 
 
+@pytest.fixture()
+def loaded_kb_catalog(catalog_file: Path):
+    from shared.catalog import catalog_override, load_catalog
+
+    catalog, index = load_catalog(catalog_file)
+    with catalog_override(catalog, index=index):
+        yield catalog
+
+
 def test_eval_dags_kb_options_use_shared_registry(
     monkeypatch: pytest.MonkeyPatch,
-    kb_json_file: Path,
+    loaded_kb_catalog,
 ):
-    import shared.config as cfg
-    from shared.config import _load_knowledge_bases
-
     monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
-    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
     sys.modules.pop("dags.eval_dags", None)
     eval_dags = importlib.import_module("dags.eval_dags")
     eval_dags = importlib.reload(eval_dags)
 
-    assert eval_dags._list_knowledge_base_names() == ["arxiv", "pytorch_docs"]
-    assert eval_dags._kb_options == ["arxiv", "pytorch_docs"]
+    assert eval_dags._list_knowledge_base_names() == ["ml_papers_core", "pytorch_reference"]
+    assert eval_dags._kb_options == ["ml_papers_core", "pytorch_reference"]
+
+
+def test_eval_dags_alias_options_prefer_adapter_registry_env(
+    monkeypatch: pytest.MonkeyPatch,
+    loaded_kb_catalog,
+):
+    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("ADAPTER_REGISTRY__SYNC_ALIASES", "champion,shadow")
+    _install_airflow_stubs(monkeypatch)
+
+    sys.modules.pop("dags.eval_dags", None)
+    eval_dags = importlib.import_module("dags.eval_dags")
+    eval_dags = importlib.reload(eval_dags)
+
+    assert eval_dags._sync_aliases == ["champion", "shadow"]
+    assert eval_dags._alias_options == ["none", "champion", "shadow"]
 
 
 def test_eval_dags_resolve_params_supports_auto_kb_mode(
     monkeypatch: pytest.MonkeyPatch,
-    kb_json_file: Path,
+    loaded_kb_catalog,
 ):
-    import shared.config as cfg
-    from shared.config import _load_knowledge_bases
-
     monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
-    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
     sys.modules.pop("dags.eval_dags", None)
     eval_dags = importlib.import_module("dags.eval_dags")
@@ -177,14 +139,10 @@ def test_eval_dags_resolve_params_supports_auto_kb_mode(
 
 def test_eval_dags_resolve_params_requires_kb_for_explicit_mode(
     monkeypatch: pytest.MonkeyPatch,
-    kb_json_file: Path,
+    loaded_kb_catalog,
 ):
-    import shared.config as cfg
-    from shared.config import _load_knowledge_bases
-
     monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
-    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
     sys.modules.pop("dags.eval_dags", None)
     eval_dags = importlib.import_module("dags.eval_dags")
@@ -207,14 +165,10 @@ def test_eval_dags_resolve_params_requires_kb_for_explicit_mode(
 
 def test_generation_dag_params_expose_kb_mode_controls(
     monkeypatch: pytest.MonkeyPatch,
-    kb_json_file: Path,
+    loaded_kb_catalog,
 ):
-    import shared.config as cfg
-    from shared.config import _load_knowledge_bases
-
     monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
-    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
     sys.modules.pop("dags.eval_dags", None)
     eval_dags = importlib.import_module("dags.eval_dags")
@@ -235,14 +189,10 @@ def test_generation_dag_params_expose_kb_mode_controls(
 
 def test_fetch_predictions_task_forwards_use_auto_rag(
     monkeypatch: pytest.MonkeyPatch,
-    kb_json_file: Path,
+    loaded_kb_catalog,
 ):
-    import shared.config as cfg
-    from shared.config import _load_knowledge_bases
-
     monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
-    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
 
     sys.modules.pop("dags.eval_dags", None)
     eval_dags = importlib.import_module("dags.eval_dags")

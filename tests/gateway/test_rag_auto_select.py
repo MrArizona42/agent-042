@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import patch
 
-import shared.config as cfg
 from gateway.services.rag_service import RAGService
-from shared.config import AdapterConfig, KBConfig, TaskConfig
+from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
+from shared.config import Settings
 
 
 def _alias_config() -> dict[str, object]:
@@ -39,25 +38,43 @@ class _FakeEmbeddingService:
         return self._query_vectors[text]
 
 
-def _settings(**overrides: object) -> SimpleNamespace:
-    data = {
+def _settings(
+    *,
+    platform: dict[str, object] | None = None,
+    behavior: dict[str, object] | None = None,
+    rag: dict[str, object] | None = None,
+) -> Settings:
+    platform_values = {
+        "embeddings_url": "http://embeddings:8100",
+        "qdrant_host": "localhost",
+        "qdrant_port": 6333,
+    }
+    gateway_values = {
+        "embeddings_timeout": 10.0,
+    }
+    rag_values = {
         "rag_enabled": True,
         "embedding_model": "test-embedding",
         "embedding_device": "cpu",
-        "embedding_batch_size": 32,
-        "embeddings_url": "http://embeddings:8100",
-        "embeddings_timeout": 10.0,
+        "build": {"embedding_batch_size": 32, "qdrant_upsert_batch_size": 128},
         "kb_selection_threshold": 0.3,
-        "qdrant_host": "localhost",
-        "qdrant_port": 6333,
         "rag_strict_startup": False,
         "sparse_encoder_model": "Qdrant/bm25",
     }
-    data.update(overrides)
-    return SimpleNamespace(**data)
+    if platform is not None:
+        platform_values.update(platform)
+    if behavior is not None:
+        gateway_values.update(behavior)
+    if rag is not None:
+        rag_values.update(rag)
+    return Settings(
+        platform=platform_values,
+        gateway=gateway_values,
+        rag=rag_values,
+    )
 
 
-def _load_registry() -> None:
+def _build_registry() -> dict[str, TaskConfig]:
     arxiv = KBConfig(
         name="arxiv",
         default_alias="champion",
@@ -75,7 +92,7 @@ def _load_registry() -> None:
         selection_description="PyTorch API reference and implementation guidance.",
     )
 
-    cfg._KB_REGISTRY = {
+    return {
         "chat": TaskConfig(
             task="chat",
             label="General knowledge",
@@ -98,15 +115,10 @@ def _load_registry() -> None:
             knowledge_bases=[],
         ),
     }
-    cfg._KB_INDEX = {
-        "arxiv": arxiv,
-        "pytorch_docs": pytorch_docs,
-    }
 
 
 def test_select_knowledge_bases_returns_task_scoped_match() -> None:
-    _load_registry()
-    try:
+    with catalog_override(_build_registry()):
         embedding_service = _FakeEmbeddingService()
         with patch("gateway.services.rag_service.EmbeddingService", return_value=embedding_service):
             service = RAGService(settings=_settings())
@@ -117,31 +129,23 @@ def test_select_knowledge_bases_returns_task_scoped_match() -> None:
         )
 
         assert [source.knowledge_base for source in sources] == ["arxiv"]
-    finally:
-        cfg._KB_REGISTRY = None
-        cfg._KB_INDEX = None
 
 
 def test_select_knowledge_bases_returns_empty_below_threshold() -> None:
-    _load_registry()
-    try:
+    with catalog_override(_build_registry()):
         with patch(
             "gateway.services.rag_service.EmbeddingService",
             return_value=_FakeEmbeddingService(),
         ):
-            service = RAGService(settings=_settings(kb_selection_threshold=0.8))
+            service = RAGService(settings=_settings(rag={"kb_selection_threshold": 0.8}))
 
         sources = service.select_knowledge_bases("Unrelated request", task="chat")
 
         assert sources == []
-    finally:
-        cfg._KB_REGISTRY = None
-        cfg._KB_INDEX = None
 
 
 def test_select_knowledge_bases_skips_tasks_without_kbs() -> None:
-    _load_registry()
-    try:
+    with catalog_override(_build_registry()):
         with patch(
             "gateway.services.rag_service.EmbeddingService",
             return_value=_FakeEmbeddingService(),
@@ -153,14 +157,10 @@ def test_select_knowledge_bases_skips_tasks_without_kbs() -> None:
         )
 
         assert sources == []
-    finally:
-        cfg._KB_REGISTRY = None
-        cfg._KB_INDEX = None
 
 
 def test_select_knowledge_bases_caches_kb_prototypes_until_invalidated() -> None:
-    _load_registry()
-    try:
+    with catalog_override(_build_registry()):
         embedding_service = _FakeEmbeddingService()
         with patch("gateway.services.rag_service.EmbeddingService", return_value=embedding_service):
             service = RAGService(settings=_settings())
@@ -174,6 +174,3 @@ def test_select_knowledge_bases_caches_kb_prototypes_until_invalidated() -> None
         service.select_knowledge_bases("Explain the latest transformer paper", task="chat")
 
         assert embedding_service.embed_documents_calls == 2
-    finally:
-        cfg._KB_REGISTRY = None
-        cfg._KB_INDEX = None

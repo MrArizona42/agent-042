@@ -9,7 +9,8 @@ import shared.config as cfg
 from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
 from gateway.services.processing import _ProcessChat
 from gateway.services.task_router import RouteDecision
-from shared.config import AdapterConfig, KBConfig, TaskConfig
+from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
+from shared.config import Settings
 
 
 def _alias_config() -> dict[str, object]:
@@ -23,7 +24,9 @@ def _alias_config() -> dict[str, object]:
 
 
 @pytest.fixture(autouse=True)
-def _loaded_kb_registry() -> None:
+def _loaded_kb_catalog() -> None:
+    cfg.clear_knowledge_base_caches()
+
     arxiv = KBConfig(
         name="arxiv",
         default_alias="champion",
@@ -41,7 +44,7 @@ def _loaded_kb_registry() -> None:
         selection_description="PyTorch API reference and implementation guidance.",
     )
 
-    cfg._KB_REGISTRY = {
+    catalog = {
         "chat": TaskConfig(
             task="chat",
             label="General knowledge",
@@ -64,28 +67,40 @@ def _loaded_kb_registry() -> None:
             knowledge_bases=[],
         ),
     }
-    cfg._KB_INDEX = {
-        "arxiv": arxiv,
-        "pytorch_docs": pytorch_docs,
-    }
+    with catalog_override(catalog):
+        yield
 
-    yield
-
-    cfg._KB_REGISTRY = None
-    cfg._KB_INDEX = None
+    cfg.clear_knowledge_base_caches()
 
 
-def _settings(**overrides: object) -> SimpleNamespace:
-    data = {
+def _settings(
+    *,
+    behavior: dict[str, object] | None = None,
+    budget: dict[str, object] | None = None,
+    rag: dict[str, object] | None = None,
+) -> Settings:
+    gateway_values = {
         "default_model": "base-model",
         "repetition_penalty": 1.1,
+    }
+    budget_values = {
         "model_max_tokens": 64,
         "budget_guard": 8,
         "min_response_budget": 4,
+    }
+    rag_values = {
         "rag_enabled": True,
     }
-    data.update(overrides)
-    return SimpleNamespace(**data)
+    if behavior is not None:
+        gateway_values.update(behavior)
+    if budget is not None:
+        budget_values.update(budget)
+    if rag is not None:
+        rag_values.update(rag)
+    return Settings(
+        gateway={**gateway_values, "budget": budget_values},
+        rag=rag_values,
+    )
 
 
 def _prompt_result() -> SimpleNamespace:
@@ -151,7 +166,8 @@ def test_prepare_request_uses_task_adapter_model_when_no_explicit_model() -> Non
 
     with (
         patch(
-            "gateway.services.processing.get_settings", return_value=_settings(rag_enabled=False)
+            "gateway.services.processing.get_settings",
+            return_value=_settings(rag={"rag_enabled": False}),
         ),
         patch.object(process._router, "decide", return_value=RouteDecision(task="code")),
         patch.object(process, "_retrieve_rag_chunks", return_value={}) as retrieve_rag,
@@ -174,7 +190,8 @@ def test_prepare_request_prefers_explicit_model_over_task_adapter() -> None:
 
     with (
         patch(
-            "gateway.services.processing.get_settings", return_value=_settings(rag_enabled=False)
+            "gateway.services.processing.get_settings",
+            return_value=_settings(rag={"rag_enabled": False}),
         ),
         patch.object(process._router, "decide", return_value=RouteDecision(task="code")),
         patch.object(process, "_retrieve_rag_chunks", return_value={}),

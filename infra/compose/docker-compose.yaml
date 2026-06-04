@@ -2,18 +2,18 @@
 # Reusable fragments
 # =====================
 
-# Canonical shared endpoint vars injected into services.
-# Active settings code reads the canonical names below; keep deployment
-# wiring on these deployment-neutral names.
+# Canonical nested settings env vars injected into services.
+# Legacy flat names remain temporarily supported in code, but deployment wiring
+# should use the nested root-settings surface below.
 x-shared-endpoints: &shared-endpoints
-  VLLM_BASE_URL: ${VLLM_BASE_URL:-http://vllm:8000}
-  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-  EMBEDDINGS_URL: ${EMBEDDINGS_URL:-http://embeddings:8100}
-  RERANKER_URL: ${RERANKER_URL:-http://reranker:8101}
-  EVAL_GATEWAY_URL: http://gateway:9000
-  MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
-  QDRANT_HOST: ${QDRANT_HOST:-qdrant}
-  QDRANT_PORT: ${QDRANT_PORT:-6333}
+  PLATFORM__VLLM_BASE_URL: ${PLATFORM__VLLM_BASE_URL:-http://vllm:8000}
+  PLATFORM__REDIS_URL: ${PLATFORM__REDIS_URL:-redis://redis:6379/0}
+  PLATFORM__EMBEDDINGS_URL: ${PLATFORM__EMBEDDINGS_URL:-http://embeddings:8100}
+  RAG__RERANKER_URL: ${RAG__RERANKER_URL:-http://reranker:8101}
+  GATEWAY__URL: ${GATEWAY__URL:-http://gateway:9000}
+  PLATFORM__MLFLOW_TRACKING_URI: ${PLATFORM__MLFLOW_TRACKING_URI:-http://mlflow:5000}
+  PLATFORM__QDRANT_HOST: ${PLATFORM__QDRANT_HOST:-qdrant}
+  PLATFORM__QDRANT_PORT: ${PLATFORM__QDRANT_PORT:-6333}
 
 x-airflow-common-env: &airflow-common-env
   <<: *shared-endpoints
@@ -41,17 +41,17 @@ x-airflow-common-env: &airflow-common-env
 
   # Project paths & service endpoints used by DAGs
   PROJECT_ROOT: /opt/airflow/project
-  EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
-  EVAL_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY}
-  EVAL_DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
-  EVAL_JUDGE_BACKEND: ${EVAL_JUDGE_BACKEND:-local_vllm}
-  EVAL_JUDGE_MODEL: ${EVAL_JUDGE_MODEL:-${VLLM_MODEL}}
-  EVAL_JUDGE_BASE_URL: ${EVAL_JUDGE_BASE_URL:-}
-  EVAL_JUDGE_API_KEY: ${EVAL_JUDGE_API_KEY:-}
-  EVAL_JUDGE_TIMEOUT: ${EVAL_JUDGE_TIMEOUT:-60.0}
-  EVAL_JUDGE_REQUEST_DELAY_SECONDS: ${EVAL_JUDGE_REQUEST_DELAY_SECONDS:-0.0}
+  RAG__EMBEDDING_MODEL: ${RAG__EMBEDDING_MODEL}
+  AUTH__INTERNAL_API_KEY: ${AUTH__INTERNAL_API_KEY}
+  EVAL__DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
+  EVAL__JUDGE__BACKEND: ${EVAL__JUDGE__BACKEND:-local_vllm}
+  EVAL__JUDGE__MODEL: ${EVAL__JUDGE__MODEL:-${VLLM_MODEL}}
+  EVAL__JUDGE__BASE_URL: ${EVAL__JUDGE__BASE_URL:-}
+  EVAL__JUDGE__API_KEY: ${EVAL__JUDGE__API_KEY:-}
+  EVAL__JUDGE__TIMEOUT: ${EVAL__JUDGE__TIMEOUT:-60.0}
+  EVAL__JUDGE__REQUEST_DELAY_SECONDS: ${EVAL__JUDGE__REQUEST_DELAY_SECONDS:-0.0}
   # MLflow client endpoint for training, eval, and registry access
-  REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES}
+  ADAPTER_REGISTRY__SYNC_ALIASES: ${ADAPTER_REGISTRY__SYNC_ALIASES}
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
@@ -69,6 +69,12 @@ x-airflow-worker-build: &airflow-worker-build
   dockerfile: infra/docker/airflow-worker/Dockerfile
 
 x-airflow-worker-image: &airflow-worker-image "ghcr.io/${GITHUB_REPOSITORY}-airflow-worker:${IMAGE_TAG}"
+
+x-rag-ops-build: &rag-ops-build
+  context: ${PROJECT_ROOT}
+  dockerfile: infra/docker/airflow-worker/Dockerfile
+
+x-rag-ops-image: &rag-ops-image "ghcr.io/${GITHUB_REPOSITORY}-rag-ops:${IMAGE_TAG}"
 
 x-airflow-worker-gpu-build: &airflow-worker-gpu-build
   context: ${PROJECT_ROOT}
@@ -206,8 +212,8 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
-      REGISTRY_ADAPTERS_DIR: /adapters
-      REGISTRY_SYNC_ALIASES: ${REGISTRY_SYNC_ALIASES}
+      ADAPTER_REGISTRY__ADAPTERS_DIR: /adapters
+      ADAPTER_REGISTRY__SYNC_ALIASES: ${ADAPTER_REGISTRY__SYNC_ALIASES}
 
     volumes:
       - ${ASSETS_ROOT}/adapters:/adapters:rw
@@ -381,8 +387,8 @@ services:
       dockerfile: infra/docker/embeddings/Dockerfile
 
     environment:
-      GATEWAY_EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
-      GATEWAY_EMBEDDING_DEVICE: ${GATEWAY_EMBEDDING_DEVICE}
+      RAG__EMBEDDING_MODEL: ${RAG__EMBEDDING_MODEL}
+      RAG__EMBEDDING_DEVICE: ${RAG__EMBEDDING_DEVICE}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
@@ -407,7 +413,7 @@ services:
       dockerfile: infra/docker/reranker/Dockerfile
 
     environment:
-      RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+      RAG__RERANKER_MODEL: ${RAG__RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
@@ -433,8 +439,8 @@ services:
 
     environment:
       <<: *shared-endpoints
-      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
-      GATEWAY_DEFAULT_MODEL: ${VLLM_MODEL}
+      PLATFORM__CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
+      GATEWAY__DEFAULT_MODEL: ${VLLM_MODEL}
 
     depends_on:
       rabbitmq:
@@ -591,19 +597,19 @@ services:
 
     environment:
       <<: *shared-endpoints
-      GATEWAY_DEFAULT_MODEL: ${VLLM_MODEL}
-      GATEWAY_RAG_ENABLED: ${GATEWAY_RAG_ENABLED}
-      GATEWAY_EMBEDDING_MODEL: ${GATEWAY_EMBEDDING_MODEL}
-      GATEWAY_ASYNC_ENABLED: ${GATEWAY_ASYNC_ENABLED}
-      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
+      GATEWAY__DEFAULT_MODEL: ${VLLM_MODEL}
+      RAG__RAG_ENABLED: ${RAG__RAG_ENABLED}
+      RAG__EMBEDDING_MODEL: ${RAG__EMBEDDING_MODEL}
+      GATEWAY__ASYNC_ENABLED: ${GATEWAY__ASYNC_ENABLED}
+      PLATFORM__CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
       # OAuth2 / OIDC
-      GATEWAY_GOOGLE_CLIENT_ID: ${GATEWAY_GOOGLE_CLIENT_ID}
-      GATEWAY_GOOGLE_CLIENT_SECRET: ${GATEWAY_GOOGLE_CLIENT_SECRET}
-      GATEWAY_GOOGLE_REDIRECT_URI: ${GATEWAY_GOOGLE_REDIRECT_URI}
-      GATEWAY_AGENT042_DB_URL: ${GATEWAY_AGENT042_DB_URL}
-      GATEWAY_SESSION_SECRET_KEY: ${GATEWAY_SESSION_SECRET_KEY}
-      GATEWAY_SESSION_TTL_SECONDS: ${GATEWAY_SESSION_TTL_SECONDS}
-      GATEWAY_INTERNAL_API_KEY: ${GATEWAY_INTERNAL_API_KEY}
+      AUTH__GOOGLE_CLIENT_ID: ${AUTH__GOOGLE_CLIENT_ID}
+      AUTH__GOOGLE_CLIENT_SECRET: ${AUTH__GOOGLE_CLIENT_SECRET}
+      AUTH__GOOGLE_REDIRECT_URI: ${AUTH__GOOGLE_REDIRECT_URI}
+      AUTH__AGENT042_DB_URL: ${AUTH__AGENT042_DB_URL}
+      AUTH__SESSION_SECRET_KEY: ${AUTH__SESSION_SECRET_KEY}
+      AUTH__SESSION_TTL_SECONDS: ${AUTH__SESSION_TTL_SECONDS}
+      AUTH__INTERNAL_API_KEY: ${AUTH__INTERNAL_API_KEY}
 
     ports:
       - "127.0.0.1:${GATEWAY_PORT}:9000"
@@ -651,7 +657,7 @@ services:
       dockerfile: infra/docker/ui/Dockerfile
 
     environment:
-      GATEWAY_URL: http://gateway:9000
+      GATEWAY__URL: ${GATEWAY__URL:-http://gateway:9000}
 
     ports:
       - "127.0.0.1:${UI_PORT}:8501"
@@ -1021,6 +1027,46 @@ services:
       - backend_net
     logging: *default-logging
     restart: unless-stopped
+
+  # =====================
+  # RAG Operations Runner
+  # One-shot shell/CLI entry point for manual RAG lifecycle operations.
+  # Uses the same dependency image and mounted project/data roots as the
+  # Airflow worker, but does not run a worker process by default.
+  #
+  # Example:
+  #   docker compose --profile ops --env-file .env -f infra/compose/docker-compose.yaml run --rm rag-ops \
+  #     python -m rag.sources.cli build-source --catalog src/shared/catalog.toml \
+  #     --kb pytorch_reference --source docs --rag-data-root assets/rag_data --limit 1
+  # =====================
+  rag-ops:
+    profiles: ["ops"]
+    image: *rag-ops-image
+    build: *rag-ops-build
+    working_dir: /opt/airflow/project
+    entrypoint: /bin/bash
+    command: ["-lc", "python -m rag.sources.cli --help"]
+    environment:
+      <<: *airflow-common-env
+      PYTHONPATH: /opt/airflow/project:/opt/airflow/project/src
+    volumes: *airflow-common-volumes
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      embeddings:
+        condition: service_healthy
+      reranker:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - mlflow_db_net
+      - backend_net
+      - sandbox_net
+    logging: *default-logging
+    restart: "no"
 
   # =====================
   # JupyterLab

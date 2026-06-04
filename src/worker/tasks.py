@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 import redis
 
-from shared.config import get_settings
+from shared.config import get_settings, secret_value
 from shared.vllm_payloads import (
     ResponseBudgetExceededError,
     apply_response_token_budget,
@@ -160,7 +160,7 @@ def _headers(api_key: str | None) -> dict[str, str]:
 def get_redis_client() -> redis.Redis:
     """Create a Redis client for publishing events."""
     settings = get_settings()
-    return redis.from_url(settings.redis_url, decode_responses=True)
+    return redis.from_url(settings.platform.redis_url, decode_responses=True)
 
 
 def publish_event(
@@ -233,7 +233,7 @@ def generate_response(
     Returns:
         Dict with full response content and metadata
     """
-    shared = get_settings()
+    settings = get_settings()
     redis_client = get_redis_client()
 
     logger.info(f"Task {self.request.id}: Starting generation for conversation {conversation_id}")
@@ -251,11 +251,11 @@ def generate_response(
     repetition_guard_triggered = False
 
     try:
-        headers = _headers(shared.api_key)
+        headers = _headers(secret_value(settings.gateway.api_key))
         with httpx.Client(timeout=None) as client:
             tokenize_payload = extract_tokenize_payload(generation_payload)
             tokenize_response = client.post(
-                f"{shared.vllm_base_url}/tokenize",
+                f"{settings.platform.vllm_base_url}/tokenize",
                 json=tokenize_payload,
                 headers=headers,
             )
@@ -278,7 +278,7 @@ def generate_response(
 
             with client.stream(
                 "POST",
-                f"{shared.vllm_base_url}/v1/chat/completions",
+                f"{settings.platform.vllm_base_url}/v1/chat/completions",
                 json=payload,
                 headers=headers,
             ) as response:

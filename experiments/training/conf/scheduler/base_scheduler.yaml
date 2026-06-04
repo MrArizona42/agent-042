@@ -1,0 +1,4 @@
+# Base scheduler configuration.
+# Common scheduler settings can be defined here.
+
+enabled: false

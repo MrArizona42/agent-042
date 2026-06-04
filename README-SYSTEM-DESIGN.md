@@ -108,7 +108,7 @@
 После аутентификации Gateway определяет тип задачи: `chat`, `code` или `summarize`. Это влияет на выбор RAG-коллекции и LoRA-адаптера.
 
 **Embedding-based routing:**
-Основной метод — `EmbeddingTaskRouter`. Для каждой задачи в `knowledge_bases.json` задано `routing_description` — текстовое описание задачи. При инициализации Gateway вычисляет эмбеддинги всех `routing_description` и кэширует их. При запросе:
+Основной метод — `EmbeddingTaskRouter`. Для каждой задачи в catalog (`src/shared/catalog.toml`) задано `routing_description` — текстовое описание задачи. При инициализации Gateway вычисляет эмбеддинги всех `routing_description` и кэширует их. При запросе:
 
 1. Вычисляется эмбеддинг последнего сообщения пользователя.
 2. Считается косинусное сходство с эмбеддингами каждой задачи.
@@ -289,7 +289,7 @@ Qdrant Collections:
   arxiv-20250201  ◄── alias "champion"  (переключение мгновенное)
 ```
 
-Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В конфигурации `knowledge_bases.json` каждый alias имеет собственный набор параметров retrieval (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Gateway читает параметры по активному alias в runtime.
+Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В catalog каждый KB alias ссылается на профиль retrieval-параметров (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Gateway читает эффективные параметры по активному alias в runtime.
 
 **Lifecycle коллекции:**
 
@@ -301,7 +301,7 @@ Qdrant Collections:
 
 ### 5.4 Валидация конфигурации при старте
 
-При запуске Gateway автоматически валидирует `knowledge_bases.json`: проверяется наличие Qdrant-коллекций для всех объявленных aliases. Если коллекция не найдена, Gateway либо завершается с ошибкой (при `RAG_STRICT_STARTUP=true`), либо логирует предупреждение и продолжает работу.
+При запуске Gateway автоматически валидирует catalog: проверяется наличие Qdrant-коллекций для всех объявленных aliases. Если коллекция не найдена, Gateway либо завершается с ошибкой (при `RAG__RAG_STRICT_STARTUP=true`), либо логирует предупреждение и продолжает работу.
 
 ---
 
@@ -336,15 +336,34 @@ Fine-tuning реализован поверх следующего стека:
 
 ```
 conf/
-  config.yaml              # Базовый config (defaults: experiment, paths)
+  config.yaml              # Базовый config (defaults: task, dataset, model, lora, data, training, ...)
   experiment/
-    train_adapter.yaml     # Параметры конкретного эксперимента
-    base_experiment.yaml   # Общие значения по умолчанию
+    arxiv_summarization.yaml   # Optional thin preset: overrides top-level groups
+    open_code_instruct_qwen.yaml
+  task/
+    summarization.yaml
+    coding_sft.yaml
+  dataset/
+    arxiv_summarization.yaml
+    open_code_instruct.yaml
+  model/
+    qwen3_0_6b.yaml
+  lora/
+    qwen_attention_mlp.yaml
+  data/
+    sft_768_tokens.yaml
+  training/
+    adapter_default.yaml
+  scheduler/
+    linear_warmup.yaml
   paths/
     paths_config.yaml      # Пути проекта (project_root)
 ```
 
-Все параметры эксперимента — модель, LoRA, данные, trainer, scheduler, логирование — описаны в одном YAML-файле. Переопределение через CLI: `python -m ... experiment=train_adapter lora.r=16`.
+Параметры теперь разделены по ответственности: задача, датасет, модель, LoRA, data budget,
+training и scheduler выбираются как top-level Hydra groups. Optional `experiment/*.yaml`
+пресеты лишь переопределяют эти группы одной строкой. Переопределение через CLI:
+`python -m ... training.lr=2e-5 lora.r=16` или `python -m ... +experiment=open_code_instruct_qwen`.
 
 Scheduler: linear warmup (100 шагов, start_factor=0.05) с последующим линейным decay. Gradient accumulation: 8 шагов (effective batch size = 8 при batch_size=1). Gradient clipping: 1.0.
 
@@ -352,7 +371,7 @@ Scheduler: linear warmup (100 шагов, start_factor=0.05) с последую
 
 Обучение можно запустить двумя способами:
 
-**Через Airflow DAG** (`dags/train_lora.py`) — основной production-способ. Обучение LoRA на GPU занимает значительное время, и держать открытую консоль или JupyterLab-сессию на всё это время непрактично. Airflow DAG работает по принципу «запустил и забыл»: задача ставится в очередь GPU worker'а через RabbitMQ, выполняется в фоне, а результаты (путь к `training_summary.json`, `run_id`) доступны в Airflow UI после завершения. Параметры передаются через интерфейс Airflow: имя конфига эксперимента и произвольные Hydra-переопределения в виде JSON-списка. Если DAG завершается с ошибкой, полный лог тренировки сохраняется в Airflow.
+**Через Airflow DAG** (`dags/train_lora.py`) — основной production-способ. Обучение LoRA на GPU занимает значительное время, и держать открытую консоль или JupyterLab-сессию на всё это время непрактично. Airflow DAG работает по принципу «запустил и забыл»: задача ставится в очередь GPU worker'а через RabbitMQ, выполняется в фоне, а результаты (путь к `training_summary.json`, `run_id`) доступны в Airflow UI после завершения. Параметры передаются через интерфейс Airflow: optional experiment preset и произвольные Hydra-переопределения в виде JSON-списка. Если DAG завершается с ошибкой, полный лог тренировки сохраняется в Airflow.
 
 **Через CLI** (`python -m experiments.training.train_adapter.start_train ...`) — вспомогательный способ для быстрых локальных экспериментов. Удобен при отладке конфигурации или запуске на локальной машине с GPU, когда нет доступа к Airflow.
 
@@ -396,36 +415,82 @@ registry.promote("lora-summarize", version=2, alias="champion")
 
 | Конфиг | Назначение |
 |---|---|
-| `.env` | Секреты, URL-адреса внешних сервисов и feature flags. Единственный файл с чувствительными данными; не коммитится в репозиторий |
-| `src/shared/config.py` | Все runtime-настройки Python-сервисов (gateway, worker, UI) — читаются из переменных окружения через Pydantic Settings |
-| `src/shared/knowledge_bases.json` | Реестр задач, баз знаний и aliases: routing descriptions, параметры retrieval, LoRA-адаптеры по задачам |
+| `.env` | Операторский env-файл. Runtime settings используют nested имена вида `SECTION__FIELD`; инфраструктурные bootstrap/env-переменные Compose могут оставаться flat |
+| `src/shared/config.py` | Root runtime settings loader: `Settings(BaseSettings)`, cache helpers и safe startup logging для Python-сервисов |
+| `src/shared/catalog/` + `src/shared/catalog.toml` | Catalog schema, loader и override helpers для задач, баз знаний и источников |
 | `infra/compose/docker-compose.yaml` | Topology всей системы: сети, port bindings, volumes, health checks, зависимости между сервисами |
 | `infra/docker/**/Dockerfile` | Определения образов: базовые образы, установка зависимостей, process defaults |
 | `infra/nginx/*.conf` | TLS termination, reverse proxy rules и маршрутизация между UI и Gateway |
 | `experiments/training/conf/**` | Иерархические Hydra-конфиги для LoRA-экспериментов: модель, LoRA, данные, trainer, scheduler |
 | `pyproject.toml` | Зависимости Python-пакета, настройки linting (ruff, mypy) и dev-tooling |
 
-### 7.2 `knowledge_bases.json` — реестр задач и баз знаний
+### 7.2 `catalog.toml` — catalog задач, баз знаний и источников
 
-Этот файл является единственным источником истины для:
+Этот catalog-layer является единственным источником истины для:
 - Списка задач и их `routing_description` (используется task router'ом).
-- Списка баз знаний для каждой задачи.
-- Параметров каждого alias (retrieval strategy, top_k, score_threshold, reranker).
+- Списка баз знаний и их metadata.
+- Связей `task -> kb_refs`.
+- Per-KB alias retrieval profiles (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`).
 - LoRA-адаптера для каждой задачи (name, alias, enabled).
+- Source metadata для build/update пайплайнов.
 
-Файл загружается при старте Gateway и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте.
+Файл загружается через `src/shared/catalog/` и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте. Канонический TOML использует list sections `[[tasks]]`, `[[knowledge_bases]]`, `[[sources]]` с явными `id`; legacy mapping sections не поддерживаются.
 
 ### 7.3 Pydantic Settings (`src/shared/config.py`)
 
-Python-конфигурация реализована через `pydantic-settings`. Настройки читаются из переменных окружения (с поддержкой AliasChoices для нескольких имён переменных). Настройки сгруппированы в dataclass-подобные модели:
+Python-конфигурация реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/shared/config.py`.
 
-- `ServiceSettings` — имя сервиса, URL gateway.
-- `BudgetSettings` — бюджеты токенов для prompt building.
-- `RagSettings` — параметры RAG (embedding model, enabled, strict startup).
-- `AuthSettings` — Google OAuth credentials.
-- `InferenceSettings` — URL vLLM, модель, температура.
+Ключевые свойства текущей схемы:
 
-Функция `get_settings()` кэширует инстанс через `@lru_cache` — настройки создаются один раз при первом вызове. Для локального запуска вне Docker вызывается `bootstrap_local_settings_env()`, который загружает `.env` из корня репозитория.
+- env читает только root `Settings`, а nested sections являются plain `BaseModel`
+- canonical runtime env names используют nested contract с delimiter `__`
+- flat compatibility aliases для runtime env names больше не поддерживаются
+- catalog models/loaders больше не реэкспортируются через `shared.config`; они живут в `shared.catalog`
+
+Основные секции runtime settings:
+
+- `PlatformSettings` — shared platform endpoints и broker URLs
+- `GatewayConfig` + `BudgetSettings` — gateway behavior и budgeting knobs
+- `RagSettings` — embedding/retrieval runtime knobs
+- `AuthSettings` — OAuth/session/database auth settings
+- `CatalogConfig` — путь к task/KB catalog
+- `AdapterRegistryConfig` — MLflow adapter materialization и alias sync policy
+- `EvalConfig` — judge, metrics и sandbox settings
+- `WorkerConfig` — Celery worker runtime defaults
+- `UIConfig` — UI timeouts и related knobs
+
+Примеры canonical env names:
+
+- `PLATFORM__VLLM_BASE_URL`
+- `PLATFORM__CELERY_BROKER_URL`
+- `GATEWAY__DEFAULT_MODEL`
+- `GATEWAY__CORS_ALLOW_ORIGINS`
+- `RAG__EMBEDDING_MODEL`
+- `AUTH__INTERNAL_API_KEY`
+- `CATALOG__PATH`
+- `ADAPTER_REGISTRY__SYNC_ALIASES`
+- `EVAL__JUDGE__MODEL`
+- `WORKER__CONCURRENCY`
+
+Функция `get_settings()` кэширует root settings через `@lru_cache`. Для settings-driven тестов и локальных override-сценариев используется `load_settings({...})`; для catalog override используется `catalog_override(...)` из `shared.catalog`.
+
+Финальное решение по naming convention: текущий mix class names `*Settings` / `*Config` сохраняется, чтобы не делать churn-only rename pass. Канонизирована именно field/env surface, а не имена всех классов.
+
+### 7.4 Maintainer Checklist
+
+При добавлении нового runtime settings field:
+
+1. объявите поле в существующей nested section или добавьте новую nested model под root `Settings`
+2. используйте canonical env shape `SECTION__FIELD`, если значение должно быть operator-facing
+3. обновите `.env.example`, `infra/README.md` и focused tests только если поле действительно должно настраиваться оператором
+4. не добавляйте flat compatibility alias
+
+При добавлении нового catalog field:
+
+1. меняйте schema/models в `src/shared/catalog/`
+2. обновляйте `src/shared/catalog.toml` и sample/contract tests
+3. используйте `catalog_override(...)` в тестах вместо manual global mutation
+4. не добавляйте catalog helper re-exports обратно в `shared.config`
 
 ---
 
@@ -657,7 +722,7 @@ agent-042/
 │   │   └── vector_store.py     # Qdrant абстракция
 │   ├── shared/                 # Общий код для всех сервисов
 │   │   ├── config.py           # Pydantic settings
-│   │   ├── knowledge_bases.json # RAG registry
+│   │   ├── catalog.toml       # Task / KB / source catalog
 │   │   ├── model_registry.py   # MLflow adapter sync
 │   │   └── db/                 # SQLAlchemy модели и engine
 │   ├── embeddings/             # Embeddings microservice

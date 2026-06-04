@@ -1,100 +1,38 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
+from shared.config import Settings
+from tests.catalog_samples import write_chat_and_code_catalog
+
 
 @pytest.fixture(autouse=True)
-def _reset_kb_registry():
+def _reset_kb_catalog():
     import shared.config as cfg
 
-    cfg._KB_REGISTRY = None
-    cfg._KB_INDEX = None
+    cfg.clear_knowledge_base_caches()
     yield
-    cfg._KB_REGISTRY = None
-    cfg._KB_INDEX = None
+    cfg.clear_knowledge_base_caches()
 
 
 @pytest.fixture()
-def kb_json_file(tmp_path: Path) -> Path:
-    data = [
-        {
-            "task": "chat",
-            "label": "General knowledge",
-            "routing_description": "General ML research discussion.",
-            "adapter": {"name": "", "alias": "", "enabled": False},
-            "knowledge_bases": [
-                {
-                    "name": "arxiv",
-                    "default_alias": "champion",
-                    "aliases": {
-                        "champion": {
-                            "top_k": 5,
-                            "score_threshold": 0.35,
-                            "reranker": None,
-                            "retrieval_strategy": "dense",
-                            "reranker_multiplier": 4,
-                        },
-                        "challenger": {
-                            "top_k": 5,
-                            "score_threshold": 0.35,
-                            "reranker": None,
-                            "retrieval_strategy": "dense",
-                            "reranker_multiplier": 4,
-                        },
-                    },
-                    "update_strategy": "incremental",
-                    "label": "ArXiv papers",
-                    "description": "ML papers",
-                    "selection_description": "Research papers and literature-grounded answers.",
-                },
-            ],
-        },
-        {
-            "task": "code",
-            "label": "Coding assistance",
-            "routing_description": "Programming help for ML systems.",
-            "adapter": {"name": "", "alias": "", "enabled": False},
-            "knowledge_bases": [
-                {
-                    "name": "pytorch_docs",
-                    "default_alias": "champion",
-                    "aliases": {
-                        "champion": {
-                            "top_k": 5,
-                            "score_threshold": 0.35,
-                            "reranker": None,
-                            "retrieval_strategy": "dense",
-                            "reranker_multiplier": 4,
-                        },
-                    },
-                    "update_strategy": "replace",
-                    "label": "PyTorch docs",
-                    "description": "Coding docs",
-                    "selection_description": "PyTorch API reference and implementation guidance.",
-                },
-            ],
-        },
-    ]
-    path = tmp_path / "knowledge_bases.json"
-    path.write_text(json.dumps(data))
-    return path
+def catalog_file(tmp_path: Path) -> Path:
+    return write_chat_and_code_catalog(tmp_path / "catalog.toml")
 
 
 @pytest.fixture()
-def loaded_kb_registry(kb_json_file: Path):
-    import shared.config as cfg
-    from shared.config import _load_knowledge_bases
+def loaded_kb_catalog(catalog_file: Path):
+    from shared.catalog import catalog_override, load_catalog
 
-    cfg._KB_REGISTRY, cfg._KB_INDEX = _load_knowledge_bases(kb_json_file)
-    return cfg._KB_REGISTRY
+    catalog, index = load_catalog(catalog_file)
+    with catalog_override(catalog, index=index):
+        yield catalog
 
 
-def _collection_meta_payload(kb_name: str = "arxiv") -> dict[str, object]:
+def _collection_meta_payload(kb_name: str = "ml_papers_core") -> dict[str, object]:
     return {
         "kb_name": kb_name,
         "created_at": "2026-04-01T12:00:00+00:00",
@@ -109,31 +47,35 @@ def _collection_meta_payload(kb_name: str = "arxiv") -> dict[str, object]:
     }
 
 
+def _gateway_settings() -> Settings:
+    return Settings(platform={"qdrant_host": "qdrant", "qdrant_port": 6333})
+
+
 class TestValidateKbAlias:
-    def test_rejects_unknown_knowledge_base(self, loaded_kb_registry):
-        from shared.config import validate_kb_alias
+    def test_rejects_unknown_knowledge_base(self, loaded_kb_catalog):
+        from shared.catalog import validate_kb_alias
 
         with pytest.raises(ValueError, match="KB 'missing' not found"):
             validate_kb_alias("missing", "champion")
 
-    def test_rejects_disallowed_alias(self, loaded_kb_registry):
-        from shared.config import validate_kb_alias
+    def test_rejects_disallowed_alias(self, loaded_kb_catalog):
+        from shared.catalog import validate_kb_alias
 
         with pytest.raises(ValueError, match="Alias 'production' not valid"):
-            validate_kb_alias("arxiv", "production")
+            validate_kb_alias("ml_papers_core", "production")
 
 
 class TestAssignAliasToCollection:
-    def test_updates_alias_for_matching_collection(self, loaded_kb_registry):
+    def test_updates_alias_for_matching_collection(self, loaded_kb_catalog):
         from rag.ops.aliases import assign_alias_to_collection
         from rag.ops.meta import CollectionMeta
 
-        meta = CollectionMeta.from_payload(_collection_meta_payload(), context="arxiv_v1")
+        meta = CollectionMeta.from_payload(_collection_meta_payload(), context="ml_papers_core_v1")
 
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
             patch("rag.ops.aliases.read_collection_meta", return_value=meta),
@@ -142,30 +84,32 @@ class TestAssignAliasToCollection:
             mock_store.collection_exists.return_value = True
 
             result = assign_alias_to_collection(
-                kb="arxiv",
+                kb="ml_papers_core",
                 alias="champion",
-                collection_name="arxiv_20260401",
+                collection_name="ml_papers_core_20260401",
             )
 
         mock_store_cls.assert_called_once_with(
             host="qdrant",
             port=6333,
-            collection_name="arxiv_20260401",
+            collection_name="ml_papers_core_20260401",
         )
-        mock_store.update_alias.assert_called_once_with("arxiv_champion", "arxiv_20260401")
+        mock_store.update_alias.assert_called_once_with(
+            "ml_papers_core_champion", "ml_papers_core_20260401"
+        )
         assert result == {
-            "alias_name": "arxiv_champion",
-            "collection_name": "arxiv_20260401",
+            "alias_name": "ml_papers_core_champion",
+            "collection_name": "ml_papers_core_20260401",
             "meta": _collection_meta_payload(),
         }
 
-    def test_raises_when_collection_does_not_exist(self, loaded_kb_registry):
+    def test_raises_when_collection_does_not_exist(self, loaded_kb_catalog):
         from rag.ops.aliases import assign_alias_to_collection
 
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
             patch("rag.ops.aliases.read_collection_meta") as read_meta,
@@ -175,26 +119,26 @@ class TestAssignAliasToCollection:
 
             with pytest.raises(RuntimeError, match="does not exist"):
                 assign_alias_to_collection(
-                    kb="arxiv",
+                    kb="ml_papers_core",
                     alias="champion",
-                    collection_name="arxiv_20260401",
+                    collection_name="ml_papers_core_20260401",
                 )
 
         read_meta.assert_not_called()
 
-    def test_raises_when_collection_belongs_to_other_kb(self, loaded_kb_registry):
+    def test_raises_when_collection_belongs_to_other_kb(self, loaded_kb_catalog):
         from rag.ops.aliases import assign_alias_to_collection
         from rag.ops.meta import CollectionMeta
 
         meta = CollectionMeta.from_payload(
-            _collection_meta_payload(kb_name="pytorch_docs"),
-            context="arxiv_v1",
+            _collection_meta_payload(kb_name="pytorch_reference"),
+            context="ml_papers_core_v1",
         )
 
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
             patch("rag.ops.aliases.read_collection_meta", return_value=meta),
@@ -202,62 +146,66 @@ class TestAssignAliasToCollection:
             mock_store = mock_store_cls.return_value
             mock_store.collection_exists.return_value = True
 
-            with pytest.raises(RuntimeError, match="belongs to 'pytorch_docs', not 'arxiv'"):
+            with pytest.raises(
+                RuntimeError, match="belongs to 'pytorch_reference', not 'ml_papers_core'"
+            ):
                 assign_alias_to_collection(
-                    kb="arxiv",
+                    kb="ml_papers_core",
                     alias="champion",
-                    collection_name="arxiv_20260401",
+                    collection_name="ml_papers_core_20260401",
                 )
 
         mock_store.update_alias.assert_not_called()
 
 
 class TestPromoteAlias:
-    def test_repoints_target_alias_to_source_collection(self, loaded_kb_registry):
+    def test_repoints_target_alias_to_source_collection(self, loaded_kb_catalog):
         from rag.ops.aliases import promote_alias
 
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
             patch(
                 "rag.ops.aliases.assign_alias_to_collection",
                 return_value={
-                    "alias_name": "arxiv_champion",
-                    "collection_name": "arxiv_20260401",
+                    "alias_name": "ml_papers_core_champion",
+                    "collection_name": "ml_papers_core_20260401",
                     "meta": _collection_meta_payload(),
                 },
             ) as assign_alias,
         ):
             mock_store = mock_store_cls.return_value
-            mock_store.resolve_alias.return_value = "arxiv_20260401"
+            mock_store.resolve_alias.return_value = "ml_papers_core_20260401"
 
-            result = promote_alias(kb="arxiv", from_alias="challenger", to_alias="champion")
+            result = promote_alias(
+                kb="ml_papers_core", from_alias="challenger", to_alias="champion"
+            )
 
         mock_store_cls.assert_called_once_with(
             host="qdrant",
             port=6333,
-            collection_name="arxiv_challenger",
+            collection_name="ml_papers_core_challenger",
         )
-        mock_store.resolve_alias.assert_called_once_with("arxiv_challenger")
+        mock_store.resolve_alias.assert_called_once_with("ml_papers_core_challenger")
         assign_alias.assert_called_once_with(
-            kb="arxiv",
+            kb="ml_papers_core",
             alias="champion",
-            collection_name="arxiv_20260401",
+            collection_name="ml_papers_core_20260401",
             qdrant_host="qdrant",
             qdrant_port=6333,
         )
-        assert result["source_alias_name"] == "arxiv_challenger"
+        assert result["source_alias_name"] == "ml_papers_core_challenger"
 
-    def test_raises_when_source_alias_is_unresolved(self, loaded_kb_registry):
+    def test_raises_when_source_alias_is_unresolved(self, loaded_kb_catalog):
         from rag.ops.aliases import promote_alias
 
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
             patch("rag.ops.aliases.assign_alias_to_collection") as assign_alias,
@@ -266,30 +214,30 @@ class TestPromoteAlias:
             mock_store.resolve_alias.return_value = None
 
             with pytest.raises(RuntimeError, match="does not resolve"):
-                promote_alias(kb="arxiv", from_alias="challenger", to_alias="champion")
+                promote_alias(kb="ml_papers_core", from_alias="challenger", to_alias="champion")
 
         assign_alias.assert_not_called()
 
 
 class TestDetachAlias:
-    def test_deletes_alias_mapping(self, loaded_kb_registry):
+    def test_deletes_alias_mapping(self, loaded_kb_catalog):
         from rag.ops.aliases import detach_alias
 
         with (
             patch(
                 "rag.ops.aliases.get_settings",
-                return_value=SimpleNamespace(qdrant_host="qdrant", qdrant_port=6333),
+                return_value=_gateway_settings(),
             ),
             patch("rag.ops.aliases.QdrantVectorStore") as mock_store_cls,
         ):
             mock_store = mock_store_cls.return_value
 
-            result = detach_alias(kb="arxiv", alias="champion")
+            result = detach_alias(kb="ml_papers_core", alias="champion")
 
         mock_store_cls.assert_called_once_with(
             host="qdrant",
             port=6333,
-            collection_name="arxiv_champion",
+            collection_name="ml_papers_core_champion",
         )
-        mock_store.delete_alias.assert_called_once_with("arxiv_champion")
-        assert result == {"alias_name": "arxiv_champion"}
+        mock_store.delete_alias.assert_called_once_with("ml_papers_core_champion")
+        assert result == {"alias_name": "ml_papers_core_champion"}

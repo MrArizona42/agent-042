@@ -119,8 +119,9 @@ class TestInternalAPIKey:
     """Internal service-to-service authentication via X-API-Key header."""
 
     def _patch_settings(self, key: str):
-        """Return a mock that makes get_settings().internal_api_key return *key*."""
-        mock_settings = type("S", (), {"internal_api_key": key})()
+        """Return a mock that makes get_settings().auth.internal_api_key return *key*."""
+        mock_auth = type("Auth", (), {"internal_api_key": key})()
+        mock_settings = type("S", (), {"auth": mock_auth})()
         return patch("gateway.auth.middleware.get_settings", return_value=mock_settings)
 
     def test_valid_api_key_grants_access(self):

@@ -1,3 +1,11 @@
+# quick reminder
+# optional dependencies - published with the package
+# dependency groups - for local development workflows
+# uv sync -> sync base + dev dependency group
+# uv sync --no-dev -> sync base without dev group
+# uv sync --group test (or --all-groups) -> sync with groups
+# uv sync --extra foo (or --all-extras) -> sync with optional deps
+
 [project]
 name = "agent-042"
 version = "0.1.0"
@@ -21,7 +29,6 @@ gateway = [
     "celery>=5.3.0",
     "redis>=5.0.0",
     "authlib>=1.6.7",
-    "PyJWT[crypto]>=2.8",
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.29",
     "prometheus-fastapi-instrumentator>=7.0.0",
@@ -66,6 +73,7 @@ airflow-worker = [
     "lxml>=5.3.0",
     "pypdf>=5.2.0",
     "requests>=2.32.4",
+    "llama-index-core>=0.12.0",
     # DVC for data versioning (S3 backend)
     "dvc[s3]>=3.66.1",
 ]
@@ -91,6 +99,7 @@ airflow-worker-gpu = [
     "lxml>=5.3.0",
     "pypdf>=5.2.0",
     "requests>=2.32.4",
+    "llama-index-core>=0.12.0",
     "dvc[s3]>=3.66.1",
     # --- Training deps (GPU) ---
     "bitsandbytes>=0.49.1",
@@ -111,6 +120,7 @@ rag = [
     "lxml>=5.3.0",
     "pypdf>=5.2.0",
     "requests>=2.32.4",
+    "llama-index-core>=0.12.0",
 ]
 
 embeddings = [
@@ -156,6 +166,8 @@ mlflow = [
 
 [dependency-groups]
 test = [
+    "anyio<4.12",
+    "llama-index-core>=0.12.0",
     "pytest>=8.4.2",
 ]
 

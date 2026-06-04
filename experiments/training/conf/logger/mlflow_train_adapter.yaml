@@ -1,0 +1,6 @@
+defaults:
+  - base_logger
+  - _self_
+
+# MLflow logger preset for the train_adapter experiment namespace.
+experiment_name: "train_adapter"

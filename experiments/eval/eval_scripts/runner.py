@@ -82,14 +82,11 @@ from rag.reranker import get_reranker
 from rag.retriever import Retriever
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
+from shared.catalog import get_kb_config
 from shared.config import (
     JudgeSettings,
-    bootstrap_local_settings_env,
-    get_eval_settings,
-    get_kb_config,
-    get_platform_settings,
-    get_registry_settings,
     get_settings,
+    secret_value,
 )
 from shared.model_registry import AdapterRegistry
 
@@ -101,8 +98,6 @@ _GATEWAY_STREAM_TIMEOUT = httpx.Timeout(
     write=30.0,
     pool=30.0,
 )
-
-bootstrap_local_settings_env(repo_root=Path(__file__).resolve().parents[3])
 
 # ---------------------------------------------------------------------------
 # Eval-suite configuration: (task, dataset) → fixed KB
@@ -414,8 +409,8 @@ def _resolve_lora_alias(
     adapter_version = None
     adapter_run_id = None
     try:
-        reg_settings = get_registry_settings()
-        registry = AdapterRegistry(tracking_uri=reg_settings.mlflow_tracking_uri)
+        settings = get_settings()
+        registry = AdapterRegistry(tracking_uri=settings.platform.mlflow_tracking_uri)
         mv = registry.client.get_model_version_by_alias(model_name, lora_alias)
         adapter_version = int(mv.version)
         adapter_run_id = mv.run_id
@@ -547,14 +542,26 @@ def _object_attr(obj: Any, name: str, default: Any = None) -> Any:
     return default
 
 
+def _eval_metrics(eval_settings: Any) -> Any:
+    return _object_attr(eval_settings, "metrics", eval_settings)
+
+
+def _eval_sandbox(eval_settings: Any) -> Any:
+    return _object_attr(eval_settings, "sandbox", eval_settings)
+
+
 def _resolve_judge_settings(
     *,
     eval_settings: Any,
     eval_context: dict[str, Any] | None = None,
+    platform: Any | None = None,
 ) -> JudgeSettings:
     resolve = getattr(type(eval_settings), "resolve_judge_settings", None)
     if callable(resolve):
-        base = eval_settings.resolve_judge_settings()
+        effective_platform = (
+            platform or _object_attr(eval_settings, "platform", None) or get_settings().platform
+        )
+        base = eval_settings.resolve_judge_settings(effective_platform)
     else:
         base = JudgeSettings(
             backend=_object_attr(eval_settings, "judge_backend", "local_vllm"),
@@ -584,7 +591,8 @@ def _resolve_judge_settings(
         if not base_url:
             base_url = (
                 _object_attr(eval_settings, "vllm_base_url", "")
-                or get_platform_settings().vllm_base_url
+                or _object_attr(_object_attr(eval_settings, "platform", None), "vllm_base_url", "")
+                or get_settings().platform.vllm_base_url
             )
     elif backend == "openai_compatible":
         if not model:
@@ -625,6 +633,7 @@ def _build_common_fields(
 ) -> dict[str, Any]:
     """Build the common fields shared by all metric rows in one eval."""
     eval_context = eval_context or {}
+    metrics = _eval_metrics(eval_settings)
     judge_settings = _resolve_judge_settings(
         eval_settings=eval_settings,
         eval_context=eval_context,
@@ -647,9 +656,9 @@ def _build_common_fields(
         "judge_model": judge_settings.model,
         "bert_score_model": eval_context.get(
             "bert_score_model",
-            eval_settings.bert_score_model,
+            metrics.bert_score_model,
         ),
-        "temperature": eval_context.get("temperature", eval_settings.temperature),
+        "temperature": eval_context.get("temperature", metrics.temperature),
         "max_tokens": eval_context.get("max_tokens"),
         "extra": dict(eval_context.get("extra", {})),
     }
@@ -730,10 +739,14 @@ def fetch_predictions(
     computing any metrics.  The returned dict is JSON-serializable and
     contains everything :func:`calculate_metrics` needs.
     """
-    eval_settings = get_eval_settings()
     settings = get_settings()
-    base_model = settings.default_model
-    judge_settings = _resolve_judge_settings(eval_settings=eval_settings)
+    eval_settings = settings.eval
+    metrics = eval_settings.metrics
+    base_model = settings.gateway.default_model
+    judge_settings = _resolve_judge_settings(
+        eval_settings=eval_settings,
+        platform=settings.platform,
+    )
 
     if task not in _TASK_METRICS:
         raise ValueError(f"Unknown task: {task!r}")
@@ -811,19 +824,19 @@ def fetch_predictions(
         "dataset_name": dataset_name,
         "kb_name": kb_name,
         "base_model": base_model,
-        "temperature": eval_settings.temperature,
+        "temperature": metrics.temperature,
         "judge_backend": judge_settings.backend,
         "judge_model": judge_settings.model,
-        "bert_score_model": eval_settings.bert_score_model,
+        "bert_score_model": metrics.bert_score_model,
         "eval_context": {
-            "temperature": eval_settings.temperature,
+            "temperature": metrics.temperature,
             "judge_backend": judge_settings.backend,
             "judge_model": judge_settings.model,
             "judge_base_url": judge_settings.base_url,
             "judge_timeout": judge_settings.timeout,
             "judge_request_delay_seconds": judge_settings.request_delay_seconds,
-            "bert_score_model": eval_settings.bert_score_model,
-            "max_tokens": eval_settings.max_completion_tokens,
+            "bert_score_model": metrics.bert_score_model,
+            "max_tokens": metrics.max_completion_tokens,
         },
         "bundles": bundles,
     }
@@ -841,6 +854,8 @@ def _fetch_generation_predictions(
     """Fetch predictions for a single (rag, lora) pair (chat/summarize tasks)."""
     lora_info = _resolve_lora_alias(lora_alias, task)
     model_name = lora_info["adapter_name"] if lora_info["adapter_name"] else None
+    settings = get_settings()
+    metrics = _eval_metrics(eval_settings)
 
     rag_sources = None
     rag_enabled = False
@@ -885,12 +900,12 @@ def _fetch_generation_predictions(
         try:
             response = _call_gateway(
                 messages=messages,
-                gateway_url=eval_settings.gateway_url,
+                gateway_url=settings.gateway.url,
                 model=model_name,
                 rag_sources=rag_sources,
-                temperature=eval_settings.temperature,
-                internal_api_key=eval_settings.internal_api_key,
-                max_completion_tokens=eval_settings.max_completion_tokens,
+                temperature=metrics.temperature,
+                internal_api_key=secret_value(settings.auth.internal_api_key) or "",
+                max_completion_tokens=metrics.max_completion_tokens,
                 expect_rag_context=rag_enabled,
             )
             answer = response["choices"][0]["message"]["content"]
@@ -966,6 +981,9 @@ def _fetch_code_predictions(
     """Fetch code generation predictions for a single (rag, lora) pair."""
     lora_info = _resolve_lora_alias(lora_alias, "code")
     model_name = lora_info["adapter_name"] if lora_info["adapter_name"] else None
+    settings = get_settings()
+    metrics = _eval_metrics(eval_settings)
+    sandbox = _eval_sandbox(eval_settings)
 
     rag_sources = None
     rag_enabled = False
@@ -1002,12 +1020,12 @@ def _fetch_code_predictions(
         try:
             response = _call_gateway(
                 messages=messages,
-                gateway_url=eval_settings.gateway_url,
+                gateway_url=settings.gateway.url,
                 model=model_name,
                 rag_sources=rag_sources,
-                temperature=eval_settings.temperature,
-                internal_api_key=eval_settings.internal_api_key,
-                max_completion_tokens=eval_settings.max_completion_tokens,
+                temperature=metrics.temperature,
+                internal_api_key=secret_value(settings.auth.internal_api_key) or "",
+                max_completion_tokens=metrics.max_completion_tokens,
                 expect_rag_context=rag_enabled,
             )
             generated = response["choices"][0]["message"]["content"]
@@ -1021,9 +1039,9 @@ def _fetch_code_predictions(
             generated_code=generated,
             test_code=test_code,
             entry_point=sample.get("entry_point"),
-            timeout=eval_settings.code_exec_timeout,
-            mem_limit=eval_settings.code_exec_mem_limit,
-            cpus=eval_settings.code_exec_cpus,
+            timeout=sandbox.code_exec_timeout,
+            mem_limit=sandbox.code_exec_mem_limit,
+            cpus=sandbox.code_exec_cpus,
         )
         exec_results.append(result)
         sample_details.append(
@@ -1074,12 +1092,12 @@ def _fetch_retrieval_predictions(
         raise ValueError("Retrieval eval requires kb_name")
 
     settings = get_settings()
-    qdrant_host = settings.qdrant_host
-    qdrant_port = settings.qdrant_port
+    qdrant_host = settings.platform.qdrant_host
+    qdrant_port = settings.platform.qdrant_port
 
     kb_config = get_kb_config(kb_name)
     if kb_config is None:
-        raise RuntimeError(f"KB '{kb_name}' not found in knowledge_bases.json")
+        raise RuntimeError(f"KB '{kb_name}' not found in the catalog")
     alias_config = kb_config.aliases.get(rag_alias)
     if alias_config is None:
         raise RuntimeError(f"Alias '{rag_alias}' not found for KB '{kb_name}'")
@@ -1096,7 +1114,7 @@ def _fetch_retrieval_predictions(
     validate_query_compatibility(
         query_strategy=alias_config.retrieval_strategy,
         build_config=build_config,
-        runtime_sparse_encoder=settings.sparse_encoder_model,
+        runtime_sparse_encoder=settings.rag.sparse_encoder_model,
         context=f"{kb_name}_{rag_alias}",
     )
 
@@ -1129,16 +1147,16 @@ def _fetch_retrieval_predictions(
         build_config=build_config,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
-        embeddings_url=settings.embeddings_url,
+        embeddings_url=settings.platform.embeddings_url,
     )
 
     emb_service = EmbeddingService(
         model_name=build_config.embedding_model,
-        embeddings_url=settings.embeddings_url,
+        embeddings_url=settings.platform.embeddings_url,
     )
     sparse_encoder = None
     if alias_config.retrieval_strategy in {"hybrid", "sparse"}:
-        sparse_encoder = SparseEncoderService(embeddings_url=settings.embeddings_url)
+        sparse_encoder = SparseEncoderService(embeddings_url=settings.platform.embeddings_url)
     reranker = get_reranker(alias_config.reranker) if alias_config.reranker else None
 
     try:
@@ -1268,7 +1286,7 @@ def calculate_metrics(
 
     eval_context = prediction_data.get("eval_context") or {}
 
-    eval_settings = get_eval_settings()
+    eval_settings = get_settings().eval
 
     all_rows: list[dict[str, Any]] = []
     all_sample_rows: list[dict[str, Any]] = []
@@ -1397,12 +1415,13 @@ def _compute_generation_metric(
             scores = [compute_rouge_l(p, r) for p, r in zip(predictions, references)]
             metric_value = sum(scores) / len(scores) if scores else 0.0
         elif metric.startswith("bertscore"):
+            metrics = _eval_metrics(eval_settings)
             bert = compute_bertscore(
                 predictions,
                 references,
                 model_name=(eval_context or {}).get(
                     "bert_score_model",
-                    eval_settings.bert_score_model,
+                    metrics.bert_score_model,
                 ),
             )
             metric_value = bert.get(metric)

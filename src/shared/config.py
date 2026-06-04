@@ -4,320 +4,86 @@ This module provides a single source of truth for all configuration settings
 across the gateway, RAG, and UI services. Configuration is loaded from
 environment variables with sensible defaults for local development.
 
-Local-only entrypoints that want repo-root ``.env`` support should call
-``bootstrap_local_settings_env()`` before the first settings access.
-
 Usage:
-    from shared.config import bootstrap_local_settings_env, get_settings
+    from shared.config import get_settings
 
-    bootstrap_local_settings_env()
     settings = get_settings()
-    print(settings.qdrant_host)
+    print(settings.platform.qdrant_host)
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Annotated, Any, Literal
 
-from pydantic import AliasChoices, BaseModel, Field, computed_field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
+from pydantic_settings import BaseSettings, NoDecode, PydanticBaseSettingsSource, SettingsConfigDict
 
-from shared.local_env import load_local_env
+from shared import catalog
 
 logger = logging.getLogger(__name__)
 
-# =========================================================================
-# Knowledge Base Registry (loaded from JSON config file)
-# =========================================================================
 
-_DEFAULT_KB_PATH = Path(__file__).resolve().parent / "knowledge_bases.json"
-
-
-class AliasConfig(BaseModel):
-    """Per-alias query-time RAG configuration.
-
-    No defaults — every field must be explicit in ``knowledge_bases.json``.
-    Adding a new field forces updating every alias entry; Pydantic will
-    reject incomplete entries at load time.
-    """
-
-    top_k: int
-    score_threshold: float
-    reranker: Optional[str]  # null today; model name when reranker is implemented
-    retrieval_strategy: Literal["dense", "hybrid", "sparse"]
-    reranker_multiplier: int
-
-
-class AdapterConfig(BaseModel):
-    """Per-task LoRA routing configuration."""
-
-    name: str = ""
-    alias: str = ""
-    enabled: bool = False
-
-    @model_validator(mode="after")
-    def _enabled_adapter_must_be_complete(self) -> "AdapterConfig":
-        if self.enabled and (not self.name.strip() or not self.alias.strip()):
-            raise ValueError("enabled adapter requires non-empty name and alias")
-        return self
-
-
-class KBConfig(BaseModel):
-    """Single knowledge-base entry within a task group."""
-
-    name: str
-    default_alias: str
-    aliases: dict[str, AliasConfig]
-    update_strategy: Literal["incremental", "replace"] = "replace"
-    label: str = ""
-    description: str = ""
-    selection_description: str
-
-    @model_validator(mode="after")
-    def _default_alias_must_exist(self) -> "KBConfig":
-        if self.default_alias not in self.aliases:
-            raise ValueError(
-                f"default_alias '{self.default_alias}' is not a declared alias "
-                f"(available: {list(self.aliases.keys())})"
-            )
-        return self
-
-
-class TaskConfig(BaseModel):
-    """Top-level task entry from shared/knowledge_bases.json."""
-
-    task: str
-    label: str = ""
-    routing_description: str
-    adapter: AdapterConfig = Field(default_factory=AdapterConfig)
-    knowledge_bases: list[KBConfig] = Field(default_factory=list)
-
-
-def _load_knowledge_bases(
-    path: Path | str,
-) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
-    """Load the knowledge-bases registry from a JSON file.
-
-    Args:
-        path: Path to the ``knowledge_bases.json`` file.
-
-    Returns:
-        Tuple of (task registry, flat KB index keyed by KB name).
-
-    Raises:
-        ValueError: If duplicate KB names are found across tasks.
-    """
-    path = Path(path)
-
-    if not path.exists():
-        logger.warning("Knowledge-bases config not found at %s — using empty registry", path)
-        return {}, {}
-
-    with open(path, encoding="utf-8") as fh:
-        raw = json.load(fh)
-
-    registry: dict[str, TaskConfig] = {}
-    index: dict[str, KBConfig] = {}
-    for entry in raw:
-        cfg = TaskConfig(**entry)
-        registry[cfg.task] = cfg
-        for kb_cfg in cfg.knowledge_bases:
-            if kb_cfg.name in index:
-                raise ValueError(
-                    f"Duplicate KB name '{kb_cfg.name}' found across tasks. "
-                    f"KB names must be unique."
-                )
-            index[kb_cfg.name] = kb_cfg
-    return registry, index
-
-
-# Module-level caches (populated lazily via get_knowledge_bases())
-_KB_REGISTRY: dict[str, TaskConfig] | None = None
-_KB_INDEX: dict[str, KBConfig] | None = None
-
-
-def get_knowledge_bases() -> dict[str, TaskConfig]:
-    """Return the knowledge-base registry (cached after first call).
-
-    Path is resolved from ``GATEWAY_KNOWLEDGE_BASES_PATH`` env var or
-    the bundled default ``knowledge_bases.json``.
-
-    Returns:
-        Mapping of ``task_name`` → ``TaskConfig``.
-    """
-    global _KB_REGISTRY, _KB_INDEX  # noqa: PLW0603
-    if _KB_REGISTRY is None:
-        import os
-
-        env_path = os.environ.get("GATEWAY_KNOWLEDGE_BASES_PATH", "").strip()
-        path = Path(env_path) if env_path else _DEFAULT_KB_PATH
-        _KB_REGISTRY, _KB_INDEX = _load_knowledge_bases(path)
-    return _KB_REGISTRY
-
-
-def get_kb_config(kb_name: str) -> KBConfig | None:
-    """Look up a KB by name (O(1) dict lookup).
-
-    Returns the ``KBConfig`` for *kb_name* or ``None`` if not found.
-    """
-    # Ensure registry is loaded
-    get_knowledge_bases()
-    if _KB_INDEX is None:
-        return None
-    return _KB_INDEX.get(kb_name)
-
-
-def get_kb_names() -> list[str]:
-    """Flat list of all KB names across all tasks."""
-    get_knowledge_bases()
-    if _KB_INDEX is None:
-        return []
-    return list(_KB_INDEX.keys())
-
-
-def validate_kb_alias(kb: str, alias: str | None = None) -> None:
-    """Raise ValueError with a consistent message if kb or alias is unknown.
-
-    When *alias* is ``None`` only the KB name is validated.
-    """
-    kb_cfg = get_kb_config(kb)
-    if kb_cfg is None:
-        raise ValueError(f"KB '{kb}' not found. Available: {get_kb_names()}")
-    if alias is not None and alias not in kb_cfg.aliases:
-        raise ValueError(
-            f"Alias '{alias}' not valid for KB '{kb}'. Available: {list(kb_cfg.aliases.keys())}"
-        )
-
-
-# ---------------------------------------------------------------------------
-PLATFORM_VLLM_BASE_URL_ENV = "VLLM_BASE_URL"
-PLATFORM_EMBEDDINGS_URL_ENV = "EMBEDDINGS_URL"
-PLATFORM_QDRANT_HOST_ENV = "QDRANT_HOST"
-PLATFORM_QDRANT_PORT_ENV = "QDRANT_PORT"
-PLATFORM_MLFLOW_TRACKING_URI_ENV = "MLFLOW_TRACKING_URI"
-PLATFORM_REDIS_URL_ENV = "REDIS_URL"
-PLATFORM_CELERY_BROKER_URL_ENV = "CELERY_BROKER_URL"
-
-
-class PlatformSettings(BaseSettings):
+class PlatformSettings(BaseModel):
     """Canonical shared endpoint settings used across services.
 
-    Canonical environment variable names:
-        VLLM_BASE_URL
-        EMBEDDINGS_URL
-        QDRANT_HOST
-        QDRANT_PORT
-        MLFLOW_TRACKING_URI
-        REDIS_URL
-        CELERY_BROKER_URL
+    Canonical nested environment variable names read by the root settings loader:
+        PLATFORM__VLLM_BASE_URL
+        PLATFORM__EMBEDDINGS_URL
+        PLATFORM__QDRANT_HOST
+        PLATFORM__QDRANT_PORT
+        PLATFORM__MLFLOW_TRACKING_URI
+        PLATFORM__REDIS_URL
+        PLATFORM__CELERY_BROKER_URL
 
     """
 
-    model_config = SettingsConfigDict(extra="ignore")
-
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
     vllm_base_url: str = Field(
         default="http://localhost:8000",
-        validation_alias=PLATFORM_VLLM_BASE_URL_ENV,
         description="URL where the shared vLLM server is reachable",
     )
     embeddings_url: str = Field(
         default="http://localhost:8100",
-        validation_alias=PLATFORM_EMBEDDINGS_URL_ENV,
         description="URL of the shared embeddings microservice",
     )
     qdrant_host: str = Field(
         default="localhost",
-        validation_alias=PLATFORM_QDRANT_HOST_ENV,
         description="Shared Qdrant server hostname",
     )
     qdrant_port: int = Field(
         default=6333,
-        validation_alias=PLATFORM_QDRANT_PORT_ENV,
         description="Shared Qdrant server port",
         ge=1,
         le=65535,
     )
     mlflow_tracking_uri: str = Field(
         default="http://localhost:5050",
-        validation_alias=PLATFORM_MLFLOW_TRACKING_URI_ENV,
         description="Shared MLflow tracking server URL",
     )
     redis_url: str = Field(
         default="redis://localhost:6379/0",
-        validation_alias=PLATFORM_REDIS_URL_ENV,
         description="Redis connection URL for shared streaming and coordination",
     )
     celery_broker_url: str | None = Field(
         default=None,
-        validation_alias=PLATFORM_CELERY_BROKER_URL_ENV,
         description="RabbitMQ broker URL for shared Celery-based workflows",
-    )
-
-
-class GatewayBehaviorSettings(BaseModel):
-    """Gateway request handling and service behavior settings."""
-
-    default_model: str = Field(
-        default="/models/Qwen/Qwen3-0.6B",
-        description="Default model when none specified in request",
-    )
-    api_key: str | None = Field(
-        default=None,
-        description="Optional API key for vLLM authentication",
-    )
-    vllm_timeout: float = Field(
-        default=60.0,
-        description="Timeout for vLLM requests in seconds",
-        ge=1.0,
-    )
-    repetition_penalty: float = Field(
-        default=1.1,
-        description="Repetition penalty applied to all generation requests to prevent token loops",
-        ge=1.0,
-    )
-    streaming_timeout: float = Field(
-        default=300.0,
-        description="Idle timeout for Redis Pub/Sub streaming in seconds",
-        ge=1.0,
-    )
-    embeddings_timeout: float = Field(
-        default=120.0,
-        description="Timeout for embeddings service HTTP requests in seconds",
-        ge=1.0,
-    )
-    async_enabled: bool = Field(
-        default=True,
-        description="Enable async inference via Celery workers",
-    )
-    cors_allow_origins_csv: str = Field(
-        default="*",
-        validation_alias=AliasChoices("GATEWAY_CORS_ALLOW_ORIGINS"),
-        description="Allowed CORS origins (comma-separated in env)",
-    )
-
-    @computed_field
-    @property
-    def cors_allow_origins(self) -> list[str]:
-        """CORS allowed origins, parsed from comma-separated string."""
-        return [o.strip() for o in self.cors_allow_origins_csv.split(",") if o.strip()]
-
-    service_name: str = Field(
-        default="agent-042-gateway",
-        description="Service name displayed in API docs",
-    )
-    url: str = Field(
-        default="http://localhost:9001",
-        alias="GATEWAY_URL",
-        description="Full URL to the gateway (used by UI)",
     )
 
 
 class BudgetSettings(BaseModel):
     """Prompt and response budgeting settings for online inference."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     model_max_tokens: int = Field(
         default=32768,
@@ -361,42 +127,102 @@ class BudgetSettings(BaseModel):
     )
 
 
+class GatewayConfig(BaseModel):
+    """Gateway request handling and service behavior settings."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    default_model: str = Field(
+        default="/models/Qwen/Qwen3-0.6B",
+        description="Default model when none specified in request",
+    )
+    api_key: SecretStr | None = Field(
+        default=None,
+        description="Optional API key for vLLM authentication",
+    )
+    vllm_timeout: float = Field(
+        default=60.0,
+        description="Timeout for vLLM requests in seconds",
+        ge=1.0,
+    )
+    repetition_penalty: float = Field(
+        default=1.1,
+        description="Repetition penalty applied to all generation requests to prevent token loops",
+        ge=1.0,
+    )
+    streaming_timeout: float = Field(
+        default=300.0,
+        description="Idle timeout for Redis Pub/Sub streaming in seconds",
+        ge=1.0,
+    )
+    embeddings_timeout: float = Field(
+        default=120.0,
+        description="Timeout for embeddings service HTTP requests in seconds",
+        ge=1.0,
+    )
+    async_enabled: bool = Field(
+        default=True,
+        description="Enable async inference via Celery workers",
+    )
+    cors_allow_origins: Annotated[tuple[str, ...], NoDecode] = Field(
+        default=("*",),
+        description="Allowed CORS origins.",
+    )
+    service_name: str = Field(
+        default="agent-042-gateway",
+        description="Service name displayed in API docs",
+    )
+    url: str = Field(
+        default="http://localhost:9001",
+        description="Full URL to the gateway (used by UI)",
+    )
+    budget: BudgetSettings = Field(default_factory=BudgetSettings)
+
+    @field_validator("cors_allow_origins", mode="before")
+    @classmethod
+    def _normalize_cors_allow_origins(cls, value: object) -> object:
+        if isinstance(value, str):
+            return tuple(origin.strip() for origin in value.split(",") if origin.strip())
+        if isinstance(value, (list, tuple, set)):
+            return tuple(str(origin).strip() for origin in value if str(origin).strip())
+        return value
+
+
+class RagBuildSettings(BaseModel):
+    """RAG build-time batching settings."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    embedding_batch_size: int = Field(
+        default=32,
+        description="Batch size for embedding generation during RAG builds",
+        ge=1,
+    )
+    qdrant_upsert_batch_size: int = Field(
+        default=128,
+        description="Batch size for Qdrant upserts during RAG materialization",
+        ge=1,
+    )
+
+
 class RagSettings(BaseModel):
     """Gateway RAG behavior and embedding model settings."""
 
-    knowledge_bases_path: str = Field(
-        default="",
-        description="Override path to knowledge_bases.json (leave empty to use bundled default)",
-    )
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
     rag_enabled: bool = Field(
         default=True,
         description="Enable RAG functionality",
     )
     embedding_model: str = Field(
         default="sentence-transformers/all-MiniLM-L6-v2",
-        validation_alias=AliasChoices(
-            "GATEWAY_EMBEDDING_MODEL",
-            "EMBEDDINGS_MODEL",
-        ),
         description="HuggingFace model for embeddings",
     )
     embedding_device: Literal["cpu", "cuda", "mps"] = Field(
         default="cpu",
-        validation_alias=AliasChoices(
-            "GATEWAY_EMBEDDING_DEVICE",
-            "EMBEDDINGS_DEVICE",
-        ),
         description="Device for embedding model",
     )
-    embedding_batch_size: int = Field(
-        default=32,
-        validation_alias=AliasChoices(
-            "GATEWAY_EMBEDDING_BATCH_SIZE",
-            "EMBEDDINGS_BATCH_SIZE",
-        ),
-        description="Batch size for embedding generation",
-        ge=1,
-    )
+    build: RagBuildSettings = Field(default_factory=RagBuildSettings)
     kb_selection_threshold: float = Field(
         default=0.3,
         description="Cosine similarity threshold for automatic KB selection",
@@ -419,26 +245,14 @@ class RagSettings(BaseModel):
     )
     sparse_encoder_model: str = Field(
         default="Qdrant/bm25",
-        validation_alias=AliasChoices(
-            "SPARSE_ENCODER_MODEL",
-            "sparse_encoder_model",
-        ),
         description="fastembed model name for sparse (BM25) vector encoding",
     )
     reranker_url: str = Field(
         default="http://reranker:8101",
-        validation_alias=AliasChoices(
-            "RERANKER_URL",
-            "reranker_url",
-        ),
         description="URL of the reranker microservice",
     )
     reranker_model: str = Field(
         default="cross-encoder/ms-marco-MiniLM-L-6-v2",
-        validation_alias=AliasChoices(
-            "RERANKER_MODEL",
-            "reranker_model",
-        ),
         description="Cross-encoder model loaded by the reranker service",
     )
 
@@ -446,12 +260,14 @@ class RagSettings(BaseModel):
 class AuthSettings(BaseModel):
     """Gateway auth, session, and internal caller authentication settings."""
 
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
     google_client_id: str = Field(
         default="",
         description="Google OAuth2 client ID",
     )
-    google_client_secret: str = Field(
-        default="",
+    google_client_secret: SecretStr = Field(
+        default_factory=lambda: SecretStr(""),
         description="Google OAuth2 client secret",
     )
     google_redirect_uri: str = Field(
@@ -466,8 +282,8 @@ class AuthSettings(BaseModel):
         default=None,
         description="PostgreSQL connection URL for agent042 DB (async: postgresql+asyncpg://...)",
     )
-    session_secret_key: str = Field(
-        default="",
+    session_secret_key: SecretStr = Field(
+        default_factory=lambda: SecretStr(""),
         description="Secret key for signing session cookies (32-byte hex)",
     )
     session_ttl_seconds: int = Field(
@@ -475,96 +291,73 @@ class AuthSettings(BaseModel):
         description="Session TTL in seconds (default 24 hours)",
         ge=60,
     )
-    internal_api_key: str = Field(
-        default="",
+    internal_api_key: SecretStr = Field(
+        default_factory=lambda: SecretStr(""),
         description="Pre-shared API key for internal service-to-service calls "
         "(e.g. Airflow eval runner)",
     )
 
 
-class GatewaySettings(
-    PlatformSettings,
-    GatewayBehaviorSettings,
-    BudgetSettings,
-    RagSettings,
-    AuthSettings,
-):
-    """Gateway-facing settings composed from smaller concern groups.
+class CatalogConfig(BaseModel):
+    """Settings for the shared task/knowledge-base/source catalog."""
 
-    Shared platform endpoints prefer canonical names such as VLLM_BASE_URL and
-    QDRANT_HOST, while gateway-specific behavior uses the GATEWAY_ prefix.
-    """
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
 
-    model_config = SettingsConfigDict(
-        env_prefix="GATEWAY_",
-        extra="ignore",
+    path: Path | None = Field(
+        default=None,
+        description=(
+            "Override path to the catalog TOML file; relative paths resolve from "
+            "the repository root, empty uses the bundled default"
+        ),
     )
 
+    @field_validator("path", mode="before")
+    @classmethod
+    def _normalize_path(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            return Path(stripped)
+        return value
 
-# Backward compatibility alias used across the existing codebase.
-Settings = GatewaySettings
 
+class AdapterRegistryConfig(BaseModel):
+    """Settings for MLflow model registry / adapter sync."""
 
-class RegistrySettings(BaseSettings):
-    """Settings for MLflow Model Registry / adapter sync.
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
 
-    Environment Variables:
-        MLFLOW_TRACKING_URI: Preferred MLflow tracking server URL.
-        VLLM_BASE_URL: Preferred shared vLLM server URL.
-        REGISTRY_ADAPTERS_DIR: Local directory for downloaded LoRA adapters.
-        REGISTRY_AUTO_SYNC: Pull production adapters on service startup.
-    """
-
-    model_config = SettingsConfigDict(
-        env_prefix="REGISTRY_",
-        extra="ignore",
-    )
-
-    mlflow_tracking_uri: str = Field(
-        default="http://localhost:5050",
-        validation_alias=PLATFORM_MLFLOW_TRACKING_URI_ENV,
-        description="MLflow tracking server URL",
-    )
-    adapters_dir: str = Field(
-        default="./adapters",
+    adapters_dir: Path = Field(
+        default=Path("./adapters"),
         description="Local directory for downloaded LoRA adapters",
     )
     production_alias: str | None = Field(
         default=None,
-        description="MLflow alias that marks an adapter as production-ready. "
-        "Used as the default alias for promote/demote commands. "
-        "None means no production adapters are synced (base model only).",
+        description="MLflow alias that marks an adapter as production-ready.",
     )
-    sync_aliases_csv: str = Field(
-        default="champion,challenger",
-        validation_alias=AliasChoices("REGISTRY_SYNC_ALIASES"),
-        description="Comma-separated MLflow aliases to sync to vLLM. "
-        "Each (model, alias) pair becomes a vLLM adapter named '{model}-{alias}'.",
-    )
-
-    @computed_field
-    @property
-    def sync_aliases(self) -> list[str]:
-        """MLflow aliases to sync, parsed from comma-separated string."""
-        return [a.strip() for a in self.sync_aliases_csv.split(",") if a.strip()]
-
-    vllm_base_url: str = Field(
-        default="http://localhost:8000",
-        validation_alias=PLATFORM_VLLM_BASE_URL_ENV,
-        description="vLLM OpenAI-compatible server URL for hot-loading adapters.",
+    sync_aliases: Annotated[tuple[str, ...], NoDecode] = Field(
+        default=("champion", "challenger"),
+        description="MLflow aliases to sync to vLLM.",
     )
     auto_sync: bool = Field(
         default=False,
         description="Automatically sync production adapters on startup",
     )
 
-
-# Backward compatibility alias used across the existing codebase.
-ModelRegistrySettings = RegistrySettings
+    @field_validator("sync_aliases", mode="before")
+    @classmethod
+    def _normalize_sync_aliases(cls, value: object) -> object:
+        if isinstance(value, str):
+            return tuple(alias.strip() for alias in value.split(",") if alias.strip())
+        if isinstance(value, (list, tuple, set)):
+            return tuple(str(alias).strip() for alias in value if str(alias).strip())
+        return value
 
 
 class JudgeSettings(BaseModel):
     """Resolved LLM-as-judge transport and model configuration."""
+
+    model_config = ConfigDict(frozen=True)
 
     backend: Literal["local_vllm", "openai_compatible"]
     model: str
@@ -582,166 +375,106 @@ class JudgeSettings(BaseModel):
     )
 
 
-class EvalSettings(BaseSettings):
-    """Settings for the evaluation runner.
+class EvalJudgeSettings(BaseModel):
+    """Raw judge configuration from the eval section."""
 
-    Environment Variables:
-        EVAL_GATEWAY_URL: Gateway URL for generation evals.
-        EVAL_JUDGE_BACKEND: Judge backend (local_vllm or openai_compatible).
-        EVAL_JUDGE_MODEL: Judge model name.
-        EVAL_JUDGE_BASE_URL: Base URL for external OpenAI-compatible judge backends.
-        EVAL_JUDGE_API_KEY: Optional API key for external OpenAI-compatible backends.
-        EVAL_JUDGE_TIMEOUT: Timeout for judge HTTP requests.
-        EVAL_JUDGE_REQUEST_DELAY_SECONDS: Optional delay between judge requests.
-        EVAL_BERT_SCORE_MODEL: Model for BERTScore computation.
-        EVAL_TEMPERATURE: Temperature for generation requests.
-    """
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
 
-    model_config = SettingsConfigDict(
-        env_prefix="EVAL_",
-        extra="ignore",
+    backend: Literal["local_vllm", "openai_compatible"] = Field(default="local_vllm")
+    model: str = Field(
+        default="/models/Qwen/Qwen3-0.6B",
+        description="Judge model name used for LLM-as-judge scoring.",
     )
-
-    gateway_url: str = Field(
-        default="http://localhost:9001",
-        description="Gateway URL for generation evals",
-    )
-    judge_backend: Literal["local_vllm", "openai_compatible"] = Field(
-        default="local_vllm",
-        description=(
-            "Backend used for LLM-as-judge scoring. local_vllm talks directly to the "
-            "project's canonical vLLM endpoint."
-        ),
-    )
-    judge_model: str = Field(
-        description=(
-            "Judge model name. This setting is mandatory so the eval backend does not "
-            "silently inherit or reassign models at runtime."
-        ),
-    )
-    judge_base_url: str = Field(
+    base_url: str = Field(
         default="",
-        description=(
-            "Base URL for external OpenAI-compatible judge backends. Ignored when "
-            "judge_backend=local_vllm."
-        ),
+        description="Base URL for external OpenAI-compatible judge backends.",
     )
-    judge_api_key: str = Field(
-        default="",
-        description=(
-            "Optional API key for external OpenAI-compatible judge backends. Ignored "
-            "when judge_backend=local_vllm."
-        ),
+    api_key: SecretStr = Field(
+        default_factory=lambda: SecretStr(""),
+        description="Optional API key for external OpenAI-compatible judge backends.",
     )
-    judge_timeout: float = Field(
-        default=60.0,
-        description="Timeout for judge HTTP requests in seconds",
-        ge=1.0,
-    )
-    judge_request_delay_seconds: float = Field(
-        default=0.0,
-        description="Optional delay inserted between judge requests in seconds",
-        ge=0.0,
-    )
+    timeout: float = Field(default=60.0, ge=1.0)
+    request_delay_seconds: float = Field(default=0.0, ge=0.0)
+
+
+class EvalMetricSettings(BaseModel):
+    """Eval metric and generation controls."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
     bert_score_model: str = Field(
         default="microsoft/deberta-v3-base",
         description="Model for BERTScore computation",
     )
-    temperature: float = Field(
-        default=0.0,
-        description="Temperature for generation requests",
-        ge=0.0,
-    )
-    max_completion_tokens: int = Field(
-        default=2048,
-        description=(
-            "Upper bound for one eval prediction. Prevents eval requests from "
-            "claiming the full model window for generation."
-        ),
-        ge=1,
-    )
-    code_exec_timeout: int = Field(
-        default=30,
-        description="Timeout in seconds for sandboxed code execution",
-        ge=1,
-    )
+    temperature: float = Field(default=0.0, ge=0.0)
+    max_completion_tokens: int = Field(default=2048, ge=1)
+
+
+class EvalSandboxSettings(BaseModel):
+    """Sandbox execution limits for code evals."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    code_exec_timeout: int = Field(default=30, ge=1)
     code_exec_mem_limit: str = Field(
         default="512m",
         description=(
-            "Memory limit string for sandboxed code execution. "
-            "Accepted for config compatibility; not currently enforced "
-            "by bwrap (reserved for future cgroup-based limits)."
+            "Memory limit string for sandboxed code execution. Accepted for config "
+            "compatibility; not currently enforced by bwrap."
         ),
     )
-    code_exec_cpus: float = Field(
-        default=1.0,
-        description="CPU share for sandboxed code execution (used to derive rlimit-cpu)",
-        ge=0.1,
-    )
-    internal_api_key: str = Field(
-        default="",
-        description="Internal API key for authenticating with the gateway",
-    )
+    code_exec_cpus: float = Field(default=1.0, ge=0.1)
+
+
+class EvalConfig(BaseModel):
+    """Settings for the evaluation runner."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    judge: EvalJudgeSettings = Field(default_factory=EvalJudgeSettings)
+    metrics: EvalMetricSettings = Field(default_factory=EvalMetricSettings)
+    sandbox: EvalSandboxSettings = Field(default_factory=EvalSandboxSettings)
     db_url: str | None = Field(
         default=None,
         description="PostgreSQL connection URL for eval results (sync: postgresql://...)",
     )
 
     @model_validator(mode="after")
-    def _validate_judge_backend_config(self) -> "EvalSettings":
-        if not self.judge_model.strip():
-            raise ValueError("EVAL_JUDGE_MODEL must be set")
-        if self.judge_backend == "openai_compatible":
-            if not self.judge_base_url.strip():
-                raise ValueError(
-                    "EVAL_JUDGE_BASE_URL must be set when EVAL_JUDGE_BACKEND=openai_compatible"
-                )
+    def _validate_judge_backend_config(self) -> "EvalConfig":
+        if self.judge.backend == "openai_compatible" and not self.judge.base_url.strip():
+            raise ValueError(
+                "eval.judge.base_url must be set when eval.judge.backend=openai_compatible"
+            )
         return self
 
-    def resolve_judge_settings(self) -> JudgeSettings:
+    def resolve_judge_settings(self, platform: PlatformSettings) -> JudgeSettings:
         """Resolve backend-specific judge settings to a concrete transport config."""
-        if self.judge_backend == "local_vllm":
+        judge = self.judge
+        api_key = secret_value(judge.api_key)
+        if judge.backend == "local_vllm":
             return JudgeSettings(
                 backend="local_vllm",
-                model=self.judge_model.strip(),
-                base_url=get_platform_settings().vllm_base_url,
-                api_key=self.judge_api_key.strip() or None,
-                timeout=self.judge_timeout,
-                request_delay_seconds=self.judge_request_delay_seconds,
+                model=judge.model.strip(),
+                base_url=platform.vllm_base_url,
+                api_key=api_key.strip() or None if api_key is not None else None,
+                timeout=judge.timeout,
+                request_delay_seconds=judge.request_delay_seconds,
             )
 
         return JudgeSettings(
             backend="openai_compatible",
-            model=self.judge_model.strip(),
-            base_url=self.judge_base_url.strip(),
-            api_key=self.judge_api_key.strip() or None,
-            timeout=self.judge_timeout,
-            request_delay_seconds=self.judge_request_delay_seconds,
+            model=judge.model.strip(),
+            base_url=judge.base_url.strip(),
+            api_key=api_key.strip() or None if api_key is not None else None,
+            timeout=judge.timeout,
+            request_delay_seconds=judge.request_delay_seconds,
         )
 
 
-@lru_cache
-def get_eval_settings() -> EvalSettings:
-    """Get cached evaluation settings."""
-    return EvalSettings()
+class UIConfig(BaseModel):
+    """UI-specific request timeout settings."""
 
-
-@lru_cache
-def get_platform_settings() -> PlatformSettings:
-    """Get cached canonical shared endpoint settings."""
-    return PlatformSettings()
-
-
-class UISettings(BaseSettings):
-    """UI-specific settings with UI_ prefix.
-
-    These are separate because they use a different environment variable prefix.
-    """
-
-    model_config = SettingsConfigDict(
-        env_prefix="UI_",
-        extra="ignore",
-    )
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     health_timeout: float = Field(
         default=10.0,
@@ -760,163 +493,159 @@ class UISettings(BaseSettings):
     )
 
 
-class WorkerSettings(BaseSettings):
-    """Worker-specific runtime settings.
+class WorkerConfig(BaseModel):
+    """Worker-specific runtime settings."""
 
-    Shared infrastructure endpoints such as ``CELERY_BROKER_URL`` still use the
-    canonical platform env names, while worker runtime knobs remain worker-local.
-    """
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
 
-    model_config = SettingsConfigDict(extra="ignore")
-
-    celery_broker_url: str = Field(
-        validation_alias=PLATFORM_CELERY_BROKER_URL_ENV,
-        description="RabbitMQ connection URL (e.g. amqp://user:password@rabbitmq:5672//)",
-    )
-    task_default_timeout: int = Field(
+    default_timeout: int = Field(
         default=300,
         description="Default task timeout in seconds",
     )
-    task_max_retries: int = Field(
+    max_retries: int = Field(
         default=3,
         description="Maximum number of task retries",
     )
-    task_retry_delay: int = Field(
+    retry_delay: int = Field(
         default=5,
         description="Delay between retries in seconds",
     )
-    worker_pool: str = Field(
+    pool: str = Field(
         default="prefork",
         description="Celery execution pool for gateway inference tasks",
     )
-    worker_concurrency: int = Field(
+    concurrency: int = Field(
         default=2,
         description="Concurrent worker slots for gateway inference tasks",
         ge=1,
     )
-    worker_send_task_events: bool = Field(
+    send_task_events: bool = Field(
         default=True,
         description="Emit Celery task events so Flower can observe queued/running tasks",
     )
-    worker_cancel_long_running_tasks_on_connection_loss: bool = Field(
+    cancel_long_running_tasks_on_connection_loss: bool = Field(
         default=True,
         description="Cancel in-flight tasks if the broker connection is lost",
     )
 
 
-@lru_cache
-def get_settings() -> GatewaySettings:
-    """Get cached application settings.
+class Settings(BaseSettings):
+    """Unified runtime configuration root."""
 
-    Settings are loaded once and cached for the lifetime of the process.
-    This ensures consistent configuration and avoids repeated parsing.
+    model_config = SettingsConfigDict(
+        env_nested_delimiter="__",
+        populate_by_name=True,
+        frozen=True,
+    )
 
-    Returns:
-        GatewaySettings: Validated application settings
+    platform: PlatformSettings = Field(default_factory=PlatformSettings)
+    gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    rag: RagSettings = Field(default_factory=RagSettings)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
+    catalog: CatalogConfig = Field(default_factory=CatalogConfig)
+    adapter_registry: AdapterRegistryConfig = Field(default_factory=AdapterRegistryConfig)
+    eval: EvalConfig = Field(default_factory=EvalConfig)
+    worker: WorkerConfig = Field(default_factory=WorkerConfig)
+    ui: UIConfig = Field(default_factory=UIConfig)
 
-    Raises:
-        ValidationError: If environment variables contain invalid values
-    """
-    return GatewaySettings()
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            file_secret_settings,
+        )
 
 
-@lru_cache
-def get_registry_settings() -> RegistrySettings:
-    """Get cached model registry settings."""
-    return RegistrySettings()
+def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+            continue
+        merged[key] = value
+    return merged
 
 
-@lru_cache
-def get_ui_settings() -> UISettings:
-    """Get cached UI-specific settings.
+def secret_value(value: SecretStr | str | None) -> str | None:
+    """Return the raw value for a secret-like field."""
 
-    Returns:
-        UISettings: Validated UI settings
-    """
-    return UISettings()
+    if value is None:
+        return None
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    return value
 
 
-@lru_cache
-def get_worker_settings() -> WorkerSettings:
-    """Get cached worker settings."""
-    return WorkerSettings()
+def load_settings(overrides: dict[str, Any] | None = None) -> Settings:
+    """Build the runtime settings tree from nested env names and explicit overrides."""
+
+    settings = Settings()
+    if not overrides:
+        return settings
+
+    payload = settings.model_dump(exclude_none=False, exclude_computed_fields=True)
+    payload = _deep_merge(payload, overrides)
+    return Settings.model_validate(payload)
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return the cached unified runtime settings root."""
+
+    return load_settings()
 
 
 def clear_knowledge_base_caches() -> None:
-    """Reset KB registry and index so the next access re-reads from disk."""
-    global _KB_REGISTRY, _KB_INDEX  # noqa: PLW0603
-    _KB_REGISTRY = None
-    _KB_INDEX = None
+    """Reset KB catalog and index so the next access re-reads from disk."""
+
+    get_settings.cache_clear()
+    catalog.clear_catalog_caches()
 
 
 def clear_settings_caches() -> None:
     """Clear cached settings and derived config state."""
-    get_platform_settings.cache_clear()
+
     get_settings.cache_clear()
-    get_registry_settings.cache_clear()
-    get_eval_settings.cache_clear()
-    get_ui_settings.cache_clear()
-    get_worker_settings.cache_clear()
     clear_knowledge_base_caches()
 
 
-def bootstrap_local_settings_env(
-    *,
-    repo_root: Path | None = None,
-    env_file: str | Path | None = None,
-    legacy_fallbacks: tuple[str | Path, ...] = (),
-) -> Path | None:
-    """Explicitly load the repo-root ``.env`` for local entrypoints.
+def log_configuration_summary() -> None:
+    """Load settings and log a safe startup summary."""
 
-    Containerized deployments should inject env vars directly and may call this
-    helper safely; it becomes a no-op when no local env file exists.
-    """
-    resolved_root = (
-        repo_root.resolve() if repo_root is not None else Path(__file__).resolve().parents[2]
-    )
-    loaded_env = load_local_env(
-        env_file,
-        repo_root=resolved_root,
-        legacy_fallbacks=legacy_fallbacks,
-    )
-    clear_settings_caches()
-    return loaded_env
-
-
-def validate_settings_on_startup() -> None:
-    """Validate all settings at application startup.
-
-    Call this function early in your application's lifecycle to fail fast
-    if configuration is invalid.
-
-    Raises:
-        ValidationError: If any settings are invalid
-    """
-    get_platform_settings()
-
-    # Force settings to be loaded and validated
     settings = get_settings()
-    ui_settings = get_ui_settings()
+    kb_catalog = catalog.get_catalog(settings=settings.catalog)
 
-    # Load and validate the knowledge-base registry
-    kb_registry = get_knowledge_bases()
-
-    # Log configuration summary (without sensitive values)
-    import logging
-
-    logger = logging.getLogger(__name__)
-    logger.info("Configuration loaded successfully:")
-    logger.info(f"  vLLM URL: {settings.vllm_base_url}")
-    logger.info(f"  Default model: {settings.default_model}")
-    logger.info(f"  Async inference enabled: {settings.async_enabled}")
-    logger.info(f"  Qdrant: {settings.qdrant_host}:{settings.qdrant_port}")
-    logger.info(f"  RAG enabled: {settings.rag_enabled}")
-    logger.info(f"  Embeddings URL: {settings.embeddings_url}")
-    logger.info(f"  Embedding model: {settings.embedding_model}")
-    logger.info(f"  Embedding device: {settings.embedding_device}")
-    kb_names = [kb.name for tc in kb_registry.values() for kb in tc.knowledge_bases]
-    logger.info(f"  Knowledge bases: {kb_names or '(none)'}")
-    logger.info(f"  Gateway URL (for UI): {settings.url}")
+    logger.info("Configuration loaded successfully")
+    logger.info("vLLM URL: %s", settings.platform.vllm_base_url)
+    logger.info("Default model: %s", settings.gateway.default_model)
+    logger.info("Async inference enabled: %s", settings.gateway.async_enabled)
     logger.info(
-        f"  UI timeouts: health={ui_settings.health_timeout}s, chat={ui_settings.chat_timeout}s"
+        "Qdrant: %s:%s",
+        settings.platform.qdrant_host,
+        settings.platform.qdrant_port,
+    )
+    logger.info("RAG enabled: %s", settings.rag.rag_enabled)
+    logger.info("Embeddings URL: %s", settings.platform.embeddings_url)
+    logger.info("Embedding model: %s", settings.rag.embedding_model)
+    logger.info("Embedding device: %s", settings.rag.embedding_device)
+    logger.info(
+        "Knowledge-base catalog path: %s",
+        catalog.resolve_catalog_path(settings.catalog),
+    )
+    kb_names = [kb.name for task_cfg in kb_catalog.values() for kb in task_cfg.knowledge_bases]
+    logger.info("Knowledge bases: %s", kb_names or "(none)")
+    logger.info("Gateway URL (for UI): %s", settings.gateway.url)
+    logger.info(
+        "UI timeouts: health=%ss, chat=%ss",
+        settings.ui.health_timeout,
+        settings.ui.chat_timeout,
     )

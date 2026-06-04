@@ -63,16 +63,23 @@ default_args = {
 }
 
 
+def _read_env(*names: str, default: str | None = None) -> str:
+    """Return the first non-empty env value from a priority-ordered list."""
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None and value != "":
+            return value
+    if default is not None:
+        return default
+    raise KeyError(f"None of the environment variables are set: {', '.join(names)}")
+
+
 def _list_knowledge_base_names() -> list[str]:
-    """Load KB options from the shared task-grouped registry."""
-    from shared.config import get_knowledge_bases
+    """Load KB options from the shared task catalog."""
+    from shared.catalog import get_catalog
 
     return sorted(
-        {
-            kb_cfg.name
-            for task_cfg in get_knowledge_bases().values()
-            for kb_cfg in task_cfg.knowledge_bases
-        }
+        {kb_cfg.name for task_cfg in get_catalog().values() for kb_cfg in task_cfg.knowledge_bases}
     )
 
 
@@ -317,13 +324,13 @@ def _calculate_metrics_task(
 # DAG generation
 # ---------------------------------------------------------------------------
 
-# Build alias dropdown options dynamically from REGISTRY_SYNC_ALIASES env var
-# so that the Airflow UI stays in sync with the deployed configuration.
-_sync_raw = os.environ.get("REGISTRY_SYNC_ALIASES", "champion,challenger")
+# Build alias dropdown options dynamically from the canonical adapter registry env
+# name so that the Airflow UI stays in sync with the deployed configuration.
+_sync_raw = _read_env("ADAPTER_REGISTRY__SYNC_ALIASES", default="champion,challenger")
 _sync_aliases = [a.strip() for a in _sync_raw.split(",") if a.strip()]
 _alias_options = ["none"] + _sync_aliases
 
-# Build knowledge-base dropdown options from the shared registry.
+# Build knowledge-base dropdown options from the shared catalog.
 _kb_options = _list_knowledge_base_names()
 
 for _suite in _EVAL_SUITES:

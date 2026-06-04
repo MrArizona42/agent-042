@@ -16,7 +16,8 @@ from rag.ops.materialize import (
 )
 from rag.ops.meta import BuildConfig, ImplementationInfo, build_collection_meta
 from rag.sparse_encoder import SparseEncoderService
-from shared.config import get_settings, validate_kb_alias
+from shared.catalog import validate_kb_alias
+from shared.config import get_settings
 
 
 def create_pytorch_docs_collection(
@@ -34,8 +35,8 @@ def create_pytorch_docs_collection(
     """Create a fresh PyTorch docs collection and optionally attach an alias."""
     validate_kb_alias(kb, alias)
     settings = get_settings()
-    qdrant_host = qdrant_host or settings.qdrant_host
-    qdrant_port = qdrant_port or settings.qdrant_port
+    qdrant_host = qdrant_host or settings.platform.qdrant_host
+    qdrant_port = qdrant_port or settings.platform.qdrant_port
 
     docs_path = Path(pytorch_docs_file)
     if not docs_path.exists():

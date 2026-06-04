@@ -1,0 +1,15 @@
+defaults:
+  - base_task
+  - _self_
+
+name: summarization
+run_name_prefix: summarize
+tags:
+  task.family: summarization
+prompt_template: |
+  Summarize the following article into an abstract:
+
+  Article:
+  {article}
+
+  Abstract:

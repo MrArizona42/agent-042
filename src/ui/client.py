@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 import requests
 
-from shared.config import get_ui_settings
+from shared.config import get_settings
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class GatewayClient:
 
     def __init__(self, base_url: str, session_id: str | None = None):
         self.base_url = base_url.rstrip("/")
-        self._ui_settings = get_ui_settings()
+        self._ui_settings = get_settings().ui
         self._session = requests.Session()
         if session_id:
             self._session.headers["Authorization"] = f"Bearer {session_id}"

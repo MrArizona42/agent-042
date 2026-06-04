@@ -6,7 +6,8 @@ from typing import Any
 
 from rag.ops.meta import read_collection_meta
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_settings, validate_kb_alias
+from shared.catalog import validate_kb_alias
+from shared.config import get_settings
 
 
 def assign_alias_to_collection(
@@ -20,8 +21,8 @@ def assign_alias_to_collection(
     """Attach an alias to an existing validated collection."""
     validate_kb_alias(kb, alias)
     settings = get_settings()
-    qdrant_host = qdrant_host or settings.qdrant_host
-    qdrant_port = qdrant_port or settings.qdrant_port
+    qdrant_host = qdrant_host or settings.platform.qdrant_host
+    qdrant_port = qdrant_port or settings.platform.qdrant_port
 
     target_store = QdrantVectorStore(
         host=qdrant_host,
@@ -58,8 +59,8 @@ def promote_alias(
     validate_kb_alias(kb, from_alias)
     validate_kb_alias(kb, to_alias)
     settings = get_settings()
-    qdrant_host = qdrant_host or settings.qdrant_host
-    qdrant_port = qdrant_port or settings.qdrant_port
+    qdrant_host = qdrant_host or settings.platform.qdrant_host
+    qdrant_port = qdrant_port or settings.platform.qdrant_port
 
     source_alias_name = f"{kb}_{from_alias}"
     source_store = QdrantVectorStore(
@@ -92,8 +93,8 @@ def detach_alias(
     """Delete an alias mapping."""
     validate_kb_alias(kb, alias)
     settings = get_settings()
-    qdrant_host = qdrant_host or settings.qdrant_host
-    qdrant_port = qdrant_port or settings.qdrant_port
+    qdrant_host = qdrant_host or settings.platform.qdrant_host
+    qdrant_port = qdrant_port or settings.platform.qdrant_port
     alias_name = f"{kb}_{alias}"
     vector_store = QdrantVectorStore(
         host=qdrant_host,

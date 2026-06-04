@@ -164,8 +164,8 @@ cp .env.example .env
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — креды для Yandex Object Storage (нужны MLflow)
 - `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` — опциональная auth-пара для локальных MLflow-клиентов и ноутбуков
 - `MLFLOW_*` — конфиг MLflow (backend store + artifact root)
-- `VLLM_*` — модель/квантизация/параметры GPU для vLLM
-- `GATEWAY_*` — настройки Gateway (RAG, auth, async mode)
+- `VLLM_*` — bootstrap/env переменные самого vLLM контейнера (модель, dtype, quantization, scheduler caps)
+- `PLATFORM__*`, `GATEWAY__*`, `RAG__*`, `AUTH__*`, `CATALOG__*`, `ADAPTER_REGISTRY__*`, `EVAL__*`, `WORKER__*`, `UI__*` — nested runtime settings contract для Python-сервисов, когда конкретный ключ действительно operator-facing
 - `RABBITMQ_*` — логин/пароль и порты RabbitMQ (брокер для Celery)
 - `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
 - `FLOWER_*` — порт Flower (мониторинг Celery)
@@ -177,11 +177,35 @@ cp .env.example .env
 - `JUPYTER_*` — конфиг JupyterLab (порт, токен)
 
 Замечание:
-- Канонический шаблон `.env.example` намеренно не содержит внутренние endpoint'ы вроде `VLLM_BASE_URL`, `EMBEDDINGS_URL`, `GATEWAY_URL`, `QDRANT_HOST` или `MLFLOW_TRACKING_URI`.
+- Канонический шаблон `.env.example` намеренно не содержит внутренние endpoint'ы вроде `PLATFORM__VLLM_BASE_URL`, `PLATFORM__EMBEDDINGS_URL`, `GATEWAY__URL`, `PLATFORM__QDRANT_HOST` или `PLATFORM__MLFLOW_TRACKING_URI`.
   Compose подставляет свои Docker-network значения напрямую из `infra/compose/docker-compose.yaml`, а локальные Python-запуски используют значения по умолчанию из `shared.config`.
 - На текущем этапе checkout-based Compose уже использует `ASSETS_ROOT`, `ARTIFACTS_ROOT` и
   `DVC_CONFIG_LOCAL_PATH` для shared mounts, а `GITHUB_*`-переменные использует Airflow data-sync
   path. `IMAGE_TAG` остаётся зарезервированным для последующих deploy фаз.
+
+### Разделение env surfaces
+
+В проекте теперь есть жёсткое разделение между двумя типами переменных:
+
+- flat env keys для Compose/bootstrap concerns: порты, image/build параметры и конфиг внешних сервисов вроде `VLLM_MODEL`, `QDRANT_PORT`, `AIRFLOW_PORT`, `RABBITMQ_*`
+- nested env keys для runtime settings Python-сервисов: `SECTION__FIELD`
+
+Практические правила:
+
+- если ключ читает `src/shared/config.py`, используйте только nested имя
+- если ключ нужен только Compose, host port mapping или отдельному контейнеру, flat имя допустимо
+- новые runtime settings не должны получать flat compatibility aliases
+- catalog-specific helpers и schema не должны документироваться как часть `shared.config`; их владелец — `src/shared/catalog/`
+
+Типичные operator-facing nested keys из текущего контракта:
+
+- `RAG__EMBEDDING_MODEL`
+- `GATEWAY__ASYNC_ENABLED`
+- `AUTH__INTERNAL_API_KEY`
+- `EVAL__DB_URL`
+- `CATALOG__PATH`
+- `ADAPTER_REGISTRY__SYNC_ALIASES`
+- `WORKER__CONCURRENCY`
 
 ### Подготовка shared roots и прав доступа (Phase 2)
 
@@ -403,8 +427,8 @@ docker compose up -d airflow-worker
 - `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` — логин/пароль admin-пользователя
 
 DAG'и также используют следующие переменные (передаются через `x-airflow-common-env`):
-- `QDRANT_HOST` / `QDRANT_PORT` — адрес Qdrant для пересборки индексов
-- `EMBEDDING_MODEL` — модель эмбеддингов (берётся из `GATEWAY_EMBEDDING_MODEL`)
+- `PLATFORM__QDRANT_HOST` / `PLATFORM__QDRANT_PORT` — адрес Qdrant для пересборки индексов
+- `EMBEDDING_MODEL` — модель эмбеддингов (берётся из `RAG__EMBEDDING_MODEL`)
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_DEFAULT_REGION` — для `dvc push` в Yandex Cloud S3
 - `GITHUB_REPOSITORY` / `GITHUB_DATA_SYNC_TOKEN` — для temp-clone Git push и GitHub PR API
 
@@ -427,9 +451,9 @@ JupyterLab предоставляет интерактивную среду дл
 Дополнительно контейнер получает сервисные переменные:
 - `PROJECT_ROOT=/home/jovyan`
 - `PYTHONPATH=/home/jovyan:/home/jovyan/src`
-- `QDRANT_HOST=qdrant`, `QDRANT_PORT=${QDRANT_PORT}`
-- `EMBEDDINGS_URL=http://embeddings:8100`
-- `EVAL_GATEWAY_URL=http://gateway:9000`
+- `PLATFORM__QDRANT_HOST=qdrant`, `PLATFORM__QDRANT_PORT=${PLATFORM__QDRANT_PORT}`
+- `PLATFORM__EMBEDDINGS_URL=http://embeddings:8100`
+- `GATEWAY__URL=http://gateway:9000`
 
 Важно: этот `PROJECT_ROOT=/home/jovyan` относится только к контейнеру Jupyter. Это не тот же
 самый `PROJECT_ROOT`, который оператор задаёт в repo-root `.env` или в `/home/anton-m/agent-042/.env` для
