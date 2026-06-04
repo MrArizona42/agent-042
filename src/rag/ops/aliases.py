@@ -6,8 +6,8 @@ from typing import Any
 
 from rag.ops.meta import read_collection_meta
 from rag.vector_store import QdrantVectorStore
+from shared.catalog import validate_kb_alias
 from shared.config import get_settings
-from shared.operator_registry import validate_kb_alias
 
 
 def assign_alias_to_collection(

@@ -40,9 +40,9 @@ Environment variables
     MLflow tracking server URL (e.g. ``http://mlflow:5000``).
 ``MLFLOW_S3_ENDPOINT_URL``, ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``
     Credentials for downloading artifacts from S3.
-``REGISTRY__ADAPTERS_DIR``
+``ADAPTER_REGISTRY__ADAPTERS_DIR``
     Where to store downloaded adapters (default ``./adapters``).
-``REGISTRY__SYNC_ALIASES``
+``ADAPTER_REGISTRY__SYNC_ALIASES``
     Comma-separated list of MLflow aliases to sync (default ``champion,challenger``).
 ``PLATFORM__VLLM_BASE_URL``
     Canonical vLLM server URL for the hot-load API (default ``http://localhost:8000``).
@@ -259,14 +259,14 @@ class AdapterRegistry:
 
         Args:
             alias: MLflow alias to look up.  When *None*, reads the default
-                from ``settings.registry.production_alias``.  If the
+                from ``settings.adapter_registry.production_alias``.  If the
                 config value is also *None*, returns an empty dict (no
                 production adapters).
         """
         if alias is None:
             from shared.config import get_settings
 
-            alias = get_settings().registry.production_alias
+            alias = get_settings().adapter_registry.production_alias
         if not alias:
             return {}
         try:
@@ -354,11 +354,11 @@ class AdapterSyncer:
         from shared.config import get_settings
 
         settings = get_settings()
-        registry = settings.registry
+        adapter_registry = settings.adapter_registry
         platform = settings.platform
 
         if sync_aliases is None:
-            sync_aliases = registry.sync_aliases
+            sync_aliases = adapter_registry.sync_aliases
         if vllm_base_url is None:
             vllm_base_url = platform.vllm_base_url
 
@@ -551,12 +551,12 @@ def _resolve_aliases(aliases: str | list | tuple | None):
     """Parse comma-separated aliases or fall back to config default."""
     from shared.config import get_settings
 
-    registry = get_settings().registry
+    adapter_registry = get_settings().adapter_registry
     if aliases:
         if isinstance(aliases, (list, tuple)):
             return [a.strip() for a in aliases if a.strip()]
         return [a.strip() for a in aliases.split(",") if a.strip()]
-    return registry.sync_aliases
+    return adapter_registry.sync_aliases
 
 
 def _cmd_sync(
@@ -569,12 +569,12 @@ def _cmd_sync(
     from shared.config import get_settings
 
     settings = get_settings()
-    registry = settings.registry
+    adapter_registry = settings.adapter_registry
     platform = settings.platform
     _load_env(env_file)
 
     syncer = AdapterSyncer(
-        adapters_dir=adapters_dir or registry.adapters_dir,
+        adapters_dir=adapters_dir or adapter_registry.adapters_dir,
         sync_aliases=_resolve_aliases(aliases),
         vllm_base_url=vllm_url or platform.vllm_base_url,
     )
@@ -595,12 +595,12 @@ def _cmd_list(
     from shared.config import get_settings
 
     settings = get_settings()
-    registry = settings.registry
+    adapter_registry = settings.adapter_registry
     platform = settings.platform
     _load_env(env_file)
 
     syncer = AdapterSyncer(
-        adapters_dir=registry.adapters_dir,
+        adapters_dir=adapter_registry.adapters_dir,
         sync_aliases=_resolve_aliases(aliases),
         vllm_base_url=platform.vllm_base_url,
     )

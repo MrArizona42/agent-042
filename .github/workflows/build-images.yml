@@ -7,10 +7,6 @@ on:
       - main
   workflow_dispatch:
     inputs:
-      branch:
-        description: Branch that should contain the target commit
-        required: true
-        type: string
       sha:
         description: Exact commit SHA to build
         required: true
@@ -27,8 +23,8 @@ jobs:
     outputs:
       branch: ${{ steps.resolve.outputs.branch }}
       branch_slug: ${{ steps.resolve.outputs.branch_slug }}
-      sha: ${{ steps.resolve.outputs.sha }}
-      sha_short: ${{ steps.resolve.outputs.sha_short }}
+      sha: ${{ steps.normalize.outputs.sha }}
+      sha_short: ${{ steps.normalize.outputs.sha_short }}
       repository_lower: ${{ steps.resolve.outputs.repository_lower }}
 
     steps:
@@ -40,20 +36,18 @@ jobs:
 
           if [[ "${{ github.event_name }}" == "push" ]]; then
             branch="${{ github.ref_name }}"
-            sha="${{ github.sha }}"
+            raw_sha="${{ github.sha }}"
           else
-            branch="${{ inputs.branch }}"
-            sha="${{ inputs.sha }}"
+            branch="${{ github.ref_name }}"
+            raw_sha="${{ inputs.sha }}"
           fi
 
           branch_slug="$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]' | sed -E 's#[^a-z0-9]+#-#g; s#(^-+|-+$)##g')"
-          sha_short="${sha:0:12}"
           repository_lower="$(printf '%s' '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
 
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "branch_slug=$branch_slug" >> "$GITHUB_OUTPUT"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "sha_short=$sha_short" >> "$GITHUB_OUTPUT"
+          echo "raw_sha=$raw_sha" >> "$GITHUB_OUTPUT"
           echo "repository_lower=$repository_lower" >> "$GITHUB_OUTPUT"
 
       - name: Checkout branch for validation
@@ -63,11 +57,17 @@ jobs:
           fetch-depth: 0
 
       - name: Verify requested SHA belongs to branch
+        id: normalize
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e "${{ steps.resolve.outputs.sha }}^{commit}"
-          git merge-base --is-ancestor "${{ steps.resolve.outputs.sha }}" "origin/${{ steps.resolve.outputs.branch }}"
+          raw_sha="${{ steps.resolve.outputs.raw_sha }}"
+          [[ "$raw_sha" =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "sha must be a short or full commit hash: $raw_sha" >&2; exit 1; }
+          sha="$(git rev-parse "$raw_sha")"
+          git cat-file -e "$sha^{commit}"
+          git merge-base --is-ancestor "$sha" "origin/${{ steps.resolve.outputs.branch }}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "sha_short=${sha:0:12}" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish ${{ matrix.image.name }}
@@ -97,6 +97,8 @@ jobs:
             dockerfile: infra/docker/jupyter/Dockerfile
           - name: mlflow
             dockerfile: infra/docker/mlflow/Dockerfile
+          - name: rag-ops
+            dockerfile: infra/docker/airflow-worker/Dockerfile
           - name: reranker
             dockerfile: infra/docker/reranker/Dockerfile
           - name: ui

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from shared.config import (
-    RegistryConfig,
+    AdapterRegistryConfig,
+    CatalogConfig,
     Settings,
     get_settings,
 )
 
 __all__ = [
+    "AdapterRegistryConfig",
+    "CatalogConfig",
     "Settings",
-    "RegistryConfig",
     "get_settings",
 ]

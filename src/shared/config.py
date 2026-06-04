@@ -28,7 +28,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, PydanticBaseSettingsSource, SettingsConfigDict
 
-from shared import operator_registry
+from shared import catalog
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +188,23 @@ class GatewayConfig(BaseModel):
         return value
 
 
+class RagBuildSettings(BaseModel):
+    """RAG build-time batching settings."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    embedding_batch_size: int = Field(
+        default=32,
+        description="Batch size for embedding generation during RAG builds",
+        ge=1,
+    )
+    qdrant_upsert_batch_size: int = Field(
+        default=128,
+        description="Batch size for Qdrant upserts during RAG materialization",
+        ge=1,
+    )
+
+
 class RagSettings(BaseModel):
     """Gateway RAG behavior and embedding model settings."""
 
@@ -205,11 +222,7 @@ class RagSettings(BaseModel):
         default="cpu",
         description="Device for embedding model",
     )
-    embedding_batch_size: int = Field(
-        default=32,
-        description="Batch size for embedding generation",
-        ge=1,
-    )
+    build: RagBuildSettings = Field(default_factory=RagBuildSettings)
     kb_selection_threshold: float = Field(
         default=0.3,
         description="Cosine similarity threshold for automatic KB selection",
@@ -285,7 +298,31 @@ class AuthSettings(BaseModel):
     )
 
 
-class RegistryConfig(BaseModel):
+class CatalogConfig(BaseModel):
+    """Settings for the shared task/knowledge-base/source catalog."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    path: Path | None = Field(
+        default=None,
+        description=(
+            "Override path to the catalog TOML file; relative paths resolve from "
+            "the repository root, empty uses the bundled default"
+        ),
+    )
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _normalize_path(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            return Path(stripped)
+        return value
+
+
+class AdapterRegistryConfig(BaseModel):
     """Settings for MLflow model registry / adapter sync."""
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
@@ -293,13 +330,6 @@ class RegistryConfig(BaseModel):
     adapters_dir: Path = Field(
         default=Path("./adapters"),
         description="Local directory for downloaded LoRA adapters",
-    )
-    operator_registry_path: Path | None = Field(
-        default=None,
-        description=(
-            "Override path to the operator registry file; relative paths resolve "
-            "from the repository root, empty uses the bundled default"
-        ),
     )
     production_alias: str | None = Field(
         default=None,
@@ -313,16 +343,6 @@ class RegistryConfig(BaseModel):
         default=False,
         description="Automatically sync production adapters on startup",
     )
-
-    @field_validator("operator_registry_path", mode="before")
-    @classmethod
-    def _normalize_operator_registry_path(cls, value: object) -> object:
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                return None
-            return Path(stripped)
-        return value
 
     @field_validator("sync_aliases", mode="before")
     @classmethod
@@ -522,7 +542,8 @@ class Settings(BaseSettings):
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     rag: RagSettings = Field(default_factory=RagSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
-    registry: RegistryConfig = Field(default_factory=RegistryConfig)
+    catalog: CatalogConfig = Field(default_factory=CatalogConfig)
+    adapter_registry: AdapterRegistryConfig = Field(default_factory=AdapterRegistryConfig)
     eval: EvalConfig = Field(default_factory=EvalConfig)
     worker: WorkerConfig = Field(default_factory=WorkerConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
@@ -584,10 +605,10 @@ def get_settings() -> Settings:
 
 
 def clear_knowledge_base_caches() -> None:
-    """Reset KB registry and index so the next access re-reads from disk."""
+    """Reset KB catalog and index so the next access re-reads from disk."""
 
     get_settings.cache_clear()
-    operator_registry.clear_operator_registry_caches()
+    catalog.clear_catalog_caches()
 
 
 def clear_settings_caches() -> None:
@@ -601,7 +622,7 @@ def log_configuration_summary() -> None:
     """Load settings and log a safe startup summary."""
 
     settings = get_settings()
-    kb_registry = operator_registry.get_knowledge_bases(settings=settings.registry)
+    kb_catalog = catalog.get_catalog(settings=settings.catalog)
 
     logger.info("Configuration loaded successfully")
     logger.info("vLLM URL: %s", settings.platform.vllm_base_url)
@@ -617,10 +638,10 @@ def log_configuration_summary() -> None:
     logger.info("Embedding model: %s", settings.rag.embedding_model)
     logger.info("Embedding device: %s", settings.rag.embedding_device)
     logger.info(
-        "Knowledge-base registry path: %s",
-        operator_registry.resolve_knowledge_bases_path(settings.registry),
+        "Knowledge-base catalog path: %s",
+        catalog.resolve_catalog_path(settings.catalog),
     )
-    kb_names = [kb.name for task_cfg in kb_registry.values() for kb in task_cfg.knowledge_bases]
+    kb_names = [kb.name for task_cfg in kb_catalog.values() for kb in task_cfg.knowledge_bases]
     logger.info("Knowledge bases: %s", kb_names or "(none)")
     logger.info("Gateway URL (for UI): %s", settings.gateway.url)
     logger.info(

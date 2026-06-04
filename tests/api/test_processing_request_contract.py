@@ -9,8 +9,8 @@ import shared.config as cfg
 from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
 from gateway.services.processing import _ProcessChat
 from gateway.services.task_router import RouteDecision
+from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
 from shared.config import Settings
-from shared.operator_registry import AdapterConfig, KBConfig, TaskConfig, registry_override
 
 
 def _alias_config() -> dict[str, object]:
@@ -24,7 +24,7 @@ def _alias_config() -> dict[str, object]:
 
 
 @pytest.fixture(autouse=True)
-def _loaded_kb_registry() -> None:
+def _loaded_kb_catalog() -> None:
     cfg.clear_knowledge_base_caches()
 
     arxiv = KBConfig(
@@ -44,7 +44,7 @@ def _loaded_kb_registry() -> None:
         selection_description="PyTorch API reference and implementation guidance.",
     )
 
-    registry = {
+    catalog = {
         "chat": TaskConfig(
             task="chat",
             label="General knowledge",
@@ -67,7 +67,7 @@ def _loaded_kb_registry() -> None:
             knowledge_bases=[],
         ),
     }
-    with registry_override(registry):
+    with catalog_override(catalog):
         yield
 
     cfg.clear_knowledge_base_caches()

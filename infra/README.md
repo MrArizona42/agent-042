@@ -165,7 +165,7 @@ cp .env.example .env
 - `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` — опциональная auth-пара для локальных MLflow-клиентов и ноутбуков
 - `MLFLOW_*` — конфиг MLflow (backend store + artifact root)
 - `VLLM_*` — bootstrap/env переменные самого vLLM контейнера (модель, dtype, quantization, scheduler caps)
-- `PLATFORM__*`, `GATEWAY__*`, `RAG__*`, `AUTH__*`, `REGISTRY__*`, `EVAL__*`, `WORKER__*`, `UI__*` — nested runtime settings contract для Python-сервисов, когда конкретный ключ действительно operator-facing
+- `PLATFORM__*`, `GATEWAY__*`, `RAG__*`, `AUTH__*`, `CATALOG__*`, `ADAPTER_REGISTRY__*`, `EVAL__*`, `WORKER__*`, `UI__*` — nested runtime settings contract для Python-сервисов, когда конкретный ключ действительно operator-facing
 - `RABBITMQ_*` — логин/пароль и порты RabbitMQ (брокер для Celery)
 - `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
 - `FLOWER_*` — порт Flower (мониторинг Celery)
@@ -195,7 +195,7 @@ cp .env.example .env
 - если ключ читает `src/shared/config.py`, используйте только nested имя
 - если ключ нужен только Compose, host port mapping или отдельному контейнеру, flat имя допустимо
 - новые runtime settings не должны получать flat compatibility aliases
-- registry-specific helpers и schema не должны документироваться как часть `shared.config`; их владелец — `src/shared/operator_registry.py`
+- catalog-specific helpers и schema не должны документироваться как часть `shared.config`; их владелец — `src/shared/catalog/`
 
 Типичные operator-facing nested keys из текущего контракта:
 
@@ -203,8 +203,8 @@ cp .env.example .env
 - `GATEWAY__ASYNC_ENABLED`
 - `AUTH__INTERNAL_API_KEY`
 - `EVAL__DB_URL`
-- `REGISTRY__OPERATOR_REGISTRY_PATH`
-- `REGISTRY__SYNC_ALIASES`
+- `CATALOG__PATH`
+- `ADAPTER_REGISTRY__SYNC_ALIASES`
 - `WORKER__CONCURRENCY`
 
 ### Подготовка shared roots и прав доступа (Phase 2)

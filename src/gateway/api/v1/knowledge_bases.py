@@ -29,7 +29,7 @@ async def list_knowledge_bases() -> list[dict[str, Any]]:
 async def reload_config(request: Request) -> dict[str, str]:
     """Hot-reload knowledge-base config from disk.
 
-    Clears the KB registry / index caches and invalidates any cached
+    Clears the KB catalog / index caches and invalidates any cached
     retrievers and build configs so the next request re-reads everything.
 
     Requires an authenticated user session.  When auth is disabled the

@@ -17,16 +17,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from shared.config import Settings
-from shared.operator_registry import (
+from shared.catalog import (
+    catalog_override,
+    get_catalog,
     get_kb_config,
-    get_knowledge_bases,
-    load_knowledge_bases,
-    registry_override,
+    load_catalog,
 )
-from tests.operator_registry_samples import (
-    write_chat_and_code_operator_registry,
-    write_chat_only_operator_registry,
+from shared.config import Settings
+from tests.catalog_samples import (
+    write_chat_and_code_catalog,
+    write_chat_only_catalog,
 )
 
 # ---------------------------------------------------------------------------
@@ -36,35 +36,35 @@ from tests.operator_registry_samples import (
 # Ensure settings don't bleed between tests
 os.environ.setdefault("RAG__RAG_ENABLED", "false")
 
-_KB_REGISTRY_OVERRIDE_STACK: ExitStack | None = None
+_KB_CATALOG_OVERRIDE_STACK: ExitStack | None = None
 
 
 @pytest.fixture(autouse=True)
-def _reset_kb_registry():
-    """Reset the KB registry singleton between tests."""
+def _reset_kb_catalog():
+    """Reset the KB catalog singleton between tests."""
     import shared.config as cfg
 
-    global _KB_REGISTRY_OVERRIDE_STACK
+    global _KB_CATALOG_OVERRIDE_STACK
 
     cfg.clear_knowledge_base_caches()
     with ExitStack() as stack:
-        _KB_REGISTRY_OVERRIDE_STACK = stack
+        _KB_CATALOG_OVERRIDE_STACK = stack
         yield
-        _KB_REGISTRY_OVERRIDE_STACK = None
+        _KB_CATALOG_OVERRIDE_STACK = None
     cfg.clear_knowledge_base_caches()
 
 
 @pytest.fixture()
-def kb_json_file(tmp_path: Path):
-    """Create a temporary operator registry."""
-    return write_chat_and_code_operator_registry(tmp_path / "operator_registry.toml")
+def catalog_file(tmp_path: Path):
+    """Create a temporary catalog."""
+    return write_chat_and_code_catalog(tmp_path / "catalog.toml")
 
 
-def _override_loaded_kb_registry(path: Path) -> None:
-    registry, index = load_knowledge_bases(path)
-    if _KB_REGISTRY_OVERRIDE_STACK is None:
-        raise RuntimeError("KB registry override stack is not initialized")
-    _KB_REGISTRY_OVERRIDE_STACK.enter_context(registry_override(registry, index=index))
+def _override_loaded_kb_catalog(path: Path) -> None:
+    catalog, index = load_catalog(path)
+    if _KB_CATALOG_OVERRIDE_STACK is None:
+        raise RuntimeError("KB catalog override stack is not initialized")
+    _KB_CATALOG_OVERRIDE_STACK.enter_context(catalog_override(catalog, index=index))
 
 
 def _make_gateway_settings(
@@ -93,7 +93,7 @@ def _make_gateway_settings(
         "rag_enabled": True,
         "embedding_model": "test-model",
         "embedding_device": "cpu",
-        "embedding_batch_size": 32,
+        "build": {"embedding_batch_size": 32, "qdrant_upsert_batch_size": 128},
         "rag_strict_startup": False,
         "sparse_encoder_model": "Qdrant/bm25",
     }
@@ -127,46 +127,46 @@ def _make_gateway_settings(
 class TestKnowledgeBaseConfig:
     """Tests for the knowledge-base config loader."""
 
-    def test_load_from_json(self, kb_json_file: Path):
-        registry, index = load_knowledge_bases(kb_json_file)
-        assert "chat" in registry
-        assert "code" in registry
+    def test_load_from_json(self, catalog_file: Path):
+        catalog, index = load_catalog(catalog_file)
+        assert "chat" in catalog
+        assert "code" in catalog
         # Find KB configs within task groups
-        arxiv_cfg = registry["chat"].knowledge_bases[0]
-        pytorch_cfg = registry["code"].knowledge_bases[0]
-        assert arxiv_cfg.name == "arxiv"
-        assert pytorch_cfg.name == "pytorch_docs"
-        assert arxiv_cfg.update_strategy == "incremental"
+        ml_papers_cfg = catalog["chat"].knowledge_bases[0]
+        pytorch_cfg = catalog["code"].knowledge_bases[0]
+        assert ml_papers_cfg.name == "ml_papers_core"
+        assert pytorch_cfg.name == "pytorch_reference"
+        assert ml_papers_cfg.update_strategy == "replace"
         assert pytorch_cfg.update_strategy == "replace"
-        assert "champion" in arxiv_cfg.aliases
-        assert "challenger" in arxiv_cfg.aliases
-        assert pytorch_cfg.label == "PyTorch docs"
+        assert "champion" in ml_papers_cfg.aliases
+        assert "challenger" in ml_papers_cfg.aliases
+        assert pytorch_cfg.label == "PyTorch reference"
 
     def test_load_missing_file_returns_empty(self, tmp_path: Path):
-        registry, index = load_knowledge_bases(tmp_path / "nonexistent.toml")
-        assert registry == {}
+        catalog, index = load_catalog(tmp_path / "nonexistent.toml")
+        assert catalog == {}
         assert index == {}
         assert index == {}
 
-    def test_kb_index_lookup(self, kb_json_file: Path):
+    def test_kb_index_lookup(self, catalog_file: Path):
         """get_kb_config returns correct entries from the flat index."""
-        registry, index = load_knowledge_bases(kb_json_file)
+        catalog, index = load_catalog(catalog_file)
 
-        with registry_override(registry, index=index):
-            arxiv_cfg = get_kb_config("arxiv")
-            assert arxiv_cfg is not None
-            assert arxiv_cfg.label == "ArXiv papers"
-            assert "champion" in arxiv_cfg.aliases
+        with catalog_override(catalog, index=index):
+            ml_papers_cfg = get_kb_config("ml_papers_core")
+            assert ml_papers_cfg is not None
+            assert ml_papers_cfg.label == "Core ML papers"
+            assert "champion" in ml_papers_cfg.aliases
             assert get_kb_config("nonexistent") is None
 
-    def test_get_knowledge_bases_caching(self, kb_json_file: Path):
-        registry, index = load_knowledge_bases(kb_json_file)
+    def test_get_catalog_caching(self, catalog_file: Path):
+        catalog, index = load_catalog(catalog_file)
 
-        with registry_override(registry, index=index):
-            reg1 = get_knowledge_bases()
-            reg2 = get_knowledge_bases()  # should use cached
+        with catalog_override(catalog, index=index):
+            reg1 = get_catalog()
+            reg2 = get_catalog()  # should use cached
             assert reg1 is reg2
-            assert reg1 is registry
+            assert reg1 is catalog
 
 
 # ---------------------------------------------------------------------------
@@ -180,13 +180,13 @@ class TestRAGSourceSchema:
     def test_rag_source_defaults(self):
         from gateway.schemas.openai_chat import RAGSource
 
-        src = RAGSource(knowledge_base="arxiv")
+        src = RAGSource(knowledge_base="ml_papers_core")
         assert src.alias is None
 
     def test_rag_source_explicit_alias(self):
         from gateway.schemas.openai_chat import RAGSource
 
-        src = RAGSource(knowledge_base="arxiv", alias="challenger")
+        src = RAGSource(knowledge_base="ml_papers_core", alias="challenger")
         assert src.alias == "challenger"
 
     def test_chat_request_rag_sources_none(self):
@@ -203,8 +203,8 @@ class TestRAGSourceSchema:
         req = ChatCompletionRequest(
             messages=[{"role": "user", "content": "hello"}],
             rag_sources=[
-                {"knowledge_base": "arxiv"},
-                {"knowledge_base": "pytorch_docs", "alias": "challenger"},
+                {"knowledge_base": "ml_papers_core"},
+                {"knowledge_base": "pytorch_reference", "alias": "challenger"},
             ],
         )
         assert len(req.rag_sources) == 2
@@ -236,8 +236,8 @@ def _make_test_app():
 class TestChatCompletionsValidation:
     """Tests for 404 error handling on invalid KB/alias."""
 
-    def test_unknown_kb_returns_404(self, kb_json_file: Path):
-        _override_loaded_kb_registry(kb_json_file)
+    def test_unknown_kb_returns_404(self, catalog_file: Path):
+        _override_loaded_kb_catalog(catalog_file)
 
         app = _make_test_app()
         client = TestClient(app, raise_server_exceptions=False)
@@ -252,18 +252,18 @@ class TestChatCompletionsValidation:
         assert resp.status_code == 404
         assert "unavailable" in resp.json()["detail"].lower()
 
-    def test_invalid_alias_returns_404(self, kb_json_file: Path):
-        _override_loaded_kb_registry(kb_json_file)
+    def test_invalid_alias_returns_404(self, catalog_file: Path):
+        _override_loaded_kb_catalog(catalog_file)
 
         app = _make_test_app()
         client = TestClient(app, raise_server_exceptions=False)
 
-        # pytorch_docs only has "champion", not "challenger"
+        # This fixture leaves pytorch_reference without a challenger alias.
         resp = client.post(
             "/v1/chat/completions",
             json={
                 "messages": [{"role": "user", "content": "hi"}],
-                "rag_sources": [{"knowledge_base": "pytorch_docs", "alias": "challenger"}],
+                "rag_sources": [{"knowledge_base": "pytorch_reference", "alias": "challenger"}],
             },
         )
         assert resp.status_code == 404
@@ -273,8 +273,8 @@ class TestChatCompletionsValidation:
 class TestKnowledgeBasesEndpoint:
     """Tests for GET /v1/knowledge-bases."""
 
-    def test_list_knowledge_bases(self, kb_json_file: Path):
-        _override_loaded_kb_registry(kb_json_file)
+    def test_list_knowledge_bases(self, catalog_file: Path):
+        _override_loaded_kb_catalog(catalog_file)
 
         app = _make_test_app()
         client = TestClient(app)
@@ -292,13 +292,13 @@ class TestKnowledgeBasesEndpoint:
         assert chat_entry["label"] == "General knowledge"
         assert len(chat_entry["knowledge_bases"]) == 1
 
-        arxiv_entry = chat_entry["knowledge_bases"][0]
-        assert arxiv_entry["knowledge_base"] == "arxiv"
-        assert arxiv_entry["update_strategy"] == "incremental"
-        assert "champion" in arxiv_entry["aliases"]
+        ml_papers_entry = chat_entry["knowledge_bases"][0]
+        assert ml_papers_entry["knowledge_base"] == "ml_papers_core"
+        assert ml_papers_entry["update_strategy"] == "replace"
+        assert "champion" in ml_papers_entry["aliases"]
 
     def test_list_knowledge_bases_empty(self, tmp_path: Path):
-        _override_loaded_kb_registry(tmp_path / "nonexistent.toml")
+        _override_loaded_kb_catalog(tmp_path / "nonexistent.toml")
 
         app = _make_test_app()
         client = TestClient(app)
@@ -400,29 +400,32 @@ class TestRAGServiceResolution:
     def test_qdrant_alias_construction(self):
         from gateway.services.rag_service import RAGService
 
-        assert RAGService._qdrant_alias("arxiv", "champion") == "arxiv_champion"
-        assert RAGService._qdrant_alias("pytorch_docs", "challenger") == "pytorch_docs_challenger"
+        assert RAGService._qdrant_alias("ml_papers_core", "champion") == "ml_papers_core_champion"
+        assert (
+            RAGService._qdrant_alias("pytorch_reference", "challenger")
+            == "pytorch_reference_challenger"
+        )
 
-    def test_available_knowledge_bases(self, kb_json_file: Path):
-        _override_loaded_kb_registry(kb_json_file)
+    def test_available_knowledge_bases(self, catalog_file: Path):
+        _override_loaded_kb_catalog(catalog_file)
 
         from gateway.services.rag_service import RAGService
 
         result = RAGService.available_knowledge_bases()
-        assert "arxiv" in result
-        assert "pytorch_docs" in result
-        assert result["arxiv"]["task"] == "chat"
-        assert result["pytorch_docs"]["task_label"] == "Coding assistance"
-        assert result["arxiv"]["update_strategy"] == "incremental"
+        assert "ml_papers_core" in result
+        assert "pytorch_reference" in result
+        assert result["ml_papers_core"]["task"] == "chat"
+        assert result["pytorch_reference"]["task_label"] == "Coding assistance"
+        assert result["ml_papers_core"]["update_strategy"] == "replace"
 
-    def test_available_knowledge_bases_by_task(self, kb_json_file: Path):
-        _override_loaded_kb_registry(kb_json_file)
+    def test_available_knowledge_bases_by_task(self, catalog_file: Path):
+        _override_loaded_kb_catalog(catalog_file)
 
         from gateway.services.rag_service import RAGService
 
         result = RAGService.available_knowledge_bases_by_task()
         assert [entry["task"] for entry in result] == ["chat", "code"]
-        assert result[0]["knowledge_bases"][0]["knowledge_base"] == "arxiv"
+        assert result[0]["knowledge_bases"][0]["knowledge_base"] == "ml_papers_core"
 
 
 # ---------------------------------------------------------------------------
@@ -433,9 +436,9 @@ class TestRAGServiceResolution:
 class TestRetrieveDocumentsConfig:
     """RAGService.retrieve_documents passes alias/build config to Retriever."""
 
-    def test_passes_alias_and_build_config(self, kb_json_file: Path):
+    def test_passes_alias_and_build_config(self, catalog_file: Path):
         """retrieve_documents passes top_k, score_threshold, and strategy."""
-        _override_loaded_kb_registry(kb_json_file)
+        _override_loaded_kb_catalog(catalog_file)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService"),
@@ -456,25 +459,25 @@ class TestRetrieveDocumentsConfig:
                 chunk_overlap=64,
                 embedding_model="test-model",
                 sparse_encoder=None,
-                retrieval_capability="dense",
+                retrieval_capability="hybrid",
             )
 
             from gateway.services.rag_service import RAGService
 
             svc = RAGService(settings=mock_settings)
             # Pre-populate build config cache
-            svc._build_configs["arxiv_20260401"] = build_cfg
-            svc._resolved_collections["arxiv_champion"] = "arxiv_20260401"
+            svc._build_configs["ml_papers_core_20260401"] = build_cfg
+            svc._resolved_collections["ml_papers_core_champion"] = "ml_papers_core_20260401"
 
             # Mock the retriever to capture the call
             mock_retriever = MagicMock()
             mock_retriever.retrieve.return_value = []
-            svc._retrievers["arxiv_champion"] = mock_retriever
-            mock_vs.resolve_alias.return_value = "arxiv_20260401"
+            svc._retrievers["ml_papers_core_champion"] = mock_retriever
+            mock_vs.resolve_alias.return_value = "ml_papers_core_20260401"
 
             svc.retrieve_documents(
                 query="test query",
-                knowledge_base="arxiv",
+                knowledge_base="ml_papers_core",
                 alias="champion",
             )
 
@@ -485,9 +488,9 @@ class TestRetrieveDocumentsConfig:
                 strategy="dense",
             )
 
-    def test_lazily_reads_build_config_when_cache_empty(self, kb_json_file: Path):
+    def test_lazily_reads_build_config_when_cache_empty(self, catalog_file: Path):
         """Serving-path retrieval re-reads _meta after cache invalidation."""
-        _override_loaded_kb_registry(kb_json_file)
+        _override_loaded_kb_catalog(catalog_file)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
@@ -518,8 +521,8 @@ class TestRetrieveDocumentsConfig:
                 chunk_size=512,
                 chunk_overlap=64,
                 embedding_model="test-model",
-                sparse_encoder=None,
-                retrieval_capability="dense",
+                sparse_encoder="Qdrant/bm25",
+                retrieval_capability="hybrid",
             )
             mock_read_meta.return_value = MagicMock(build_config=build_cfg)
 
@@ -531,7 +534,7 @@ class TestRetrieveDocumentsConfig:
             svc = RAGService(settings=mock_settings)
             svc.retrieve_documents(
                 query="test query",
-                knowledge_base="arxiv",
+                knowledge_base="ml_papers_core",
                 alias="champion",
             )
 
@@ -543,9 +546,9 @@ class TestRetrieveDocumentsConfig:
                 strategy="dense",
             )
 
-    def test_reuses_build_config_cache_for_aliases_on_same_collection(self, kb_json_file: Path):
+    def test_reuses_build_config_cache_for_aliases_on_same_collection(self, catalog_file: Path):
         """Different aliases should reuse build metadata for the same physical target."""
-        _override_loaded_kb_registry(kb_json_file)
+        _override_loaded_kb_catalog(catalog_file)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
@@ -571,8 +574,8 @@ class TestRetrieveDocumentsConfig:
                 store = MagicMock()
                 store.collection_name = collection_name
                 store.collection_exists.return_value = True
-                if collection_name in {"arxiv_champion", "arxiv_challenger"}:
-                    store.resolve_alias.return_value = "arxiv_20260401"
+                if collection_name in {"ml_papers_core_champion", "ml_papers_core_challenger"}:
+                    store.resolve_alias.return_value = "ml_papers_core_20260401"
                 else:
                     store.resolve_alias.return_value = None
                     store.get_collection_info.return_value = {
@@ -592,8 +595,8 @@ class TestRetrieveDocumentsConfig:
                 chunk_size=512,
                 chunk_overlap=64,
                 embedding_model="test-model",
-                sparse_encoder=None,
-                retrieval_capability="dense",
+                sparse_encoder="Qdrant/bm25",
+                retrieval_capability="hybrid",
             )
             mock_read_meta.return_value = MagicMock(build_config=build_cfg)
 
@@ -606,17 +609,19 @@ class TestRetrieveDocumentsConfig:
             from gateway.services.rag_service import RAGService
 
             svc = RAGService(settings=mock_settings)
-            svc.retrieve_documents(query="q1", knowledge_base="arxiv", alias="champion")
-            svc.retrieve_documents(query="q2", knowledge_base="arxiv", alias="challenger")
+            svc.retrieve_documents(query="q1", knowledge_base="ml_papers_core", alias="champion")
+            svc.retrieve_documents(query="q2", knowledge_base="ml_papers_core", alias="challenger")
 
             mock_read_meta.assert_called_once()
-            assert svc._resolved_collections["arxiv_champion"] == "arxiv_20260401"
-            assert svc._resolved_collections["arxiv_challenger"] == "arxiv_20260401"
-            assert "arxiv_20260401" in svc._build_configs
+            assert svc._resolved_collections["ml_papers_core_champion"] == "ml_papers_core_20260401"
+            assert (
+                svc._resolved_collections["ml_papers_core_challenger"] == "ml_papers_core_20260401"
+            )
+            assert "ml_papers_core_20260401" in svc._build_configs
 
-    def test_alias_rebind_refreshes_retriever_and_build_config(self, kb_json_file: Path):
+    def test_alias_rebind_refreshes_retriever_and_build_config(self, catalog_file: Path):
         """The next request after an alias rebind must use the new target metadata."""
-        _override_loaded_kb_registry(kb_json_file)
+        _override_loaded_kb_catalog(catalog_file)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
@@ -631,7 +636,7 @@ class TestRetrieveDocumentsConfig:
             mock_embedding = mock_embedding_cls.return_value
             mock_embedding.dimension = 384
 
-            current_target = {"name": "arxiv_20260401"}
+            current_target = {"name": "ml_papers_core_20260401"}
             stores: dict[str, MagicMock] = {}
 
             def make_store(*, host, port, collection_name):
@@ -643,7 +648,7 @@ class TestRetrieveDocumentsConfig:
                 store = MagicMock()
                 store.collection_name = collection_name
                 store.collection_exists.return_value = True
-                if collection_name == "arxiv_champion":
+                if collection_name == "ml_papers_core_champion":
                     store.resolve_alias.side_effect = lambda alias_name: current_target["name"]
                 else:
                     store.resolve_alias.return_value = None
@@ -677,9 +682,9 @@ class TestRetrieveDocumentsConfig:
             )
 
             def read_meta_side_effect(vector_store, *, context):
-                if vector_store.collection_name == "arxiv_20260401":
+                if vector_store.collection_name == "ml_papers_core_20260401":
                     return MagicMock(build_config=old_build_cfg)
-                if vector_store.collection_name == "arxiv_20260402":
+                if vector_store.collection_name == "ml_papers_core_20260402":
                     return MagicMock(build_config=new_build_cfg)
                 raise AssertionError(f"Unexpected collection: {vector_store.collection_name}")
 
@@ -695,26 +700,28 @@ class TestRetrieveDocumentsConfig:
 
             svc = RAGService(settings=mock_settings)
 
-            svc.retrieve_documents(query="first", knowledge_base="arxiv", alias="champion")
+            svc.retrieve_documents(query="first", knowledge_base="ml_papers_core", alias="champion")
 
-            current_target["name"] = "arxiv_20260402"
+            current_target["name"] = "ml_papers_core_20260402"
 
-            svc.retrieve_documents(query="second", knowledge_base="arxiv", alias="champion")
+            svc.retrieve_documents(
+                query="second", knowledge_base="ml_papers_core", alias="champion"
+            )
 
             assert mock_retriever_cls.call_count == 2
-            assert svc._resolved_collections["arxiv_champion"] == "arxiv_20260402"
-            assert "arxiv_20260401" in svc._build_configs
-            assert "arxiv_20260402" in svc._build_configs
+            assert svc._resolved_collections["ml_papers_core_champion"] == "ml_papers_core_20260402"
+            assert "ml_papers_core_20260401" in svc._build_configs
+            assert "ml_papers_core_20260402" in svc._build_configs
             assert [call.kwargs["context"] for call in mock_read_meta.call_args_list] == [
-                "arxiv_20260401",
-                "arxiv_20260402",
+                "ml_papers_core_20260401",
+                "ml_papers_core_20260402",
             ]
             first_retriever.retrieve.assert_called_once()
             second_retriever.retrieve.assert_called_once()
 
-    def test_retriever_failure_raises_instead_of_returning_empty(self, kb_json_file: Path):
+    def test_retriever_failure_raises_instead_of_returning_empty(self, catalog_file: Path):
         """Pipeline failures must propagate so requests fail closed."""
-        _override_loaded_kb_registry(kb_json_file)
+        _override_loaded_kb_catalog(catalog_file)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService"),
@@ -740,18 +747,18 @@ class TestRetrieveDocumentsConfig:
             from gateway.services.rag_service import RAGService
 
             svc = RAGService(settings=mock_settings)
-            svc._build_configs["arxiv_20260401"] = build_cfg
-            svc._resolved_collections["arxiv_champion"] = "arxiv_20260401"
+            svc._build_configs["ml_papers_core_20260401"] = build_cfg
+            svc._resolved_collections["ml_papers_core_champion"] = "ml_papers_core_20260401"
 
             mock_retriever = MagicMock()
             mock_retriever.retrieve.side_effect = RuntimeError("reranker down")
-            svc._retrievers["arxiv_champion"] = mock_retriever
-            mock_vs.resolve_alias.return_value = "arxiv_20260401"
+            svc._retrievers["ml_papers_core_champion"] = mock_retriever
+            mock_vs.resolve_alias.return_value = "ml_papers_core_20260401"
 
             with pytest.raises(RuntimeError, match="Failed to retrieve RAG documents"):
                 svc.retrieve_documents(
                     query="test query",
-                    knowledge_base="arxiv",
+                    knowledge_base="ml_papers_core",
                     alias="champion",
                 )
 
@@ -759,8 +766,8 @@ class TestRetrieveDocumentsConfig:
 class TestRequestPathFailureMode:
     """Request handling distinguishes zero-hit retrieval from pipeline failure."""
 
-    def test_chat_request_returns_500_when_rag_pipeline_fails(self, kb_json_file: Path):
-        _override_loaded_kb_registry(kb_json_file)
+    def test_chat_request_returns_500_when_rag_pipeline_fails(self, catalog_file: Path):
+        _override_loaded_kb_catalog(catalog_file)
 
         from gateway.api.v1 import openai_compat
 
@@ -781,22 +788,22 @@ class TestRequestPathFailureMode:
                 json={
                     "messages": [{"role": "user", "content": "hi"}],
                     "stream": True,
-                    "rag_sources": [{"knowledge_base": "arxiv", "alias": "champion"}],
+                    "rag_sources": [{"knowledge_base": "ml_papers_core", "alias": "champion"}],
                 },
             )
 
         assert response.status_code == 500
         rag_service.retrieve_documents.assert_called_once_with(
             query="hi",
-            knowledge_base="arxiv",
+            knowledge_base="ml_papers_core",
             alias="champion",
         )
 
-    def test_retrieve_rag_chunks_keeps_zero_hit_results_non_error(self, kb_json_file: Path):
+    def test_retrieve_rag_chunks_keeps_zero_hit_results_non_error(self, catalog_file: Path):
         from gateway.schemas.openai_chat import ChatCompletionRequest
         from gateway.services.processing import _ProcessChat
 
-        _override_loaded_kb_registry(kb_json_file)
+        _override_loaded_kb_catalog(catalog_file)
 
         processor = _ProcessChat()
         rag_service = MagicMock()
@@ -805,7 +812,7 @@ class TestRequestPathFailureMode:
         request = ChatCompletionRequest(
             messages=[{"role": "user", "content": "hi"}],
             stream=True,
-            rag_sources=[{"knowledge_base": "arxiv", "alias": "champion"}],
+            rag_sources=[{"knowledge_base": "ml_papers_core", "alias": "champion"}],
         )
 
         with patch.object(processor, "ensure_rag_service", return_value=rag_service):
@@ -814,7 +821,7 @@ class TestRequestPathFailureMode:
         assert rag_chunks == {}
         rag_service.retrieve_documents.assert_called_once_with(
             query="hi",
-            knowledge_base="arxiv",
+            knowledge_base="ml_papers_core",
             alias="champion",
         )
 
@@ -827,16 +834,16 @@ class TestRequestPathFailureMode:
 class TestLegacyMetadataHandling:
     """Legacy collections missing sparse_encoder/retrieval_strategy are rejected."""
 
-    def _make_operator_registry(self, tmp_path: Path, *, retrieval_strategy: str = "dense") -> Path:
-        return write_chat_only_operator_registry(
+    def _make_catalog(self, tmp_path: Path, *, retrieval_strategy: str = "dense") -> Path:
+        return write_chat_only_catalog(
             tmp_path / "kb.toml",
             retrieval_strategy=retrieval_strategy,
         )
 
     def test_legacy_meta_non_strict_marks_unavailable(self, tmp_path: Path):
         """In non-strict mode, legacy _meta marks alias unavailable."""
-        kb_path = self._make_operator_registry(tmp_path)
-        _override_loaded_kb_registry(kb_path)
+        kb_path = self._make_catalog(tmp_path)
+        _override_loaded_kb_catalog(kb_path)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService"),
@@ -861,12 +868,12 @@ class TestLegacyMetadataHandling:
             svc = RAGService(settings=mock_settings)
             svc.validate_knowledge_bases()
 
-            assert "arxiv_champion" in svc._unavailable
+            assert "ml_papers_core_champion" in svc._unavailable
 
     def test_legacy_meta_strict_raises(self, tmp_path: Path):
         """With rag_strict_startup=True, legacy _meta raises RuntimeError."""
-        kb_path = self._make_operator_registry(tmp_path)
-        _override_loaded_kb_registry(kb_path)
+        kb_path = self._make_catalog(tmp_path)
+        _override_loaded_kb_catalog(kb_path)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService"),
@@ -905,8 +912,8 @@ class TestLegacyMetadataHandling:
 
     def test_dimension_mismatch_non_strict_marks_unavailable(self, tmp_path: Path):
         """In non-strict mode, embedding dimension mismatch marks alias unavailable."""
-        kb_path = self._make_operator_registry(tmp_path)
-        _override_loaded_kb_registry(kb_path)
+        kb_path = self._make_catalog(tmp_path)
+        _override_loaded_kb_catalog(kb_path)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
@@ -946,12 +953,12 @@ class TestLegacyMetadataHandling:
             svc = RAGService(settings=mock_settings)
             svc.validate_knowledge_bases()
 
-            assert "arxiv_champion" in svc._unavailable
+            assert "ml_papers_core_champion" in svc._unavailable
 
     def test_dimension_mismatch_strict_raises(self, tmp_path: Path):
         """With rag_strict_startup=True, dimension mismatch raises RuntimeError."""
-        kb_path = self._make_operator_registry(tmp_path)
-        _override_loaded_kb_registry(kb_path)
+        kb_path = self._make_catalog(tmp_path)
+        _override_loaded_kb_catalog(kb_path)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
@@ -995,8 +1002,8 @@ class TestLegacyMetadataHandling:
 
     def test_hybrid_query_dense_build_non_strict_marks_unavailable(self, tmp_path: Path):
         """Incompatible alias/build capability marks the alias unavailable."""
-        kb_path = self._make_operator_registry(tmp_path, retrieval_strategy="hybrid")
-        _override_loaded_kb_registry(kb_path)
+        kb_path = self._make_catalog(tmp_path, retrieval_strategy="hybrid")
+        _override_loaded_kb_catalog(kb_path)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
@@ -1036,12 +1043,12 @@ class TestLegacyMetadataHandling:
             svc = RAGService(settings=mock_settings)
             svc.validate_knowledge_bases()
 
-            assert "arxiv_champion" in svc._unavailable
+            assert "ml_papers_core_champion" in svc._unavailable
 
     def test_hybrid_query_dense_build_strict_raises(self, tmp_path: Path):
         """Strict startup raises on query/build capability mismatches."""
-        kb_path = self._make_operator_registry(tmp_path, retrieval_strategy="hybrid")
-        _override_loaded_kb_registry(kb_path)
+        kb_path = self._make_catalog(tmp_path, retrieval_strategy="hybrid")
+        _override_loaded_kb_catalog(kb_path)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
@@ -1085,8 +1092,8 @@ class TestLegacyMetadataHandling:
 
     def test_sparse_encoder_mismatch_rejects_lazy_retriever_creation(self, tmp_path: Path):
         """Serving path rejects aliases whose sparse encoder config no longer matches."""
-        kb_path = self._make_operator_registry(tmp_path, retrieval_strategy="hybrid")
-        _override_loaded_kb_registry(kb_path)
+        kb_path = self._make_catalog(tmp_path, retrieval_strategy="hybrid")
+        _override_loaded_kb_catalog(kb_path)
 
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
@@ -1128,11 +1135,11 @@ class TestLegacyMetadataHandling:
             with pytest.raises(RuntimeError, match="RAG retriever unavailable"):
                 svc.retrieve_documents(
                     query="test query",
-                    knowledge_base="arxiv",
+                    knowledge_base="ml_papers_core",
                     alias="champion",
                 )
 
-            assert "arxiv_champion" in svc._unavailable
+            assert "ml_papers_core_champion" in svc._unavailable
 
 
 # ---------------------------------------------------------------------------
@@ -1156,7 +1163,7 @@ class TestReloadConfigEndpoint:
         assert resp.status_code == 503
         assert "unavailable" in resp.json()["detail"].lower()
 
-    def test_reload_clears_caches(self, kb_json_file: Path):
+    def test_reload_clears_caches(self, catalog_file: Path):
         """Authenticated reload clears KB caches before reload hook executes."""
         clear_called = False
 

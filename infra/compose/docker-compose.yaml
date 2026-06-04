@@ -51,7 +51,7 @@ x-airflow-common-env: &airflow-common-env
   EVAL__JUDGE__TIMEOUT: ${EVAL__JUDGE__TIMEOUT:-60.0}
   EVAL__JUDGE__REQUEST_DELAY_SECONDS: ${EVAL__JUDGE__REQUEST_DELAY_SECONDS:-0.0}
   # MLflow client endpoint for training, eval, and registry access
-  REGISTRY__SYNC_ALIASES: ${REGISTRY__SYNC_ALIASES}
+  ADAPTER_REGISTRY__SYNC_ALIASES: ${ADAPTER_REGISTRY__SYNC_ALIASES}
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
@@ -69,6 +69,12 @@ x-airflow-worker-build: &airflow-worker-build
   dockerfile: infra/docker/airflow-worker/Dockerfile
 
 x-airflow-worker-image: &airflow-worker-image "ghcr.io/${GITHUB_REPOSITORY}-airflow-worker:${IMAGE_TAG}"
+
+x-rag-ops-build: &rag-ops-build
+  context: ${PROJECT_ROOT}
+  dockerfile: infra/docker/airflow-worker/Dockerfile
+
+x-rag-ops-image: &rag-ops-image "ghcr.io/${GITHUB_REPOSITORY}-rag-ops:${IMAGE_TAG}"
 
 x-airflow-worker-gpu-build: &airflow-worker-gpu-build
   context: ${PROJECT_ROOT}
@@ -206,8 +212,8 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
-      REGISTRY__ADAPTERS_DIR: /adapters
-      REGISTRY__SYNC_ALIASES: ${REGISTRY__SYNC_ALIASES}
+      ADAPTER_REGISTRY__ADAPTERS_DIR: /adapters
+      ADAPTER_REGISTRY__SYNC_ALIASES: ${ADAPTER_REGISTRY__SYNC_ALIASES}
 
     volumes:
       - ${ASSETS_ROOT}/adapters:/adapters:rw
@@ -1021,6 +1027,46 @@ services:
       - backend_net
     logging: *default-logging
     restart: unless-stopped
+
+  # =====================
+  # RAG Operations Runner
+  # One-shot shell/CLI entry point for manual RAG lifecycle operations.
+  # Uses the same dependency image and mounted project/data roots as the
+  # Airflow worker, but does not run a worker process by default.
+  #
+  # Example:
+  #   docker compose --profile ops --env-file .env -f infra/compose/docker-compose.yaml run --rm rag-ops \
+  #     python -m rag.sources.cli build-source --catalog src/shared/catalog.toml \
+  #     --kb pytorch_reference --source docs --rag-data-root assets/rag_data --limit 1
+  # =====================
+  rag-ops:
+    profiles: ["ops"]
+    image: *rag-ops-image
+    build: *rag-ops-build
+    working_dir: /opt/airflow/project
+    entrypoint: /bin/bash
+    command: ["-lc", "python -m rag.sources.cli --help"]
+    environment:
+      <<: *airflow-common-env
+      PYTHONPATH: /opt/airflow/project:/opt/airflow/project/src
+    volumes: *airflow-common-volumes
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      embeddings:
+        condition: service_healthy
+      reranker:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - mlflow_db_net
+      - backend_net
+      - sandbox_net
+    logging: *default-logging
+    restart: "no"
 
   # =====================
   # JupyterLab

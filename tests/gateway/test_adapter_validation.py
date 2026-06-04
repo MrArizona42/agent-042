@@ -4,8 +4,8 @@ import logging
 from unittest.mock import MagicMock, patch
 
 from gateway.services.rag_service import RAGService
+from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
 from shared.config import Settings
-from shared.operator_registry import AdapterConfig, KBConfig, TaskConfig, registry_override
 
 
 def _alias_config() -> dict[str, object]:
@@ -40,7 +40,7 @@ def _settings(
         "rag_enabled": True,
         "embedding_model": "test-embedding",
         "embedding_device": "cpu",
-        "embedding_batch_size": 32,
+        "build": {"embedding_batch_size": 32, "qdrant_upsert_batch_size": 128},
         "kb_selection_threshold": 0.3,
         "rag_strict_startup": False,
         "sparse_encoder_model": "Qdrant/bm25",
@@ -91,7 +91,7 @@ def _build_registry(*, summarize_adapter_enabled: bool) -> dict[str, TaskConfig]
 
 
 def test_validate_knowledge_bases_warns_for_missing_enabled_adapter(caplog) -> None:
-    with registry_override(_build_registry(summarize_adapter_enabled=True)):
+    with catalog_override(_build_registry(summarize_adapter_enabled=True)):
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
             patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
@@ -129,7 +129,7 @@ def test_validate_knowledge_bases_warns_for_missing_enabled_adapter(caplog) -> N
 
 
 def test_validate_knowledge_bases_accepts_present_enabled_adapter() -> None:
-    with registry_override(_build_registry(summarize_adapter_enabled=True)):
+    with catalog_override(_build_registry(summarize_adapter_enabled=True)):
         with (
             patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
             patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
@@ -167,7 +167,7 @@ def test_validate_knowledge_bases_accepts_present_enabled_adapter() -> None:
 
 
 def test_invalidate_caches_clears_available_vllm_model_snapshot() -> None:
-    with registry_override(_build_registry(summarize_adapter_enabled=False)):
+    with catalog_override(_build_registry(summarize_adapter_enabled=False)):
         with patch("gateway.services.rag_service.EmbeddingService"):
             service = RAGService(settings=_settings())
 
