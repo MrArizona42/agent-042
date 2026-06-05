@@ -77,9 +77,9 @@ from experiments.eval.eval_scripts.retrieval_bench import (
     read_build_config,
 )
 from rag.embeddings import EmbeddingService
-from rag.ops.meta import validate_query_compatibility
 from rag.reranker import get_reranker
 from rag.retriever import Retriever
+from rag.sources.materialize import validate_strategy_supported
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
 from shared.catalog import get_kb_config
@@ -1111,12 +1111,17 @@ def _fetch_retrieval_predictions(
     if build_config is None:
         raise RuntimeError(f"Cannot read build config for {kb_name}_{rag_alias}")
 
-    validate_query_compatibility(
-        query_strategy=alias_config.retrieval_strategy,
-        build_config=build_config,
-        runtime_sparse_encoder=settings.rag.sparse_encoder_model,
-        context=f"{kb_name}_{rag_alias}",
+    validate_strategy_supported(
+        retrieval_strategy=alias_config.retrieval_strategy,
+        retrieval_capability=build_config.retrieval_capability,
     )
+    if alias_config.retrieval_strategy == "hybrid" and (
+        build_config.sparse_encoder != settings.rag.sparse_encoder_model
+    ):
+        raise ValueError(
+            f"Runtime sparse encoder '{settings.rag.sparse_encoder_model}' does not match "
+            f"collection sparse encoder '{build_config.sparse_encoder}'"
+        )
 
     samples = _load_dataset_samples("retrieval", dataset_name)
     if not samples:

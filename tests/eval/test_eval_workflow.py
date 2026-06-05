@@ -1338,16 +1338,19 @@ class TestMigrationSQL:
 
 class TestRetrievalEvalParity:
     def test_build_temp_collection_preserves_hybrid_sparse_leg(self):
-        from experiments.eval.eval_scripts.retrieval_bench import build_temp_collection
-        from rag.ops.meta import BuildConfig
+        from experiments.eval.eval_scripts.retrieval_bench import (
+            EvalBuildConfig,
+            build_temp_collection,
+        )
+        from rag.domain import RetrievalCapability
 
-        build_config = BuildConfig(
+        build_config = EvalBuildConfig(
             chunking_strategy="recursive",
             chunk_size=128,
             chunk_overlap=16,
             embedding_model="sentence-transformers/all-MiniLM-L6-v2",
             sparse_encoder="Qdrant/bm25",
-            retrieval_capability="hybrid",
+            retrieval_capability=RetrievalCapability.HYBRID,
         )
         mock_chunker = MagicMock()
         mock_chunker.chunk.return_value = ["chunk-1"]
@@ -1386,16 +1389,17 @@ class TestRetrievalEvalParity:
         mock_sparse.close.assert_called_once()
 
     def test_fetch_retrieval_predictions_uses_alias_configured_retriever(self):
+        from experiments.eval.eval_scripts.retrieval_bench import EvalBuildConfig
         from experiments.eval.eval_scripts.runner import _fetch_retrieval_predictions
-        from rag.ops.meta import BuildConfig
+        from rag.domain import RetrievalCapability
 
-        build_config = BuildConfig(
+        build_config = EvalBuildConfig(
             chunking_strategy="recursive",
             chunk_size=128,
             chunk_overlap=16,
             embedding_model="sentence-transformers/all-MiniLM-L6-v2",
             sparse_encoder="Qdrant/bm25",
-            retrieval_capability="hybrid",
+            retrieval_capability=RetrievalCapability.HYBRID,
         )
         alias_config = types.SimpleNamespace(
             top_k=5,

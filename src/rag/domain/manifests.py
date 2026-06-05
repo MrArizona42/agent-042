@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -12,9 +11,7 @@ from rag.domain.models import (
     CollectionAttestation,
     IndexManifest,
     ManifestComparison,
-    RetrievalCapability,
 )
-from rag.ops.meta import BuildConfig, CollectionMeta
 
 
 def canonical_manifest_payload(manifest: IndexManifest) -> dict[str, Any]:
@@ -110,57 +107,3 @@ def attestation_from_payload(payload: dict[str, Any]) -> CollectionAttestation:
     payload.pop("metadata_kind", None)
     payload.pop("type", None)
     return CollectionAttestation.model_validate(payload)
-
-
-def attestation_from_legacy_collection_meta(
-    meta: CollectionMeta,
-    *,
-    manifest_id: str,
-    collection_name: str,
-    chunk_count: int = 0,
-) -> CollectionAttestation:
-    """Build a compact attestation from the current Qdrant metadata model."""
-    return CollectionAttestation(
-        manifest_id=manifest_id,
-        kb_id=meta.kb_name,
-        collection_name=collection_name,
-        embedding_model=meta.build_config.embedding_model,
-        sparse_encoder=meta.build_config.sparse_encoder,
-        retrieval_capability=RetrievalCapability(meta.build_config.retrieval_capability),
-        chunk_count=chunk_count,
-        created_at=datetime.fromisoformat(meta.created_at),
-    )
-
-
-def manifest_from_legacy_collection_meta(
-    meta: CollectionMeta,
-    *,
-    collection_name: str,
-    source_snapshot_id: str,
-    source_manifest_ref: str | None = None,
-    document_count: int = 0,
-    chunk_count: int = 0,
-    alias: str | None = None,
-) -> IndexManifest:
-    """Build an artifact manifest from the current collection metadata model."""
-    build_config: BuildConfig = meta.build_config
-    manifest = IndexManifest(
-        kb_id=meta.kb_name,
-        collection_name=collection_name,
-        alias=alias,
-        source_snapshot_id=source_snapshot_id,
-        source_manifest_ref=source_manifest_ref,
-        document_count=document_count,
-        chunk_count=chunk_count,
-        embedding_model=build_config.embedding_model,
-        sparse_encoder=build_config.sparse_encoder,
-        retrieval_capability=RetrievalCapability(build_config.retrieval_capability),
-        chunking_config={
-            "strategy": build_config.chunking_strategy,
-            "chunk_size": build_config.chunk_size,
-            "chunk_overlap": build_config.chunk_overlap,
-        },
-        extraction_config={},
-        created_at=datetime.fromisoformat(meta.created_at),
-    )
-    return with_manifest_id(manifest)

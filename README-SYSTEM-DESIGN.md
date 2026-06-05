@@ -277,26 +277,26 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 
 ### 5.3 Alias-based управление коллекциями (паттерн champion / challenger)
 
-Ключевой механизм для управления качеством RAG — система aliases поверх коллекций Qdrant. Одновременно могут существовать несколько версий коллекции (например, `arxiv-v1`, `arxiv-v2`). Alias `champion` указывает на текущую production-версию; alias `challenger` — на кандидата, проходящего валидацию.
+Ключевой механизм для управления качеством RAG — система aliases поверх коллекций Qdrant. Одновременно могут существовать несколько физических коллекций для одного KB. Физическая коллекция не содержит имени alias, например `rag__pytorch_reference__20260605_120000`. Qdrant alias `rag__pytorch_reference__champion` указывает на текущую production-версию, а `rag__pytorch_reference__challenger` — на кандидатную настройку или A/B вариант.
 
 ```
 Qdrant Collections:
-  arxiv-20250101  ◄── alias "champion"
-  arxiv-20250201  ◄── alias "challenger"
+  rag__pytorch_reference__20260605_120000  ◄── alias "rag__pytorch_reference__champion"
+  rag__pytorch_reference__20260605_153000  ◄── alias "rag__pytorch_reference__challenger"
 
 После валидации challenger:
-  arxiv-20250101
-  arxiv-20250201  ◄── alias "champion"  (переключение мгновенное)
+  rag__pytorch_reference__20260605_120000
+  rag__pytorch_reference__20260605_153000  ◄── alias "rag__pytorch_reference__champion"
 ```
 
-Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В catalog каждый KB alias ссылается на профиль retrieval-параметров (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Gateway читает эффективные параметры по активному alias в runtime.
+Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В catalog каждый KB alias задаёт профиль retrieval-параметров (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Runtime валидирует alias config against Qdrant attestation перед retrieval.
 
 **Lifecycle коллекции:**
 
-1. **Создание** (`src/rag/ops/create/`) — парсинг источника, chunking, индексация в Qdrant, привязка alias.
-2. **Incremental update** (`src/rag/ops/update/`) — добавление новых документов без затрагивания существующих (для arxiv).
-3. **Replace update** — полная пересборка коллекции (для pytorch_docs при новой версии документации).
-4. **Alias promotion** (`src/rag/ops/aliases.py`) — переключение `champion` → новая версия.
+1. **Source build** (`python -m rag.sources.cli build-source`) — fetch/extract/chunk для configured KB/source.
+2. **Materialize** (`python -m rag.sources.cli materialize --alias-config ...`) — индексация bundle в новую Qdrant collection и запись manifest + attestation.
+3. **Inspection** — direct Qdrant notebook или CLI summary проверяют aliases, collection metadata, sample points.
+4. **Alias promotion** (`python -m rag.sources.cli promote-alias`) — переключение `rag__<kb>__<alias>` на attested collection.
 5. **Cleanup** (`dags/rag_collection_cleanup.py`) — удаление устаревших коллекций без активных aliases.
 
 ### 5.4 Валидация конфигурации при старте
@@ -506,9 +506,11 @@ Python-конфигурация реализована через `pydantic-sett
 - Возвращает путь к `training_summary.json` через XCom.
 - Не выполняет регистрацию и продвижение — это ручной шаг в `lora_ops.ipynb`.
 
-**`arxiv_rag_update.py`** / **`pytorch_docs_rag_update.py`** — инкрементальное/полное обновление RAG-коллекций.
-- Используют production entrypoints из `src/rag/ops/update/`.
-- Единственные разрешённые пути обновления production-коллекций.
+**`rag_lifecycle.py`** — generic RAG lifecycle DAG.
+- Запускает те же CLI entrypoints, что и `rag-ops`: `build-source`, `materialize`,
+  optional `promote-alias`.
+- Параметризуется через `kb`, `source`, `alias_config`, optional `promote_alias`.
+- Airflow остаётся orchestration layer; RAG lifecycle logic живёт в `src/rag/sources/`.
 
 **`eval_dags.py`** — оценка качества (подробнее в разделе 9).
 
@@ -520,14 +522,16 @@ JupyterLab — точка входа для ручных операций опе
 
 | Ноутбук | Назначение |
 |---|---|
-| `experiments/rag/rag_ops.ipynb` | RAG операции: create, refresh, alias management, диагностика |
+| `experiments/rag/rag_ops.ipynb` | Direct Qdrant diagnostics: aliases, collections, attestations, samples, cleanup checks |
 | `experiments/training/lora_ops.ipynb` | LoRA операции: регистрация, промоушен, синхронизация |
 | `experiments/training/lora_training.ipynb` | Интерактивный запуск обучения |
 | `experiments/eval/eval_results.ipynb` | Анализ результатов оценки |
 | `experiments/misc_ops/prefetch_assets.ipynb` | Загрузка моделей и датасетов |
 | `experiments/misc_ops/postgres_diagnostics.ipynb` | Диагностика БД |
 
-Принцип **notebook façade**: `experiments/rag/rag_ops.ipynb` импортирует только `experiments.rag.notebook_ops`, который является тонкой обёрткой над `src/rag/ops/`. Это гарантирует, что Airflow DAG-и и ноутбуки используют один и тот же production runtime.
+RAG production lifecycle запускается через `python -m rag.sources.cli` в `rag-ops` контейнере или
+через Airflow `rag_lifecycle`. RAG notebook intentionally остается direct-Qdrant observability
+surface и не является entrypoint для build/materialize.
 
 ### 8.3 Версионирование данных (DVC)
 

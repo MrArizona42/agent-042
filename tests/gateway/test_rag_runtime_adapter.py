@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from gateway.services.rag_service import RAGService
 from rag.domain import RetrievalHit
 from rag.runtime import RagRuntimeResult
-from gateway.services.rag_service import RAGService
 from shared.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
 from shared.config import Settings
 
@@ -93,7 +93,10 @@ def _catalog() -> dict[str, TaskConfig]:
 
 def test_retrieve_documents_delegates_explicit_alias_to_runtime(monkeypatch) -> None:
     with catalog_override(_catalog()):
-        monkeypatch.setattr("gateway.services.rag_service.EmbeddingService", lambda **_: _Embedding())
+        monkeypatch.setattr(
+            "gateway.services.rag_service.EmbeddingService",
+            lambda **_: _Embedding(),
+        )
         service = RAGService(settings=_settings())
         runtime = _Runtime()
         service.runtime = runtime
@@ -113,7 +116,10 @@ def test_retrieve_documents_delegates_explicit_alias_to_runtime(monkeypatch) -> 
 
 def test_retrieve_documents_uses_default_alias_when_alias_is_omitted(monkeypatch) -> None:
     with catalog_override(_catalog()):
-        monkeypatch.setattr("gateway.services.rag_service.EmbeddingService", lambda **_: _Embedding())
+        monkeypatch.setattr(
+            "gateway.services.rag_service.EmbeddingService",
+            lambda **_: _Embedding(),
+        )
         service = RAGService(settings=_settings())
         runtime = _Runtime()
         service.runtime = runtime
