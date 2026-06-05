@@ -10,7 +10,9 @@ x-shared-endpoints: &shared-endpoints
   PLATFORM__REDIS_URL: ${PLATFORM__REDIS_URL:-redis://redis:6379/0}
   PLATFORM__EMBEDDINGS_URL: ${PLATFORM__EMBEDDINGS_URL:-http://embeddings:8100}
   RAG__RERANKER_URL: ${RAG__RERANKER_URL:-http://reranker:8101}
-  GATEWAY__URL: ${GATEWAY__URL:-http://gateway:9000}
+  # Container-to-container Gateway URL.  Host-side .env may set GATEWAY__URL
+  # to localhost for operator scripts, but Docker services must use Compose DNS.
+  GATEWAY__URL: http://gateway:9000
   PLATFORM__MLFLOW_TRACKING_URI: ${PLATFORM__MLFLOW_TRACKING_URI:-http://mlflow:5000}
   PLATFORM__QDRANT_HOST: ${PLATFORM__QDRANT_HOST:-qdrant}
   PLATFORM__QDRANT_PORT: ${PLATFORM__QDRANT_PORT:-6333}
@@ -657,7 +659,7 @@ services:
       dockerfile: infra/docker/ui/Dockerfile
 
     environment:
-      GATEWAY__URL: ${GATEWAY__URL:-http://gateway:9000}
+      GATEWAY__URL: http://gateway:9000
 
     ports:
       - "127.0.0.1:${UI_PORT}:8501"
