@@ -25,7 +25,7 @@ Examples:
     --catalog src/shared/catalog.toml \
     --kb pytorch_reference \
     --source docs \
-    --alias challenger \
+    --alias-config challenger \
     --rag-data-root assets/rag_data \
     --limit 1
 

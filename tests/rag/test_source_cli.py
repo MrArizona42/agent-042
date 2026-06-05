@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from textwrap import dedent
 
+import pytest
+
 from rag.sources import cli
 
 
@@ -180,10 +182,10 @@ def test_cli_materialize_derives_hybrid_capability_from_catalog(
             "pytorch_reference",
             "--source",
             "docs",
-            "--alias",
+            "--alias-config",
             "challenger",
             "--collection",
-            "rag__pytorch_reference__challenger__test",
+            "rag__pytorch_reference__test",
             "--rag-data-root",
             "assets/rag_data",
         ],
@@ -193,36 +195,48 @@ def test_cli_materialize_derives_hybrid_capability_from_catalog(
 
     assert exit_code == 0
     assert json.loads(capsys.readouterr().out) == {
-        "collection": "rag__pytorch_reference__challenger__test"
+        "collection": "rag__pytorch_reference__test"
     }
     assert calls[0]["retrieval_capability"] == "hybrid"
+    assert calls[0]["target_alias"] is None
     assert calls[0]["sparse_encoder_model"] == "Qdrant/bm25"
     assert isinstance(calls[0]["sparse_encoder_client"], _Sparse)
     assert calls[0]["qdrant_upsert_batch_size"] == 128
 
 
-def test_cli_promote_alias_wires_collection(capsys, monkeypatch) -> None:
+def test_cli_promote_alias_wires_collection(tmp_path: Path, capsys, monkeypatch) -> None:
+    catalog_path = _write_catalog(tmp_path / "catalog.toml")
+
+    class _Store:
+        def __init__(self, collection_name: str):
+            self.collection_name = collection_name
+
+        def read_meta(self) -> dict:
+            return {"retrieval_capability": "hybrid"}
+
     monkeypatch.setattr(
         cli,
         "_vector_store",
-        lambda collection_name: {"collection": collection_name},
+        lambda collection_name: _Store(collection_name),
     )
 
     def fake_promote(**kwargs):
         assert kwargs["kb_id"] == "pytorch_reference"
         assert kwargs["alias"] == "challenger"
-        assert kwargs["collection_name"] == "rag__pytorch_reference__challenger__test"
+        assert kwargs["collection_name"] == "rag__pytorch_reference__test"
         return _Model({"alias_name": "rag__pytorch_reference__challenger"})
 
     exit_code = cli.main(
         [
             "promote-alias",
+            "--catalog",
+            catalog_path.as_posix(),
             "--kb",
             "pytorch_reference",
             "--alias",
             "challenger",
             "--collection",
-            "rag__pytorch_reference__challenger__test",
+            "rag__pytorch_reference__test",
         ],
         promote_materialized_alias_fn=fake_promote,
     )
@@ -231,3 +245,32 @@ def test_cli_promote_alias_wires_collection(capsys, monkeypatch) -> None:
     assert json.loads(capsys.readouterr().out) == {
         "alias_name": "rag__pytorch_reference__challenger"
     }
+
+
+def test_cli_promote_alias_rejects_incompatible_collection(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog_path = _write_catalog(tmp_path / "catalog.toml")
+
+    class _Store:
+        def read_meta(self) -> dict:
+            return {"retrieval_capability": "dense"}
+
+    monkeypatch.setattr(cli, "_vector_store", lambda collection_name: _Store())
+
+    with pytest.raises(ValueError, match="retrieval_strategy 'hybrid' is not supported"):
+        cli.main(
+            [
+                "promote-alias",
+                "--catalog",
+                catalog_path.as_posix(),
+                "--kb",
+                "pytorch_reference",
+                "--alias",
+                "challenger",
+                "--collection",
+                "rag__pytorch_reference__test",
+            ],
+            promote_materialized_alias_fn=lambda **kwargs: _Model(kwargs),
+        )

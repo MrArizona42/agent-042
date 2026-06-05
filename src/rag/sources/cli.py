@@ -17,6 +17,7 @@ from rag.sources.materialize import (
     materialize_kb_collection,
     promote_materialized_alias,
     retrieval_capability_for_strategy,
+    validate_strategy_supported,
 )
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
@@ -65,11 +66,12 @@ def _parser() -> argparse.ArgumentParser:
 
     materialize = subparsers.add_parser("materialize")
     add_common_source_args(materialize)
-    materialize.add_argument("--alias", required=True)
+    materialize.add_argument("--alias-config", required=True)
     materialize.add_argument("--collection")
     materialize.add_argument("--force-recreate", action="store_true")
 
     promote = subparsers.add_parser("promote-alias")
+    promote.add_argument("--catalog", default="src/shared/catalog.toml")
     promote.add_argument("--kb", required=True)
     promote.add_argument("--alias", required=True)
     promote.add_argument("--collection", required=True)
@@ -93,7 +95,7 @@ def _alias_strategy(*, catalog_path: Path | str, kb_id: str, alias: str) -> str:
         raise ValueError(f"Unknown KB '{kb_id}'")
     alias_cfg = kb.aliases.get(alias)
     if alias_cfg is None:
-        raise ValueError(f"Unknown alias '{alias}' for KB '{kb_id}'")
+        raise ValueError(f"Unknown alias config '{alias}' for KB '{kb_id}'")
     return alias_cfg.retrieval_strategy
 
 
@@ -146,11 +148,14 @@ def main(
 
     if args.command == "materialize":
         settings = get_settings()
-        strategy = _alias_strategy(catalog_path=args.catalog, kb_id=args.kb, alias=args.alias)
+        strategy = _alias_strategy(
+            catalog_path=args.catalog,
+            kb_id=args.kb,
+            alias=args.alias_config,
+        )
         capability = retrieval_capability_for_strategy(strategy)  # type: ignore[arg-type]
         collection_name = args.collection or collection_name_for_build(
             kb_id=args.kb,
-            alias=args.alias,
         )
         bundle = collect_source_chunks_fn(
             rag_data_root=args.rag_data_root,
@@ -168,7 +173,7 @@ def main(
             embedding_model=settings.rag.embedding_model,
             retrieval_capability=capability,
             rag_data_root=args.rag_data_root,
-            target_alias=args.alias,
+            target_alias=None,
             sparse_encoder_model=(
                 settings.rag.sparse_encoder_model if capability == "hybrid" else None
             ),
@@ -181,11 +186,20 @@ def main(
         return 0
 
     if args.command == "promote-alias":
+        strategy = _alias_strategy(catalog_path=args.catalog, kb_id=args.kb, alias=args.alias)
+        vector_store = _vector_store(collection_name=args.collection)
+        payload = vector_store.read_meta()
+        if payload is None:
+            raise RuntimeError(f"Collection '{args.collection}' has no attestation metadata")
+        validate_strategy_supported(
+            retrieval_strategy=strategy,  # type: ignore[arg-type]
+            retrieval_capability=payload.get("retrieval_capability"),  # type: ignore[arg-type]
+        )
         result = promote_materialized_alias_fn(
             kb_id=args.kb,
             alias=args.alias,
             collection_name=args.collection,
-            vector_store=_vector_store(collection_name=args.collection),
+            vector_store=vector_store,
         )
         _print_model(result)
         return 0
