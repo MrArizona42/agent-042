@@ -194,9 +194,7 @@ def test_cli_materialize_derives_hybrid_capability_from_catalog(
     )
 
     assert exit_code == 0
-    assert json.loads(capsys.readouterr().out) == {
-        "collection": "rag__pytorch_reference__test"
-    }
+    assert json.loads(capsys.readouterr().out) == {"collection": "rag__pytorch_reference__test"}
     assert calls[0]["retrieval_capability"] == "hybrid"
     assert calls[0]["target_alias"] is None
     assert calls[0]["sparse_encoder_model"] == "Qdrant/bm25"
