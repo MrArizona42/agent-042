@@ -7,21 +7,21 @@ Usage:
   bash scripts/rag_ops.sh python -m rag.sources.cli <args...>
 
 Examples:
-  bash scripts/rag_ops.sh python -m rag.sources.cli build-source \
+  bash current/scripts/rag_ops.sh python -m rag.sources.cli build-source \
     --catalog src/shared/catalog.toml \
     --kb pytorch_reference \
     --source docs \
     --rag-data-root assets/rag_data \
     --limit 1
 
-  bash scripts/rag_ops.sh python -m rag.sources.cli collect-bundle \
+  bash current/scripts/rag_ops.sh python -m rag.sources.cli collect-bundle \
     --catalog src/shared/catalog.toml \
     --kb pytorch_reference \
     --source docs \
     --rag-data-root assets/rag_data \
     --limit 1
 
-  bash scripts/rag_ops.sh python -m rag.sources.cli materialize \
+  bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize \
     --catalog src/shared/catalog.toml \
     --kb pytorch_reference \
     --source docs \
@@ -29,7 +29,7 @@ Examples:
     --rag-data-root assets/rag_data \
     --limit 1
 
-  bash scripts/rag_ops.sh python -m rag.sources.cli promote-alias \
+  bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias \
     --kb pytorch_reference \
     --alias challenger \
     --collection <collection_name>
@@ -41,8 +41,21 @@ EOF
   exit 1
 }
 
-env_file=.env
-compose_file=infra/compose/docker-compose.yaml
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+project_root="$(cd "$script_dir/.." && pwd)"
+compose_file="$project_root/infra/compose/docker-compose.yaml"
+
+if [[ -n "${RAG_OPS_ENV_FILE:-}" ]]; then
+  env_file="$RAG_OPS_ENV_FILE"
+elif [[ -f "$PWD/.env" ]]; then
+  env_file="$PWD/.env"
+elif [[ -f "$project_root/.env" ]]; then
+  env_file="$project_root/.env"
+elif [[ -f "$project_root/../.env" ]]; then
+  env_file="$project_root/../.env"
+else
+  env_file="$PWD/.env"
+fi
 
 [[ -f "$env_file" ]] || {
   echo "error: env file not found: $env_file" >&2
