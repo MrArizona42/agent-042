@@ -31,7 +31,7 @@ class _SparseClient:
 
 
 class _VectorStore:
-    def __init__(self, collection_name: str = "rag__pytorch_reference__challenger__test"):
+    def __init__(self, collection_name: str = "rag__pytorch_reference__test"):
         self.collection_name = collection_name
         self.created: dict[str, object] | None = None
         self.added: list[dict[str, object]] = []
@@ -231,7 +231,8 @@ def test_promote_materialized_alias_validates_attestation(tmp_path: Path) -> Non
 def test_collection_name_for_build_is_timestamped() -> None:
     name = collection_name_for_build(
         kb_id="pytorch_reference",
-        alias="challenger",
     )
 
-    assert name.startswith("rag__pytorch_reference__challenger__")
+    assert name.startswith("rag__pytorch_reference__")
+    assert "__challenger__" not in name
+    assert "__champion__" not in name
