@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+from gateway.auth.router import _session_cookie_secure
 from gateway.auth.router import router as auth_router
+from shared.config import get_settings
 
 
 def _make_app(session_mgr=None, oidc_client=None):
@@ -52,3 +54,49 @@ class TestCallbackCSRF:
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/auth/callback?state=some-state")
         assert resp.status_code == 422
+
+
+class TestSessionCookiePolicy:
+    """Session cookie security should match the configured callback scheme."""
+
+    def test_http_redirect_uri_allows_local_cookie(self, monkeypatch):
+        monkeypatch.setenv(
+            "AUTH__GOOGLE_REDIRECT_URI",
+            "http://localhost:9000/auth/callback",
+        )
+        get_settings.cache_clear()
+
+        app = FastAPI()
+
+        @app.get("/cookie-secure")
+        def cookie_secure(request: Request):
+            return {"secure": _session_cookie_secure(request)}
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/cookie-secure")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"secure": False}
+
+        get_settings.cache_clear()
+
+    def test_https_redirect_uri_sets_secure_cookie(self, monkeypatch):
+        monkeypatch.setenv(
+            "AUTH__GOOGLE_REDIRECT_URI",
+            "https://agent.example/auth/callback",
+        )
+        get_settings.cache_clear()
+
+        app = FastAPI()
+
+        @app.get("/cookie-secure")
+        def cookie_secure(request: Request):
+            return {"secure": _session_cookie_secure(request)}
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/cookie-secure")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"secure": True}
+
+        get_settings.cache_clear()

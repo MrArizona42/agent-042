@@ -4,17 +4,33 @@ from __future__ import annotations
 
 import logging
 import uuid
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 
+from shared.config import get_settings
 from shared.db.engine import get_session_factory
 from shared.db.models import User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _session_cookie_secure(request: Request) -> bool:
+    """Return whether the session cookie should require HTTPS."""
+    redirect_uri = get_settings().auth.google_redirect_uri
+    if redirect_uri:
+        scheme = urlparse(redirect_uri).scheme.lower()
+        if scheme in {"http", "https"}:
+            return scheme == "https"
+
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto:
+        return forwarded_proto.split(",", 1)[0].strip().lower() == "https"
+    return request.url.scheme == "https"
 
 
 @router.get("/login")
@@ -99,7 +115,7 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
         key="session_id",
         value=session_id,
         httponly=True,
-        secure=True,
+        secure=_session_cookie_secure(request),
         samesite="lax",
         max_age=request.app.state.session_manager._ttl,
         path="/",
