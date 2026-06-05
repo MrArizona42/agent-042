@@ -142,6 +142,7 @@ class TestAddDocuments:
         info = sparse_store.client.get_collection("test_sparse")
         assert info.points_count == 1
 
+
 class TestSearch:
     def test_dense_search_on_named_vector_collection(self, dense_store):
         dense_store.create_collection(dimension=4, retrieval_capability="dense")
