@@ -1,0 +1,201 @@
+from __future__ import annotations
+
+import importlib
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+
+def _install_airflow_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
+    airflow_module = types.ModuleType("airflow")
+    models_module = types.ModuleType("airflow.models")
+    param_module = types.ModuleType("airflow.models.param")
+    operators_module = types.ModuleType("airflow.operators")
+    python_module = types.ModuleType("airflow.operators.python")
+
+    class DummyDAG:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class DummyParam:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+    class DummyPythonOperator:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def __rshift__(self, other):
+            return other
+
+    setattr(airflow_module, "DAG", DummyDAG)
+    setattr(param_module, "Param", DummyParam)
+    setattr(python_module, "PythonOperator", DummyPythonOperator)
+
+    monkeypatch.setitem(sys.modules, "airflow", airflow_module)
+    monkeypatch.setitem(sys.modules, "airflow.models", models_module)
+    monkeypatch.setitem(sys.modules, "airflow.models.param", param_module)
+    monkeypatch.setitem(sys.modules, "airflow.operators", operators_module)
+    monkeypatch.setitem(sys.modules, "airflow.operators.python", python_module)
+
+
+def _load_dag(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("PROJECT_ROOT", Path.cwd().as_posix())
+    _install_airflow_stubs(monkeypatch)
+    sys.modules.pop("dags.rag_lifecycle", None)
+    return importlib.import_module("dags.rag_lifecycle")
+
+
+def _context(**overrides):
+    params = {
+        "catalog": "src/shared/catalog.toml",
+        "kb": "pytorch_reference",
+        "source": "docs",
+        "alias_config": "challenger",
+        "rag_data_root": "assets/rag_data",
+        "document_ids": "",
+        "limit": 0,
+        "collection": "",
+        "promote_alias": "",
+        "force_fetch": False,
+        "force_extract": False,
+        "force_chunk": False,
+        "force_recreate": False,
+    }
+    params.update(overrides)
+    return {"params": params}
+
+
+def test_rag_lifecycle_dag_exposes_generic_params(monkeypatch: pytest.MonkeyPatch) -> None:
+    dag_module = _load_dag(monkeypatch)
+
+    params = dag_module.dag.kwargs["params"]
+
+    assert set(params) >= {
+        "catalog",
+        "kb",
+        "source",
+        "alias_config",
+        "rag_data_root",
+        "collection",
+        "promote_alias",
+    }
+
+
+def test_build_source_task_constructs_source_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    dag_module = _load_dag(monkeypatch)
+    calls: list[list[str]] = []
+
+    def fake_run_cli(args: list[str]):
+        calls.append(args)
+        return {"ok": True}
+
+    monkeypatch.setattr(dag_module, "_run_cli", fake_run_cli)
+
+    result = dag_module._build_source(
+        **_context(
+            document_ids="torch.nn, torch.Tensor",
+            limit=2,
+            force_fetch=True,
+            force_extract=True,
+            force_chunk=True,
+        )
+    )
+
+    assert result == {"ok": True}
+    assert calls == [
+        [
+            "build-source",
+            "--catalog",
+            "src/shared/catalog.toml",
+            "--kb",
+            "pytorch_reference",
+            "--source",
+            "docs",
+            "--rag-data-root",
+            "assets/rag_data",
+            "--document-id",
+            "torch.nn",
+            "--document-id",
+            "torch.Tensor",
+            "--limit",
+            "2",
+            "--force-fetch",
+            "--force-extract",
+            "--force-chunk",
+        ]
+    ]
+
+
+def test_materialize_task_uses_alias_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    dag_module = _load_dag(monkeypatch)
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        dag_module,
+        "_run_cli",
+        lambda args: calls.append(args) or {"summary": {"collection_name": "rag__x"}},
+    )
+
+    dag_module._materialize(**_context(collection="rag__pytorch_reference__test"))
+
+    assert "--alias-config" in calls[0]
+    assert "challenger" in calls[0]
+    assert "--collection" in calls[0]
+    assert "rag__pytorch_reference__test" in calls[0]
+
+
+def test_promote_task_skips_without_promote_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    dag_module = _load_dag(monkeypatch)
+    monkeypatch.setattr(dag_module, "_run_cli", lambda args: pytest.fail("should not run CLI"))
+
+    assert dag_module._promote_alias(**_context()) == {"promoted": False}
+
+
+def test_promote_task_uses_materialize_xcom_collection(monkeypatch: pytest.MonkeyPatch) -> None:
+    dag_module = _load_dag(monkeypatch)
+    calls: list[list[str]] = []
+
+    class _TI:
+        def xcom_pull(self, task_ids: str):
+            assert task_ids == "materialize"
+            return {"summary": {"collection_name": "rag__pytorch_reference__20260605_120000"}}
+
+    monkeypatch.setattr(
+        dag_module,
+        "_run_cli",
+        lambda args: calls.append(args) or {"alias_name": "rag__pytorch_reference__challenger"},
+    )
+
+    result = dag_module._promote_alias(
+        **{
+            **_context(promote_alias="challenger"),
+            "ti": _TI(),
+        }
+    )
+
+    assert result["promoted"] is True
+    assert calls == [
+        [
+            "promote-alias",
+            "--catalog",
+            "src/shared/catalog.toml",
+            "--kb",
+            "pytorch_reference",
+            "--alias",
+            "challenger",
+            "--collection",
+            "rag__pytorch_reference__20260605_120000",
+        ]
+    ]
