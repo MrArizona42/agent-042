@@ -1044,8 +1044,8 @@ services:
     image: *rag-ops-image
     build: *rag-ops-build
     working_dir: /opt/airflow/project
-    entrypoint: /bin/bash
-    command: ["-lc", "python -m rag.sources.cli --help"]
+    entrypoint: []
+    command: ["python", "-m", "rag.sources.cli", "--help"]
     environment:
       <<: *airflow-common-env
       PYTHONPATH: /opt/airflow/project:/opt/airflow/project/src
