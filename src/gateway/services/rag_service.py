@@ -10,11 +10,8 @@ import httpx
 
 from gateway.schemas.openai_chat import RAGSource
 from rag.embeddings import EmbeddingService
-from rag.ops.meta import BuildConfig, read_collection_meta, validate_query_compatibility
-from rag.reranker import Reranker, get_reranker
-from rag.retriever import Retriever
-from rag.sparse_encoder import SparseEncoderService
-from rag.vector_store import QdrantVectorStore
+from rag.runtime import RagRuntime, RagRuntimeSource
+from rag.vector_store import Document
 from shared.catalog import get_catalog, get_kb_config
 from shared.config import get_settings, secret_value
 
@@ -37,7 +34,7 @@ class RAGService:
     """Service for retrieving relevant context using RAG.
 
     Each Qdrant collection is exposed via alias-based resolution:
-    ``(knowledge_base, alias)`` → ``{kb}_{alias}`` → Qdrant alias.
+    ``(knowledge_base, alias)`` → ``rag__<kb>__<alias>`` → Qdrant alias.
     """
 
     def __init__(self, settings: Any | None = None):
@@ -56,12 +53,7 @@ class RAGService:
 
         self.enabled = self.rag_settings.rag_enabled
 
-        # Always initialise caches so invalidate_caches() is safe even
-        # when RAG is disabled.
-        self._retrievers: dict[str, Retriever] = {}
-        self._build_configs: dict[str, BuildConfig] = {}
-        self._resolved_collections: dict[str, str] = {}
-        self._unavailable: set[str] = set()
+        # Always initialise caches so invalidate_caches() is safe even when RAG is disabled.
         self._kb_embeddings: dict[str, list[float]] = {}
         self._available_vllm_models: set[str] | None = None
 
@@ -77,6 +69,10 @@ class RAGService:
             device=self.rag_settings.embedding_device,
             batch_size=self.rag_settings.build.embedding_batch_size,
         )
+        self.runtime = RagRuntime(
+            settings=settings,
+            embedding_service=self.embedding_service,
+        )
 
         logger.info("RAG service initialized (retrievers will be created lazily)")
 
@@ -85,18 +81,15 @@ class RAGService:
     # ------------------------------------------------------------------
 
     def invalidate_caches(self) -> None:
-        """Clear cached retrievers and build configs.
+        """Clear cached runtime and config-derived state.
 
         Called by the ``/v1/admin/reload-config`` endpoint so the next
-        request per alias re-reads ``BuildConfig`` from Qdrant ``_meta``
-        and re-creates the retriever.
+        request re-reads catalog-derived data and runtime Qdrant attestations.
         """
-        self._retrievers.clear()
-        self._build_configs.clear()
-        self._resolved_collections.clear()
-        self._unavailable.clear()
         self._kb_embeddings.clear()
         self._available_vllm_models = None
+        if hasattr(self, "runtime"):
+            self.runtime.invalidate_caches()
 
     def warm_caches(self, *, validate: bool = False) -> None:
         """Best-effort eager rebuild of config-derived caches.
@@ -192,199 +185,6 @@ class RAGService:
                 model_name,
             )
 
-    @staticmethod
-    def _qdrant_alias(kb_name: str, alias: str) -> str:
-        """Construct the Qdrant alias name: ``{kb}_{alias}``."""
-        return f"{kb_name}_{alias}"
-
-    def _mark_alias_unavailable(
-        self,
-        cache_key: str,
-        message: str,
-        *,
-        strict: bool,
-        exc: Exception | None = None,
-    ) -> None:
-        """Invalidate cached state for an alias and optionally raise."""
-        self._retrievers.pop(cache_key, None)
-        self._resolved_collections.pop(cache_key, None)
-        self._unavailable.add(cache_key)
-        if strict:
-            raise RuntimeError(message) from exc
-        logger.warning("%s — marking unavailable", message)
-
-    def _set_resolved_collection(self, cache_key: str, resolved_collection: str) -> None:
-        """Track which physical collection an alias currently resolves to."""
-        previous = self._resolved_collections.get(cache_key)
-        if previous is not None and previous != resolved_collection:
-            logger.info(
-                "Alias '%s' changed target from '%s' to '%s'; refreshing cached retriever",
-                cache_key,
-                previous,
-                resolved_collection,
-            )
-            self._retrievers.pop(cache_key, None)
-        self._resolved_collections[cache_key] = resolved_collection
-
-    def _ensure_build_config(
-        self,
-        cache_key: str,
-        collection_cache_key: str,
-        vector_store: QdrantVectorStore,
-        *,
-        query_strategy: str,
-        strict: bool,
-    ) -> BuildConfig | None:
-        """Read and cache BuildConfig for an alias, enforcing runtime compatibility."""
-        build_config = self._build_configs.get(collection_cache_key)
-        if build_config is None:
-            try:
-                meta = read_collection_meta(vector_store, context=collection_cache_key)
-            except Exception as exc:
-                self._mark_alias_unavailable(
-                    cache_key,
-                    (
-                        f"Failed to read _meta for collection '{collection_cache_key}' "
-                        f"behind alias '{cache_key}': {exc}"
-                    ),
-                    strict=strict,
-                    exc=exc,
-                )
-                return None
-
-            collection_info = vector_store.get_collection_info()
-            vector_size = (
-                collection_info.get("vector_size") if isinstance(collection_info, dict) else None
-            )
-            runtime_dimension = getattr(self.embedding_service, "dimension", None)
-            if (
-                isinstance(vector_size, int)
-                and isinstance(runtime_dimension, int)
-                and vector_size != runtime_dimension
-            ):
-                self._mark_alias_unavailable(
-                    cache_key,
-                    (
-                        f"Embedding dimension mismatch for collection '{collection_cache_key}' "
-                        f"(alias '{cache_key}'): collection={vector_size}, "
-                        f"runtime={runtime_dimension}, "
-                        f"build_embedding_model={meta.build_config.embedding_model}"
-                    ),
-                    strict=strict,
-                )
-                return None
-
-            build_config = meta.build_config
-            self._build_configs[collection_cache_key] = build_config
-            logger.info(
-                "Cached build config for physical collection %s (embedding_model=%s)",
-                collection_cache_key,
-                build_config.embedding_model,
-            )
-
-        try:
-            validate_query_compatibility(
-                query_strategy=query_strategy,
-                build_config=build_config,
-                runtime_sparse_encoder=getattr(self.rag_settings, "sparse_encoder_model", None),
-                context=f"{cache_key} -> {collection_cache_key}",
-            )
-        except ValueError as exc:
-            self._mark_alias_unavailable(
-                cache_key,
-                str(exc),
-                strict=strict,
-                exc=exc,
-            )
-            return None
-
-        self._unavailable.discard(cache_key)
-        return build_config
-
-    def _get_retriever(self, kb_name: str, alias: str) -> Optional[Retriever]:
-        """Return (and lazily create) a retriever for *(kb_name, alias)*.
-
-        Validates that the KB exists in the catalog and that the alias
-        is in the allowed list before attempting to connect.
-        """
-        cache_key = self._qdrant_alias(kb_name, alias)
-
-        kb_cfg = get_kb_config(kb_name)
-        if kb_cfg is None:
-            return None
-        if alias not in kb_cfg.aliases:
-            return None
-
-        qdrant_alias_name = cache_key
-        alias_cfg = kb_cfg.aliases.get(alias)
-        if alias_cfg is None:
-            return None
-
-        alias_store = QdrantVectorStore(
-            host=self.platform_settings.qdrant_host,
-            port=self.platform_settings.qdrant_port,
-            collection_name=qdrant_alias_name,
-        )
-
-        if not alias_store.collection_exists():
-            if cache_key not in self._unavailable:
-                logger.warning(
-                    f"Qdrant alias '{qdrant_alias_name}' does not resolve. "
-                    f"Knowledge base '{kb_name}' alias '{alias}' is not available."
-                )
-                self._unavailable.add(cache_key)
-            return None
-
-        resolved_collection = alias_store.resolve_alias(qdrant_alias_name)
-        if not isinstance(resolved_collection, str) or not resolved_collection:
-            resolved_collection = qdrant_alias_name
-        self._set_resolved_collection(cache_key, resolved_collection)
-
-        if cache_key in self._retrievers:
-            return self._retrievers[cache_key]
-
-        vector_store = alias_store
-        if resolved_collection != qdrant_alias_name:
-            vector_store = QdrantVectorStore(
-                host=self.platform_settings.qdrant_host,
-                port=self.platform_settings.qdrant_port,
-                collection_name=resolved_collection,
-            )
-
-        build_cfg = self._ensure_build_config(
-            cache_key,
-            resolved_collection,
-            vector_store,
-            query_strategy=alias_cfg.retrieval_strategy,
-            strict=False,
-        )
-        if build_cfg is None:
-            return None
-
-        reranker: Reranker | None = None
-        if alias_cfg and alias_cfg.reranker:
-            reranker = get_reranker(alias_cfg.reranker)
-
-        sparse_encoder_service: SparseEncoderService | None = None
-        if alias_cfg and alias_cfg.retrieval_strategy in {"hybrid", "sparse"}:
-            sparse_encoder_service = SparseEncoderService(
-                embeddings_url=self.platform_settings.embeddings_url
-            )
-
-        retriever = Retriever(
-            embedding_service=self.embedding_service,
-            vector_store=vector_store,
-            reranker=reranker,
-            sparse_encoder_service=sparse_encoder_service,
-            reranker_multiplier=alias_cfg.reranker_multiplier if alias_cfg else 1,
-        )
-        self._retrievers[cache_key] = retriever
-        logger.info(
-            f"Retriever for '{kb_name}' alias '{alias}' is now available "
-            f"(Qdrant alias: {qdrant_alias_name}, target: {resolved_collection})"
-        )
-        return retriever
-
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -466,58 +266,11 @@ class RAGService:
         return [RAGSource(knowledge_base=kb_name) for _, kb_name in scored_candidates]
 
     def validate_knowledge_bases(self) -> None:
-        """Check every alias in config resolves to an existing Qdrant collection.
-
-        For each resolvable alias, reads ``BuildConfig`` from the ``_meta``
-        sentinel point and caches it in ``self._build_configs``.  When
-        ``rag_strict_startup`` is ``True``, missing collections, invalid
-        ``_meta``, or embedding dimension mismatches cause startup to raise
-        instead of just logging.
-        """
+        """Check every alias in config resolves to a compatible Qdrant collection."""
         if not self.enabled:
             return
 
-        strict = self.rag_settings.rag_strict_startup
-
-        for task_cfg in get_catalog().values():
-            for kb_cfg in task_cfg.knowledge_bases:
-                for alias, alias_cfg in kb_cfg.aliases.items():
-                    cache_key = self._qdrant_alias(kb_cfg.name, alias)
-                    alias_store = QdrantVectorStore(
-                        host=self.platform_settings.qdrant_host,
-                        port=self.platform_settings.qdrant_port,
-                        collection_name=cache_key,
-                    )
-
-                    if not alias_store.collection_exists():
-                        msg = (
-                            f"KB alias not found in Qdrant at startup: "
-                            f"task={task_cfg.task} kb={kb_cfg.name} "
-                            f"alias={alias} collection={cache_key}"
-                        )
-                        self._mark_alias_unavailable(cache_key, msg, strict=strict)
-                        continue
-
-                    resolved_collection = alias_store.resolve_alias(cache_key)
-                    if not isinstance(resolved_collection, str) or not resolved_collection:
-                        resolved_collection = cache_key
-                    self._set_resolved_collection(cache_key, resolved_collection)
-                    vector_store = alias_store
-                    if resolved_collection != cache_key:
-                        vector_store = QdrantVectorStore(
-                            host=self.platform_settings.qdrant_host,
-                            port=self.platform_settings.qdrant_port,
-                            collection_name=resolved_collection,
-                        )
-
-                    self._ensure_build_config(
-                        cache_key,
-                        resolved_collection,
-                        vector_store,
-                        query_strategy=alias_cfg.retrieval_strategy,
-                        strict=strict,
-                    )
-
+        self.runtime.validate_aliases(strict=self.rag_settings.rag_strict_startup)
         self._validate_task_adapters()
 
     def retrieve_documents(
@@ -556,31 +309,35 @@ class RAGService:
         if alias_cfg is None:
             logger.warning("Invalid alias '%s' for knowledge base '%s'", alias, knowledge_base)
             return []
-        if top_k is None:
-            top_k = alias_cfg.top_k
-        score_threshold = alias_cfg.score_threshold
-        cache_key = self._qdrant_alias(knowledge_base, alias)
-
-        retriever = self._get_retriever(knowledge_base, alias)
-        if retriever is None:
-            raise RuntimeError(
-                f"RAG retriever unavailable for knowledge base '{knowledge_base}' alias '{alias}'"
-            )
 
         try:
-            resolved_collection = self._resolved_collections.get(cache_key)
-            if resolved_collection is None or resolved_collection not in self._build_configs:
-                raise RuntimeError(
-                    "RAG build config unavailable for "
-                    f"knowledge base '{knowledge_base}' alias '{alias}'"
-                )
-
-            documents = retriever.retrieve(
+            runtime_result = self.runtime.retrieve(
                 query=query,
-                top_k=top_k,
-                score_threshold=score_threshold,
-                strategy=alias_cfg.retrieval_strategy,
+                sources=[
+                    RagRuntimeSource(
+                        knowledge_base=knowledge_base,
+                        alias=alias,
+                    )
+                ],
             )
+            documents = [
+                Document(
+                    content=hit.text,
+                    metadata={
+                        **hit.metadata,
+                        "chunk_id": hit.chunk_id,
+                        "document_id": hit.document_id,
+                        "source_type": hit.source_type,
+                        "title": hit.title,
+                        "source_uri": hit.uri,
+                        "section_title": hit.section_title,
+                    },
+                    score=hit.score,
+                )
+                for hit in runtime_result.hits
+            ]
+            if top_k is not None:
+                documents = documents[:top_k]
             logger.info(
                 f"Retrieved {len(documents)} documents (kb={knowledge_base}, alias={alias})"
             )
