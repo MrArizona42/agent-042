@@ -662,8 +662,7 @@ def _build_common_fields(
             "bert_score_model",
             metrics.bert_score_model,
         ),
-        "dataset_dvc_hash": eval_context.get("dataset_dvc_hash")
-        or _dataset_dvc_hash(dataset_name),
+        "dataset_dvc_hash": eval_context.get("dataset_dvc_hash") or _dataset_dvc_hash(dataset_name),
         "temperature": eval_context.get("temperature", metrics.temperature),
         "max_tokens": eval_context.get("max_tokens"),
         "extra": dict(eval_context.get("extra", {})),
@@ -822,6 +821,7 @@ def _dataset_dvc_hash(dataset_name: str) -> str | None:
         return None
     dataset_dir = dataset_info[0]
     return _dvc_pointer_hash(_PROJECT_ROOT / "assets" / "datasets" / f"{dataset_dir}.dvc")
+
 
 # ---------------------------------------------------------------------------
 # Main runner

@@ -1362,10 +1362,7 @@ class TestEvalDvcTraceability:
 
         pointer = tmp_path / "dataset.dvc"
         pointer.write_text(
-            "outs:\n"
-            "- md5: abc123.dir\n"
-            "  size: 10\n"
-            "  path: dataset\n",
+            "outs:\n- md5: abc123.dir\n  size: 10\n  path: dataset\n",
             encoding="utf-8",
         )
 
