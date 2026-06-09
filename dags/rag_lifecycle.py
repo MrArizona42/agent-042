@@ -82,11 +82,22 @@ def _append_common_source_args(cmd: list[str], params: dict[str, Any]) -> None:
 
 def _run_cli(args: list[str]) -> dict[str, Any]:
     cmd = [sys.executable, "-m", "rag.sources.cli", *args]
+    env = os.environ.copy()
+    python_path_parts = [
+        str(PROJECT_ROOT / "src"),
+        str(PROJECT_ROOT),
+        *[
+            path
+            for path in env.get("PYTHONPATH", "").split(os.pathsep)
+            if path
+        ],
+    ]
+    env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(python_path_parts))
     print("+", " ".join(cmd))
     completed = subprocess.run(
         cmd,
         cwd=PROJECT_ROOT,
-        check=True,
+        env=env,
         text=True,
         capture_output=True,
     )
@@ -94,6 +105,7 @@ def _run_cli(args: list[str]) -> dict[str, Any]:
         print(completed.stderr, file=sys.stderr)
     if completed.stdout:
         print(completed.stdout)
+    completed.check_returncode()
     return json.loads(completed.stdout) if completed.stdout.strip() else {}
 
 

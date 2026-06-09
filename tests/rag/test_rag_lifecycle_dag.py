@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -142,6 +143,35 @@ def test_build_source_task_constructs_source_cli(monkeypatch: pytest.MonkeyPatch
             "--force-chunk",
         ]
     ]
+
+
+def test_run_cli_prints_subprocess_output_before_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dag_module = _load_dag(monkeypatch)
+    calls: list[dict[str, object]] = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=1,
+            stdout="partial stdout\n",
+            stderr="real traceback\n",
+        )
+
+    monkeypatch.setattr(dag_module.subprocess, "run", fake_run)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        dag_module._run_cli(["build-source"])
+
+    captured = capsys.readouterr()
+    assert "partial stdout" in captured.out
+    assert "real traceback" in captured.err
+    pythonpath = str(calls[0]["env"]["PYTHONPATH"])  # type: ignore[index]
+    assert str(dag_module.PROJECT_ROOT / "src") in pythonpath.split(dag_module.os.pathsep)
+    assert str(dag_module.PROJECT_ROOT) in pythonpath.split(dag_module.os.pathsep)
 
 
 def test_materialize_task_uses_alias_config(monkeypatch: pytest.MonkeyPatch) -> None:
