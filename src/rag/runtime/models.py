@@ -37,3 +37,5 @@ class RagRuntimeResult(BaseModel):
     skipped_sources: list[RuntimeSkippedSource] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     provenance: list[dict[str, Any]] = Field(default_factory=list)
+    timings_ms: dict[str, float] = Field(default_factory=dict)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)

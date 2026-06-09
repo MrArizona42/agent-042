@@ -73,7 +73,9 @@ class TestEvalRunModel:
             "rag_enabled",
             "rag_alias",
             "knowledge_base",
+            "qdrant_alias",
             "qdrant_collection",
+            "rag_manifest_id",
             "embedding_model",
             "chunking_strategy",
             "chunk_size",
@@ -88,6 +90,7 @@ class TestEvalRunModel:
             "bert_score_model",
             "temperature",
             "max_tokens",
+            "eval_verdict",
             "extra",
             "error_message",
         }
@@ -1309,8 +1312,25 @@ class TestMigrationSQL:
         assert "idx_eval_runs_task" in sql
         assert "idx_eval_runs_dataset" in sql
         assert "idx_eval_runs_rag_alias" in sql
+        assert "idx_eval_runs_qdrant_alias" in sql
+        assert "idx_eval_runs_rag_manifest" in sql
+        assert "idx_eval_runs_verdict" in sql
         assert "idx_eval_runs_lora_alias" in sql
         assert "idx_eval_runs_extra" in sql
+
+    def test_rag_observability_migration_adds_columns(self):
+        path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "src"
+            / "shared"
+            / "db"
+            / "eval_runs_add_rag_observability_columns.sql"
+        )
+        sql = path.read_text()
+        assert "ALTER TABLE eval_runs" in sql
+        assert "qdrant_alias" in sql
+        assert "rag_manifest_id" in sql
+        assert "eval_verdict" in sql
 
     def test_chat_messages_usage_migration_exists(self):
         path = (
@@ -1336,6 +1356,22 @@ class TestMigrationSQL:
         assert "completion_tokens" in sql
 
 
+class TestEvalDvcTraceability:
+    def test_dvc_pointer_hash_reads_md5(self, tmp_path: Path):
+        from experiments.eval.eval_scripts.runner import _dvc_pointer_hash
+
+        pointer = tmp_path / "dataset.dvc"
+        pointer.write_text(
+            "outs:\n"
+            "- md5: abc123.dir\n"
+            "  size: 10\n"
+            "  path: dataset\n",
+            encoding="utf-8",
+        )
+
+        assert _dvc_pointer_hash(pointer) == "abc123.dir"
+
+
 class TestRetrievalEvalParity:
     def test_build_temp_collection_preserves_hybrid_sparse_leg(self):
         from experiments.eval.eval_scripts.retrieval_bench import (
@@ -1345,6 +1381,9 @@ class TestRetrievalEvalParity:
         from rag.domain import RetrievalCapability
 
         build_config = EvalBuildConfig(
+            qdrant_alias="rag__arxiv__challenger",
+            collection_name="rag__arxiv__20260609_120000",
+            manifest_id="sha256:test",
             chunking_strategy="recursive",
             chunk_size=128,
             chunk_overlap=16,
@@ -1394,6 +1433,9 @@ class TestRetrievalEvalParity:
         from rag.domain import RetrievalCapability
 
         build_config = EvalBuildConfig(
+            qdrant_alias="rag__arxiv__challenger",
+            collection_name="rag__arxiv__20260609_120000",
+            manifest_id="sha256:test",
             chunking_strategy="recursive",
             chunk_size=128,
             chunk_overlap=16,
@@ -1495,6 +1537,12 @@ class TestRetrievalEvalParity:
         ]
         assert result["retrieval_top_k"] == 5
         assert result["score_threshold"] == 0.01
+        assert result["build_config"]["qdrant_alias"] == "rag__arxiv__challenger"
+        assert result["build_config"]["collection_name"] == "rag__arxiv__20260609_120000"
+        assert result["build_config"]["manifest_id"] == "sha256:test"
+        assert result["rag_observability"]["qdrant_alias"] == "rag__arxiv__challenger"
+        assert result["rag_observability"]["qdrant_collection"] == "rag__arxiv__20260609_120000"
+        assert result["rag_observability"]["rag_manifest_id"] == "sha256:test"
         mock_delete.assert_called_once_with(
             "eval_arxiv_tmp",
             qdrant_host="localhost",
@@ -1534,6 +1582,14 @@ class TestRetrievalEvalParity:
                         "chunking_strategy": "recursive",
                         "chunk_size": 128,
                         "chunk_overlap": 16,
+                        "qdrant_alias": "rag__arxiv__challenger",
+                        "collection_name": "rag__arxiv__20260609_120000",
+                        "manifest_id": "sha256:test",
+                    },
+                    "rag_observability": {
+                        "qdrant_alias": "rag__arxiv__challenger",
+                        "qdrant_collection": "rag__arxiv__20260609_120000",
+                        "rag_manifest_id": "sha256:test",
                     },
                     "temp_collection": "eval_arxiv_tmp",
                 }
@@ -1547,4 +1603,8 @@ class TestRetrievalEvalParity:
         assert rows[0]["metric_name"] == "recall_at_2"
         assert rows[0]["retrieval_top_k"] == 2
         assert rows[0]["score_threshold"] == 0.01
+        assert rows[0]["qdrant_alias"] == "rag__arxiv__challenger"
+        assert rows[0]["qdrant_collection"] == "rag__arxiv__20260609_120000"
+        assert rows[0]["rag_manifest_id"] == "sha256:test"
+        assert rows[0]["eval_verdict"] == "unscored"
         assert rows[0]["metric_value"] == pytest.approx(1.0)

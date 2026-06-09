@@ -398,6 +398,9 @@ DAG-файлы размещаются в директории `dags/` в кор�
 - `promote_alias` — optional alias to repoint after materialization; leave empty for build-only runs
 - `document_ids`, `limit`, `collection`, `force_fetch`, `force_extract`, `force_chunk`,
   `force_recreate` — operator controls for scoped rebuilds and cache invalidation
+- `sync_dvc` — if true, sync generated RAG artifacts through DVC before promotion
+- `dvc_artifacts` — optional artifact subdirs to sync; defaults to generated
+  `extracted`, `chunks`, `manifests`, `metadata`
 
 Основной server entrypoint для тех же операций без Airflow:
 
@@ -406,6 +409,10 @@ bash current/scripts/rag_ops.sh python -m rag.sources.cli build-source --kb pyto
 bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize --kb pytorch_reference --alias-config challenger
 bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias --kb pytorch_reference --alias challenger --collection rag__pytorch_reference__20260605_120000
 ```
+
+RAG DVC policy: curated `sources.toml` stays in Git; generated `extracted`,
+`chunks`, `manifests`, and optional `metadata` can be DVC-tracked; raw cache is
+server-local by default.
 
 ### Зависимости DAG'ов
 

@@ -339,7 +339,12 @@ class RAGService:
             if top_k is not None:
                 documents = documents[:top_k]
             logger.info(
-                f"Retrieved {len(documents)} documents (kb={knowledge_base}, alias={alias})"
+                "Retrieved %s documents (kb=%s, alias=%s, timings_ms=%s, diagnostics=%s)",
+                len(documents),
+                knowledge_base,
+                alias,
+                runtime_result.timings_ms,
+                runtime_result.diagnostics,
             )
             return documents
         except Exception as exc:

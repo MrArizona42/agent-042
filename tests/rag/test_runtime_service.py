@@ -160,6 +160,22 @@ def test_runtime_uses_default_alias_when_source_alias_is_none() -> None:
     assert len(result.hits) == 1
     assert result.hits[0].metadata["qdrant_alias"] == "rag__pytorch_reference__champion"
     assert result.hits[0].metadata["collection_name"] == "rag__pytorch_reference__20260605_120000"
+    assert result.provenance[0]["qdrant_alias"] == "rag__pytorch_reference__champion"
+    assert result.provenance[0]["collection_name"] == "rag__pytorch_reference__20260605_120000"
+    assert result.provenance[0]["manifest_id"] == "sha256:rag__pytorch_reference__20260605_120000"
+    assert result.provenance[0]["hit_count"] == 1
+    assert result.provenance[0]["no_hit"] is False
+    assert result.provenance[0]["score_max"] == 0.9
+    assert result.provenance[0]["top_scores"] == [0.9]
+    assert result.provenance[0]["timings_ms"]["retrieve"] >= 0.0
+    assert result.timings_ms["total"] >= 0.0
+    assert result.diagnostics == {
+        "requested_source_count": 1,
+        "resolved_source_count": 1,
+        "skipped_source_count": 0,
+        "hit_count": 1,
+        "no_hit": False,
+    }
 
 
 def test_runtime_allows_dense_alias_on_hybrid_collection() -> None:
@@ -193,6 +209,10 @@ def test_runtime_rejects_hybrid_alias_on_dense_collection() -> None:
     assert result.skipped_sources[0].knowledge_base == "pytorch_reference"
     assert result.skipped_sources[0].alias == "challenger"
     assert "hybrid" in result.skipped_sources[0].reason
+    assert result.diagnostics["requested_source_count"] == 1
+    assert result.diagnostics["resolved_source_count"] == 0
+    assert result.diagnostics["skipped_source_count"] == 1
+    assert result.diagnostics["no_hit"] is True
 
 
 def test_runtime_uses_explicit_hybrid_alias() -> None:
@@ -211,3 +231,46 @@ def test_runtime_uses_explicit_hybrid_alias() -> None:
     assert len(result.hits) == 1
     collection = stores["rag__pytorch_reference__20260605_120000"]
     assert collection.search_calls[0]["strategy"] == "hybrid"
+
+
+def test_runtime_marks_resolved_source_with_no_hits() -> None:
+    stores = _stores(capability="dense")
+    stores["rag__pytorch_reference__20260605_120000"].documents = []
+
+    with catalog_override(_catalog()):
+        result = _runtime(stores).retrieve(
+            query="How do I define a module?",
+            sources=[RagRuntimeSource(knowledge_base="pytorch_reference")],
+        )
+
+    assert result.hits == []
+    assert result.skipped_sources == []
+    assert result.provenance[0]["hit_count"] == 0
+    assert result.provenance[0]["no_hit"] is True
+    assert result.provenance[0]["score_min"] is None
+    assert result.provenance[0]["top_scores"] == []
+    assert result.diagnostics["resolved_source_count"] == 1
+    assert result.diagnostics["hit_count"] == 0
+    assert result.diagnostics["no_hit"] is True
+
+
+def test_runtime_reports_empty_query_diagnostics() -> None:
+    stores = _stores(capability="dense")
+
+    with catalog_override(_catalog()):
+        result = _runtime(stores).retrieve(
+            query=" ",
+            sources=[RagRuntimeSource(knowledge_base="pytorch_reference")],
+        )
+
+    assert result.hits == []
+    assert result.skipped_sources == []
+    assert result.provenance == []
+    assert result.timings_ms["total"] >= 0.0
+    assert result.diagnostics == {
+        "requested_source_count": 1,
+        "resolved_source_count": 0,
+        "skipped_source_count": 0,
+        "hit_count": 0,
+        "no_hit": True,
+    }

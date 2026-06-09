@@ -68,6 +68,10 @@ def _context(**overrides):
         "limit": 0,
         "collection": "",
         "promote_alias": "",
+        "sync_dvc": False,
+        "dvc_artifacts": "",
+        "dvc_base_branch": "develop",
+        "dvc_bot_branch": "",
         "force_fetch": False,
         "force_extract": False,
         "force_chunk": False,
@@ -90,6 +94,8 @@ def test_rag_lifecycle_dag_exposes_generic_params(monkeypatch: pytest.MonkeyPatc
         "rag_data_root",
         "collection",
         "promote_alias",
+        "sync_dvc",
+        "dvc_artifacts",
     }
 
 
@@ -199,3 +205,46 @@ def test_promote_task_uses_materialize_xcom_collection(monkeypatch: pytest.Monke
             "rag__pytorch_reference__20260605_120000",
         ]
     ]
+
+
+def test_sync_dvc_skips_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    dag_module = _load_dag(monkeypatch)
+
+    assert dag_module._sync_dvc(**_context()) == {"synced": False, "paths": []}
+
+
+def test_sync_dvc_syncs_generated_artifact_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dag_module = _load_dag(monkeypatch)
+    monkeypatch.setattr(dag_module, "PROJECT_ROOT", tmp_path)
+    root = tmp_path / "rag_data"
+    (root / "pytorch_reference" / "extracted").mkdir(parents=True)
+    (root / "pytorch_reference" / "chunks").mkdir(parents=True)
+    calls: list[dict[str, object]] = []
+
+    def fake_sync(**kwargs):
+        calls.append(kwargs)
+        return {"changed": True, "dataset": kwargs["dataset_rel_path"]}
+
+    fake_module = types.ModuleType("shared.airflow_git_sync")
+    fake_module.sync_dvc_dataset_via_temp_clone = fake_sync
+    monkeypatch.setitem(sys.modules, "shared.airflow_git_sync", fake_module)
+
+    result = dag_module._sync_dvc(
+        **_context(
+            sync_dvc=True,
+            rag_data_root=root.as_posix(),
+            dvc_artifacts="extracted,chunks,raw",
+            dvc_bot_branch="data-sync/rag-test",
+        )
+    )
+
+    assert result["synced"] is True
+    assert result["paths"] == [
+        "rag_data/pytorch_reference/extracted",
+        "rag_data/pytorch_reference/chunks",
+    ]
+    assert [call["dataset_rel_path"] for call in calls] == result["paths"]
+    assert {call["bot_branch"] for call in calls} == {"data-sync/rag-test"}

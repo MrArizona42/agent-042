@@ -32,6 +32,7 @@ from __future__ import annotations
 import itertools
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -472,7 +473,9 @@ def _log_to_db(
             Column("rag_enabled", Boolean, nullable=False, server_default="false"),
             Column("rag_alias", Text),
             Column("knowledge_base", Text),
+            Column("qdrant_alias", Text),
             Column("qdrant_collection", Text),
+            Column("rag_manifest_id", Text),
             Column("embedding_model", Text),
             Column("chunking_strategy", Text),
             Column("chunk_size", Integer),
@@ -487,6 +490,7 @@ def _log_to_db(
             Column("bert_score_model", Text),
             Column("temperature", Float),
             Column("max_tokens", Integer),
+            Column("eval_verdict", Text),
             Column("extra", JSONB, nullable=False, server_default="{}"),
             Column("error_message", Text),
         )
@@ -658,10 +662,137 @@ def _build_common_fields(
             "bert_score_model",
             metrics.bert_score_model,
         ),
+        "dataset_dvc_hash": eval_context.get("dataset_dvc_hash")
+        or _dataset_dvc_hash(dataset_name),
         "temperature": eval_context.get("temperature", metrics.temperature),
         "max_tokens": eval_context.get("max_tokens"),
         "extra": dict(eval_context.get("extra", {})),
     }
+
+
+def _rag_observability_from_chunks(chunks: list[dict[str, Any]]) -> dict[str, Any]:
+    """Extract resolved RAG alias/collection/manifest metadata from prompt chunks."""
+    if not chunks:
+        return {}
+
+    qdrant_aliases: set[str] = set()
+    collections: set[str] = set()
+    manifest_ids: set[str] = set()
+    capabilities: set[str] = set()
+    scores: list[float] = []
+
+    for chunk in chunks:
+        metadata = chunk.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            continue
+        qdrant_alias = metadata.get("qdrant_alias")
+        collection_name = metadata.get("collection_name")
+        manifest_id = metadata.get("manifest_id")
+        capability = metadata.get("retrieval_capability")
+        if qdrant_alias:
+            qdrant_aliases.add(str(qdrant_alias))
+        if collection_name:
+            collections.add(str(collection_name))
+        if manifest_id:
+            manifest_ids.add(str(manifest_id))
+        if capability:
+            capabilities.add(str(capability))
+        score = chunk.get("score")
+        if isinstance(score, int | float):
+            scores.append(float(score))
+
+    return {
+        "qdrant_alias": next(iter(sorted(qdrant_aliases)), None),
+        "qdrant_collection": next(iter(sorted(collections)), None),
+        "rag_manifest_id": next(iter(sorted(manifest_ids)), None),
+        "retrieval_capability": next(iter(sorted(capabilities)), None),
+        "hit_count": len(chunks),
+        "score_min": min(scores) if scores else None,
+        "score_max": max(scores) if scores else None,
+        "score_avg": sum(scores) / len(scores) if scores else None,
+        "qdrant_aliases": sorted(qdrant_aliases),
+        "qdrant_collections": sorted(collections),
+        "rag_manifest_ids": sorted(manifest_ids),
+    }
+
+
+def _merge_rag_observability(row: dict[str, Any], bundle: dict[str, Any]) -> None:
+    """Copy bundle-level RAG observability fields into a DB row."""
+    observability = bundle.get("rag_observability")
+    if not isinstance(observability, dict):
+        return
+
+    for source_key, row_key in (
+        ("qdrant_alias", "qdrant_alias"),
+        ("qdrant_collection", "qdrant_collection"),
+        ("rag_manifest_id", "rag_manifest_id"),
+    ):
+        value = observability.get(source_key)
+        if value and not row.get(row_key):
+            row[row_key] = value
+
+    extra = dict(row.get("extra") or {})
+    rag_extra = dict(extra.get("rag") or {})
+    for key, value in observability.items():
+        if value is not None:
+            rag_extra[key] = value
+    if rag_extra:
+        extra["rag"] = rag_extra
+    row["extra"] = extra
+
+
+def _metric_verdict(
+    *,
+    metric_name: str,
+    metric_value: float,
+    eval_context: dict[str, Any] | None,
+) -> str:
+    """Return pass/warn/fail when thresholds are configured; otherwise unscored."""
+    thresholds = (eval_context or {}).get("thresholds")
+    if not isinstance(thresholds, dict):
+        return "unscored"
+    threshold = thresholds.get(metric_name)
+    if not isinstance(threshold, dict):
+        return "unscored"
+
+    higher_is_better = bool(threshold.get("higher_is_better", True))
+    pass_value = threshold.get("pass")
+    warn_value = threshold.get("warn")
+    if not isinstance(pass_value, int | float) or not isinstance(warn_value, int | float):
+        return "unscored"
+
+    if higher_is_better:
+        if metric_value >= float(pass_value):
+            return "pass"
+        if metric_value >= float(warn_value):
+            return "warn"
+        return "fail"
+
+    if metric_value <= float(pass_value):
+        return "pass"
+    if metric_value <= float(warn_value):
+        return "warn"
+    return "fail"
+
+
+def _finalize_metric_rows(
+    rows: list[dict[str, Any]],
+    *,
+    finished_at: datetime,
+    bundle: dict[str, Any],
+    eval_context: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Attach standard completion and observability fields to metric rows."""
+    for row in rows:
+        row["finished_at"] = finished_at
+        row["status"] = "completed"
+        _merge_rag_observability(row, bundle)
+        row["eval_verdict"] = _metric_verdict(
+            metric_name=str(row["metric_name"]),
+            metric_value=float(row["metric_value"]),
+            eval_context=eval_context,
+        )
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -673,6 +804,24 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 _load_dataset_samples = load_dataset_samples  # alias for internal use
 _DATASET_LOCAL = DATASET_LOCAL  # backward-compat alias for tests
+
+
+def _dvc_pointer_hash(pointer_path: Path) -> str | None:
+    """Read the first md5 value from a DVC pointer file."""
+    if not pointer_path.exists():
+        return None
+    text = pointer_path.read_text(encoding="utf-8")
+    match = re.search(r"(?m)^\s*-?\s*md5:\s*([A-Za-z0-9_.-]+)\s*$", text)
+    return match.group(1) if match else None
+
+
+def _dataset_dvc_hash(dataset_name: str) -> str | None:
+    """Return the DVC pointer hash for an eval dataset if available."""
+    dataset_info = _DATASET_LOCAL.get(dataset_name)
+    if dataset_info is None:
+        return None
+    dataset_dir = dataset_info[0]
+    return _dvc_pointer_hash(_PROJECT_ROOT / "assets" / "datasets" / f"{dataset_dir}.dvc")
 
 # ---------------------------------------------------------------------------
 # Main runner
@@ -877,6 +1026,7 @@ def _fetch_generation_predictions(
     judge_samples: list[dict[str, str]] = []
     sample_details: list[dict[str, Any]] = []
     gateway_failures = 0
+    rag_context_chunks_seen: list[dict[str, Any]] = []
 
     _log_fetch_progress(
         phase="generation",
@@ -913,6 +1063,10 @@ def _fetch_generation_predictions(
             rag_context = ""
             if rag_enabled and "rag_context" in response:
                 chunks = response.get("rag_context") or []
+                if isinstance(chunks, list):
+                    rag_context_chunks_seen.extend(
+                        chunk for chunk in chunks if isinstance(chunk, dict)
+                    )
                 rag_context = "\n".join(c.get("content", "") for c in chunks)
         except Exception as e:
             logger.error("Gateway call failed: %s", e)
@@ -967,6 +1121,7 @@ def _fetch_generation_predictions(
         "references": references,
         "judge_samples": judge_samples,
         "sample_details": sample_details,
+        "rag_observability": _rag_observability_from_chunks(rag_context_chunks_seen),
     }
 
 
@@ -1000,6 +1155,7 @@ def _fetch_code_predictions(
     exec_results: list[dict[str, Any]] = []
     sample_details: list[dict[str, Any]] = []
     gateway_failures = 0
+    rag_context_chunks_seen: list[dict[str, Any]] = []
 
     _log_fetch_progress(
         phase="code",
@@ -1029,6 +1185,10 @@ def _fetch_code_predictions(
                 expect_rag_context=rag_enabled,
             )
             generated = response["choices"][0]["message"]["content"]
+            if rag_enabled and isinstance(response.get("rag_context"), list):
+                rag_context_chunks_seen.extend(
+                    chunk for chunk in response["rag_context"] if isinstance(chunk, dict)
+                )
         except Exception as e:
             logger.error("Gateway call failed: %s", e)
             generated = ""
@@ -1077,6 +1237,7 @@ def _fetch_code_predictions(
         "rag_enabled": rag_enabled,
         "exec_results": exec_results,
         "sample_details": sample_details,
+        "rag_observability": _rag_observability_from_chunks(rag_context_chunks_seen),
     }
 
 
@@ -1260,6 +1421,14 @@ def _fetch_retrieval_predictions(
         "retrieval_top_k": alias_config.top_k,
         "score_threshold": alias_config.score_threshold,
         "build_config": build_config.to_payload(),
+        "rag_observability": {
+            "qdrant_alias": build_config.qdrant_alias,
+            "qdrant_collection": build_config.collection_name,
+            "rag_manifest_id": build_config.manifest_id,
+            "retrieval_capability": build_config.retrieval_capability.value,
+            "hit_count": sum(len(result["retrieved_ids"]) for result in query_results),
+            "temp_collection": temp_collection,
+        },
         "temp_collection": temp_collection,
     }
 
@@ -1444,12 +1613,12 @@ def _compute_generation_metric(
         )
         rows.append({**common, "metric_name": metric, "metric_value": result[metric]})
 
-    finished = datetime.now(timezone.utc)
-    for row in rows:
-        row["finished_at"] = finished
-        row["status"] = "completed"
-
-    return rows
+    return _finalize_metric_rows(
+        rows,
+        finished_at=datetime.now(timezone.utc),
+        bundle=bundle,
+        eval_context=eval_context,
+    )
 
 
 def _compute_code_metric(
@@ -1487,11 +1656,14 @@ def _compute_code_metric(
                 **common,
                 "metric_name": metric,
                 "metric_value": metrics[metric],
-                "finished_at": now,
-                "status": "completed",
             }
         )
-    return rows
+    return _finalize_metric_rows(
+        rows,
+        finished_at=now,
+        bundle=bundle,
+        eval_context=eval_context,
+    )
 
 
 def _compute_retrieval_metric(
@@ -1552,7 +1724,11 @@ def _compute_retrieval_metric(
     build_config = bundle.get("build_config", {})
     common.update(
         {
-            "qdrant_collection": bundle.get("temp_collection"),
+            "qdrant_collection": (
+                build_config.get("collection_name") or bundle.get("temp_collection")
+            ),
+            "qdrant_alias": build_config.get("qdrant_alias"),
+            "rag_manifest_id": build_config.get("manifest_id"),
             "embedding_model": build_config.get("embedding_model"),
             "chunking_strategy": build_config.get("chunking_strategy"),
             "chunk_size": build_config.get("chunk_size"),
@@ -1569,8 +1745,6 @@ def _compute_retrieval_metric(
                 **common,
                 "metric_name": f"recall_at_{retrieval_top_k}",
                 "metric_value": avg_recall,
-                "finished_at": now,
-                "status": "completed",
             }
         )
     elif metric == "ndcg_at_k":
@@ -1579,8 +1753,6 @@ def _compute_retrieval_metric(
                 **common,
                 "metric_name": f"ndcg_at_{retrieval_top_k}",
                 "metric_value": avg_ndcg,
-                "finished_at": now,
-                "status": "completed",
             }
         )
     elif metric == "mrr_at_k":
@@ -1589,11 +1761,14 @@ def _compute_retrieval_metric(
                 **common,
                 "metric_name": f"mrr_at_{retrieval_top_k}",
                 "metric_value": avg_mrr,
-                "finished_at": now,
-                "status": "completed",
             }
         )
-    return rows
+    return _finalize_metric_rows(
+        rows,
+        finished_at=now,
+        bundle=bundle,
+        eval_context=eval_context,
+    )
 
 
 # ---------------------------------------------------------------------------

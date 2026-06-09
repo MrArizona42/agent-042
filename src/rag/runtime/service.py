@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Callable
 
 from rag.domain import CollectionAttestation, RetrievalHit, attestation_from_payload
@@ -18,6 +19,27 @@ from shared.catalog import KBConfig, get_catalog, get_kb_config
 from shared.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return round((perf_counter() - started_at) * 1000, 3)
+
+
+def _score_summary(documents: list[Document]) -> dict[str, float | list[float] | None]:
+    scores = [float(document.score) for document in documents if document.score is not None]
+    if not scores:
+        return {
+            "score_min": None,
+            "score_max": None,
+            "score_avg": None,
+            "top_scores": [],
+        }
+    return {
+        "score_min": min(scores),
+        "score_max": max(scores),
+        "score_avg": round(sum(scores) / len(scores), 6),
+        "top_scores": scores[:5],
+    }
 
 
 @dataclass(frozen=True)
@@ -265,11 +287,21 @@ class RagRuntime:
         sources: list[RagRuntimeSource],
     ) -> RagRuntimeResult:
         """Retrieve citation-ready hits from requested KB aliases."""
+        started_at = perf_counter()
         result = RagRuntimeResult()
         if not query.strip():
+            result.timings_ms["total"] = _elapsed_ms(started_at)
+            result.diagnostics = {
+                "requested_source_count": len(sources),
+                "resolved_source_count": 0,
+                "skipped_source_count": 0,
+                "hit_count": 0,
+                "no_hit": True,
+            }
             return result
 
         for source in sources:
+            source_started_at = perf_counter()
             kb_cfg = get_kb_config(source.knowledge_base)
             if kb_cfg is None:
                 result.skipped_sources.append(
@@ -293,7 +325,9 @@ class RagRuntime:
                 )
                 continue
 
+            resolve_started_at = perf_counter()
             state = self._resolve_alias_state(kb_id=kb_cfg.name, alias=alias, strict=False)
+            resolve_ms = _elapsed_ms(resolve_started_at)
             if state is None:
                 result.skipped_sources.append(
                     RuntimeSkippedSource(
@@ -319,6 +353,7 @@ class RagRuntime:
                 )
                 continue
 
+            retrieve_started_at = perf_counter()
             retriever = self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state)
             documents = retriever.retrieve(
                 query=query,
@@ -326,6 +361,8 @@ class RagRuntime:
                 score_threshold=alias_cfg.score_threshold,
                 strategy=alias_cfg.retrieval_strategy,
             )
+            retrieve_ms = _elapsed_ms(retrieve_started_at)
+            source_total_ms = _elapsed_ms(source_started_at)
             result.provenance.append(
                 {
                     "knowledge_base": kb_cfg.name,
@@ -336,10 +373,34 @@ class RagRuntime:
                     "retrieval_strategy": alias_cfg.retrieval_strategy,
                     "retrieval_capability": state.attestation.retrieval_capability.value,
                     "hit_count": len(documents),
+                    "no_hit": not documents,
+                    **_score_summary(documents),
+                    "timings_ms": {
+                        "resolve": resolve_ms,
+                        "retrieve": retrieve_ms,
+                        "total": source_total_ms,
+                    },
                 }
             )
             result.hits.extend(
                 self._hit_from_document(document, state=state) for document in documents
             )
 
+        result.timings_ms["total"] = _elapsed_ms(started_at)
+        result.diagnostics = {
+            "requested_source_count": len(sources),
+            "resolved_source_count": len(result.provenance),
+            "skipped_source_count": len(result.skipped_sources),
+            "hit_count": len(result.hits),
+            "no_hit": not result.hits,
+        }
+        logger.info(
+            "RAG runtime retrieval complete: requested_sources=%s resolved_sources=%s "
+            "skipped_sources=%s hits=%s total_ms=%.3f",
+            result.diagnostics["requested_source_count"],
+            result.diagnostics["resolved_source_count"],
+            result.diagnostics["skipped_source_count"],
+            result.diagnostics["hit_count"],
+            result.timings_ms["total"],
+        )
         return result

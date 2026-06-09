@@ -80,6 +80,21 @@ Use `rag_lifecycle` for the same lifecycle:
 - `document_ids` and `limit`: scoped smoke builds.
 - `force_fetch`, `force_extract`, `force_chunk`, `force_recreate`: explicit
   cache/collection invalidation controls.
+- `sync_dvc`: when true, DVC-sync generated artifacts before promotion.
+- `dvc_artifacts`: optional comma-separated artifact directories to sync. The
+  default is `extracted,chunks,manifests,metadata` when those paths exist.
+- `dvc_base_branch`, `dvc_bot_branch`: Git branch controls for the temp-clone
+  DVC sync PR.
+
+DVC policy:
+
+- `sources.toml` stays in Git because it is curated operator input.
+- Generated `extracted`, `chunks`, `manifests`, and optional `metadata`
+  directories are DVC candidates.
+- Raw cache (`raw/`) is server-local by default. This avoids DVC-tracking raw
+  PDFs unless fully offline rebuilds become a requirement.
+- When `sync_dvc=true`, `rag_lifecycle` runs DVC sync after materialization and
+  before alias promotion. A failed DVC sync prevents promotion by task ordering.
 
 ## Inspection
 
@@ -92,6 +107,21 @@ Use `experiments/rag/rag_ops.ipynb` for direct Qdrant observability:
 - create snapshots or run danger-zone cleanup cells deliberately.
 
 The notebook is not a build entrypoint. Builds use CLI or Airflow.
+
+## Runtime Observability
+
+`rag.runtime.RagRuntime` returns result-level observability alongside hits:
+
+- `provenance`: one row per resolved KB/alias with Qdrant alias, physical
+  collection, manifest id, retrieval strategy/capability, hit count, no-hit
+  flag, score summary, and source timings.
+- `timings_ms`: total runtime retrieval latency.
+- `diagnostics`: requested/resolved/skipped source counts, total hit count, and
+  no-hit flag.
+
+The gateway logs these diagnostics after retrieval. This is the first feedback
+surface for Grafana/log-based runtime panels; it does not change alias
+promotion behavior.
 
 ## Rollback
 

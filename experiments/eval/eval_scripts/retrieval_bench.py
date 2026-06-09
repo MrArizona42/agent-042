@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 class EvalBuildConfig:
     """Minimal production-index shape needed to mirror retrieval evals."""
 
+    qdrant_alias: str | None
+    collection_name: str | None
+    manifest_id: str | None
     chunking_strategy: str
     chunk_size: int
     chunk_overlap: int
@@ -34,6 +37,9 @@ class EvalBuildConfig:
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable eval metadata payload."""
         return {
+            "qdrant_alias": self.qdrant_alias,
+            "collection_name": self.collection_name,
+            "manifest_id": self.manifest_id,
             "chunking_strategy": self.chunking_strategy,
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
@@ -91,6 +97,9 @@ def read_build_config(
 
         attestation = attestation_from_payload(payload)
         return EvalBuildConfig(
+            qdrant_alias=alias_name,
+            collection_name=collection_name,
+            manifest_id=attestation.manifest_id,
             chunking_strategy="recursive",
             chunk_size=512,
             chunk_overlap=64,

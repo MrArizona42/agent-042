@@ -162,6 +162,72 @@ def _promote_alias(**context: Any) -> dict[str, Any]:
     return {"promoted": True, **result}
 
 
+def _dvc_artifact_rel_paths(params: dict[str, Any]) -> list[str]:
+    """Return generated RAG artifact paths that should be DVC-tracked."""
+    rag_root = Path(str(params["rag_data_root"]))
+    kb_id = str(params["kb"])
+    root = rag_root / kb_id
+    requested = _csv_values(params.get("dvc_artifacts"))
+    artifact_names = requested or ["extracted", "chunks", "manifests", "metadata"]
+    rel_paths: list[str] = []
+    for artifact_name in artifact_names:
+        path = root / artifact_name
+        absolute_path = path if path.is_absolute() else PROJECT_ROOT / path
+        if not absolute_path.exists():
+            continue
+        try:
+            rel_path = absolute_path.relative_to(PROJECT_ROOT)
+        except ValueError as exc:
+            raise ValueError(
+                f"DVC artifact path must be under PROJECT_ROOT: {absolute_path}"
+            ) from exc
+        rel_paths.append(rel_path.as_posix())
+    return rel_paths
+
+
+def _sync_dvc(**context: Any) -> dict[str, Any]:
+    """Optionally sync generated RAG artifacts to DVC through a temp clone."""
+    params = _params(context)
+    if not params.get("sync_dvc"):
+        print("sync_dvc=false; skipping DVC sync.")
+        return {"synced": False, "paths": []}
+
+    from shared.airflow_git_sync import sync_dvc_dataset_via_temp_clone
+
+    rel_paths = _dvc_artifact_rel_paths(params)
+    if not rel_paths:
+        print("No generated RAG artifact paths exist yet; skipping DVC sync.")
+        return {"synced": False, "paths": []}
+
+    kb_id = str(params["kb"])
+    base_branch = str(params.get("dvc_base_branch") or "develop")
+    bot_branch = str(params.get("dvc_bot_branch") or f"data-sync/rag-{kb_id}")
+    results = []
+    for rel_path in rel_paths:
+        results.append(
+            sync_dvc_dataset_via_temp_clone(
+                repo_root=PROJECT_ROOT,
+                dataset_rel_path=rel_path,
+                commit_message=f"Sync RAG artifacts for {kb_id}: {Path(rel_path).name}",
+                pr_title=f"Sync RAG artifacts for {kb_id}",
+                pr_body=(
+                    "Automated RAG artifact sync.\n\n"
+                    f"- KB: `{kb_id}`\n"
+                    f"- Artifact path: `{rel_path}`\n"
+                    "- Raw cache is intentionally not DVC-tracked by this DAG."
+                ),
+                base_branch=base_branch,
+                bot_branch=bot_branch,
+            )
+        )
+
+    return {
+        "synced": True,
+        "paths": rel_paths,
+        "results": results,
+    }
+
+
 with DAG(
     dag_id="rag_lifecycle",
     default_args=default_args,
@@ -180,6 +246,10 @@ with DAG(
         "limit": Param(0, type="integer", minimum=0),
         "collection": Param("", type=["null", "string"]),
         "promote_alias": Param("", type=["null", "string"]),
+        "sync_dvc": Param(False, type="boolean"),
+        "dvc_artifacts": Param("", type=["null", "string", "array"]),
+        "dvc_base_branch": Param("develop", type="string"),
+        "dvc_bot_branch": Param("", type=["null", "string"]),
         "force_fetch": Param(False, type="boolean"),
         "force_extract": Param(False, type="boolean"),
         "force_chunk": Param(False, type="boolean"),
@@ -201,4 +271,9 @@ with DAG(
         python_callable=_promote_alias,
     )
 
-    build_source >> materialize >> promote_alias
+    sync_dvc = PythonOperator(
+        task_id="sync_dvc",
+        python_callable=_sync_dvc,
+    )
+
+    build_source >> materialize >> sync_dvc >> promote_alias
