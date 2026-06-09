@@ -4,6 +4,10 @@ This is the operator-facing workflow for RAG builds on the server. The main
 entrypoint is the `rag-ops` Compose service, wrapped by `scripts/rag_ops.sh`.
 Airflow uses the same CLI through the `rag_lifecycle` DAG.
 
+For the conceptual model and runtime architecture, see section 5 of
+`README-SYSTEM-DESIGN.md`. This document focuses on operator commands and
+server workflow.
+
 ## Naming
 
 - KB id: logical knowledge base id from `src/shared/catalog.toml`, for example

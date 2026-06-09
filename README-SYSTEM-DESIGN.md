@@ -67,6 +67,7 @@
 | `airflow-webserver / scheduler / dag-processor` | Apache Airflow | Оркестрация пайплайнов |
 | `airflow-worker` | Celery (CPU) | Бенчмарки, RAG-обновления, оценка качества |
 | `airflow-worker-gpu` | Celery (GPU) | Обучение LoRA адаптеров |
+| `rag-ops` | one-shot CLI container | Ручные RAG build/materialize/promote операции внутри Docker network |
 | `jupyter` | JupyterLab | Интерактивные эксперименты и operator workflows |
 | `mlflow` | MLflow | Трекинг экспериментов, Model Registry |
 | `code-sandbox` | Docker (изолированный) | Безопасное выполнение кода при code evaluation |
@@ -221,7 +222,44 @@ Worker отслеживает повторяющиеся последовате�
 
 ## 5. RAG-система
 
-### 5.1 Архитектура retrieval
+### 5.1 Концептуальная модель
+
+RAG в проекте разделён на несколько независимых понятий:
+
+- **KB id** — логическая база знаний из `src/shared/catalog.toml`, например
+  `ml_papers_core` или `pytorch_reference`.
+- **Source type** — тип connector/extractor, например `arxiv_paper` или
+  `html_docs`.
+- **Source instance** — KB-local источник данных: пара `(kb, source_id)`,
+  например `(ml_papers_core, papers)` или `(pytorch_reference, docs)`.
+- **Source manifest** — curated список документов для source instance:
+  `assets/rag_data/<kb>/sources.toml`.
+- **Artifact manifest** — JSON provenance конкретной сборки под
+  `assets/rag_data/<kb>/manifests/`.
+- **Physical collection** — реальная Qdrant collection вида
+  `rag__<kb_id>__<timestamp>`. Имя физической коллекции не содержит alias.
+- **Qdrant alias** — runtime pointer вида `rag__<kb_id>__<alias>`, например
+  `rag__pytorch_reference__champion`.
+- **Qdrant attestation** — компактная запись metadata внутри collection,
+  позволяющая runtime проверить KB id, collection name, manifest id,
+  embedding model и retrieval capability.
+
+Связи:
+
+```text
+Task 1-to-many KB
+KB 1-to-many SourceInstance
+SourceInstance many-to-1 SourceType
+KB many-to-many SourceType through SourceInstance
+KB 1-to-many AliasConfig
+AliasConfig -> Qdrant alias -> Physical collection
+Physical collection -> Qdrant attestation -> Artifact manifest
+```
+
+Source ids не считаются глобально уникальными: для операций build/update всегда
+используется пара `(kb, source_id)`.
+
+### 5.2 Архитектура retrieval
 
 Retrieval pipeline реализован в `src/rag/` и состоит из четырёх слоёв:
 
@@ -258,24 +296,56 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 - `FixedTokenChunker` (основан на `RecursiveCharacterTextSplitter`) — для текстовых документов (arxiv-статьи, документация).
 - `CodeChunker` — для кода, сохраняет границы функций и классов.
 
-### 5.2 Базы знаний
+### 5.3 Базы знаний и источники
 
 Система содержит две базы знаний, каждая из которых привязана к типу задачи:
 
-**`arxiv`** (задача `chat`)
-- Содержимое: статьи по ML/AI с arxiv.
-- Стратегия обновления: **incremental** — новые статьи добавляются без пересборки коллекции.
+**`ml_papers_core`** (задача `chat`)
+- Содержимое: curated full-text ML/AI papers.
+- Source instance: `(kb=ml_papers_core, source_id=papers, type=arxiv_paper)`.
+- Manifest: `assets/rag_data/ml_papers_core/sources.toml`.
+- Стратегия обновления: **replace** — новая physical collection собирается
+  целиком и затем может быть продвинута через alias.
 - Активный champion: dense retrieval, `top_k=5`, `score_threshold=0.35`.
 - Challenger-конфиг: hybrid retrieval с cross-encoder reranking.
 
-**`pytorch_docs`** (задача `code`)
+**`pytorch_reference`** (задача `code`)
 - Содержимое: официальная документация PyTorch.
-- Стратегия обновления: **replace** — при каждом обновлении коллекция пересоздаётся полностью (документация версионируется целиком).
+- Source instance: `(kb=pytorch_reference, source_id=docs, type=html_docs)`.
+- Manifest: `assets/rag_data/pytorch_reference/sources.toml`.
+- Стратегия обновления: **replace** — при каждом обновлении коллекция
+  пересоздаётся полностью (документация версионируется целиком).
 - Идентичная схема champion/challenger.
 
 Задача `summarize` не использует базы знаний — модель работает исключительно с содержимым, предоставленным пользователем.
 
-### 5.3 Alias-based управление коллекциями (паттерн champion / challenger)
+### 5.4 Source/build pipeline
+
+Source pipeline живёт в `src/rag/sources/` и разделяет получение данных,
+извлечение текста, chunking, materialization и promotion:
+
+```text
+sources.toml
+  -> fetch raw artifacts
+  -> extract normalized text artifacts
+  -> process/chunk documents
+  -> collect build bundle
+  -> materialize Qdrant collection
+  -> write artifact manifest + Qdrant attestation
+  -> optional alias promotion
+```
+
+Политика артефактов:
+
+- `sources.toml` хранится в Git как curated operator input.
+- Raw cache (`assets/rag_data/<kb>/raw/`) immutable по умолчанию и не
+  DVC-tracked; force flags нужны для повторного fetch/extract/chunk.
+- Generated `extracted`, `chunks`, `manifests` и optional `metadata` могут
+  синхронизироваться через DVC.
+- Для `arxiv_paper` основная истина — paper id; URL/PDF endpoint строится
+  fetcher'ом. Для `html_docs` URL указан в source manifest.
+
+### 5.5 Alias-based управление коллекциями (паттерн champion / challenger)
 
 Ключевой механизм для управления качеством RAG — система aliases поверх коллекций Qdrant. Одновременно могут существовать несколько физических коллекций для одного KB. Физическая коллекция не содержит имени alias, например `rag__pytorch_reference__20260605_120000`. Qdrant alias `rag__pytorch_reference__champion` указывает на текущую production-версию, а `rag__pytorch_reference__challenger` — на кандидатную настройку или A/B вариант.
 
@@ -291,6 +361,17 @@ Qdrant Collections:
 
 Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В catalog каждый KB alias задаёт профиль retrieval-параметров (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Runtime валидирует alias config against Qdrant attestation перед retrieval.
 
+Совместимость alias config и collection capability:
+
+- dense-запрос к dense collection — разрешён;
+- dense-запрос к hybrid collection — разрешён;
+- hybrid-запрос к hybrid collection — разрешён;
+- hybrid-запрос к dense collection — отклоняется runtime'ом.
+
+UI может использовать `default_alias`; API/eval могут явно запросить любой
+declared alias KB. Это даёт основу для champion/challenger сравнений и будущих
+A/B тестов.
+
 **Lifecycle коллекции:**
 
 1. **Source build** (`python -m rag.sources.cli build-source`) — fetch/extract/chunk для configured KB/source.
@@ -299,7 +380,35 @@ Qdrant Collections:
 4. **Alias promotion** (`python -m rag.sources.cli promote-alias`) — переключение `rag__<kb>__<alias>` на attested collection.
 5. **Cleanup** (`dags/rag_collection_cleanup.py`) — удаление устаревших коллекций без активных aliases.
 
-### 5.4 Валидация конфигурации при старте
+### 5.6 Runtime retrieval и observability
+
+Gateway вызывает `RAGService`, который делегирует lookup в
+`rag.runtime.RagRuntime`. Runtime выполняет:
+
+1. normalizes requested `(knowledge_base, alias)`;
+2. находит alias config в catalog;
+3. resolves Qdrant alias `rag__<kb>__<alias>`;
+4. читает Qdrant attestation;
+5. проверяет KB id, collection name, embedding dimension и retrieval capability;
+6. вызывает retriever;
+7. возвращает citation-ready hits и observability payload.
+
+`RagRuntimeResult` содержит:
+
+- `hits` — документы для prompt builder / citations;
+- `skipped_sources` — KB/alias пары, которые нельзя было запросить;
+- `provenance` — selected KB/alias, Qdrant alias, physical collection,
+  manifest id, retrieval strategy/capability, score summary, hit count,
+  no-hit flag и per-source timings;
+- `timings_ms` — total runtime retrieval latency;
+- `diagnostics` — requested/resolved/skipped source counts, total hit count,
+  no-hit flag.
+
+Gateway пишет эти поля в structured logs. Eval pipeline также сохраняет
+resolved collection и manifest id, чтобы сравнения champion/challenger были
+traceable.
+
+### 5.7 Валидация конфигурации при старте
 
 При запуске Gateway автоматически валидирует catalog: проверяется наличие Qdrant-коллекций для всех объявленных aliases. Если коллекция не найдена, Gateway либо завершается с ошибкой (при `RAG__RAG_STRICT_STARTUP=true`), либо логирует предупреждение и продолжает работу.
 
@@ -510,6 +619,8 @@ Python-конфигурация реализована через `pydantic-sett
 - Запускает те же CLI entrypoints, что и `rag-ops`: `build-source`, `materialize`,
   optional `promote-alias`.
 - Параметризуется через `kb`, `source`, `alias_config`, optional `promote_alias`.
+- Может выполнить optional `sync_dvc` между materialization и promotion для
+  generated RAG artifacts.
 - Airflow остаётся orchestration layer; RAG lifecycle logic живёт в `src/rag/sources/`.
 
 **`eval_dags.py`** — оценка качества (подробнее в разделе 9).
@@ -541,7 +652,16 @@ surface и не является entrypoint для build/materialize.
 - **Для обучения:** `arxiv-summarization`, `open-code-instruct`.
 - **Для RAG benchmark'ов:** `beir-nfcorpus`, `beir-scifact`, `hotpotqa`, `msmarco`, `natural-questions`.
 - **Для code evaluation:** `humaneval`.
-- **Для RAG коллекций:** `arxiv`, `pytorch_docs`.
+- **Для RAG коллекций:** generated artifacts under
+  `assets/rag_data/ml_papers_core/` and `assets/rag_data/pytorch_reference/`.
+
+Для RAG коллекций policy отличается от eval/training datasets:
+
+- curated `sources.toml` остаётся в Git;
+- generated `extracted`, `chunks`, `manifests`, optional `metadata` могут быть
+  DVC-tracked;
+- raw cache (`raw/`, включая PDF/HTML downloads) остаётся server-local по
+  умолчанию, чтобы не раздувать DVC без явного требования offline rebuild.
 
 ---
 
@@ -587,11 +707,20 @@ surface и не является entrypoint для build/materialize.
 
 ### 9.3 Параметры запуска DAG-ов
 
-Eval DAG-и параметризованы через Airflow UI: выбор датасета, метрик, knowledge base, alias и режима RAG (`auto` vs `explicit`). Это позволяет гибко комбинировать конфигурации без изменения кода.
+Eval DAG-и параметризованы через Airflow UI: выбор датасета, метрик, knowledge
+base, alias и режима RAG (`auto` vs `explicit`). RAG alias options берутся из
+catalog KB aliases, а LoRA alias options — из adapter registry settings. Это
+позволяет гибко сравнивать champion/challenger RAG setups без изменения кода.
+
+Eval rows сохраняют resolved Qdrant alias, physical collection, RAG manifest id,
+dataset DVC hash и optional `eval_verdict` (`pass`, `warn`, `fail`,
+`unscored`). Verdict помогает читать результаты, но не является promotion gate.
 
 ### 9.4 Alias-based продвижение по результатам оценки
 
-Результаты оценки являются основанием для продвижения `challenger` в `champion`. Workflow:
+Результаты оценки являются основанием для ручного решения о продвижении
+`challenger` в `champion`. Eval не блокирует promotion автоматически; он даёт
+traceable evidence для operator decision. Workflow:
 
 ```
 Обучение (Airflow DAG)
@@ -608,8 +737,8 @@ Eval DAG с alias="challenger"
     ▼
 Анализ в eval_results.ipynb
     │
-    ▼ (если метрики лучше champion)
-Промоушен: alias "challenger" → "champion"
+    ▼ (если operator принимает решение)
+Промоушен RAG/Qdrant alias или LoRA/MLflow alias в champion
 ```
 
 ---
