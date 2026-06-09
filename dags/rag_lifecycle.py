@@ -86,11 +86,7 @@ def _run_cli(args: list[str]) -> dict[str, Any]:
     python_path_parts = [
         str(PROJECT_ROOT / "src"),
         str(PROJECT_ROOT),
-        *[
-            path
-            for path in env.get("PYTHONPATH", "").split(os.pathsep)
-            if path
-        ],
+        *[path for path in env.get("PYTHONPATH", "").split(os.pathsep) if path],
     ]
     env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(python_path_parts))
     print("+", " ".join(cmd))
