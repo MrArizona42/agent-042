@@ -33,9 +33,8 @@ python -m experiments.training.train_adapter.start_train \
 * `./training/conf` - Hydra конфиги
 * `./training` - Обучение адаптера
 * `./training/lora_ops.ipynb` - Операции с LoRA (регистрация, промоушен, синхронизация)
-* `./rag` - RAG operator notebooks и notebook wrappers поверх `src/rag/ops`
-* `./rag/rag_ops.ipynb` - Операции с RAG (create / refresh / alias management / диагностика)
-* `./rag/notebook_ops.py` - notebook façade над production entrypoints из `src/rag/ops`
+* `./rag` - RAG operator notebooks для Qdrant diagnostics и observability
+* `./rag/rag_ops.ipynb` - Прямые Qdrant операции: collections, aliases, attestations, samples, cleanup checks
 * `./rag/sandboxes/` - notebook-only experimental forks, которые не импортируются production-кодом
 * `./eval` - Оценка моделей
 * `./eval/eval_results.ipynb` - Результаты оценки (сравнение, отчёты)
@@ -44,21 +43,20 @@ python -m experiments.training.train_adapter.start_train \
 
 ## RAG operator path
 
-- Production-safe lifecycle код для RAG живёт в `src/rag/ops/`.
-- Создание новых коллекций выполняется через `src/rag/ops/create/` и notebook wrappers
-  `create_arxiv(...)` / `create_pytorch_docs(...)` из `experiments/rag/notebook_ops.py`.
-- Refresh существующих production-коллекций выполняется через `src/rag/ops/update/` и wrappers
-  `refresh_arxiv(...)` / `refresh_pytorch_docs(...)`. Airflow DAG-и используют только эти
-  production update entrypoints.
-- Alias management и inspection идут через `src/rag/ops/aliases.py`, `src/rag/ops/inspect.py`
-  и notebook wrappers `assign_alias(...)`, `promote(...)`, `detach(...)`, `inspect_kb_alias(...)`.
-- `experiments/rag/rag_ops.ipynb` должен вызывать только `experiments.rag.notebook_ops`, чтобы
-  notebook и Airflow использовали один и тот же production runtime.
+- Production-safe lifecycle код для RAG живёт в `src/rag/sources/` и запускается через
+  `python -m rag.sources.cli`.
+- На сервере используйте `bash current/scripts/rag_ops.sh ...`, чтобы выполнить команду в
+  `rag-ops` контейнере внутри Docker network.
+- Airflow DAG `rag_lifecycle` вызывает те же CLI команды: `build-source`, `materialize`,
+  optional `promote-alias`.
+- `experiments/rag/rag_ops.ipynb` не строит RAG и не содержит production logic. Он нужен для
+  ручной Qdrant diagnostics/observability: aliases, collection attestations, sample points,
+  stale collections, snapshots and danger-zone maintenance cells.
 - Если notebook или helper всё же импортирует catalog-specific schema/loader напрямую, их источник
   должен быть `src/shared/catalog/`, а не `shared.config`.
 - `experiments/rag/sandboxes/` предназначен только для notebook-only experiments. Если sandbox
-  эксперимент нужно продвигать в champion, код сначала переносится в `src/rag/` или
-  `src/rag/ops/`, а уже потом пересобирается и промоутится коллекция.
+  эксперимент нужно продвигать в champion, код сначала переносится в `src/rag/`, а уже потом
+  пересобирается и промоутится коллекция.
 
 ## 📦 DVC
 

@@ -387,21 +387,32 @@ DAG-файлы размещаются в директории `dags/` в кор�
 
 | DAG | Расписание | Описание |
 |-----|-----------|----------|
-| `arxiv_rag_update` | `@daily` | Загрузка новых ArXiv статей → temp clone + `dvc add/push` + bot-branch PR → refresh коллекции за alias `arxiv_champion` через `rag.ops.update.update_arxiv_collection()` |
-| `pytorch_docs_rag_update` | `@weekly` | Скрейпинг документации PyTorch → temp clone + `dvc add/push` + bot-branch PR → rebuild successor collection из `_meta` у `pytorch_docs_champion` через `rag.ops.update.update_pytorch_docs_collection()` |
+| `rag_lifecycle` | manual | Generic RAG lifecycle: `build-source` → `materialize` → optional `promote-alias` for any configured KB/source pair |
+| `rag_collection_cleanup` | manual | Cleanup of old physical Qdrant collections that are not behind active aliases |
 
-Каждый DAG состоит из трёх задач:
-```
-download / scrape  >>  dvc_version_via_temp_clone  >>  build_index
+`rag_lifecycle` принимает параметры Airflow UI:
+
+- `kb` — KB id из `src/shared/catalog.toml`, например `ml_papers_core` или `pytorch_reference`
+- `source` — source instance id внутри KB, например `papers` или `docs`
+- `alias_config` — alias profile used for build settings, for example `champion` or `challenger`
+- `promote_alias` — optional alias to repoint after materialization; leave empty for build-only runs
+- `document_ids`, `limit`, `collection`, `force_fetch`, `force_extract`, `force_chunk`,
+  `force_recreate` — operator controls for scoped rebuilds and cache invalidation
+- `sync_dvc` — if true, sync generated RAG artifacts through DVC before promotion
+- `dvc_artifacts` — optional artifact subdirs to sync; defaults to generated
+  `extracted`, `chunks`, `manifests`, `metadata`
+
+Основной server entrypoint для тех же операций без Airflow:
+
+```bash
+bash current/scripts/rag_ops.sh python -m rag.sources.cli build-source --kb pytorch_reference --source docs
+bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize --kb pytorch_reference --alias-config challenger
+bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias --kb pytorch_reference --alias challenger --collection rag__pytorch_reference__20260605_120000
 ```
 
-- **download / scrape** — PythonOperator: загрузка данных (ArXiv API или web scraping)
-- **dvc_version** — PythonOperator: создаёт временный clone, staging'ом подготавливает shared
-  dataset как обычную директорию внутри clone (hardlink если возможно, иначе copy), запускает
-  `dvc add` + `dvc push`, коммитит `.dvc`/`.gitignore` изменения в `data-sync/*` и
-  открывает или обновляет PR в `develop`
-- **build_index** — PythonOperator: вызов production update-функций из `src/rag/ops/update`
-  (`update_arxiv_collection` или `update_pytorch_docs_collection`) для refresh/rebuild векторного индекса
+RAG DVC policy: curated `sources.toml` stays in Git; generated `extracted`,
+`chunks`, `manifests`, and optional `metadata` can be DVC-tracked; raw cache is
+server-local by default.
 
 ### Зависимости DAG'ов
 
@@ -462,7 +473,8 @@ Compose interpolation на хосте.
 Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.
 
 RAG operator boundary в JupyterLab:
-- `experiments/rag/notebook_ops.py` — единственная notebook façade над production entrypoints из `src/rag/ops/`.
+- `experiments/rag/rag_ops.ipynb` — прямые Qdrant операции, аналитика и observability для ручной проверки коллекций/aliases.
+- Production lifecycle запускается через `rag-ops` container и `python -m rag.sources.cli`, либо через Airflow `rag_lifecycle`.
 - `experiments/rag/sandboxes/` — notebook-only experimental код. Gateway, Airflow DAG-и и production evals не должны импортировать его.
 
 ## DVC с бэкэндом Yandex Cloud S3

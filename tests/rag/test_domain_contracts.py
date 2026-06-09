@@ -13,7 +13,6 @@ from rag.domain import (
     RetrievalCapability,
     SourceDocument,
     compare_manifest_attestation,
-    manifest_from_legacy_collection_meta,
     manifest_path,
     read_index_manifest,
     with_manifest_id,
@@ -23,7 +22,6 @@ from rag.domain.llamaindex import (
     chunk_to_text_node,
     extracted_document_to_llama_document,
 )
-from rag.ops.meta import BuildConfig, CollectionMeta
 
 
 def _created_at() -> datetime:
@@ -127,37 +125,6 @@ def test_manifest_attestation_comparison_reports_drift() -> None:
         "sentence-transformers/all-MiniLM-L6-v2",
         "other-embedding-model",
     )
-
-
-def test_legacy_collection_meta_can_seed_new_manifest_contract() -> None:
-    meta = CollectionMeta(
-        kb_name="ml_papers_core",
-        created_at=_created_at().isoformat(),
-        build_config=BuildConfig(
-            chunking_strategy="recursive",
-            chunk_size=512,
-            chunk_overlap=64,
-            embedding_model="sentence-transformers/all-MiniLM-L6-v2",
-            sparse_encoder=None,
-            retrieval_capability="dense",
-        ),
-    )
-
-    manifest = manifest_from_legacy_collection_meta(
-        meta,
-        collection_name="ml_papers_core_20260603_120000",
-        source_snapshot_id="legacy:unknown",
-        chunk_count=10,
-    )
-
-    assert manifest.kb_id == "ml_papers_core"
-    assert manifest.retrieval_capability == RetrievalCapability.DENSE
-    assert manifest.chunking_config == {
-        "strategy": "recursive",
-        "chunk_size": 512,
-        "chunk_overlap": 64,
-    }
-    assert manifest.manifest_id is not None
 
 
 def test_llamaindex_adapters_keep_project_metadata() -> None:

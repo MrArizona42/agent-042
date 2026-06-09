@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from gateway.services.rag_service import RAGService
 from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
@@ -92,35 +92,16 @@ def _build_registry(*, summarize_adapter_enabled: bool) -> dict[str, TaskConfig]
 
 def test_validate_knowledge_bases_warns_for_missing_enabled_adapter(caplog) -> None:
     with catalog_override(_build_registry(summarize_adapter_enabled=True)):
-        with (
-            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
-            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
-            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
-        ):
+        with patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls:
             mock_embedding = mock_embedding_cls.return_value
             mock_embedding.dimension = 384
 
-            mock_vs = mock_vs_cls.return_value
-            mock_vs.collection_exists.return_value = True
-            mock_vs.resolve_alias.return_value = None
-            mock_vs.get_collection_info.return_value = {"vector_size": 384}
-
-            from rag.ops.meta import BuildConfig
-
-            mock_read_meta.return_value = MagicMock(
-                build_config=BuildConfig(
-                    chunking_strategy="recursive",
-                    chunk_size=512,
-                    chunk_overlap=64,
-                    embedding_model="test-embedding",
-                    sparse_encoder=None,
-                    retrieval_capability="dense",
-                )
-            )
-
             service = RAGService(settings=_settings())
 
-            with patch.object(service, "_load_available_vllm_models", return_value={"base-model"}):
+            with (
+                patch.object(service.runtime, "validate_aliases"),
+                patch.object(service, "_load_available_vllm_models", return_value={"base-model"}),
+            ):
                 with caplog.at_level(logging.WARNING):
                     service.validate_knowledge_bases()
 
@@ -130,38 +111,19 @@ def test_validate_knowledge_bases_warns_for_missing_enabled_adapter(caplog) -> N
 
 def test_validate_knowledge_bases_accepts_present_enabled_adapter() -> None:
     with catalog_override(_build_registry(summarize_adapter_enabled=True)):
-        with (
-            patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls,
-            patch("gateway.services.rag_service.QdrantVectorStore") as mock_vs_cls,
-            patch("gateway.services.rag_service.read_collection_meta") as mock_read_meta,
-        ):
+        with patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls:
             mock_embedding = mock_embedding_cls.return_value
             mock_embedding.dimension = 384
 
-            mock_vs = mock_vs_cls.return_value
-            mock_vs.collection_exists.return_value = True
-            mock_vs.resolve_alias.return_value = None
-            mock_vs.get_collection_info.return_value = {"vector_size": 384}
-
-            from rag.ops.meta import BuildConfig
-
-            mock_read_meta.return_value = MagicMock(
-                build_config=BuildConfig(
-                    chunking_strategy="recursive",
-                    chunk_size=512,
-                    chunk_overlap=64,
-                    embedding_model="test-embedding",
-                    sparse_encoder=None,
-                    retrieval_capability="dense",
-                )
-            )
-
             service = RAGService(settings=_settings())
 
-            with patch.object(
-                service,
-                "_load_available_vllm_models",
-                return_value={"base-model", "lora-summarize-champion"},
+            with (
+                patch.object(service.runtime, "validate_aliases"),
+                patch.object(
+                    service,
+                    "_load_available_vllm_models",
+                    return_value={"base-model", "lora-summarize-champion"},
+                ),
             ):
                 service.validate_knowledge_bases()
 

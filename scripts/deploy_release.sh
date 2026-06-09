@@ -211,6 +211,103 @@ show_compose_status() {
     compose "$project_root" "$image_tag" ps || true
 }
 
+show_service_diagnostics() {
+    local project_root="$1"
+    local image_tag="$2"
+    local service="$3"
+
+    local container_id
+    container_id="$(compose "$project_root" "$image_tag" ps -q "$service" 2>/dev/null | head -n 1 || true)"
+
+    echo
+    echo "--- service: $service ---"
+    if [[ -z "$container_id" ]]; then
+        echo "container: not found"
+        return 0
+    fi
+
+    docker inspect \
+        --format 'container={{.Name}} image={{.Config.Image}} status={{.State.Status}} running={{.State.Running}} exit={{.State.ExitCode}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} oom={{.State.OOMKilled}} started={{.State.StartedAt}} finished={{.State.FinishedAt}} error={{.State.Error}}' \
+        "$container_id" || true
+
+    echo "health log:"
+    docker inspect \
+        --format '{{if .State.Health}}{{range .State.Health.Log}}[{{.Start}}] exit={{.ExitCode}} output={{printf "%q" .Output}}{{println}}{{end}}{{else}}(no Docker healthcheck configured){{end}}' \
+        "$container_id" || true
+}
+
+show_failure_diagnostics() {
+    local project_root="$1"
+    local image_tag="$2"
+    local phase="$3"
+
+    echo
+    echo "==> Failure diagnostics ($phase)"
+    echo "release: $project_root"
+    echo "image tag: $image_tag"
+
+    echo
+    echo "==> Compose status"
+    compose "$project_root" "$image_tag" ps -a || true
+
+    local -a inspected_services=(
+        gateway
+        ui
+        embeddings
+        reranker
+        vllm
+        vllm-adapter-sync
+        qdrant
+        rabbitmq
+        redis
+        postgres
+        mlflow
+        prometheus
+        grafana
+        flower
+        airflow-init
+        airflow-webserver
+        airflow-dag-processor
+        airflow-scheduler
+        airflow-worker
+        airflow-worker-gpu
+        celery-worker
+        code-sandbox
+        jupyter
+        redisinsight
+    )
+
+    echo
+    echo "==> Container state and health"
+    local service
+    for service in "${inspected_services[@]}"; do
+        show_service_diagnostics "$project_root" "$image_tag" "$service"
+    done
+
+    echo
+    echo "==> Recent logs for likely blockers"
+    local -a logged_services=(
+        gateway
+        ui
+        embeddings
+        reranker
+        vllm-adapter-sync
+        qdrant
+        rabbitmq
+        postgres
+        mlflow
+        flower
+        airflow-init
+        airflow-webserver
+    )
+
+    for service in "${logged_services[@]}"; do
+        echo
+        echo "--- logs: $service ---"
+        compose "$project_root" "$image_tag" logs --no-color --timestamps --tail=160 "$service" || true
+    done
+}
+
 smoke_check() {
     local project_root="$1"
     local image_tag="$2"
@@ -414,12 +511,14 @@ compose "$release_dir" "$image_tag" pull
 
 log "Starting release from $release_dir"
 if ! compose "$release_dir" "$image_tag" up -d --remove-orphans; then
+    show_failure_diagnostics "$release_dir" "$image_tag" "docker compose up"
     rollback_to_previous_release || true
     fail "Deployment failed during docker compose up"
 fi
 
 log "Running smoke checks"
 if ! smoke_check "$release_dir" "$image_tag"; then
+    show_failure_diagnostics "$release_dir" "$image_tag" "smoke checks"
     rollback_to_previous_release || true
     fail "Deployment failed smoke checks"
 fi

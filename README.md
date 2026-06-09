@@ -92,6 +92,9 @@ bash scripts/rag_ops.sh python -m rag.sources.cli build-source \
 
 Use Jupyter for artifact inspection and curation, and Airflow for scheduled
 orchestration; both should call the same Python/CLI lifecycle code.
+
+See [docs/rag-operations.md](docs/rag-operations.md) for the full RAG lifecycle,
+Airflow params, naming glossary, promotion, inspection, and rollback notes.
     * Бенчмарки
     * Автоматическое обновление коллекций
 

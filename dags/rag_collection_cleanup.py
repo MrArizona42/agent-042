@@ -3,7 +3,7 @@
 Deletes Qdrant collections that are no longer pointed to by any alias
 and whose creation timestamp is older than ``RETENTION_DAYS`` (7).
 
-Legacy collections that do not follow the ``{kb}_{timestamp}`` naming
+Legacy collections that do not follow the ``rag__{kb}__{timestamp}`` naming
 convention are on an explicit skip-list and are never deleted.
 
 Schedule: @daily
@@ -26,14 +26,14 @@ QDRANT_HOST = os.environ["PLATFORM__QDRANT_HOST"]
 QDRANT_PORT = int(os.environ["PLATFORM__QDRANT_PORT"])
 RETENTION_DAYS = 7
 
-# Legacy collections that don't follow the {kb}_{timestamp} naming convention.
+# Legacy collections that don't follow the rag__{kb}__{timestamp} naming convention.
 # These pre-date the alias-based lifecycle and are never deleted by the
 # cleanup DAG.  They will be migrated during rollout; update this list
 # if new legacy collections are discovered.
 SKIP_LIST: set[str] = {"chat_documents", "code_documents"}
 
-# Regex: {kb_name}_{YYYYMMDD}_{HHMMSS}
-_TS_PATTERN = re.compile(r"^(.+)_(\d{8}_\d{6})$")
+# Regex: rag__{kb_id}__{YYYYMMDD}_{HHMMSS}
+_TS_PATTERN = re.compile(r"^rag__(.+)__(\d{8}_\d{6})$")
 
 # ---------------------------------------------------------------------------
 # Default DAG arguments
