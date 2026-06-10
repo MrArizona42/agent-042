@@ -47,4 +47,3 @@ def test_clear_log_context_removes_bound_fields(capsys) -> None:
 
     assert payload["service"] == "worker"
     assert "request_id" not in payload
-

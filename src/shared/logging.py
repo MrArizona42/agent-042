@@ -89,9 +89,7 @@ def configure_logging(
         handler.setFormatter(JsonLogFormatter(service=service))
     else:
         handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s - %(service)s - %(name)s - %(levelname)s - %(message)s"
-            )
+            logging.Formatter("%(asctime)s - %(service)s - %(name)s - %(levelname)s - %(message)s")
         )
         handler.addFilter(_ServiceFilter(service))
 
