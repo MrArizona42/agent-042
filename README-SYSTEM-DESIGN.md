@@ -814,6 +814,12 @@ Gateway и Celery worker публикуют durable inference lifecycle events �
 `inference.events.v1`. Redpanda Console включён в Compose для инспекции topic'ов.
 Схема и workflow описаны в `docs/inference-events.md`.
 
+**ClickHouse:**
+ClickHouse Kafka Engine читает `inference.events.v1` из Redpanda и materialized view
+записывает события в `inference_events_raw` (`MergeTree`). Это первый слой
+аналитики по inference lifecycle; workflow и SQL-примеры описаны в
+`docs/clickhouse-analytics.md`.
+
 **Flower:** Мониторинг Celery workers — активные задачи, история, статистика очередей.
 
 **RedisInsight:** Инспекция Redis-ключей, pub/sub топиков, памяти.

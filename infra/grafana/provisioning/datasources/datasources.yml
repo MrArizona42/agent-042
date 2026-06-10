@@ -49,3 +49,17 @@ datasources:
       serviceMap:
         datasourceUid: prometheus
     editable: false
+
+  - name: ClickHouse
+    type: grafana-clickhouse-datasource
+    uid: clickhouse
+    jsonData:
+      host: clickhouse
+      port: 9000
+      protocol: native
+      secure: false
+      username: ${CLICKHOUSE_USER}
+      defaultDatabase: ${CLICKHOUSE_DB}
+    secureJsonData:
+      password: ${CLICKHOUSE_PASSWORD}
+    editable: false

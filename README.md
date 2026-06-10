@@ -66,6 +66,7 @@ UI с ИИ-ассистентом. Поддерживается Google-авто�
     * `grafana` - дашборды для инфраструктурной observability и аналитики по ML-процессам.
     * `loki`, `tempo`, `otel-collector`, `alloy` - searchable logs and traces.
     * `redpanda`, `redpanda-console` - durable Kafka-compatible inference events and topic inspection.
+    * `clickhouse` - аналитическое хранилище для inference events и будущих rollups.
     * `flower` - мониторинг очередей и состояния Celery workers.
     * `redisinsight` - мониторинг Redis-состояния, ключей и pub/sub активности.
     * `mlflow` - аналитика по training runs, параметрам, метрикам и артефактам экспериментов.

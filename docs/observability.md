@@ -104,3 +104,5 @@ order by created_at;
   API keys, cookies, or OAuth payloads.
 - Prompt preview remains a short-lived Redis debugging aid, not a Loki log.
 - Durable inference event details are documented in `docs/inference-events.md`.
+- ClickHouse analytics ingestion and first queries are documented in
+  `docs/clickhouse-analytics.md`.

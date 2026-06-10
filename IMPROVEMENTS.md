@@ -117,8 +117,9 @@ Acceptance criteria:
 - Successful and failed generation attempts produce well-defined events.
 - Event schema is documented and versioned.
 - Event publication failure does not break chat completion.
-- Full prompts, responses, messages, generated content, tokens, cookies, API
-  keys, and OAuth payloads are rejected by schema validation.
+- Full prompts, responses, messages, generated content, access tokens, cookies,
+  API keys, and OAuth payloads are rejected by schema validation. Token counts
+  are allowed.
 
 Implementation notes:
 
@@ -134,14 +135,22 @@ be introduced incrementally as the production inference analytics backend.
 
 Target state:
 
-- Add ClickHouse with separate SQL migrations, for example under
-  `infra/clickhouse/migrations/`.
-- Ingest `inference-events` into ClickHouse.
-- Create analytical tables:
-  - `inference_log`: one row per completed/failed generation request;
-  - `inference_rag_hits`: optional one row per retrieved RAG hit;
-  - `feedback_events`: user feedback signals;
-  - `inference_daily_rollups`: optional dashboard acceleration.
+- Add ClickHouse with separate SQL init/migration files under
+  `infra/clickhouse/`.
+- Ingest `inference.events.v1` directly from Redpanda using the ClickHouse
+  Kafka Engine.
+- Start with raw-first analytics tables:
+  - `kafka_inference_events_stream`: Kafka Engine stream adapter, not durable
+    analytics storage;
+  - `mv_inference_events_raw`: materialized view that drains Kafka into
+    ClickHouse;
+  - `inference_events_raw`: durable MergeTree archive with raw JSON and common
+    parsed columns.
+- Add derived request-level tables later after the raw ingestion path is proven:
+  - `inference_requests`;
+  - `inference_rag_hits` when source citation work provides chunk/source ids;
+  - `feedback_events`;
+  - `inference_daily_rollups`.
 - Add Grafana ClickHouse datasource.
 - Support analytics for:
   - latency percentiles by adapter, route, and variant;
@@ -157,6 +166,21 @@ Acceptance criteria:
 - Grafana or notebooks can query production inference analytics from ClickHouse.
 - Postgres remains the operational source of truth.
 - ClickHouse schema changes are managed separately from Alembic.
+
+Fixed design choices:
+
+- Use direct Redpanda-to-ClickHouse ingestion through ClickHouse Kafka Engine,
+  not a Python consumer service for the first implementation.
+- Keep the first ClickHouse layer raw and replay-friendly. Derived analytical
+  tables come after ingestion is proven.
+
+Implementation notes:
+
+- Compose includes ClickHouse and installs the Grafana ClickHouse datasource
+  plugin.
+- Initial SQL lives in `infra/clickhouse/init/001_inference_events.sql`.
+- Operator workflow and starter queries are documented in
+  `docs/clickhouse-analytics.md`.
 
 ### 4. Observability And Evaluation Technical Workflow
 

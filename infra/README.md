@@ -119,6 +119,7 @@ scripts/update_locks.sh --dry-run
 - `redis` — Redis 7 (порт хоста по умолчанию `6379` → контейнер `6379`, volume: `redis_data`)
 - `redpanda` — Kafka-compatible broker для durable inference events (порт хоста по умолчанию `19092` → контейнер `19092`)
 - `redpanda-console` — UI для инспекции Kafka/Redpanda topics (порт хоста по умолчанию `8081` → контейнер `8080`)
+- `clickhouse` — аналитическое хранилище inference events из Redpanda (HTTP порт `8123`, native порт `9000`)
 - `celery-worker` — Celery worker для асинхронного выполнения LLM-задач (1 процесс, GPU-bound)
 - `gateway` — FastAPI gateway (порт хоста по умолчанию `9001` → контейнер `9000`)
 - `ui` — Streamlit UI (порт хоста по умолчанию `8501` → контейнер `8501`)
@@ -175,6 +176,7 @@ cp .env.example .env
 - `RABBITMQ_*` — логин/пароль и порты RabbitMQ (брокер для Celery)
 - `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
 - `REDPANDA_*` — host-bound порты Redpanda broker/admin/schema registry/proxy и Redpanda Console
+- `CLICKHOUSE_*` — база, пользователь, пароль и host-bound HTTP/native порты ClickHouse
 - `FLOWER_*` — порт Flower (мониторинг Celery)
 - `REDISINSIGHT_*` — порт RedisInsight (мониторинг Redis)
 - `PROMETHEUS_PORT` — порт Prometheus (по умолчанию `9090`)
@@ -194,7 +196,7 @@ cp .env.example .env
 - На текущем этапе checkout-based Compose уже использует `ASSETS_ROOT`, `ARTIFACTS_ROOT` и
   `DVC_CONFIG_LOCAL_PATH` для shared mounts, а `GITHUB_*`-переменные использует Airflow data-sync
   path. `IMAGE_TAG` остаётся зарезервированным для последующих deploy фаз.
-- Workflow для logs/traces/metrics описан в `docs/observability.md`; durable inference events описаны в `docs/inference-events.md`.
+- Workflow для logs/traces/metrics описан в `docs/observability.md`; durable inference events описаны в `docs/inference-events.md`; ClickHouse analytics описана в `docs/clickhouse-analytics.md`.
 
 ### Разделение env surfaces
 

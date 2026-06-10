@@ -100,4 +100,5 @@ The key joins are:
 - `chat_session_id`: Kafka events and PostgreSQL chat persistence.
 - `celery_task_id`: Gateway enqueue event, worker logs, worker events.
 
-ClickHouse ingestion should consume this topic later instead of scraping logs.
+ClickHouse consumes this topic directly with its Kafka Engine. See
+`docs/clickhouse-analytics.md`.
