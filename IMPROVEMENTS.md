@@ -1,28 +1,33 @@
 # Agent 042 Improvement Plan
 
 This is the single planning document for the remaining polish work and the next
-expansion stage. The plan is structured so foundational safety comes first,
-then observability and analytics are built as one coherent mini-project, and
-only then the stack expands into heavier platform features.
+expansion stage. The plan is structured so the schema foundation comes first,
+then observability and analytics are built as one coherent mini-project, then
+documentation is refreshed around the real workflows, and only then the stack
+expands or adds lower-priority operational hardening.
 
 ## Recommended Order
 
-1. **Batch 1: Foundation And Safety** - make the current system safer,
-   reproducible, and easier to run.
+1. **Batch 1: Database Migration Foundation** - make the operational Postgres
+   schema explicit and reproducible.
 2. **Batch 2: Observability And Analytics** - make the whole app inspectable
    through Grafana, with logs, metrics, traces, and production inference
    analytics.
-3. **Batch 3: Purposeful Platform Expansion** - add Spark, Kubernetes, and
-   other larger features only after the operational feedback loop exists.
+3. **Batch 3: Documentation Improvements** - document the workflows after the
+   major surfaces exist.
+4. **Batch 4: Purposeful Platform Expansion** - add production decision loops
+   such as A/B champion/challenger evaluation.
+5. **Batch 5: Deferred Operational Hardening** - add operator health checks and
+   gateway abuse protection after the higher-value work is complete.
 
 This order keeps the project portfolio-friendly: first prove the system is
 solid, then prove it is observable, then prove it can scale and learn from
 production behavior.
 
-## Batch 1: Foundation And Safety
+## Batch 1: Database Migration Foundation
 
-Batch 1 should not add major new infrastructure. It should make the existing
-Postgres/Compose/FastAPI/Airflow system feel intentional and production-shaped.
+Batch 1 should stay narrow: introduce managed migrations for the existing
+Postgres application schema and stop relying on implicit table creation.
 
 ### 1. Database Migrations
 
@@ -64,182 +69,6 @@ Suggested first PR:
 - Add `alembic` to the gateway/runtime dependency set.
 - Update `src/gateway/main.py` to remove `Base.metadata.create_all`.
 - Add `docs/database-migrations.md`.
-
-### 2. Gateway Safety And Request Validation
-
-Current state: request models validate basic shape, but there are no explicit
-limits for message length, message count, `rag_sources`, session identifiers, or
-request rate.
-
-Target state:
-
-- Add bounded validation to OpenAI-compatible chat requests:
-  - maximum number of messages;
-  - maximum message content length;
-  - maximum number of `rag_sources`;
-  - allowed format and length for knowledge base names and aliases;
-  - bounded `chat_session_id`.
-- Add rate limiting at the gateway, preferably Redis-backed so it works across
-  gateway replicas later.
-- Return consistent `4xx` errors before RAG retrieval or Celery enqueue.
-- Add config values for all limits with production-safe defaults.
-
-Acceptance criteria:
-
-- Oversized requests fail before expensive work starts.
-- Rate limits work per authenticated user when auth is enabled and per IP when
-  auth is disabled.
-- Tests cover valid requests, edge-of-limit requests, and rejected requests.
-- Documentation names the limits and environment variables.
-
-Suggested first PR:
-
-- Add Pydantic constraints and validators in
-  `src/gateway/schemas/openai_chat.py`.
-- Add route-level tests around `/v1/chat/completions`.
-- Add Redis-backed rate limiting middleware after validation behavior is locked
-  down.
-
-### 3. Test And CI Ergonomics
-
-Current state: tests and Airflow tasks manually make `src/` importable in a few
-places. This works, but local test execution is more implicit than it needs to
-be.
-
-Target state:
-
-- Make `pytest` discover source imports consistently without requiring users to
-  remember `PYTHONPATH=src`.
-- Add focused markers for integration, compose, gpu, and slow tests.
-- Keep unit tests fast by default.
-- Document the common test commands in one place.
-
-Acceptance criteria:
-
-- `uv run pytest` works for the default unit suite from a clean checkout.
-- Integration/Compose tests are opt-in.
-- Airflow DAG import tests remain deterministic.
-
-Suggested first PR:
-
-- Add pytest config in `pyproject.toml` or `pytest.ini`.
-- Add markers and update existing tests if marker warnings appear.
-- Add `docs/testing.md`.
-
-### 4. Secrets And Production Configuration Hygiene
-
-Current state: deployment docs are detailed, but the safety checklist should be
-easier to audit before exposing the stack.
-
-Target state:
-
-- Refresh `.env.example` coverage for gateway, auth, Redis, RabbitMQ, Postgres,
-  Grafana, MLflow, Airflow, DVC/S3, and model/runtime settings.
-- Mark secrets versus non-secret tuning knobs.
-- Add a production preflight checklist:
-  - default passwords changed;
-  - OIDC configured or intentionally disabled;
-  - CORS and nginx hosts restricted;
-  - Airflow Fernet key set;
-  - persistent volumes backed up;
-  - DVC/S3 credentials scoped;
-  - public endpoints reviewed.
-- Explain what startup configuration summary is safe to log.
-
-Acceptance criteria:
-
-- A fresh deploy can be configured from `.env.example` without hunting through
-  Compose.
-- No real secrets are committed.
-- The production checklist is short enough to actually use.
-
-Suggested first PR:
-
-- Audit Compose environment variables against `.env.example`.
-- Add `docs/production-checklist.md`.
-
-### 5. Compose And Service Health Smoke Tests
-
-Current state: services have Compose definitions and runtime tests, but there is
-no compact smoke suite that proves the deployment comes up coherently.
-
-Target state:
-
-- Add opt-in smoke tests or scripts for:
-  - gateway `/health` or equivalent;
-  - gateway `/metrics`;
-  - Redis connectivity;
-  - RabbitMQ management/API or broker connectivity;
-  - Postgres connectivity;
-  - Qdrant readiness;
-  - Grafana and Prometheus availability.
-- Keep expensive model loading out of default smoke checks unless explicitly
-  requested.
-
-Acceptance criteria:
-
-- Smoke tests are safe to run against local Compose.
-- Failures produce actionable service names and URLs.
-- CI can run a lightweight subset without GPU services.
-
-Suggested first PR:
-
-- Add `scripts/compose_smoke.sh` or `tests/smoke/test_compose_health.py`.
-- Add a README/quickstart command that runs the smoke suite.
-
-### 6. Architecture Decision Records
-
-Current state: the system design README explains the architecture, but the
-reasoning behind key choices is not captured as small decision records.
-
-Target state:
-
-- Add ADRs for:
-  - Docker Compose as the current deployment contract;
-  - Postgres for operational state and ClickHouse for analytics;
-  - RabbitMQ for task dispatch plus Redis for streams/session-adjacent state;
-  - vLLM as the inference runtime;
-  - Airflow for reproducible ML/RAG workflows;
-  - single-repo layout for a portfolio-scale ML platform;
-  - Qdrant aliases for champion/challenger RAG collection promotion.
-- Keep each ADR short: context, decision, consequences, alternatives.
-
-Acceptance criteria:
-
-- `docs/adr/` contains numbered ADRs.
-- README/system design links to the ADR index.
-- ADRs explain why the current choices fit this project size and what would
-  trigger revisiting them.
-
-Suggested first PR:
-
-- Add `docs/adr/000-index.md`.
-- Add ADRs for Compose deployment, database split, and RabbitMQ plus Redis.
-
-### 7. Portfolio Quickstart Skeleton
-
-Current state: the repo has strong system documentation, but a reviewer still
-has to infer the shortest impressive path through the stack.
-
-Target state:
-
-- Add a concise quickstart that demonstrates the main portfolio story:
-  gateway, async inference, RAG retrieval, alias lifecycle, eval metrics,
-  observability, and training/eval artifacts.
-- Include copy-paste API examples for non-streaming and streaming chat.
-- Link to deeper docs instead of duplicating them.
-- Leave final observability screenshots until Batch 2 is done.
-
-Acceptance criteria:
-
-- A reader can identify the recommended demo path in under five minutes.
-- The quickstart can be completed before the observability mini-project is
-  finished, then refreshed with screenshots after Batch 2.
-
-Suggested first PR:
-
-- Add `docs/portfolio-quickstart.md`.
-- Add API examples with `curl` and expected response shape.
 
 ## Batch 2: Observability And Analytics
 
@@ -334,37 +163,45 @@ Acceptance criteria:
 - Logs survive normal container restarts through configured volumes/retention.
 - Loki is optional for local development and does not block core app startup.
 
-### 4. Existing Dashboard Polish
+### 4. Observability Workflow And Dashboard Specification
 
 Current state: Grafana dashboards exist for infrastructure, gateway/vLLM, and
-RAG/eval observability. They should become proof-oriented instead of just
-available.
+RAG/eval observability. Dashboard implementation is not part of this plan, but
+the project needs a clean technical document describing the overall
+observability workflow and the dashboard categories that should exist.
 
 Target state:
 
-- Document what each existing dashboard proves:
-  - request traffic and gateway latency;
-  - vLLM token throughput and time-to-first-token;
-  - queue depth and worker health;
-  - GPU/CPU/memory/disk pressure;
-  - eval score trends;
-  - RAG no-hit or low-hit behavior where currently observable.
-- Add missing panel descriptions and consistent panel titles.
-- Add a dashboard validation checklist for demo and operations.
-- Clearly separate currently implemented metrics from upcoming ClickHouse
-  analytics.
+- Add a clean technical observability doc covering:
+  - what each backend stores;
+  - how Grafana ties the backends together;
+  - how logs, metrics, traces, Postgres metadata, and ClickHouse analytics
+    should be used together;
+  - which dashboard types are needed;
+  - which dashboard types depend on future ClickHouse/event-stream data.
+- Define dashboard categories, not final dashboard JSON:
+  - service health and infrastructure;
+  - gateway/API latency and errors;
+  - vLLM throughput and generation latency;
+  - queue and worker behavior;
+  - RAG retrieval health;
+  - eval/model quality trends;
+  - production inference analytics.
+- Leave actual Grafana dashboard development for separate dashboard-specific
+  work.
 
 Acceptance criteria:
 
-- A reviewer can open Grafana and understand which panels matter.
-- Dashboard JSON remains provisioned through `infra/grafana`.
-- Docs explain the role of Prometheus, Postgres, Tempo, Loki, and ClickHouse.
+- `docs/observability.md` explains the end-to-end observability workflow.
+- The doc names dashboard categories and the data source behind each category.
+- The doc clearly separates currently available data from planned ClickHouse
+  analytics.
+- No dashboard JSON work is required by this item.
 
 Suggested first PR:
 
 - Add `docs/observability.md`.
-- Update dashboard descriptions in JSON only where low-risk.
-- Link the doc from `infra/README.md` and the portfolio quickstart.
+- Link the doc from `infra/README.md` and, later, the portfolio quickstart.
 
 ### 5. Durable Inference Events With Kafka Or Redpanda
 
@@ -462,7 +299,192 @@ Acceptance criteria:
 - The portfolio quickstart links to this workflow.
 - Screenshots can be captured from a working local/server deployment.
 
-### 8. A/B Champion/Challenger Evaluation
+### 8. LLM Observability Product Evaluation
+
+Current state: Batch 2 should provide vendor-neutral tracing, logs, metrics, and
+analytics. Specialized LLM observability tools may still be useful for prompt
+and retrieval review workflows.
+
+Target state:
+
+- Evaluate Langfuse or Arize Phoenix as part of the main observability design,
+  not as a later afterthought.
+- Decide whether either tool adds enough value on top of OpenTelemetry, Tempo,
+  Loki, Prometheus, Postgres, and ClickHouse.
+- Define what may be captured if an LLM observability product is adopted:
+  - prompt/response metadata;
+  - retrieval context metadata;
+  - latency per LLM/RAG step;
+  - feedback labels;
+  - redacted prompt/response samples only if explicitly allowed.
+- Define privacy, redaction, and retention rules before storing prompt or
+  response text.
+- Use these tools for prompt/retrieval review, not as replacements for the core
+  observability stack.
+
+Acceptance criteria:
+
+- `docs/observability.md` includes a recommendation: adopt one product, defer
+  adoption, or explicitly skip for now.
+- The recommendation explains what problem the product solves that the base
+  Grafana/OpenTelemetry stack does not.
+- Any prompt/response capture plan includes explicit redaction and retention
+  rules.
+
+## Batch 3: Documentation Improvements
+
+Batch 3 should refresh documentation after the observability and analytics work
+exists, so the docs describe real operator/reviewer workflows instead of
+promising future surfaces.
+
+### 1. Portfolio Quickstart
+
+Current state: the repo has strong system documentation, but a reviewer still
+has to infer the shortest impressive path through the stack.
+
+Target state:
+
+- Add a concise quickstart that demonstrates the main portfolio story:
+  gateway, async inference, RAG retrieval, alias lifecycle, eval metrics,
+  observability, and training/eval artifacts.
+- Include copy-paste API examples for non-streaming and streaming chat.
+- Link to deeper docs instead of duplicating them.
+- Include real screenshots or links to real Grafana/Airflow/MLflow views after
+  Batch 2 is complete.
+
+Acceptance criteria:
+
+- A reader can identify the recommended demo path in under five minutes.
+- The quickstart reflects the implemented observability workflow rather than a
+  placeholder version of it.
+- The quickstart links to database migration, RAG operations, observability, and
+  CI reproduction docs.
+
+Suggested first PR:
+
+- Add `docs/portfolio-quickstart.md`.
+- Add API examples with `curl` and expected response shape.
+- Add screenshots after Batch 2 dashboards/traces/logs/analytics are available.
+
+### 2. CI Reproduction Documentation
+
+Current state: CI is already structured into pre-commit, core pytest, and
+training pytest jobs. The gap is documentation: a contributor should be able to
+run the same commands locally without reverse-engineering `.github/workflows/ci.yml`.
+
+Target state:
+
+- Document the exact CI commands and environment variables:
+  - pre-commit job;
+  - core pytest dependency install;
+  - core pytest test paths;
+  - training pytest dependency install;
+  - training pytest command.
+- Explain that CI uses `PROJECT_ROOT=$PWD` and `PYTHONPATH=src`.
+- Avoid changing CI unless the documentation work reveals a real mismatch.
+
+Acceptance criteria:
+
+- A local developer can reproduce each CI job from docs.
+- The documented commands match `.github/workflows/ci.yml`.
+- No new markers, test restructuring, or CI changes are introduced without a
+  concrete failing case.
+
+Suggested first PR:
+
+- Add `docs/testing.md` with copy-paste commands from CI.
+- Link it from `README.md` and the portfolio quickstart.
+
+## Batch 4: Purposeful Platform Expansion
+
+Batch 4 should add features that directly use the production observability and
+analytics foundation from Batch 2.
+
+### 1. RAG Source Citations
+
+Current state: RAG retrieval can provide context to the model, and runtime
+observability tracks provenance internally, but user-facing answers do not yet
+make source grounding explicit enough for research workflows.
+
+Problem to solve:
+
+- researchers need to know which documents support an answer;
+- RAG answers should expose source provenance without forcing the user to inspect
+  backend logs or Qdrant metadata;
+- citations should make hallucinations and weak retrieval easier to spot.
+
+Target state:
+
+- Preserve source metadata through retrieval, prompt construction, generation,
+  streaming, and persisted chat history.
+- Ask the model to cite retrieved sources in answers when RAG context is used.
+- Return structured citation metadata in API responses:
+  - source title or document id;
+  - source URI;
+  - chunk id or section metadata when available;
+  - rank/score where useful;
+  - knowledge base and alias.
+- Render citations in the UI in a compact, inspectable way.
+- Track citation coverage in inference events and ClickHouse analytics.
+
+Acceptance criteria:
+
+- A RAG answer can be traced from visible citation to retrieved chunk metadata.
+- Non-RAG answers do not invent citations.
+- API and UI behavior remain useful even when some source metadata is missing.
+- Tests cover citation metadata propagation and no-citation behavior.
+
+Likely files:
+
+- `src/rag/runtime/models.py`
+- `src/gateway/services/rag_service.py`
+- `src/gateway/services/prompt_builder.py`
+- `src/gateway/services/processing.py`
+- `src/gateway/schemas/openai_chat.py`
+- `src/ui/app.py`
+
+### 2. User Feedback Tracking
+
+Current state: there is no simple way for users to tell the system whether an
+answer was useful. Quality signals come mostly from offline evals and operator
+inspection.
+
+Problem to solve:
+
+- offline evals do not capture whether real users found an answer helpful;
+- researchers may need to flag bad grounding, missing citations, or weak
+  answers quickly;
+- later A/B decisions need lightweight human feedback signals.
+
+Target state:
+
+- Add simple feedback capture:
+  - thumbs up/down on an answer;
+  - optional short reason or category;
+  - optional "choose between two answers" workflow for comparison tasks.
+- Associate feedback with request id, chat session id, model/adapter metadata,
+  RAG sources, citations, and timestamp.
+- Publish feedback to `feedback-events` and store it in ClickHouse for
+  analytics.
+- Keep feedback UI minimal and non-blocking.
+- Define privacy rules for any free-text feedback.
+
+Acceptance criteria:
+
+- Users can submit feedback for a completed answer.
+- Feedback can be joined to inference events by request id.
+- Feedback analytics can be queried in ClickHouse.
+- The system supports thumbs feedback first, with pairwise answer choice as a
+  later extension if needed.
+
+Likely files:
+
+- `src/gateway/api/v1/`
+- `src/gateway/services/event_publisher.py`
+- `src/ui/app.py`
+- `infra/clickhouse/migrations/`
+
+### 3. A/B Champion/Challenger Evaluation
 
 Current state: champion/challenger aliases exist for RAG collections and MLflow
 model registry workflows, but promotion decisions are mostly offline.
@@ -493,70 +515,94 @@ Likely files:
 - `src/shared/config.py`
 - `experiments/training/lora_ops.ipynb`
 
-## Batch 3: Purposeful Platform Expansion
+## Batch 5: Deferred Operational Hardening
 
-Batch 3 should add heavier infrastructure only when it closes a clear ML
-production loop. The observability/analytics batch should make the need visible
-before these features are implemented.
+These items are useful, but they should come after the core observability work.
+By then the project will have better logs, traces, dashboards, and analytics,
+which makes these hardening tasks easier to design and validate.
 
-### 1. Spark For Data Quality And Feedback Loops
+### 1. Compose Health Inspection
 
-Current state: RAG source builds and training data preparation are mostly
-single-process Python workflows. They are reproducible, but not yet positioned
-as distributed data-quality jobs.
+Current state: services have Compose definitions and runtime tests, but there is
+no compact operator command that summarizes whether the already-running Compose
+deployment is healthy. Compose already defines many service healthchecks; this
+task should not create a CI test suite that requires running services.
 
-Target state:
+Problem to solve:
 
-- Add small, measurable Spark jobs rather than broad Spark adoption:
-  - RAG source dedup/filter/chunk quality gates;
-  - training data dedup/filter before LoRA training;
-  - weekly KB gap detection from low-hit inference events;
-  - weekly query drift detection against a baseline.
-- Run Spark local/standalone from Airflow so it remains server-friendly but
-  cluster-ready.
-- Write gap/drift reports into ClickHouse for Grafana dashboards.
-
-Likely files:
-
-- `src/spark/rag_preprocessing.py`
-- `src/spark/training_data_prep.py`
-- `src/spark/kb_gap_detection.py`
-- `src/spark/query_drift_detection.py`
-- `dags/kb_gap_detection.py`
-- `dags/query_drift_detection.py`
-- updates to `dags/rag_lifecycle.py` and `dags/train_lora.py`
-
-### 2. Kubernetes Later: k3s, Helm, KEDA
-
-Current state: Docker Compose is the real deployment contract.
+- after deploy or local `docker compose up`, the operator should have one
+  command that answers "is the stack basically alive?";
+- failures should point to the service and endpoint that failed;
+- this should wrap existing healthchecks/endpoints, not duplicate application
+  tests.
 
 Target state:
 
-- Add k3s/Helm after the production data loop exists.
-- Use KEDA to autoscale Celery workers from RabbitMQ queue depth.
-- Add GPU resource requests/limits for vLLM.
-- Support rolling updates for model or adapter changes.
+- Add an operator-facing script or documented command sequence for an
+  already-running Compose stack.
+- Check:
+  - `docker compose ps` health state;
+  - gateway `/health`;
+  - gateway `/metrics`;
+  - Prometheus readiness;
+  - Grafana health;
+  - Qdrant readiness;
+  - Redis/RabbitMQ/Postgres through either Compose health state or lightweight
+    container exec checks.
+- Keep vLLM/model generation out of the default check.
+- Add optional deeper checks later if a concrete operator need appears.
 
-Why this is later:
+Acceptance criteria:
 
-- Kubernetes is impressive only when it demonstrates an operational need.
-- Queue-driven scaling and zero-downtime model swaps are better demos once
-  production events and analytics can prove the need.
+- The check is safe to run against local or server Compose.
+- Failures produce actionable service names and URLs.
+- It is documented as an operator/deploy check, not as part of the normal CI
+  test suite.
 
-### 3. Optional LLM Observability Products
+Suggested first PR:
 
-Current state: Batch 2 should provide vendor-neutral tracing, logs, metrics, and
-analytics. Specialized LLM observability tools may still be useful for prompt
-and retrieval review workflows.
+- Add `scripts/compose_health.sh` or `scripts/compose_status.sh`.
+- Document it in `infra/README.md` and the quickstart.
+
+### 2. Gateway Abuse Protection
+
+Current state: the gateway requires auth for real user workflows, but it does
+not have an explicit abuse-protection layer at the edge. The goal is not to mix
+business/backend request constraints with user throttling. Prompt budget and
+backend-specific request shaping already belong to the prompt/budgeting code.
+
+Problem to solve:
+
+- unauthenticated traffic should not be able to cheaply hammer public endpoints;
+- authenticated users should have a basic overuse guardrail;
+- rate-limit decisions should happen before expensive RAG, Celery, or vLLM work.
 
 Target state:
 
-- Evaluate Langfuse or Arize Phoenix only after OpenTelemetry/Tempo, Loki, and
-  ClickHouse are in place.
-- Capture prompt/response metadata only with explicit redaction and retention
-  rules.
-- Use these tools for prompt/retrieval review, not as replacements for the core
-  observability stack.
+- Add Redis-backed gateway rate limiting.
+- Use authenticated user id as the primary rate-limit key for protected routes.
+- Use IP-based limits for unauthenticated/public routes such as health,
+  discovery, auth start/callback, and static/non-mutating endpoints if exposed.
+- Keep user-agent out of the primary key by default. It is easy to spoof and can
+  create surprising cardinality; it can be logged for diagnostics.
+- Return consistent `429` responses with useful retry metadata.
+- Add config values for authenticated and unauthenticated limits.
+- Keep OpenAI-compatible payload flexibility unless a separate, concrete backend
+  failure mode requires a bound.
+
+Acceptance criteria:
+
+- Authenticated chat requests are limited per user id.
+- Unauthenticated/public requests are limited per client IP.
+- Rate-limit state works across multiple gateway replicas through Redis.
+- Redis failure behavior is explicit and documented.
+- Tests cover auth-keyed limits, IP-keyed limits, and `429` responses.
+
+Suggested first PR:
+
+- Add a small gateway rate-limit middleware/service.
+- Add settings for authenticated and unauthenticated limit windows.
+- Add route-level tests with mocked Redis/time.
 
 ## Deferred Ideas
 
@@ -568,3 +614,28 @@ These are valuable, but they should not interrupt the batches above:
 - Full multi-node Kubernetes deployment.
 - More advanced cost accounting once ClickHouse inference analytics exists.
 
+### Spark For Data Quality And Feedback Loops
+
+Current idea:
+
+- RAG source dedup/filter/chunk quality gates.
+- Training data dedup/filter before LoRA training.
+- Weekly KB gap detection from low-hit inference events.
+- Weekly query drift detection against a baseline.
+- Write gap/drift reports into ClickHouse for Grafana dashboards.
+
+This should wait until ClickHouse inference analytics exists and there is enough
+real or synthetic traffic to justify batch data jobs.
+
+### Kubernetes Later: k3s, Helm, KEDA
+
+Current idea:
+
+- Add k3s/Helm after the production data loop exists.
+- Use KEDA to autoscale Celery workers from RabbitMQ queue depth.
+- Add GPU resource requests/limits for vLLM.
+- Support rolling updates for model or adapter changes.
+
+This should wait until Compose-based operations are observable enough that
+Kubernetes solves a visible problem instead of adding infrastructure for its own
+sake.
