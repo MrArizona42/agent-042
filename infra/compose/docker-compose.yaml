@@ -17,6 +17,12 @@ x-shared-endpoints: &shared-endpoints
   PLATFORM__QDRANT_HOST: ${PLATFORM__QDRANT_HOST:-qdrant}
   PLATFORM__QDRANT_PORT: ${PLATFORM__QDRANT_PORT:-6333}
 
+x-observability-env: &observability-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+  OTEL_TRACES_SAMPLER: parentbased_traceidratio
+  OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+
 x-airflow-common-env: &airflow-common-env
   <<: *shared-endpoints
   AIRFLOW__CORE__EXECUTOR: CeleryExecutor
@@ -389,6 +395,7 @@ services:
       dockerfile: infra/docker/embeddings/Dockerfile
 
     environment:
+      <<: *observability-env
       RAG__EMBEDDING_MODEL: ${RAG__EMBEDDING_MODEL}
       RAG__EMBEDDING_DEVICE: ${RAG__EMBEDDING_DEVICE}
 
@@ -415,6 +422,7 @@ services:
       dockerfile: infra/docker/reranker/Dockerfile
 
     environment:
+      <<: *observability-env
       RAG__RERANKER_MODEL: ${RAG__RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
 
     healthcheck:
@@ -440,7 +448,7 @@ services:
       dockerfile: infra/docker/celery/Dockerfile
 
     environment:
-      <<: *shared-endpoints
+      <<: [*shared-endpoints, *observability-env]
       PLATFORM__CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
       GATEWAY__DEFAULT_MODEL: ${VLLM_MODEL}
 
@@ -598,7 +606,7 @@ services:
       dockerfile: infra/docker/gateway/Dockerfile
 
     environment:
-      <<: *shared-endpoints
+      <<: [*shared-endpoints, *observability-env]
       GATEWAY__DEFAULT_MODEL: ${VLLM_MODEL}
       RAG__RAG_ENABLED: ${RAG__RAG_ENABLED}
       RAG__EMBEDDING_MODEL: ${RAG__EMBEDDING_MODEL}
@@ -806,6 +814,104 @@ services:
     restart: unless-stopped
 
   # =====================
+  # Loki (log storage)
+  # =====================
+  loki:
+    image: grafana/loki:3.5.1
+
+    command:
+      - -config.file=/etc/loki/loki.yaml
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/docker/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/loki
+
+    ports:
+      - "127.0.0.1:${LOKI_PORT}:3100"
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # Tempo (trace storage)
+  # =====================
+  tempo:
+    image: grafana/tempo:2.8.1
+
+    command:
+      - -config.file=/etc/tempo/tempo.yaml
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/docker/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+
+    ports:
+      - "127.0.0.1:${TEMPO_PORT}:3200"
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # OpenTelemetry Collector (OTLP ingress)
+  # =====================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.136.0
+
+    command:
+      - --config=/etc/otelcol/config.yaml
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/docker/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+
+    ports:
+      - "127.0.0.1:${OTEL_COLLECTOR_GRPC_PORT}:4317"
+      - "127.0.0.1:${OTEL_COLLECTOR_HTTP_PORT}:4318"
+
+    depends_on:
+      tempo:
+        condition: service_started
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # Grafana Alloy (Docker logs to Loki)
+  # =====================
+  alloy:
+    image: grafana/alloy:v1.10.2
+
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/docker/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    ports:
+      - "127.0.0.1:${ALLOY_PORT}:12345"
+
+    depends_on:
+      loki:
+        condition: service_started
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
   # Grafana (Analytics & Observability UI)
   # =====================
   grafana:
@@ -832,6 +938,10 @@ services:
         condition: service_healthy
       prometheus:
         condition: service_healthy
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
 
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
@@ -1121,6 +1231,8 @@ volumes:
   redisinsight_data:
   grafana_data:
   prometheus_data:
+  loki_data:
+  tempo_data:
   airflow_logs:
 
 # =====================

@@ -19,6 +19,8 @@ anyio==4.12.1
     #   httpx
     #   starlette
     #   watchfiles
+asgiref==3.11.1
+    # via opentelemetry-instrumentation-asgi
 asyncpg==0.31.0
     # via agent-042 (pyproject.toml)
 attrs==26.1.0
@@ -83,6 +85,8 @@ frozenlist==1.8.0
     #   aiosignal
 fsspec==2026.4.0
     # via llama-index-core
+googleapis-common-protos==1.75.0
+    # via opentelemetry-exporter-otlp-proto-grpc
 greenlet==3.3.2
     # via sqlalchemy
 griffe==2.0.2
@@ -94,7 +98,9 @@ griffelib==2.0.2
     #   griffe
     #   griffecli
 grpcio==1.78.0
-    # via qdrant-client
+    # via
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   qdrant-client
 h11==0.16.0
     # via
     #   httpcore
@@ -165,6 +171,60 @@ numpy==2.4.2
     # via
     #   llama-index-core
     #   qdrant-client
+opentelemetry-api==1.42.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-celery
+    #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-redis
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+opentelemetry-exporter-otlp-proto-common==1.42.1
+    # via opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-exporter-otlp-proto-grpc==1.42.1
+    # via agent-042 (pyproject.toml)
+opentelemetry-instrumentation==0.63b1
+    # via
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-celery
+    #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-redis
+opentelemetry-instrumentation-asgi==0.63b1
+    # via opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-celery==0.63b1
+    # via agent-042 (pyproject.toml)
+opentelemetry-instrumentation-fastapi==0.63b1
+    # via agent-042 (pyproject.toml)
+opentelemetry-instrumentation-httpx==0.63b1
+    # via agent-042 (pyproject.toml)
+opentelemetry-instrumentation-redis==0.63b1
+    # via agent-042 (pyproject.toml)
+opentelemetry-proto==1.42.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-sdk==1.42.1
+    # via
+    #   agent-042 (pyproject.toml)
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-semantic-conventions==0.63b1
+    # via
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-celery
+    #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-redis
+    #   opentelemetry-sdk
+opentelemetry-util-http==0.63b1
+    # via
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-httpx
 orjson==3.11.7
     # via langsmith
 packaging==26.0
@@ -173,6 +233,7 @@ packaging==26.0
     #   langchain-core
     #   langsmith
     #   marshmallow
+    #   opentelemetry-instrumentation
 pillow==12.2.0
     # via llama-index-core
 platformdirs==4.10.0
@@ -191,8 +252,11 @@ propcache==0.5.2
     # via
     #   aiohttp
     #   yarl
-protobuf==7.34.0
-    # via qdrant-client
+protobuf==6.33.6
+    # via
+    #   googleapis-common-protos
+    #   opentelemetry-proto
+    #   qdrant-client
 pycparser==3.0
     # via cffi
 pydantic==2.12.5
@@ -280,6 +344,10 @@ typing-extensions==4.15.0
     #   langchain-core
     #   llama-index-core
     #   llama-index-workflows
+    #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
     #   sqlalchemy
@@ -326,6 +394,9 @@ wrapt==2.2.1
     # via
     #   deprecated
     #   llama-index-core
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-redis
 xxhash==3.6.0
     # via langsmith
 yarl==1.24.2

@@ -20,12 +20,18 @@ from shared.config import (
     get_settings,
     log_configuration_summary,
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+from shared.logging import configure_logging
+from shared.telemetry import (
+    instrument_celery,
+    instrument_fastapi_app,
+    instrument_httpx,
+    instrument_redis,
 )
+
+configure_logging(service="gateway")
+instrument_httpx(service="gateway")
+instrument_redis(service="gateway")
+instrument_celery(service="gateway")
 logger = logging.getLogger(__name__)
 
 # Load settings at module load time (fail fast) and emit a safe summary.
@@ -149,6 +155,7 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+instrument_fastapi_app(app, service="gateway")
 
 from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
 

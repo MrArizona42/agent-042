@@ -11,6 +11,7 @@ from gateway.schemas.openai_chat import ChatCompletionRequest
 from gateway.services.budget import BudgetValidationError
 from gateway.services.processing import process_chat
 from shared.catalog import get_kb_config
+from shared.logging import bind_log_context, reset_log_context
 from shared.vllm_payloads import ResponseBudgetExceededError
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ async def list_models() -> Any:
 
 @router.post("/chat/completions")
 async def chat_completions(payload: ChatCompletionRequest, request: Request) -> Any:
+    request_id = str(_uuid.uuid4())
     # Validate rag_sources before processing
     if payload.rag_sources:
         for src in payload.rag_sources:
@@ -49,15 +51,33 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request) -> 
     user_id: str | None = getattr(request.state, "user_id", None)
     chat_session_id = payload.chat_session_id or request.headers.get("x-chat-session-id")
     rich_stream = request.headers.get("x-ui-rich-stream") == "1"
+    log_token = bind_log_context(
+        request_id=request_id,
+        user_id=user_id,
+        chat_session_id=chat_session_id,
+        route="/v1/chat/completions",
+    )
 
     try:
+        logger.info(
+            "Chat completion request received",
+            extra={
+                "event": "chat.request.received",
+                "stream": payload.stream,
+                "message_count": len(payload.messages),
+                "rag_sources_count": len(payload.rag_sources or ()),
+            },
+        )
         if not payload.stream:
+            logger.info(
+                "Chat completion request rejected because stream=false",
+                extra={"event": "chat.request.rejected", "reason": "stream_required"},
+            )
             raise HTTPException(
                 status_code=400,
                 detail="Successful chat generation requires stream=true.",
             )
 
-        request_id = str(_uuid.uuid4())
         generator = await process_chat.stream_chat(
             payload,
             user_id=user_id,
@@ -74,7 +94,13 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request) -> 
             },
         )
     except (BudgetValidationError, ResponseBudgetExceededError) as exc:
+        logger.info(
+            "Chat completion request rejected by budget validation",
+            extra={"event": "chat.request.rejected", "reason": type(exc).__name__},
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        reset_log_context(log_token)
 
 
 @router.get("/chat/prompt-preview/{request_id}")
