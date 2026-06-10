@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import re
+from functools import lru_cache
 from typing import Any
 
 import httpx
 import redis
 
 from shared.config import get_settings, secret_value
+from shared.events import InferenceEventProducer, create_inference_event_producer
 from shared.logging import bind_log_context, reset_log_context
 from shared.telemetry import get_tracer
 from shared.vllm_payloads import (
@@ -166,6 +168,11 @@ def get_redis_client() -> redis.Redis:
     return redis.from_url(settings.platform.redis_url, decode_responses=True)
 
 
+@lru_cache(maxsize=1)
+def _get_event_producer() -> InferenceEventProducer:
+    return create_inference_event_producer(service="celery-worker", settings=get_settings())
+
+
 def publish_event(
     redis_client: redis.Redis,
     conversation_id: str,
@@ -248,6 +255,14 @@ def generate_response(
     )
 
     logger.info("Worker generation started", extra={"event": "worker.generation.started"})
+    event_producer = _get_event_producer()
+    event_producer.publish(
+        "worker.generation.started",
+        request_id=request_id,
+        celery_task_id=task_id,
+        conversation_id=conversation_id,
+        model=model,
+    )
 
     thinking_content = ""
     answer_content = ""
@@ -289,6 +304,17 @@ def generate_response(
                 "Worker token budget resolved",
                 extra={
                     "event": "worker.vllm.tokenized",
+                    "prompt_tokens": usage["prompt_tokens"],
+                    "final_max_tokens": final_max_tokens,
+                },
+            )
+            event_producer.publish(
+                "worker.vllm.tokenized",
+                request_id=request_id,
+                celery_task_id=task_id,
+                conversation_id=conversation_id,
+                model=model,
+                payload={
                     "prompt_tokens": usage["prompt_tokens"],
                     "final_max_tokens": final_max_tokens,
                 },
@@ -461,6 +487,19 @@ def generate_response(
                 "total_tokens": done_event["usage"].get("total_tokens"),
             },
         )
+        event_producer.publish(
+            "worker.generation.completed",
+            request_id=request_id,
+            celery_task_id=task_id,
+            conversation_id=conversation_id,
+            model=model,
+            payload={
+                "finish_reason": done_event["finish_reason"],
+                "prompt_tokens": done_event["usage"].get("prompt_tokens"),
+                "completion_tokens": done_event["usage"].get("completion_tokens"),
+                "total_tokens": done_event["usage"].get("total_tokens"),
+            },
+        )
 
         return {
             "conversation_id": conversation_id,
@@ -471,6 +510,14 @@ def generate_response(
         logger.error(
             "Worker exact budget rejected",
             extra={"event": "worker.generation.error", "error_type": "budget_exceeded"},
+        )
+        event_producer.publish(
+            "worker.generation.failed",
+            request_id=request_id,
+            celery_task_id=task_id,
+            conversation_id=conversation_id,
+            model=model,
+            payload={"error_type": "budget_exceeded"},
         )
 
         publish_event(
@@ -491,6 +538,14 @@ def generate_response(
         logger.exception(
             "Worker generation failed",
             extra={"event": "worker.generation.error", "error_type": type(e).__name__},
+        )
+        event_producer.publish(
+            "worker.generation.failed",
+            request_id=request_id,
+            celery_task_id=task_id,
+            conversation_id=conversation_id,
+            model=model,
+            payload={"error_type": type(e).__name__},
         )
 
         # Publish error event

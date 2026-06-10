@@ -802,6 +802,18 @@ Volumes хранят персистентные данные: qdrant-storage, po
 **Prometheus + Grafana:**
 Gateway использует `prometheus-fastapi-instrumentator` — автоматически экспортирует метрики HTTP-запросов (latency, status codes, throughput). Grafana предоставляет дашборды инфраструктурной observability (CPU, GPU, память) и ML-специфические дашборды (очереди, inference latency).
 
+**OpenTelemetry + Tempo + Loki:**
+Python-сервисы пишут structured JSON logs с `request_id` и, когда есть активный span,
+`trace_id`/`span_id`. OpenTelemetry traces отправляются в `otel-collector`, затем в Tempo.
+Grafana Alloy читает Docker logs через Docker socket и отправляет их в Loki. Grafana
+provisioning подключает Postgres, Prometheus, Loki и Tempo. Рабочий workflow описан в
+`docs/observability.md`.
+
+**Redpanda:**
+Gateway и Celery worker публикуют durable inference lifecycle events в
+`inference.events.v1`. Redpanda Console включён в Compose для инспекции topic'ов.
+Схема и workflow описаны в `docs/inference-events.md`.
+
 **Flower:** Мониторинг Celery workers — активные задачи, история, статистика очередей.
 
 **RedisInsight:** Инспекция Redis-ключей, pub/sub топиков, памяти.

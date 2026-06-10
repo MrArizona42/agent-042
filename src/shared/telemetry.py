@@ -118,6 +118,23 @@ def get_tracer(name: str):
     return trace.get_tracer(name)
 
 
+def current_trace_context() -> dict[str, str]:
+    """Return current trace identifiers as strings when a span is active."""
+
+    try:
+        from opentelemetry import trace
+    except ImportError:
+        return {}
+
+    span_context = trace.get_current_span().get_span_context()
+    if not span_context.is_valid:
+        return {}
+    return {
+        "trace_id": format(span_context.trace_id, "032x"),
+        "span_id": format(span_context.span_id, "016x"),
+    }
+
+
 def _tracing_enabled() -> bool:
     disabled = os.getenv("OTEL_SDK_DISABLED", "").lower()
     if disabled in {"1", "true", "yes"}:

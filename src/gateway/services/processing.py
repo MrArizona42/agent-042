@@ -17,6 +17,7 @@ from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
 from shared.catalog import get_catalog, get_kb_config
 from shared.config import get_settings, secret_value
+from shared.events import InferenceEventProducer, InferenceEventType
 from shared.logging import bind_log_context, reset_log_context
 from shared.telemetry import get_tracer
 from shared.vllm_payloads import (
@@ -55,16 +56,44 @@ class _ProcessChat:
         # Services injected via init_services() during lifespan startup
         self._celery_client: CeleryClient | None = None
         self._redis_stream: RedisStreamService | None = None
+        self._event_producer: InferenceEventProducer | None = None
 
     def init_services(
         self,
         *,
         redis_stream: RedisStreamService | None = None,
         celery_client: CeleryClient | None = None,
+        event_producer: InferenceEventProducer | None = None,
     ) -> None:
         """Inject managed service instances (called from lifespan startup)."""
         self._redis_stream = redis_stream
         self._celery_client = celery_client
+        self._event_producer = event_producer
+
+    def publish_inference_event(
+        self,
+        event_type: InferenceEventType,
+        *,
+        request_id: str | None = None,
+        user_id: str | None = None,
+        chat_session_id: str | None = None,
+        celery_task_id: str | None = None,
+        conversation_id: str | None = None,
+        model: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        if self._event_producer is None:
+            return
+        self._event_producer.publish(
+            event_type,
+            request_id=request_id,
+            user_id=user_id,
+            chat_session_id=chat_session_id,
+            celery_task_id=celery_task_id,
+            conversation_id=conversation_id,
+            model=model,
+            payload=payload,
+        )
 
     def ensure_rag_service(
         self,
@@ -294,10 +323,12 @@ class _ProcessChat:
                     }
                     for doc in docs
                 ]
-            span.set_attribute("rag.context_sources_count", len(rag_chunks_by_source))
+            context_sources_count = len(rag_chunks_by_source)
+            context_chunks_count = sum(len(chunks) for chunks in rag_chunks_by_source.values())
+            span.set_attribute("rag.context_sources_count", context_sources_count)
             span.set_attribute(
                 "rag.context_chunks_count",
-                sum(len(chunks) for chunks in rag_chunks_by_source.values()),
+                context_chunks_count,
             )
 
         return rag_chunks_by_source
@@ -516,6 +547,23 @@ class _ProcessChat:
             },
         )
 
+    @staticmethod
+    def _rag_context_event_payload(prepared: PreparedChatRequest) -> dict[str, Any]:
+        sources: set[tuple[str | None, str | None]] = set()
+        for chunk in prepared.rag_context_chunks:
+            sources.add((chunk.get("knowledge_base"), chunk.get("alias")))
+        return {
+            "context_chunks_count": len(prepared.rag_context_chunks),
+            "context_sources_count": len(sources),
+            "sources": [
+                {"knowledge_base": knowledge_base, "alias": alias}
+                for knowledge_base, alias in sorted(
+                    sources,
+                    key=lambda item: (item[0] or "", item[1] or ""),
+                )
+            ],
+        }
+
     async def stream_chat(
         self,
         req: ChatCompletionRequest,
@@ -534,6 +582,15 @@ class _ProcessChat:
         try:
             with tracer.start_as_current_span("gateway.prepare_chat_request"):
                 prepared = self._prepare_request(req)
+            if prepared.rag_context_chunks:
+                self.publish_inference_event(
+                    "rag.context.selected",
+                    request_id=request_id,
+                    user_id=user_id,
+                    chat_session_id=chat_session_id,
+                    model=prepared.generation_payload.get("model"),
+                    payload=self._rag_context_event_payload(prepared),
+                )
             try:
                 await self._store_prompt_preview(
                     request_id=request_id,
@@ -593,6 +650,15 @@ class _ProcessChat:
         logger.info(
             "Enqueued async stream task",
             extra={"event": "celery.task.enqueued"},
+        )
+        self.publish_inference_event(
+            "celery.task.enqueued",
+            request_id=request_id,
+            user_id=user_id,
+            chat_session_id=chat_session_id,
+            celery_task_id=task_id,
+            conversation_id=conversation_id,
+            model=prepared.generation_payload.get("model"),
         )
         reset_log_context(log_token)
 
@@ -723,12 +789,36 @@ class _ProcessChat:
                             yield self._usage_chunk(request_id=request_id, usage=usage)
 
                         if chat_session_id and user_id:
-                            await self._persist_exchange(req, result, chat_session_id)
+                            await self._persist_exchange(
+                                req,
+                                result,
+                                chat_session_id,
+                                request_id=request_id,
+                                user_id=user_id,
+                                celery_task_id=task_id,
+                                conversation_id=conversation_id,
+                                model=prepared.generation_payload.get("model"),
+                            )
 
                         logger.info(
                             "Async stream completed",
                             extra={
                                 "event": "chat.stream.completed",
+                                "finish_reason": finish_reason,
+                                "prompt_tokens": usage.get("prompt_tokens"),
+                                "completion_tokens": usage.get("completion_tokens"),
+                                "total_tokens": usage.get("total_tokens"),
+                            },
+                        )
+                        self.publish_inference_event(
+                            "chat.response.completed",
+                            request_id=request_id,
+                            user_id=user_id,
+                            chat_session_id=chat_session_id,
+                            celery_task_id=task_id,
+                            conversation_id=conversation_id,
+                            model=prepared.generation_payload.get("model"),
+                            payload={
                                 "finish_reason": finish_reason,
                                 "prompt_tokens": usage.get("prompt_tokens"),
                                 "completion_tokens": usage.get("completion_tokens"),
@@ -782,6 +872,12 @@ class _ProcessChat:
         req: ChatCompletionRequest,
         result: dict,
         chat_session_id: str,
+        *,
+        request_id: str,
+        user_id: str | None,
+        celery_task_id: str,
+        conversation_id: str,
+        model: str | None,
     ) -> None:
         """Persist the user message and assistant response to PostgreSQL."""
         try:
@@ -839,6 +935,16 @@ class _ProcessChat:
                         session.updated_at = datetime.now(timezone.utc)
                     await db.commit()
                 span.set_attribute("db.messages_inserted", messages_inserted)
+                self.publish_inference_event(
+                    "chat.persistence.completed",
+                    request_id=request_id,
+                    user_id=user_id,
+                    chat_session_id=chat_session_id,
+                    celery_task_id=celery_task_id,
+                    conversation_id=conversation_id,
+                    model=model,
+                    payload={"messages_inserted": messages_inserted},
+                )
         except Exception:
             logger.warning("Failed to persist chat exchange", exc_info=True)
 

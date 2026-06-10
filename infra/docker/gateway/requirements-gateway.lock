@@ -60,6 +60,8 @@ click-repl==0.3.0
     # via celery
 colorama==0.4.6
     # via griffecli
+confluent-kafka==2.14.2
+    # via agent-042 (pyproject.toml)
 cryptography==46.0.5
     # via authlib
 dataclasses-json==0.6.7

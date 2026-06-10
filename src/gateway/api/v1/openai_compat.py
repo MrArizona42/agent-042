@@ -28,17 +28,34 @@ async def list_models() -> Any:
 @router.post("/chat/completions")
 async def chat_completions(payload: ChatCompletionRequest, request: Request) -> Any:
     request_id = str(_uuid.uuid4())
+    user_id: str | None = getattr(request.state, "user_id", None)
+    chat_session_id = payload.chat_session_id or request.headers.get("x-chat-session-id")
+    rich_stream = request.headers.get("x-ui-rich-stream") == "1"
     # Validate rag_sources before processing
     if payload.rag_sources:
         for src in payload.rag_sources:
             kb_cfg = get_kb_config(src.knowledge_base)
             if kb_cfg is None:
+                process_chat.publish_inference_event(
+                    "chat.request.rejected",
+                    request_id=request_id,
+                    user_id=user_id,
+                    chat_session_id=chat_session_id,
+                    payload={"reason": "unknown_knowledge_base"},
+                )
                 raise HTTPException(
                     status_code=404,
                     detail=f"Knowledge base '{src.knowledge_base}' unavailable",
                 )
             effective_alias = src.alias or kb_cfg.default_alias
             if effective_alias not in kb_cfg.aliases:
+                process_chat.publish_inference_event(
+                    "chat.request.rejected",
+                    request_id=request_id,
+                    user_id=user_id,
+                    chat_session_id=chat_session_id,
+                    payload={"reason": "unknown_knowledge_base_alias"},
+                )
                 raise HTTPException(
                     status_code=404,
                     detail=(
@@ -47,10 +64,6 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request) -> 
                     ),
                 )
 
-    # Pass user_id and chat_session_id from the header / request state
-    user_id: str | None = getattr(request.state, "user_id", None)
-    chat_session_id = payload.chat_session_id or request.headers.get("x-chat-session-id")
-    rich_stream = request.headers.get("x-ui-rich-stream") == "1"
     log_token = bind_log_context(
         request_id=request_id,
         user_id=user_id,
@@ -69,6 +82,13 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request) -> 
             },
         )
         if not payload.stream:
+            process_chat.publish_inference_event(
+                "chat.request.rejected",
+                request_id=request_id,
+                user_id=user_id,
+                chat_session_id=chat_session_id,
+                payload={"reason": "stream_required"},
+            )
             logger.info(
                 "Chat completion request rejected because stream=false",
                 extra={"event": "chat.request.rejected", "reason": "stream_required"},
@@ -78,6 +98,18 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request) -> 
                 detail="Successful chat generation requires stream=true.",
             )
 
+        process_chat.publish_inference_event(
+            "chat.request.accepted",
+            request_id=request_id,
+            user_id=user_id,
+            chat_session_id=chat_session_id,
+            model=payload.model,
+            payload={
+                "message_count": len(payload.messages),
+                "rag_sources_count": len(payload.rag_sources or ()),
+                "rich_stream": rich_stream,
+            },
+        )
         generator = await process_chat.stream_chat(
             payload,
             user_id=user_id,
@@ -94,6 +126,14 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request) -> 
             },
         )
     except (BudgetValidationError, ResponseBudgetExceededError) as exc:
+        process_chat.publish_inference_event(
+            "chat.request.rejected",
+            request_id=request_id,
+            user_id=user_id,
+            chat_session_id=chat_session_id,
+            model=payload.model,
+            payload={"reason": type(exc).__name__},
+        )
         logger.info(
             "Chat completion request rejected by budget validation",
             extra={"event": "chat.request.rejected", "reason": type(exc).__name__},

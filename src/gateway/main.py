@@ -20,6 +20,7 @@ from shared.config import (
     get_settings,
     log_configuration_summary,
 )
+from shared.events import create_inference_event_producer
 from shared.logging import configure_logging
 from shared.telemetry import (
     instrument_celery,
@@ -82,10 +83,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     celery_client = CeleryClient(platform.celery_broker_url)
     logger.info("Celery client initialized")
 
+    inference_events = create_inference_event_producer(service="gateway", settings=settings)
+    if inference_events.configured:
+        logger.info("Inference event producer configured")
+
     # Inject services into the shared process_chat instance
     process_chat.init_services(
         redis_stream=redis_stream,
         celery_client=celery_client,
+        event_producer=inference_events,
     )
 
     # --- Auth services ---
@@ -119,6 +125,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # --- Cleanup on shutdown ---
     logger.info("Shutting down — closing managed connections")
+    inference_events.close()
     await redis_stream.close()
     celery_client.close()
     if auth_redis is not None:

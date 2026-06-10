@@ -64,6 +64,8 @@ UI с ИИ-ассистентом. Поддерживается Google-авто�
 * Платформа для мониторинга и аналитики. Observability обеспечивается следующими микросервисами:
     * `prometheus` - сбор технических метрик с inference и инфраструктурных сервисов.
     * `grafana` - дашборды для инфраструктурной observability и аналитики по ML-процессам.
+    * `loki`, `tempo`, `otel-collector`, `alloy` - searchable logs and traces.
+    * `redpanda`, `redpanda-console` - durable Kafka-compatible inference events and topic inspection.
     * `flower` - мониторинг очередей и состояния Celery workers.
     * `redisinsight` - мониторинг Redis-состояния, ключей и pub/sub активности.
     * `mlflow` - аналитика по training runs, параметрам, метрикам и артефактам экспериментов.

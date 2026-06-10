@@ -16,6 +16,8 @@ x-shared-endpoints: &shared-endpoints
   PLATFORM__MLFLOW_TRACKING_URI: ${PLATFORM__MLFLOW_TRACKING_URI:-http://mlflow:5000}
   PLATFORM__QDRANT_HOST: ${PLATFORM__QDRANT_HOST:-qdrant}
   PLATFORM__QDRANT_PORT: ${PLATFORM__QDRANT_PORT:-6333}
+  PLATFORM__KAFKA_BOOTSTRAP_SERVERS: ${PLATFORM__KAFKA_BOOTSTRAP_SERVERS:-redpanda:9092}
+  PLATFORM__INFERENCE_EVENTS_TOPIC: ${PLATFORM__INFERENCE_EVENTS_TOPIC:-inference.events.v1}
 
 x-observability-env: &observability-env
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
@@ -386,6 +388,85 @@ services:
     restart: unless-stopped
 
   # =====================
+  # Redpanda (Kafka-compatible event streaming)
+  # =====================
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v26.1.9
+
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:${REDPANDA_KAFKA_PORT}
+      - --pandaproxy-addr
+      - internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr
+      - internal://redpanda:8082,external://localhost:${REDPANDA_PANDAPROXY_PORT}
+      - --schema-registry-addr
+      - internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr
+      - redpanda:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --mode
+      - dev-container
+      - --smp
+      - "1"
+      - --default-log-level=info
+
+    ports:
+      - "127.0.0.1:${REDPANDA_KAFKA_PORT}:19092"
+      - "127.0.0.1:${REDPANDA_SCHEMA_REGISTRY_PORT}:18081"
+      - "127.0.0.1:${REDPANDA_PANDAPROXY_PORT}:18082"
+      - "127.0.0.1:${REDPANDA_ADMIN_PORT}:9644"
+
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # Redpanda Console (Kafka topic inspection)
+  # =====================
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v3.7.4
+
+    entrypoint: /bin/sh
+    command: -c 'echo "$$CONSOLE_CONFIG_FILE" > /tmp/config.yml; /app/console'
+
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:9092"]
+        schemaRegistry:
+          enabled: true
+          urls: ["http://redpanda:8081"]
+        redpanda:
+          adminApi:
+            enabled: true
+            urls: ["http://redpanda:9644"]
+
+    ports:
+      - "127.0.0.1:${REDPANDA_CONSOLE_PORT}:8080"
+
+    depends_on:
+      redpanda:
+        condition: service_started
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
   # Embeddings Service (sentence-transformers)
   # =====================
   embeddings:
@@ -457,6 +538,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      redpanda:
+        condition: service_started
       vllm:
         condition: service_healthy
 
@@ -635,6 +718,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      redpanda:
+        condition: service_started
       embeddings:
         condition: service_healthy
       reranker:
@@ -1228,6 +1313,7 @@ volumes:
   qdrant_data:
   rabbitmq_data:
   redis_data:
+  redpanda_data:
   redisinsight_data:
   grafana_data:
   prometheus_data:

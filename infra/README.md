@@ -117,6 +117,8 @@ scripts/update_locks.sh --dry-run
 - `qdrant` — Qdrant (порт хоста по умолчанию `6333` → контейнер `6333`, volume: `qdrant_data`)
 - `rabbitmq` — RabbitMQ (порт хоста по умолчанию `5672` → контейнер `5672`, Management UI: `15672`)
 - `redis` — Redis 7 (порт хоста по умолчанию `6379` → контейнер `6379`, volume: `redis_data`)
+- `redpanda` — Kafka-compatible broker для durable inference events (порт хоста по умолчанию `19092` → контейнер `19092`)
+- `redpanda-console` — UI для инспекции Kafka/Redpanda topics (порт хоста по умолчанию `8081` → контейнер `8080`)
 - `celery-worker` — Celery worker для асинхронного выполнения LLM-задач (1 процесс, GPU-bound)
 - `gateway` — FastAPI gateway (порт хоста по умолчанию `9001` → контейнер `9000`)
 - `ui` — Streamlit UI (порт хоста по умолчанию `8501` → контейнер `8501`)
@@ -125,7 +127,11 @@ scripts/update_locks.sh --dry-run
 - `flower` — Flower мониторинг Celery (порт хоста по умолчанию `5555` → контейнер `5555`)
 - `redisinsight` — RedisInsight мониторинг Redis (порт хоста по умолчанию `5540` → контейнер `5540`)
 - `prometheus` — Prometheus (порт хоста по умолчанию `9090` → контейнер `9090`); scrapes gateway, vLLM, RabbitMQ
-- `grafana` — Grafana (порт хоста по умолчанию `3000` → контейнер `3000`); доступна через nginx `/grafana/`; datasources: Postgres (ML analytics) + Prometheus (infra)
+- `loki` — Loki для хранения Docker/application logs (порт хоста по умолчанию `3100` → контейнер `3100`)
+- `tempo` — Tempo для хранения OpenTelemetry traces (порт хоста по умолчанию `3200` → контейнер `3200`)
+- `otel-collector` — OpenTelemetry Collector; принимает OTLP от Python-сервисов и отправляет traces в Tempo
+- `alloy` — Grafana Alloy; читает Docker logs через Docker socket и отправляет их в Loki
+- `grafana` — Grafana (порт хоста по умолчанию `3000` → контейнер `3000`); доступна через nginx `/grafana/`; datasources: Postgres, Prometheus, Loki, Tempo
 - `airflow-init` — одноразовая миграция БД Airflow и создание admin-пользователя
 - `airflow-webserver` — Airflow UI (порт хоста по умолчанию `8080` → контейнер `8080`)
 - `airflow-scheduler` — Airflow Scheduler (LocalExecutor)
@@ -168,9 +174,15 @@ cp .env.example .env
 - `PLATFORM__*`, `GATEWAY__*`, `RAG__*`, `AUTH__*`, `CATALOG__*`, `ADAPTER_REGISTRY__*`, `EVAL__*`, `WORKER__*`, `UI__*` — nested runtime settings contract для Python-сервисов, когда конкретный ключ действительно operator-facing
 - `RABBITMQ_*` — логин/пароль и порты RabbitMQ (брокер для Celery)
 - `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
+- `REDPANDA_*` — host-bound порты Redpanda broker/admin/schema registry/proxy и Redpanda Console
 - `FLOWER_*` — порт Flower (мониторинг Celery)
 - `REDISINSIGHT_*` — порт RedisInsight (мониторинг Redis)
 - `PROMETHEUS_PORT` — порт Prometheus (по умолчанию `9090`)
+- `LOKI_PORT` — порт Loki (по умолчанию `3100`)
+- `TEMPO_PORT` — порт Tempo HTTP API (по умолчанию `3200`)
+- `ALLOY_PORT` — порт Alloy UI/API (по умолчанию `12345`)
+- `OTEL_COLLECTOR_GRPC_PORT` / `OTEL_COLLECTOR_HTTP_PORT` — host-bound OTLP порты collector'а
+- `OTEL_TRACES_SAMPLER_ARG` — доля трассировки для `parentbased_traceidratio`; на старте `1.0`
 - `GRAFANA_PORT` — порт Grafana (по умолчанию `3000`)
 - `GRAFANA_ADMIN_PASSWORD` — пароль admin-пользователя Grafana
 - `AIRFLOW_*` — конфиг Airflow (порт, БД, Fernet-ключ, admin-пользователь)
@@ -182,6 +194,7 @@ cp .env.example .env
 - На текущем этапе checkout-based Compose уже использует `ASSETS_ROOT`, `ARTIFACTS_ROOT` и
   `DVC_CONFIG_LOCAL_PATH` для shared mounts, а `GITHUB_*`-переменные использует Airflow data-sync
   path. `IMAGE_TAG` остаётся зарезервированным для последующих deploy фаз.
+- Workflow для logs/traces/metrics описан в `docs/observability.md`; durable inference events описаны в `docs/inference-events.md`.
 
 ### Разделение env surfaces
 
