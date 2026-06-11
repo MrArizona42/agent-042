@@ -16,6 +16,14 @@ x-shared-endpoints: &shared-endpoints
   PLATFORM__MLFLOW_TRACKING_URI: ${PLATFORM__MLFLOW_TRACKING_URI:-http://mlflow:5000}
   PLATFORM__QDRANT_HOST: ${PLATFORM__QDRANT_HOST:-qdrant}
   PLATFORM__QDRANT_PORT: ${PLATFORM__QDRANT_PORT:-6333}
+  PLATFORM__KAFKA_BOOTSTRAP_SERVERS: ${PLATFORM__KAFKA_BOOTSTRAP_SERVERS:-redpanda:9092}
+  PLATFORM__INFERENCE_EVENTS_TOPIC: ${PLATFORM__INFERENCE_EVENTS_TOPIC:-inference.events.v1}
+
+x-observability-env: &observability-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+  OTEL_TRACES_SAMPLER: parentbased_traceidratio
+  OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
 
 x-airflow-common-env: &airflow-common-env
   <<: *shared-endpoints
@@ -380,6 +388,85 @@ services:
     restart: unless-stopped
 
   # =====================
+  # Redpanda (Kafka-compatible event streaming)
+  # =====================
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v26.1.9
+
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:${REDPANDA_KAFKA_PORT}
+      - --pandaproxy-addr
+      - internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr
+      - internal://redpanda:8082,external://localhost:${REDPANDA_PANDAPROXY_PORT}
+      - --schema-registry-addr
+      - internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr
+      - redpanda:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --mode
+      - dev-container
+      - --smp
+      - "1"
+      - --default-log-level=info
+
+    ports:
+      - "127.0.0.1:${REDPANDA_KAFKA_PORT}:19092"
+      - "127.0.0.1:${REDPANDA_SCHEMA_REGISTRY_PORT}:18081"
+      - "127.0.0.1:${REDPANDA_PANDAPROXY_PORT}:18082"
+      - "127.0.0.1:${REDPANDA_ADMIN_PORT}:9644"
+
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # Redpanda Console (Kafka topic inspection)
+  # =====================
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v3.7.4
+
+    entrypoint: /bin/sh
+    command: -c 'echo "$$CONSOLE_CONFIG_FILE" > /tmp/config.yml; /app/console'
+
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:9092"]
+        schemaRegistry:
+          enabled: true
+          urls: ["http://redpanda:8081"]
+        redpanda:
+          adminApi:
+            enabled: true
+            urls: ["http://redpanda:9644"]
+
+    ports:
+      - "127.0.0.1:${REDPANDA_CONSOLE_PORT}:8080"
+
+    depends_on:
+      redpanda:
+        condition: service_started
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
   # Embeddings Service (sentence-transformers)
   # =====================
   embeddings:
@@ -389,6 +476,7 @@ services:
       dockerfile: infra/docker/embeddings/Dockerfile
 
     environment:
+      <<: *observability-env
       RAG__EMBEDDING_MODEL: ${RAG__EMBEDDING_MODEL}
       RAG__EMBEDDING_DEVICE: ${RAG__EMBEDDING_DEVICE}
 
@@ -415,6 +503,7 @@ services:
       dockerfile: infra/docker/reranker/Dockerfile
 
     environment:
+      <<: *observability-env
       RAG__RERANKER_MODEL: ${RAG__RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
 
     healthcheck:
@@ -440,7 +529,7 @@ services:
       dockerfile: infra/docker/celery/Dockerfile
 
     environment:
-      <<: *shared-endpoints
+      <<: [*shared-endpoints, *observability-env]
       PLATFORM__CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
       GATEWAY__DEFAULT_MODEL: ${VLLM_MODEL}
 
@@ -449,6 +538,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      redpanda:
+        condition: service_started
       vllm:
         condition: service_healthy
 
@@ -598,7 +689,7 @@ services:
       dockerfile: infra/docker/gateway/Dockerfile
 
     environment:
-      <<: *shared-endpoints
+      <<: [*shared-endpoints, *observability-env]
       GATEWAY__DEFAULT_MODEL: ${VLLM_MODEL}
       RAG__RAG_ENABLED: ${RAG__RAG_ENABLED}
       RAG__EMBEDDING_MODEL: ${RAG__EMBEDDING_MODEL}
@@ -627,6 +718,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      redpanda:
+        condition: service_started
       embeddings:
         condition: service_healthy
       reranker:
@@ -806,6 +899,140 @@ services:
     restart: unless-stopped
 
   # =====================
+  # ClickHouse (analytics storage)
+  # =====================
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.11
+
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ${PROJECT_ROOT}/infra/clickhouse/init:/docker-entrypoint-initdb.d:ro
+
+    ports:
+      - "127.0.0.1:${CLICKHOUSE_HTTP_PORT}:8123"
+      - "127.0.0.1:${CLICKHOUSE_NATIVE_PORT}:9000"
+
+    depends_on:
+      redpanda:
+        condition: service_started
+
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1' >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # Loki (log storage)
+  # =====================
+  loki:
+    image: grafana/loki:3.5.1
+
+    command:
+      - -config.file=/etc/loki/loki.yaml
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/docker/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/loki
+
+    ports:
+      - "127.0.0.1:${LOKI_PORT}:3100"
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # Tempo (trace storage)
+  # =====================
+  tempo:
+    image: grafana/tempo:2.8.1
+
+    command:
+      - -config.file=/etc/tempo/tempo.yaml
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/docker/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+
+    ports:
+      - "127.0.0.1:${TEMPO_PORT}:3200"
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # OpenTelemetry Collector (OTLP ingress)
+  # =====================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.136.0
+
+    command:
+      - --config=/etc/otelcol/config.yaml
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/docker/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+
+    ports:
+      - "127.0.0.1:${OTEL_COLLECTOR_GRPC_PORT}:4317"
+      - "127.0.0.1:${OTEL_COLLECTOR_HTTP_PORT}:4318"
+
+    depends_on:
+      tempo:
+        condition: service_started
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
+  # Grafana Alloy (Docker logs to Loki)
+  # =====================
+  alloy:
+    image: grafana/alloy:v1.10.2
+
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+
+    volumes:
+      - ${PROJECT_ROOT}/infra/docker/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    ports:
+      - "127.0.0.1:${ALLOY_PORT}:12345"
+
+    depends_on:
+      loki:
+        condition: service_started
+
+    networks:
+      - backend_net
+
+    logging: *default-logging
+    restart: unless-stopped
+
+  # =====================
   # Grafana (Analytics & Observability UI)
   # =====================
   grafana:
@@ -815,9 +1042,13 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
       GF_SERVER_ROOT_URL: https://agent.antonlab.ru:8443/grafana
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
       # Passed through for provisioning interpolation in datasources.yml
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
 
     volumes:
       - ${PROJECT_ROOT}/infra/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -832,6 +1063,12 @@ services:
         condition: service_healthy
       prometheus:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
 
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
@@ -1118,9 +1355,13 @@ volumes:
   qdrant_data:
   rabbitmq_data:
   redis_data:
+  redpanda_data:
   redisinsight_data:
   grafana_data:
   prometheus_data:
+  clickhouse_data:
+  loki_data:
+  tempo_data:
   airflow_logs:
 
 # =====================

@@ -42,11 +42,43 @@ Target state:
 - Add Loki and Grafana Alloy for searchable logs.
 - Provision Grafana datasources.
 
+Fixed design choices for the logging slice:
+
+- Runtime logs are optimized for the single-node dedicated server deployment.
+  Local execution is mainly mocked tests, not a separate application runtime
+  environment.
+- Use structured JSON logs for deployed Python services.
+- Start with a small in-repo JSON formatter instead of adding a logging
+  framework or external formatter dependency.
+- Gateway generates the canonical `request_id`; client-supplied request IDs are
+  not trusted as the primary correlation key.
+- Raw internal `user_id` may be logged because this is an internal tool.
+- Do not log full prompts, responses, cookies, access tokens, API keys, or OAuth
+  payloads by default.
+- Use Grafana Alloy to collect Docker `json-file` logs into Loki; do not use the
+  Loki Docker logging driver initially.
+- Loki labels should stay low-cardinality: `service`, `container`, and `level`.
+  High-cardinality values such as `request_id`, `trace_id`, `user_id`,
+  `chat_session_id`, `celery_task_id`, KB, alias, collection, adapter, and model
+  stay as JSON fields.
+- Do not introduce `environment=local/server/prod` labels unless the deployment
+  model changes.
+
 Acceptance criteria:
 
 - One request can be followed from logs to trace to relevant persisted metadata.
 - Prompt/response text is not logged by default.
-- The setup remains optional enough that local development is not blocked.
+- The setup remains optional enough that mocked tests and one-off scripts are
+  not blocked.
+
+Implementation notes:
+
+- Structured JSON logs are implemented for Gateway, worker, embeddings, and
+  reranker.
+- OpenTelemetry is enabled for deployed services through Compose-provided OTLP
+  settings and remains no-op when the endpoint is absent.
+- Grafana datasources now include Postgres, Prometheus, Loki, and Tempo.
+- The operator workflow is documented in `docs/observability.md`.
 
 ### 2. Durable Inference Events With Kafka Or Redpanda
 
@@ -56,28 +88,45 @@ analytics, feedback, or downstream data jobs.
 
 Target state:
 
-- Gateway publishes an event after each completed generation to
-  `inference-events`.
+- Gateway and worker publish lifecycle metadata to `inference.events.v1`.
 - Payload includes:
   - request id and timestamp;
-  - route and status;
-  - model/base model;
-  - LoRA adapter and alias;
-  - RAG provenance and hit counts;
-  - citation coverage when available;
-  - latency and token counts;
-  - user/session identifiers or privacy-preserving hashes;
-  - error type when applicable.
-- Reserve `feedback-events` for explicit user feedback.
-- Keep RabbitMQ as the task queue. Kafka/Redpanda is the durable, replayable
-  production event log.
+  - event type and schema version;
+  - `trace_id` / `span_id` when available;
+  - model;
+  - RAG source counts and KB/alias names where safe;
+  - token counts;
+  - user/session/task/conversation identifiers;
+  - finish reason or error type.
+- Reserve explicit user feedback events for the later feedback step.
+- Keep RabbitMQ as the task queue. Redpanda is the durable, replayable event
+  log.
+
+Fixed design choices:
+
+- Use Redpanda as the Kafka-compatible broker for this single-node deployment.
+- Include Redpanda Console immediately for topic inspection.
+- Event publishing is enabled by default in server Compose via
+  `PLATFORM__KAFKA_BOOTSTRAP_SERVERS`; do not add a separate
+  `EVENTS__ENABLED` flag.
+- Keep RAG event payloads coarse for now. Source/chunk details move to the
+  source-citation phase.
 
 Acceptance criteria:
 
 - Successful and failed generation attempts produce well-defined events.
 - Event schema is documented and versioned.
-- Event publication failure does not break chat completion unless strict mode is
-  explicitly enabled.
+- Event publication failure does not break chat completion.
+- Full prompts, responses, messages, generated content, access tokens, cookies,
+  API keys, and OAuth payloads are rejected by schema validation. Token counts
+  are allowed.
+
+Implementation notes:
+
+- Shared event schema and producer live under `src/shared/events/`.
+- The first topic is `inference.events.v1`.
+- Gateway and worker publish lifecycle metadata only.
+- Operator workflow is documented in `docs/inference-events.md`.
 
 ### 3. ClickHouse Analytics Expansion
 
@@ -86,14 +135,22 @@ be introduced incrementally as the production inference analytics backend.
 
 Target state:
 
-- Add ClickHouse with separate SQL migrations, for example under
-  `infra/clickhouse/migrations/`.
-- Ingest `inference-events` into ClickHouse.
-- Create analytical tables:
-  - `inference_log`: one row per completed/failed generation request;
-  - `inference_rag_hits`: optional one row per retrieved RAG hit;
-  - `feedback_events`: user feedback signals;
-  - `inference_daily_rollups`: optional dashboard acceleration.
+- Add ClickHouse with separate SQL init/migration files under
+  `infra/clickhouse/`.
+- Ingest `inference.events.v1` directly from Redpanda using the ClickHouse
+  Kafka Engine.
+- Start with raw-first analytics tables:
+  - `kafka_inference_events_stream`: Kafka Engine stream adapter, not durable
+    analytics storage;
+  - `mv_inference_events_raw`: materialized view that drains Kafka into
+    ClickHouse;
+  - `inference_events_raw`: durable MergeTree archive with raw JSON and common
+    parsed columns.
+- Add derived request-level tables later after the raw ingestion path is proven:
+  - `inference_requests`;
+  - `inference_rag_hits` when source citation work provides chunk/source ids;
+  - `feedback_events`;
+  - `inference_daily_rollups`.
 - Add Grafana ClickHouse datasource.
 - Support analytics for:
   - latency percentiles by adapter, route, and variant;
@@ -109,6 +166,21 @@ Acceptance criteria:
 - Grafana or notebooks can query production inference analytics from ClickHouse.
 - Postgres remains the operational source of truth.
 - ClickHouse schema changes are managed separately from Alembic.
+
+Fixed design choices:
+
+- Use direct Redpanda-to-ClickHouse ingestion through ClickHouse Kafka Engine,
+  not a Python consumer service for the first implementation.
+- Keep the first ClickHouse layer raw and replay-friendly. Derived analytical
+  tables come after ingestion is proven.
+
+Implementation notes:
+
+- Compose includes ClickHouse and installs the Grafana ClickHouse datasource
+  plugin.
+- Initial SQL lives in `infra/clickhouse/init/001_inference_events.sql`.
+- Operator workflow and starter queries are documented in
+  `docs/clickhouse-analytics.md`.
 
 ### 4. Observability And Evaluation Technical Workflow
 

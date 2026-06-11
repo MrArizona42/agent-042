@@ -16,6 +16,10 @@ from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
 from shared.config import get_settings
+from shared.logging import configure_logging
+from shared.telemetry import instrument_fastapi_app
+
+configure_logging(service="reranker")
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +62,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Reranker Service", lifespan=lifespan)
+instrument_fastapi_app(app, service="reranker")
 
 
 @app.get("/health")

@@ -11,6 +11,8 @@ anyio==4.13.0
     #   httpx
     #   starlette
     #   watchfiles
+asgiref==3.11.1
+    # via opentelemetry-instrumentation-asgi
 certifi==2026.4.22
     # via
     #   httpcore
@@ -37,6 +39,10 @@ fsspec==2026.4.0
     # via
     #   huggingface-hub
     #   torch
+googleapis-common-protos==1.75.0
+    # via opentelemetry-exporter-otlp-proto-grpc
+grpcio==1.81.0
+    # via opentelemetry-exporter-otlp-proto-grpc
 h11==0.16.0
     # via
     #   httpcore
@@ -117,10 +123,53 @@ nvidia-nvshmem-cu13==3.4.5
     # via torch
 nvidia-nvtx==13.0.85
     # via cuda-toolkit
+opentelemetry-api==1.42.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+opentelemetry-exporter-otlp-proto-common==1.42.1
+    # via opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-exporter-otlp-proto-grpc==1.42.1
+    # via agent-042 (pyproject.toml)
+opentelemetry-instrumentation==0.63b1
+    # via
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-asgi==0.63b1
+    # via opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-fastapi==0.63b1
+    # via agent-042 (pyproject.toml)
+opentelemetry-proto==1.42.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-sdk==1.42.1
+    # via
+    #   agent-042 (pyproject.toml)
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-semantic-conventions==0.63b1
+    # via
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-sdk
+opentelemetry-util-http==0.63b1
+    # via
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
 packaging==26.2
     # via
     #   huggingface-hub
+    #   opentelemetry-instrumentation
     #   transformers
+protobuf==6.33.6
+    # via
+    #   googleapis-common-protos
+    #   opentelemetry-proto
 pydantic==2.13.3
     # via
     #   agent-042 (pyproject.toml)
@@ -189,7 +238,12 @@ typing-extensions==4.15.0
     # via
     #   anyio
     #   fastapi
+    #   grpcio
     #   huggingface-hub
+    #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
     #   sentence-transformers
@@ -209,3 +263,5 @@ watchfiles==1.1.1
     # via uvicorn
 websockets==16.0
     # via uvicorn
+wrapt==2.2.1
+    # via opentelemetry-instrumentation

@@ -5,12 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import re
+from functools import lru_cache
 from typing import Any
 
 import httpx
 import redis
 
 from shared.config import get_settings, secret_value
+from shared.events import InferenceEventProducer, create_inference_event_producer
+from shared.logging import bind_log_context, reset_log_context
+from shared.telemetry import get_tracer
 from shared.vllm_payloads import (
     ResponseBudgetExceededError,
     apply_response_token_budget,
@@ -20,6 +24,7 @@ from shared.vllm_payloads import (
 from worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
 
 # Redis event types
 EVENT_THINKING_TOKEN = "thinking_token"
@@ -163,6 +168,11 @@ def get_redis_client() -> redis.Redis:
     return redis.from_url(settings.platform.redis_url, decode_responses=True)
 
 
+@lru_cache(maxsize=1)
+def _get_event_producer() -> InferenceEventProducer:
+    return create_inference_event_producer(service="celery-worker", settings=get_settings())
+
+
 def publish_event(
     redis_client: redis.Redis,
     conversation_id: str,
@@ -235,8 +245,24 @@ def generate_response(
     """
     settings = get_settings()
     redis_client = get_redis_client()
+    task_id = str(self.request.id)
+    model = generation_payload.get("model")
+    log_token = bind_log_context(
+        request_id=request_id,
+        celery_task_id=task_id,
+        conversation_id=conversation_id,
+        model=model,
+    )
 
-    logger.info(f"Task {self.request.id}: Starting generation for conversation {conversation_id}")
+    logger.info("Worker generation started", extra={"event": "worker.generation.started"})
+    event_producer = _get_event_producer()
+    event_producer.publish(
+        "worker.generation.started",
+        request_id=request_id,
+        celery_task_id=task_id,
+        conversation_id=conversation_id,
+        model=model,
+    )
 
     thinking_content = ""
     answer_content = ""
@@ -253,14 +279,19 @@ def generate_response(
     try:
         headers = _headers(secret_value(settings.gateway.api_key))
         with httpx.Client(timeout=None) as client:
-            tokenize_payload = extract_tokenize_payload(generation_payload)
-            tokenize_response = client.post(
-                f"{settings.platform.vllm_base_url}/tokenize",
-                json=tokenize_payload,
-                headers=headers,
-            )
-            tokenize_response.raise_for_status()
-            usage["prompt_tokens"] = int(tokenize_response.json()["count"])
+            with tracer.start_as_current_span("worker.vllm_tokenize") as span:
+                span.set_attribute("request_id", request_id)
+                span.set_attribute("conversation_id", conversation_id)
+                span.set_attribute("llm.model", model or "")
+                tokenize_payload = extract_tokenize_payload(generation_payload)
+                tokenize_response = client.post(
+                    f"{settings.platform.vllm_base_url}/tokenize",
+                    json=tokenize_payload,
+                    headers=headers,
+                )
+                tokenize_response.raise_for_status()
+                usage["prompt_tokens"] = int(tokenize_response.json()["count"])
+                span.set_attribute("llm.prompt_tokens", usage["prompt_tokens"])
 
             payload, final_max_tokens = apply_response_token_budget(
                 generation_payload,
@@ -270,101 +301,95 @@ def generate_response(
                 include_usage=True,
             )
             logger.info(
-                "Task %s: exact prompt_tokens=%s final_max_tokens=%s",
-                self.request.id,
-                usage["prompt_tokens"],
-                final_max_tokens,
+                "Worker token budget resolved",
+                extra={
+                    "event": "worker.vllm.tokenized",
+                    "prompt_tokens": usage["prompt_tokens"],
+                    "final_max_tokens": final_max_tokens,
+                },
+            )
+            event_producer.publish(
+                "worker.vllm.tokenized",
+                request_id=request_id,
+                celery_task_id=task_id,
+                conversation_id=conversation_id,
+                model=model,
+                payload={
+                    "prompt_tokens": usage["prompt_tokens"],
+                    "final_max_tokens": final_max_tokens,
+                },
             )
 
-            with client.stream(
-                "POST",
-                f"{settings.platform.vllm_base_url}/v1/chat/completions",
-                json=payload,
-                headers=headers,
-            ) as response:
-                response.raise_for_status()
+            with tracer.start_as_current_span("worker.vllm_generate") as span:
+                span.set_attribute("request_id", request_id)
+                span.set_attribute("conversation_id", conversation_id)
+                span.set_attribute("llm.model", model or "")
+                span.set_attribute("llm.max_completion_tokens", final_max_tokens)
+                with client.stream(
+                    "POST",
+                    f"{settings.platform.vllm_base_url}/v1/chat/completions",
+                    json=payload,
+                    headers=headers,
+                ) as response:
+                    response.raise_for_status()
 
-                for line in response.iter_lines():
-                    if not line:
-                        continue
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
 
-                    # SSE format: "data: {...}"
-                    if line.startswith("data: "):
-                        data_str = line[6:]  # Remove "data: " prefix
+                        # SSE format: "data: {...}"
+                        if line.startswith("data: "):
+                            data_str = line[6:]  # Remove "data: " prefix
 
-                        if data_str.strip() == "[DONE]":
-                            break
+                            if data_str.strip() == "[DONE]":
+                                break
 
-                        try:
-                            chunk = json.loads(data_str)
-                            chunk_usage = chunk.get("usage")
-                            usage = _merge_usage(usage, chunk_usage)
-                            choices = chunk.get("choices", [])
+                            try:
+                                chunk = json.loads(data_str)
+                                chunk_usage = chunk.get("usage")
+                                usage = _merge_usage(usage, chunk_usage)
+                                choices = chunk.get("choices", [])
 
-                            if choices:
-                                delta = choices[0].get("delta", {})
-                                finish_reason = choices[0].get("finish_reason") or finish_reason
-                                explicit_thinking = _extract_explicit_thinking_delta(delta)
-                                content = _coerce_text_fragment(delta.get("content"))
+                                if choices:
+                                    delta = choices[0].get("delta", {})
+                                    finish_reason = choices[0].get("finish_reason") or finish_reason
+                                    explicit_thinking = _extract_explicit_thinking_delta(delta)
+                                    content = _coerce_text_fragment(delta.get("content"))
 
-                                if explicit_thinking:
-                                    if not saw_explicit_thinking:
-                                        for event_type, fragment in think_tag_parser.flush():
-                                            if event_type == EVENT_THINKING_TOKEN:
-                                                thinking_content += fragment
-                                            else:
-                                                answer_content += fragment
+                                    if explicit_thinking:
+                                        if not saw_explicit_thinking:
+                                            for event_type, fragment in think_tag_parser.flush():
+                                                if event_type == EVENT_THINKING_TOKEN:
+                                                    thinking_content += fragment
+                                                else:
+                                                    answer_content += fragment
+                                                publish_event(
+                                                    redis_client,
+                                                    conversation_id,
+                                                    event_type,
+                                                    {"request_id": request_id, "content": fragment},
+                                                )
+                                        saw_explicit_thinking = True
+                                        thinking_content += explicit_thinking
+                                        publish_event(
+                                            redis_client,
+                                            conversation_id,
+                                            EVENT_THINKING_TOKEN,
+                                            {
+                                                "request_id": request_id,
+                                                "content": explicit_thinking,
+                                            },
+                                        )
+
+                                    if saw_explicit_thinking:
+                                        if content:
+                                            answer_content += content
                                             publish_event(
                                                 redis_client,
                                                 conversation_id,
-                                                event_type,
-                                                {"request_id": request_id, "content": fragment},
+                                                EVENT_ANSWER_TOKEN,
+                                                {"request_id": request_id, "content": content},
                                             )
-                                    saw_explicit_thinking = True
-                                    thinking_content += explicit_thinking
-                                    publish_event(
-                                        redis_client,
-                                        conversation_id,
-                                        EVENT_THINKING_TOKEN,
-                                        {"request_id": request_id, "content": explicit_thinking},
-                                    )
-
-                                if saw_explicit_thinking:
-                                    if content:
-                                        answer_content += content
-                                        publish_event(
-                                            redis_client,
-                                            conversation_id,
-                                            EVENT_ANSWER_TOKEN,
-                                            {"request_id": request_id, "content": content},
-                                        )
-                                        repetition_guard_triggered, answer_content = (
-                                            _maybe_truncate_repetitive_output(
-                                                redis_client=redis_client,
-                                                conversation_id=conversation_id,
-                                                request_id=request_id,
-                                                answer_content=answer_content,
-                                                task_id=self.request.id,
-                                            )
-                                        )
-                                        if repetition_guard_triggered:
-                                            finish_reason = "stop"
-                                            break
-                                    continue
-
-                                if content:
-                                    for event_type, fragment in think_tag_parser.feed(content):
-                                        if event_type == EVENT_THINKING_TOKEN:
-                                            thinking_content += fragment
-                                        else:
-                                            answer_content += fragment
-                                        publish_event(
-                                            redis_client,
-                                            conversation_id,
-                                            event_type,
-                                            {"request_id": request_id, "content": fragment},
-                                        )
-                                        if event_type == EVENT_ANSWER_TOKEN:
                                             repetition_guard_triggered, answer_content = (
                                                 _maybe_truncate_repetitive_output(
                                                     redis_client=redis_client,
@@ -377,12 +402,50 @@ def generate_response(
                                             if repetition_guard_triggered:
                                                 finish_reason = "stop"
                                                 break
-                                    if repetition_guard_triggered:
-                                        break
+                                        continue
 
-                        except json.JSONDecodeError:
-                            logger.warning(f"Failed to parse SSE chunk: {data_str}")
-                            continue
+                                    if content:
+                                        for event_type, fragment in think_tag_parser.feed(content):
+                                            if event_type == EVENT_THINKING_TOKEN:
+                                                thinking_content += fragment
+                                            else:
+                                                answer_content += fragment
+                                            publish_event(
+                                                redis_client,
+                                                conversation_id,
+                                                event_type,
+                                                {"request_id": request_id, "content": fragment},
+                                            )
+                                            if event_type == EVENT_ANSWER_TOKEN:
+                                                repetition_guard_triggered, answer_content = (
+                                                    _maybe_truncate_repetitive_output(
+                                                        redis_client=redis_client,
+                                                        conversation_id=conversation_id,
+                                                        request_id=request_id,
+                                                        answer_content=answer_content,
+                                                        task_id=self.request.id,
+                                                    )
+                                                )
+                                                if repetition_guard_triggered:
+                                                    finish_reason = "stop"
+                                                    break
+                                        if repetition_guard_triggered:
+                                            break
+
+                            except json.JSONDecodeError:
+                                logger.warning(
+                                    "Failed to parse SSE chunk from vLLM",
+                                    extra={
+                                        "event": "worker.vllm.sse_parse_failed",
+                                        "chunk_chars": len(data_str),
+                                    },
+                                )
+                                continue
+                span.set_attribute("llm.finish_reason", finish_reason or "unknown")
+                if usage.get("completion_tokens") is not None:
+                    span.set_attribute("llm.completion_tokens", usage["completion_tokens"])
+                if usage.get("total_tokens") is not None:
+                    span.set_attribute("llm.total_tokens", usage["total_tokens"])
 
         if not saw_explicit_thinking and not repetition_guard_triggered:
             for event_type, fragment in think_tag_parser.flush():
@@ -415,7 +478,27 @@ def generate_response(
         )
 
         logger.info(
-            f"Task {self.request.id}: Completed generation for conversation {conversation_id}"
+            "Worker generation completed",
+            extra={
+                "event": "worker.generation.completed",
+                "finish_reason": done_event["finish_reason"],
+                "prompt_tokens": done_event["usage"].get("prompt_tokens"),
+                "completion_tokens": done_event["usage"].get("completion_tokens"),
+                "total_tokens": done_event["usage"].get("total_tokens"),
+            },
+        )
+        event_producer.publish(
+            "worker.generation.completed",
+            request_id=request_id,
+            celery_task_id=task_id,
+            conversation_id=conversation_id,
+            model=model,
+            payload={
+                "finish_reason": done_event["finish_reason"],
+                "prompt_tokens": done_event["usage"].get("prompt_tokens"),
+                "completion_tokens": done_event["usage"].get("completion_tokens"),
+                "total_tokens": done_event["usage"].get("total_tokens"),
+            },
         )
 
         return {
@@ -424,7 +507,18 @@ def generate_response(
         }
 
     except ResponseBudgetExceededError as e:
-        logger.error(f"Task {self.request.id}: Exact budget rejected: {e}")
+        logger.error(
+            "Worker exact budget rejected",
+            extra={"event": "worker.generation.error", "error_type": "budget_exceeded"},
+        )
+        event_producer.publish(
+            "worker.generation.failed",
+            request_id=request_id,
+            celery_task_id=task_id,
+            conversation_id=conversation_id,
+            model=model,
+            payload={"error_type": "budget_exceeded"},
+        )
 
         publish_event(
             redis_client,
@@ -441,7 +535,18 @@ def generate_response(
         raise
 
     except Exception as e:
-        logger.error(f"Task {self.request.id}: Error during generation: {e}")
+        logger.exception(
+            "Worker generation failed",
+            extra={"event": "worker.generation.error", "error_type": type(e).__name__},
+        )
+        event_producer.publish(
+            "worker.generation.failed",
+            request_id=request_id,
+            celery_task_id=task_id,
+            conversation_id=conversation_id,
+            model=model,
+            payload={"error_type": type(e).__name__},
+        )
 
         # Publish error event
         publish_event(
@@ -456,3 +561,5 @@ def generate_response(
         )
 
         raise
+    finally:
+        reset_log_context(log_token)
