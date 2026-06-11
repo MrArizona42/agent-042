@@ -110,8 +110,8 @@ bash scripts/rag_ops.sh python -m rag.sources.cli build-source \
 The same lifecycle code is used by Airflow DAGs. Jupyter is for inspection and
 curation, not as the production build entry point.
 
-See [docs/rag-operations.md](docs/rag-operations.md) for naming, promotion,
-inspection, rollback, and Airflow parameters.
+See [docs/operations/rag-operations.md](docs/operations/rag-operations.md) for
+naming, promotion, inspection, rollback, and Airflow parameters.
 
 ## Configuration
 
@@ -143,16 +143,19 @@ infra/compose/docker-compose.yaml
 
 Start with:
 
+- [docs/index.md](docs/index.md) for the documentation map;
 - [infra/README.md](infra/README.md) for server layout, `.env`, Compose, shared
   roots, deployment notes, and service ports;
-- [README-SYSTEM-DESIGN.md](README-SYSTEM-DESIGN.md) for the detailed
-  architecture;
-- [docs/observability.md](docs/observability.md) for logs, traces, and Grafana
-  workflow;
-- [docs/inference-events.md](docs/inference-events.md) for Redpanda event
-  schema and topic inspection;
-- [docs/clickhouse-analytics.md](docs/clickhouse-analytics.md) for ClickHouse
-  ingestion and starter analytics queries;
+- [docs/architecture/system-design.md](docs/architecture/system-design.md) for
+  the detailed architecture;
+- [docs/analytics/observability-evaluation-workflow.md](docs/analytics/observability-evaluation-workflow.md)
+  for the end-to-end diagnostic workflow;
+- [docs/analytics/observability.md](docs/analytics/observability.md) for logs,
+  traces, and Grafana workflow;
+- [docs/analytics/inference-events.md](docs/analytics/inference-events.md) for
+  Redpanda event schema and topic inspection;
+- [docs/analytics/clickhouse-analytics.md](docs/analytics/clickhouse-analytics.md)
+  for ClickHouse ingestion and starter analytics queries;
 - [experiments/README.md](experiments/README.md) for notebooks, evaluation, and
   experiment workflows.
 
@@ -179,4 +182,5 @@ and evaluate before expanding product features:
 3. feedback collection and champion/challenger evaluation;
 4. broader platform expansion once the core loop is measurable.
 
-The working plan lives in [IMPROVEMENTS.md](IMPROVEMENTS.md).
+The working plan lives in
+[docs/planning/improvements.md](docs/planning/improvements.md).
