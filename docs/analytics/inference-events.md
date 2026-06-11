@@ -101,4 +101,4 @@ The key joins are:
 - `celery_task_id`: Gateway enqueue event, worker logs, worker events.
 
 ClickHouse consumes this topic directly with its Kafka Engine. See
-`docs/clickhouse-analytics.md`.
+`docs/analytics/clickhouse-analytics.md`.
