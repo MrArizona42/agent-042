@@ -221,6 +221,13 @@ Acceptance criteria:
 - The doc separates implemented signals from future or optional telemetry.
 - The doc explains how evaluation and observability complement each other.
 
+Implementation notes:
+
+- The workflow is documented in
+  `docs/analytics/observability-evaluation-workflow.md`.
+- The same directory now groups observability, durable events, ClickHouse
+  analytics, and eval-result docs because they are one analysis loop.
+
 ### 5. Failure Analysis Notebook
 
 Current state: eval results are stored, but there is no single notebook focused
@@ -251,6 +258,12 @@ Likely files:
 - `experiments/eval/eval_scripts/runner.py`
 - `src/shared/db/models.py`
 
+Implementation notes:
+
+- `experiments/eval/failure_analysis.ipynb` provides starter queries, one-run
+  sample inspection, task-specific views, failure categories, and JSONL export
+  for future dataset candidates.
+
 ### 6. Evaluation Result Readiness
 
 Current state: the schema already stores aggregate eval runs and sample-level
@@ -274,6 +287,13 @@ Acceptance criteria:
 - Existing eval results can be interpreted without reading the runner code.
 - Common comparisons are available as documented SQL snippets or notebook cells.
 - Any schema gaps needed for Phase 2 RAG metrics are explicitly listed.
+
+Implementation notes:
+
+- `docs/analytics/evaluation-results.md` documents `eval_runs`,
+  `eval_samples`, metric families, common SQL, and current Phase 2 gaps.
+- `experiments/README.md` is now a short navigation file; the detailed training
+  and model-registry guide lives in `docs/experiments/training-and-model-registry.md`.
 
 ### 7. Analytics Control Map
 
@@ -300,6 +320,12 @@ Acceptance criteria:
   traces, logs, or notebooks for a given question.
 - The map explains which analytics are available immediately after Phase 1 and
   which depend on later feedback/A/B work.
+
+Implementation notes:
+
+- The control map is included in
+  `docs/analytics/observability-evaluation-workflow.md` under "Which Store
+  Answers Which Question".
 
 ## Phase 2: RAG Quality Improvements
 

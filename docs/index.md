@@ -19,6 +19,8 @@ in the repository root: [README.md](../README.md).
   event schema, and topic inspection.
 - [ClickHouse Analytics](analytics/clickhouse-analytics.md): ingestion from
   Redpanda and starter analytics queries.
+- [Evaluation Results](analytics/evaluation-results.md): eval tables, metrics,
+  field meanings, and common SQL.
 - [Experiments](../experiments/README.md): notebooks, evaluation scripts, LoRA
   training, and model registry workflows.
 - [Improvement Plan](planning/improvements.md): current staged work plan.
