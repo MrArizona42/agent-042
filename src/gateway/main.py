@@ -20,12 +20,19 @@ from shared.config import (
     get_settings,
     log_configuration_summary,
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+from shared.events import create_inference_event_producer
+from shared.logging import configure_logging
+from shared.telemetry import (
+    instrument_celery,
+    instrument_fastapi_app,
+    instrument_httpx,
+    instrument_redis,
 )
+
+configure_logging(service="gateway")
+instrument_httpx(service="gateway")
+instrument_redis(service="gateway")
+instrument_celery(service="gateway")
 logger = logging.getLogger(__name__)
 
 # Load settings at module load time (fail fast) and emit a safe summary.
@@ -76,10 +83,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     celery_client = CeleryClient(platform.celery_broker_url)
     logger.info("Celery client initialized")
 
+    inference_events = create_inference_event_producer(service="gateway", settings=settings)
+    if inference_events.configured:
+        logger.info("Inference event producer configured")
+
     # Inject services into the shared process_chat instance
     process_chat.init_services(
         redis_stream=redis_stream,
         celery_client=celery_client,
+        event_producer=inference_events,
     )
 
     # --- Auth services ---
@@ -113,6 +125,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # --- Cleanup on shutdown ---
     logger.info("Shutting down — closing managed connections")
+    inference_events.close()
     await redis_stream.close()
     celery_client.close()
     if auth_redis is not None:
@@ -149,6 +162,7 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+instrument_fastapi_app(app, service="gateway")
 
 from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
 

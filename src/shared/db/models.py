@@ -115,7 +115,9 @@ class EvalRun(Base):
     rag_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     rag_alias: Mapped[str | None] = mapped_column(Text)
     knowledge_base: Mapped[str | None] = mapped_column(Text)
+    qdrant_alias: Mapped[str | None] = mapped_column(Text)
     qdrant_collection: Mapped[str | None] = mapped_column(Text)
+    rag_manifest_id: Mapped[str | None] = mapped_column(Text)
     embedding_model: Mapped[str | None] = mapped_column(Text)
     chunking_strategy: Mapped[str | None] = mapped_column(Text)
     chunk_size: Mapped[int | None] = mapped_column(Integer)
@@ -134,6 +136,7 @@ class EvalRun(Base):
     # Generation params
     temperature: Mapped[float | None] = mapped_column(Float)
     max_tokens: Mapped[int | None] = mapped_column(Integer)
+    eval_verdict: Mapped[str | None] = mapped_column(Text)
 
     extra: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     error_message: Mapped[str | None] = mapped_column(Text)

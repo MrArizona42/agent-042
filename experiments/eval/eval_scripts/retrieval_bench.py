@@ -9,13 +9,44 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from rag.ops.meta import BuildConfig
+from rag.domain import RetrievalCapability
+from rag.domain.manifests import attestation_from_payload
+from rag.sources.materialize import qdrant_alias_name
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EvalBuildConfig:
+    """Minimal production-index shape needed to mirror retrieval evals."""
+
+    qdrant_alias: str | None
+    collection_name: str | None
+    manifest_id: str | None
+    chunking_strategy: str
+    chunk_size: int
+    chunk_overlap: int
+    embedding_model: str
+    sparse_encoder: str | None
+    retrieval_capability: RetrievalCapability
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable eval metadata payload."""
+        return {
+            "qdrant_alias": self.qdrant_alias,
+            "collection_name": self.collection_name,
+            "manifest_id": self.manifest_id,
+            "chunking_strategy": self.chunking_strategy,
+            "chunk_size": self.chunk_size,
+            "chunk_overlap": self.chunk_overlap,
+            "embedding_model": self.embedding_model,
+            "sparse_encoder": self.sparse_encoder,
+            "retrieval_capability": self.retrieval_capability.value,
+        }
 
 
 def _timestamp() -> str:
@@ -28,26 +59,56 @@ def read_build_config(
     rag_alias: str,
     qdrant_host: str,
     qdrant_port: int,
-) -> BuildConfig | None:
-    """Read the ``_meta`` sentinel from the production collection.
+) -> EvalBuildConfig | None:
+    """Read current collection attestation for a production KB alias.
 
-    The alias ``{kb_name}_{rag_alias}`` is resolved to obtain the build
-    config (embedding model, chunking strategy, etc.).
+    The source lifecycle now stores the full build manifest as an artifact and
+    writes only compact attestation metadata into Qdrant. Retrieval evals only
+    need the vector-leg setup plus a chunker for temporary benchmark corpora,
+    so this returns the attested embedding/capability and conservative chunking
+    defaults until eval jobs get first-class manifest artifact access.
 
     Returns:
-        Meta payload dict, or ``None`` if not found.
+        Minimal build config, or ``None`` if the alias is not attested.
     """
-    from rag.ops.meta import read_build_config_for_alias
+    from rag.vector_store import QdrantVectorStore
 
     try:
-        return read_build_config_for_alias(
-            kb_name=kb_name,
-            rag_alias=rag_alias,
-            qdrant_host=qdrant_host,
-            qdrant_port=qdrant_port,
+        alias_name = qdrant_alias_name(kb_id=kb_name, alias=rag_alias)
+        alias_store = QdrantVectorStore(
+            host=qdrant_host,
+            port=qdrant_port,
+            collection_name=alias_name,
         )
-    except RuntimeError:
-        logger.warning("Cannot read validated build config for alias '%s_%s'", kb_name, rag_alias)
+        collection_name = alias_store.resolve_alias(alias_name)
+        if collection_name is None:
+            logger.warning("Cannot resolve RAG alias '%s'", alias_name)
+            return None
+
+        collection_store = QdrantVectorStore(
+            host=qdrant_host,
+            port=qdrant_port,
+            collection_name=collection_name,
+        )
+        payload = collection_store.read_meta()
+        if payload is None:
+            logger.warning("Collection '%s' has no attestation metadata", collection_name)
+            return None
+
+        attestation = attestation_from_payload(payload)
+        return EvalBuildConfig(
+            qdrant_alias=alias_name,
+            collection_name=collection_name,
+            manifest_id=attestation.manifest_id,
+            chunking_strategy="recursive",
+            chunk_size=512,
+            chunk_overlap=64,
+            embedding_model=attestation.embedding_model,
+            sparse_encoder=attestation.sparse_encoder,
+            retrieval_capability=attestation.retrieval_capability,
+        )
+    except Exception:
+        logger.warning("Cannot read attested build config for alias '%s/%s'", kb_name, rag_alias)
         return None
 
 

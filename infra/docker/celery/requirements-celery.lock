@@ -26,8 +26,14 @@ click-plugins==1.1.1.2
     # via celery
 click-repl==0.3.0
     # via celery
+confluent-kafka==2.14.2
+    # via agent-042 (pyproject.toml)
 fire==0.7.1
     # via agent-042 (pyproject.toml)
+googleapis-common-protos==1.75.0
+    # via opentelemetry-exporter-otlp-proto-grpc
+grpcio==1.81.0
+    # via opentelemetry-exporter-otlp-proto-grpc
 h11==0.16.0
     # via httpcore
 httpcore==1.0.9
@@ -40,10 +46,57 @@ idna==3.11
     #   httpx
 kombu==5.6.2
     # via celery
+opentelemetry-api==1.42.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-celery
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-redis
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+opentelemetry-exporter-otlp-proto-common==1.42.1
+    # via opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-exporter-otlp-proto-grpc==1.42.1
+    # via agent-042 (pyproject.toml)
+opentelemetry-instrumentation==0.63b1
+    # via
+    #   opentelemetry-instrumentation-celery
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-redis
+opentelemetry-instrumentation-celery==0.63b1
+    # via agent-042 (pyproject.toml)
+opentelemetry-instrumentation-httpx==0.63b1
+    # via agent-042 (pyproject.toml)
+opentelemetry-instrumentation-redis==0.63b1
+    # via agent-042 (pyproject.toml)
+opentelemetry-proto==1.42.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-sdk==1.42.1
+    # via
+    #   agent-042 (pyproject.toml)
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-semantic-conventions==0.63b1
+    # via
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-celery
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-redis
+    #   opentelemetry-sdk
+opentelemetry-util-http==0.63b1
+    # via opentelemetry-instrumentation-httpx
 packaging==26.0
-    # via kombu
+    # via
+    #   kombu
+    #   opentelemetry-instrumentation
 prompt-toolkit==3.0.52
     # via click-repl
+protobuf==6.33.6
+    # via
+    #   googleapis-common-protos
+    #   opentelemetry-proto
 pydantic==2.12.5
     # via
     #   agent-042 (pyproject.toml)
@@ -67,6 +120,11 @@ termcolor==3.3.0
 typing-extensions==4.15.0
     # via
     #   anyio
+    #   grpcio
+    #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
     #   typing-inspection
@@ -85,3 +143,8 @@ vine==5.1.0
     #   kombu
 wcwidth==0.6.0
     # via prompt-toolkit
+wrapt==2.2.1
+    # via
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-httpx
+    #   opentelemetry-instrumentation-redis

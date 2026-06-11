@@ -44,6 +44,8 @@ class PlatformSettings(BaseModel):
         PLATFORM__MLFLOW_TRACKING_URI
         PLATFORM__REDIS_URL
         PLATFORM__CELERY_BROKER_URL
+        PLATFORM__KAFKA_BOOTSTRAP_SERVERS
+        PLATFORM__INFERENCE_EVENTS_TOPIC
 
     """
 
@@ -77,6 +79,14 @@ class PlatformSettings(BaseModel):
     celery_broker_url: str | None = Field(
         default=None,
         description="RabbitMQ broker URL for shared Celery-based workflows",
+    )
+    kafka_bootstrap_servers: str | None = Field(
+        default=None,
+        description="Kafka-compatible bootstrap servers for durable inference events",
+    )
+    inference_events_topic: str = Field(
+        default="inference.events.v1",
+        description="Kafka-compatible topic for durable inference lifecycle events",
     )
 
 

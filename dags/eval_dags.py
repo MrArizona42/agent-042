@@ -83,6 +83,20 @@ def _list_knowledge_base_names() -> list[str]:
     )
 
 
+def _list_knowledge_base_aliases() -> list[str]:
+    """Load KB alias options from the shared task catalog."""
+    from shared.catalog import get_catalog
+
+    return sorted(
+        {
+            alias
+            for task_cfg in get_catalog().values()
+            for kb_cfg in task_cfg.knowledge_bases
+            for alias in kb_cfg.aliases
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Eval suite definitions — one DAG per (task, dataset) combo
 # ---------------------------------------------------------------------------
@@ -328,10 +342,11 @@ def _calculate_metrics_task(
 # name so that the Airflow UI stays in sync with the deployed configuration.
 _sync_raw = _read_env("ADAPTER_REGISTRY__SYNC_ALIASES", default="champion,challenger")
 _sync_aliases = [a.strip() for a in _sync_raw.split(",") if a.strip()]
-_alias_options = ["none"] + _sync_aliases
+_lora_alias_options = ["none"] + _sync_aliases
 
 # Build knowledge-base dropdown options from the shared catalog.
 _kb_options = _list_knowledge_base_names()
+_kb_alias_options = ["none"] + _list_knowledge_base_aliases()
 
 for _suite in _EVAL_SUITES:
     _dag_id = _suite["dag_id"]
@@ -385,7 +400,7 @@ for _suite in _EVAL_SUITES:
             "knowledge_base_aliases": Param(
                 [],
                 type="array",
-                examples=_alias_options,
+                examples=_kb_alias_options,
                 description=(
                     "Knowledge-base aliases to evaluate (multi-select). "
                     "For custom aliases, use custom_params."
@@ -406,7 +421,7 @@ for _suite in _EVAL_SUITES:
                     "lora_aliases": Param(
                         [],
                         type="array",
-                        examples=_alias_options,
+                        examples=_lora_alias_options,
                         description=(
                             "LoRA aliases to evaluate (multi-select). "
                             "For custom aliases, use custom_params."

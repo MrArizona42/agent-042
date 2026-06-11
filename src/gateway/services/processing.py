@@ -17,12 +17,15 @@ from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
 from shared.catalog import get_catalog, get_kb_config
 from shared.config import get_settings, secret_value
+from shared.events import InferenceEventProducer, InferenceEventType
+from shared.logging import bind_log_context, reset_log_context
+from shared.telemetry import get_tracer
 from shared.vllm_payloads import (
     canonicalize_assistant_content,
 )
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
 
 PROMPT_PREVIEW_TTL_SECONDS = 900
 SERVICE_USER_ID = "__service__"
@@ -53,16 +56,44 @@ class _ProcessChat:
         # Services injected via init_services() during lifespan startup
         self._celery_client: CeleryClient | None = None
         self._redis_stream: RedisStreamService | None = None
+        self._event_producer: InferenceEventProducer | None = None
 
     def init_services(
         self,
         *,
         redis_stream: RedisStreamService | None = None,
         celery_client: CeleryClient | None = None,
+        event_producer: InferenceEventProducer | None = None,
     ) -> None:
         """Inject managed service instances (called from lifespan startup)."""
         self._redis_stream = redis_stream
         self._celery_client = celery_client
+        self._event_producer = event_producer
+
+    def publish_inference_event(
+        self,
+        event_type: InferenceEventType,
+        *,
+        request_id: str | None = None,
+        user_id: str | None = None,
+        chat_session_id: str | None = None,
+        celery_task_id: str | None = None,
+        conversation_id: str | None = None,
+        model: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        if self._event_producer is None:
+            return
+        self._event_producer.publish(
+            event_type,
+            request_id=request_id,
+            user_id=user_id,
+            chat_session_id=chat_session_id,
+            celery_task_id=celery_task_id,
+            conversation_id=conversation_id,
+            model=model,
+            payload=payload,
+        )
 
     def ensure_rag_service(
         self,
@@ -210,19 +241,25 @@ class _ProcessChat:
         query: str,
         task: str,
     ) -> tuple[RAGSource, ...]:
-        rag_service = self.ensure_rag_service()
-        if rag_service is None or not rag_service.enabled:
-            return ()
+        with tracer.start_as_current_span("rag.auto_select_sources") as span:
+            span.set_attribute("rag.task", task)
+            rag_service = self.ensure_rag_service()
+            if rag_service is None or not rag_service.enabled:
+                span.set_attribute("rag.enabled", False)
+                return ()
+            span.set_attribute("rag.enabled", True)
 
-        try:
-            return tuple(rag_service.select_knowledge_bases(query, task))
-        except Exception:
-            logger.warning(
-                "Automatic KB selection failed for task=%s",
-                task,
-                exc_info=True,
-            )
-            return ()
+            try:
+                sources = tuple(rag_service.select_knowledge_bases(query, task))
+                span.set_attribute("rag.sources_count", len(sources))
+                return sources
+            except Exception:
+                logger.warning(
+                    "Automatic KB selection failed for task=%s",
+                    task,
+                    exc_info=True,
+                )
+                return ()
 
     @staticmethod
     def _resolve_task_model(task: str, *, settings: Any) -> str:
@@ -249,41 +286,50 @@ class _ProcessChat:
                 "RAG sources were requested, but the RAG service is disabled or unavailable"
             )
 
-        for src in rag_sources:
-            kb_cfg = get_kb_config(src.knowledge_base)
-            effective_alias = src.alias or (kb_cfg.default_alias if kb_cfg else "champion")
-            logger.info(
-                "RAG — retrieving from kb=%s alias=%s",
-                src.knowledge_base,
-                effective_alias,
-            )
-            try:
-                docs = rag_service.retrieve_documents(
-                    query=last_user,
-                    knowledge_base=src.knowledge_base,
-                    alias=effective_alias,
+        with tracer.start_as_current_span("rag.retrieve_context") as span:
+            span.set_attribute("rag.sources_count", len(rag_sources))
+            for src in rag_sources:
+                kb_cfg = get_kb_config(src.knowledge_base)
+                effective_alias = src.alias or (kb_cfg.default_alias if kb_cfg else "champion")
+                logger.info(
+                    "RAG — retrieving from kb=%s alias=%s",
+                    src.knowledge_base,
+                    effective_alias,
                 )
-            except Exception as exc:
-                raise RuntimeError(
-                    "Failed to retrieve RAG context for "
-                    f"knowledge base '{src.knowledge_base}' alias '{effective_alias}'"
-                ) from exc
+                try:
+                    docs = rag_service.retrieve_documents(
+                        query=last_user,
+                        knowledge_base=src.knowledge_base,
+                        alias=effective_alias,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(
+                        "Failed to retrieve RAG context for "
+                        f"knowledge base '{src.knowledge_base}' alias '{effective_alias}'"
+                    ) from exc
 
-            if not docs:
-                continue
+                if not docs:
+                    continue
 
-            source_key = f"{src.knowledge_base}:{effective_alias}"
-            rag_chunks_by_source[source_key] = [
-                {
-                    "content": doc.content,
-                    "score": doc.score if doc.score is not None else 0.0,
-                    "source": f"{src.knowledge_base}_{effective_alias}",
-                    "knowledge_base": src.knowledge_base,
-                    "alias": effective_alias,
-                    "metadata": dict(doc.metadata),
-                }
-                for doc in docs
-            ]
+                source_key = f"{src.knowledge_base}:{effective_alias}"
+                rag_chunks_by_source[source_key] = [
+                    {
+                        "content": doc.content,
+                        "score": doc.score if doc.score is not None else 0.0,
+                        "source": f"{src.knowledge_base}_{effective_alias}",
+                        "knowledge_base": src.knowledge_base,
+                        "alias": effective_alias,
+                        "metadata": dict(doc.metadata),
+                    }
+                    for doc in docs
+                ]
+            context_sources_count = len(rag_chunks_by_source)
+            context_chunks_count = sum(len(chunks) for chunks in rag_chunks_by_source.values())
+            span.set_attribute("rag.context_sources_count", context_sources_count)
+            span.set_attribute(
+                "rag.context_chunks_count",
+                context_chunks_count,
+            )
 
         return rag_chunks_by_source
 
@@ -293,7 +339,9 @@ class _ProcessChat:
         budget_settings = settings.gateway.budget
         rag_settings = settings.rag
         last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
-        decision = self._router.decide(last_user)
+        with tracer.start_as_current_span("gateway.task_routing") as span:
+            decision = self._router.decide(last_user)
+            span.set_attribute("gateway.task", decision.task)
         rag_request = self._resolve_rag_request(req, task=decision.task)
 
         rag_sources = rag_request.sources
@@ -310,13 +358,18 @@ class _ProcessChat:
             rag_sources,
             last_user=last_user,
         )
-        prompt = self._prompt_builder.build_budgeted_messages(
-            task=decision.task,
-            request_messages=[m.model_dump(exclude_none=True) for m in req.messages],
-            rag_chunks_by_source=rag_chunks_by_source,
-            rag_requested=rag_requested,
-            budget_settings=budget_settings,
-        )
+        with tracer.start_as_current_span("gateway.prompt_build") as span:
+            prompt = self._prompt_builder.build_budgeted_messages(
+                task=decision.task,
+                request_messages=[m.model_dump(exclude_none=True) for m in req.messages],
+                rag_chunks_by_source=rag_chunks_by_source,
+                rag_requested=rag_requested,
+                budget_settings=budget_settings,
+            )
+            span.set_attribute("gateway.task", decision.task)
+            span.set_attribute("rag.requested", rag_requested)
+            span.set_attribute("rag.context_chunks_count", len(prompt.rag_context_chunks))
+            span.set_attribute("llm.prompt_messages_count", len(prompt.messages))
         logger.info("Built budgeted prompt with %s message(s)", len(prompt.messages))
 
         generation_payload: dict[str, Any] = {
@@ -372,11 +425,14 @@ class _ProcessChat:
             "prompt_messages": prepared.prompt_messages,
             "rag_context": prepared.rag_context_chunks,
         }
-        await redis_stream.store_prompt_preview(
-            request_id,
-            preview,
-            ttl_seconds=PROMPT_PREVIEW_TTL_SECONDS,
-        )
+        with tracer.start_as_current_span("gateway.prompt_preview.store") as span:
+            span.set_attribute("request_id", request_id)
+            span.set_attribute("prompt_preview.ttl_seconds", PROMPT_PREVIEW_TTL_SECONDS)
+            await redis_stream.store_prompt_preview(
+                request_id,
+                preview,
+                ttl_seconds=PROMPT_PREVIEW_TTL_SECONDS,
+            )
 
     async def get_prompt_preview(
         self,
@@ -491,6 +547,23 @@ class _ProcessChat:
             },
         )
 
+    @staticmethod
+    def _rag_context_event_payload(prepared: PreparedChatRequest) -> dict[str, Any]:
+        sources: set[tuple[str | None, str | None]] = set()
+        for chunk in prepared.rag_context_chunks:
+            sources.add((chunk.get("knowledge_base"), chunk.get("alias")))
+        return {
+            "context_chunks_count": len(prepared.rag_context_chunks),
+            "context_sources_count": len(sources),
+            "sources": [
+                {"knowledge_base": knowledge_base, "alias": alias}
+                for knowledge_base, alias in sorted(
+                    sources,
+                    key=lambda item: (item[0] or "", item[1] or ""),
+                )
+            ],
+        }
+
     async def stream_chat(
         self,
         req: ChatCompletionRequest,
@@ -500,8 +573,24 @@ class _ProcessChat:
         request_id: str | None = None,
         rich_stream: bool = False,
     ) -> AsyncIterator[bytes]:
-        prepared = self._prepare_request(req)
-        if request_id is not None:
+        request_id = request_id or str(_uuid.uuid4())
+        log_token = bind_log_context(
+            request_id=request_id,
+            user_id=user_id,
+            chat_session_id=chat_session_id,
+        )
+        try:
+            with tracer.start_as_current_span("gateway.prepare_chat_request"):
+                prepared = self._prepare_request(req)
+            if prepared.rag_context_chunks:
+                self.publish_inference_event(
+                    "rag.context.selected",
+                    request_id=request_id,
+                    user_id=user_id,
+                    chat_session_id=chat_session_id,
+                    model=prepared.generation_payload.get("model"),
+                    payload=self._rag_context_event_payload(prepared),
+                )
             try:
                 await self._store_prompt_preview(
                     request_id=request_id,
@@ -511,14 +600,16 @@ class _ProcessChat:
                 )
             except Exception:
                 logger.warning("Failed to store prompt preview", exc_info=True)
-        return await self._stream_chat_async(
-            prepared,
-            req=req,
-            user_id=user_id,
-            chat_session_id=chat_session_id,
-            request_id=request_id,
-            rich_stream=rich_stream,
-        )
+            return await self._stream_chat_async(
+                prepared,
+                req=req,
+                user_id=user_id,
+                chat_session_id=chat_session_id,
+                request_id=request_id,
+                rich_stream=rich_stream,
+            )
+        finally:
+            reset_log_context(log_token)
 
     async def _stream_chat_async(
         self,
@@ -537,17 +628,39 @@ class _ProcessChat:
         celery_client = self._get_celery_client()
         redis_stream = self._get_redis_stream()
 
-        task_id = celery_client.enqueue_generate_response(
-            conversation_id=conversation_id,
+        with tracer.start_as_current_span("celery.enqueue_generate_response") as span:
+            span.set_attribute("request_id", request_id)
+            span.set_attribute("conversation_id", conversation_id)
+            span.set_attribute("llm.model", prepared.generation_payload.get("model") or "")
+            task_id = celery_client.enqueue_generate_response(
+                conversation_id=conversation_id,
+                request_id=request_id,
+                generation_payload=prepared.generation_payload,
+                budget_meta=prepared.budget_meta,
+            )
+            span.set_attribute("celery.task_id", task_id)
+        log_token = bind_log_context(
             request_id=request_id,
-            generation_payload=prepared.generation_payload,
-            budget_meta=prepared.budget_meta,
+            user_id=user_id,
+            chat_session_id=chat_session_id,
+            celery_task_id=task_id,
+            conversation_id=conversation_id,
+            model=prepared.generation_payload.get("model"),
         )
         logger.info(
-            "Enqueued async stream task %s for conversation %s",
-            task_id,
-            conversation_id,
+            "Enqueued async stream task",
+            extra={"event": "celery.task.enqueued"},
         )
+        self.publish_inference_event(
+            "celery.task.enqueued",
+            request_id=request_id,
+            user_id=user_id,
+            chat_session_id=chat_session_id,
+            celery_task_id=task_id,
+            conversation_id=conversation_id,
+            model=prepared.generation_payload.get("model"),
+        )
+        reset_log_context(log_token)
 
         def _revoke_generation(*, reason: str) -> None:
             try:
@@ -571,6 +684,14 @@ class _ProcessChat:
             )
 
         async def _event_stream() -> AsyncIterator[bytes]:
+            stream_log_token = bind_log_context(
+                request_id=request_id,
+                user_id=user_id,
+                chat_session_id=chat_session_id,
+                celery_task_id=task_id,
+                conversation_id=conversation_id,
+                model=prepared.generation_payload.get("model"),
+            )
             thinking_content = ""
             answer_content = ""
             finish_reason = "stop"
@@ -583,6 +704,14 @@ class _ProcessChat:
             revocation_requested = False
 
             try:
+                logger.info(
+                    "Async stream started",
+                    extra={"event": "chat.stream.started"},
+                )
+                with tracer.start_as_current_span("gateway.stream_response") as span:
+                    span.set_attribute("conversation_id", conversation_id)
+                    span.set_attribute("celery.task_id", task_id)
+                    span.set_attribute("llm.model", prepared.generation_payload.get("model") or "")
                 async for event in redis_stream.subscribe(
                     conversation_id,
                     timeout=gateway_settings.streaming_timeout,
@@ -660,14 +789,52 @@ class _ProcessChat:
                             yield self._usage_chunk(request_id=request_id, usage=usage)
 
                         if chat_session_id and user_id:
-                            await self._persist_exchange(req, result, chat_session_id)
+                            await self._persist_exchange(
+                                req,
+                                result,
+                                chat_session_id,
+                                request_id=request_id,
+                                user_id=user_id,
+                                celery_task_id=task_id,
+                                conversation_id=conversation_id,
+                                model=prepared.generation_payload.get("model"),
+                            )
 
+                        logger.info(
+                            "Async stream completed",
+                            extra={
+                                "event": "chat.stream.completed",
+                                "finish_reason": finish_reason,
+                                "prompt_tokens": usage.get("prompt_tokens"),
+                                "completion_tokens": usage.get("completion_tokens"),
+                                "total_tokens": usage.get("total_tokens"),
+                            },
+                        )
+                        self.publish_inference_event(
+                            "chat.response.completed",
+                            request_id=request_id,
+                            user_id=user_id,
+                            chat_session_id=chat_session_id,
+                            celery_task_id=task_id,
+                            conversation_id=conversation_id,
+                            model=prepared.generation_payload.get("model"),
+                            payload={
+                                "finish_reason": finish_reason,
+                                "prompt_tokens": usage.get("prompt_tokens"),
+                                "completion_tokens": usage.get("completion_tokens"),
+                                "total_tokens": usage.get("total_tokens"),
+                            },
+                        )
                         if not rich_stream:
                             yield b"data: [DONE]\n\n"
                         return
 
                     if event_type == "error":
                         error_type = event.get("error_type") or "server_error"
+                        logger.warning(
+                            "Async stream received error event",
+                            extra={"event": "chat.stream.error", "error_type": error_type},
+                        )
                         if error_type != "timeout":
                             terminal_event_seen = True
                         elif not revocation_requested:
@@ -696,6 +863,7 @@ class _ProcessChat:
                     _revoke_generation(
                         reason="stream closed before worker reported completion",
                     )
+                reset_log_context(stream_log_token)
 
         return _event_stream()
 
@@ -704,6 +872,12 @@ class _ProcessChat:
         req: ChatCompletionRequest,
         result: dict,
         chat_session_id: str,
+        *,
+        request_id: str,
+        user_id: str | None,
+        celery_task_id: str,
+        conversation_id: str,
+        model: str | None,
     ) -> None:
         """Persist the user message and assistant response to PostgreSQL."""
         try:
@@ -712,47 +886,65 @@ class _ProcessChat:
             from shared.db.engine import get_session_factory
             from shared.db.models import ChatMessage, ChatSession
 
-            last_user_msg = next(
-                (m.content for m in reversed(req.messages) if m.role == "user"),
-                None,
-            )
-            assistant_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-            usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
-
-            session_uuid = _uuid.UUID(chat_session_id)
-
-            async with get_session_factory()() as db:
-                sess_result = await db.execute(
-                    select(ChatSession).where(ChatSession.id == session_uuid)
+            with tracer.start_as_current_span("gateway.persist_exchange") as span:
+                span.set_attribute("chat_session_id", chat_session_id)
+                last_user_msg = next(
+                    (m.content for m in reversed(req.messages) if m.role == "user"),
+                    None,
                 )
-                session = sess_result.scalar_one_or_none()
-                if session and not session.title and last_user_msg:
-                    session.title = last_user_msg[:100]
-                    session.updated_at = datetime.now(timezone.utc)
+                assistant_content = (
+                    result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                )
+                usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
 
-                if last_user_msg:
-                    db.add(
-                        ChatMessage(
-                            session_id=session_uuid,
-                            role="user",
-                            content=last_user_msg,
-                        )
+                session_uuid = _uuid.UUID(chat_session_id)
+
+                async with get_session_factory()() as db:
+                    sess_result = await db.execute(
+                        select(ChatSession).where(ChatSession.id == session_uuid)
                     )
+                    session = sess_result.scalar_one_or_none()
+                    if session and not session.title and last_user_msg:
+                        session.title = last_user_msg[:100]
+                        session.updated_at = datetime.now(timezone.utc)
 
-                if assistant_content:
-                    db.add(
-                        ChatMessage(
-                            session_id=session_uuid,
-                            role="assistant",
-                            content=assistant_content,
-                            prompt_tokens=self._usage_int(usage.get("prompt_tokens")),
-                            completion_tokens=self._usage_int(usage.get("completion_tokens")),
+                    messages_inserted = 0
+                    if last_user_msg:
+                        db.add(
+                            ChatMessage(
+                                session_id=session_uuid,
+                                role="user",
+                                content=last_user_msg,
+                            )
                         )
-                    )
+                        messages_inserted += 1
 
-                if session:
-                    session.updated_at = datetime.now(timezone.utc)
-                await db.commit()
+                    if assistant_content:
+                        db.add(
+                            ChatMessage(
+                                session_id=session_uuid,
+                                role="assistant",
+                                content=assistant_content,
+                                prompt_tokens=self._usage_int(usage.get("prompt_tokens")),
+                                completion_tokens=self._usage_int(usage.get("completion_tokens")),
+                            )
+                        )
+                        messages_inserted += 1
+
+                    if session:
+                        session.updated_at = datetime.now(timezone.utc)
+                    await db.commit()
+                span.set_attribute("db.messages_inserted", messages_inserted)
+                self.publish_inference_event(
+                    "chat.persistence.completed",
+                    request_id=request_id,
+                    user_id=user_id,
+                    chat_session_id=chat_session_id,
+                    celery_task_id=celery_task_id,
+                    conversation_id=conversation_id,
+                    model=model,
+                    payload={"messages_inserted": messages_inserted},
+                )
         except Exception:
             logger.warning("Failed to persist chat exchange", exc_info=True)
 

@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS eval_runs (
     rag_enabled           BOOLEAN NOT NULL DEFAULT false,
     rag_alias             TEXT,                              -- champion | challenger | null
     knowledge_base        TEXT,                              -- arxiv | pytorch_docs | null
+    qdrant_alias          TEXT,                              -- resolved runtime alias name
     qdrant_collection     TEXT,                              -- resolved collection name
+    rag_manifest_id       TEXT,                              -- Qdrant attestation manifest id
     embedding_model       TEXT,
     chunking_strategy     TEXT,
     chunk_size            INTEGER,
@@ -42,6 +44,7 @@ CREATE TABLE IF NOT EXISTS eval_runs (
     -- Generation params
     temperature           DOUBLE PRECISION,
     max_tokens            INTEGER,
+    eval_verdict          TEXT,                              -- pass | warn | fail | unscored
 
     extra                 JSONB NOT NULL DEFAULT '{}',
 
@@ -54,5 +57,8 @@ CREATE INDEX IF NOT EXISTS idx_eval_runs_adapter ON eval_runs (adapter_name, ada
 CREATE INDEX IF NOT EXISTS idx_eval_runs_created ON eval_runs (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_eval_runs_base_model ON eval_runs (base_model);
 CREATE INDEX IF NOT EXISTS idx_eval_runs_rag_alias ON eval_runs (rag_alias);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_qdrant_alias ON eval_runs (qdrant_alias);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_rag_manifest ON eval_runs (rag_manifest_id);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_verdict ON eval_runs (eval_verdict);
 CREATE INDEX IF NOT EXISTS idx_eval_runs_lora_alias ON eval_runs (lora_alias);
 CREATE INDEX IF NOT EXISTS idx_eval_runs_extra ON eval_runs USING gin (extra);

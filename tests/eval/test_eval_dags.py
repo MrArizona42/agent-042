@@ -106,7 +106,8 @@ def test_eval_dags_alias_options_prefer_adapter_registry_env(
     eval_dags = importlib.reload(eval_dags)
 
     assert eval_dags._sync_aliases == ["champion", "shadow"]
-    assert eval_dags._alias_options == ["none", "champion", "shadow"]
+    assert eval_dags._lora_alias_options == ["none", "champion", "shadow"]
+    assert eval_dags._kb_alias_options == ["none", "challenger", "champion"]
 
 
 def test_eval_dags_resolve_params_supports_auto_kb_mode(
@@ -181,6 +182,11 @@ def test_generation_dag_params_expose_kb_mode_controls(
     assert chat_params["knowledge_base_mode"].kwargs["enum"] == ["explicit", "auto"]
     assert "knowledge_base" in chat_params
     assert "lora_aliases" in chat_params
+    assert chat_params["knowledge_base_aliases"].kwargs["examples"] == [
+        "none",
+        "challenger",
+        "champion",
+    ]
 
     assert "knowledge_base_mode" not in retrieval_params
     assert "knowledge_base" in retrieval_params

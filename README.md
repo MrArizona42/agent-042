@@ -1,85 +1,102 @@
 # Agent 042
 
-## Инструкции
+Agent 042 is a single-node AI assistant platform built around RAG, LoRA adapters,
+evaluation workflows, and production-style observability.
 
-* `./infra/README.md` - настройка окружения и инфраструктуры
-* `./experiments/README.md` - как проводить эксперименты и operator workflows
-* `./CONFIG-REFACTOR-PLAN.md` - план упрощения и перестройки runtime-конфигов
+The project is not just a chat UI wrapped around an LLM. The main work here is
+the surrounding system: retrieval pipelines, model adapter lifecycle, async
+inference, experiment tracking, evaluation, deployment, logs, traces, durable
+events, and analytics. Everything lives in one repository so runtime code,
+experiments, DAGs, infrastructure, and operator workflows stay close enough to
+evolve together.
 
-## Контракт конфигурации
+The intended use case is an internal research assistant for teams that need to
+work with private knowledge bases on a dedicated server.
 
-Runtime-конфигурация Python-сервисов теперь фиксируется так:
+## What It Does
 
-* единственная env-loading boundary - root `Settings(BaseSettings)` в `src/shared/config.py`
-* канонические runtime env names используют nested shape `SECTION__FIELD`
-* task/KB catalog schema и loader живут в `src/shared/catalog/`, а не в `shared.config`
+The current system supports:
 
-Практически это означает:
+- authenticated chat UI with streaming responses;
+- OpenAI-compatible Gateway API;
+- vLLM-backed inference with runtime LoRA adapter loading;
+- task-aware prompt assembly for chat, code, and summarization;
+- RAG over versioned Qdrant collections;
+- dense, sparse, and hybrid retrieval with optional reranking;
+- async generation through Celery, RabbitMQ, Redis Pub/Sub, and vLLM;
+- RAG build/materialize/promote workflows through CLI and Airflow;
+- LoRA training and promotion workflows with MLflow tracking;
+- evaluation pipelines for generation, retrieval, and code tasks;
+- structured logs, OpenTelemetry traces, Prometheus metrics, Loki, Tempo, and
+  Grafana;
+- durable inference lifecycle events in Redpanda;
+- ClickHouse ingestion for production inference analytics.
 
-* для runtime-настроек используйте имена вроде `GATEWAY__DEFAULT_MODEL`, `RAG__EMBEDDING_MODEL`, `CATALOG__PATH`, `ADAPTER_REGISTRY__SYNC_ALIASES`, `EVAL__JUDGE__MODEL`
-* flat compatibility aliases для runtime env больше не поддерживаются
-* если нужен operator-facing env key, он должен быть задокументирован в `.env.example` и `infra/README.md`
-
-## Цель проекта и позиционирование
-
-Цель проекта - создать ИИ-ассистента с RAG и LoRA.
-
-Запустить LLM и заставить ее отвечать на вопросы - тривиальная задача. Прикрутить к LLM RAG систему тоже не трудно. Настроить LoRA training pipeline для базовой LLM можно за вечер. Поднять полноценное приложение на выделенном сервере с прописанными принципами разработки и экспериментов, надежным хранением всех данных, автоматизированными пайплайнами обучения, обновления и оценки, прозрачным мониторингом - оставшиеся 99% усилий.
-
-Данный проект направлен на разработку инфраструктуры и workflows для ИИ-ассистента production-уровня, сохраняя при этом парадигму single-repository.
-
-Пример целевого использования - команды исследователей, которым нужен ИИ-ассистент для работы с NDA данными и базами знаний.
-
-## Возможности системы
+Architecture overview:
 
 <img src="schema.png" alt="Architecture overview" width="1600"/>
 
-**UX и пользовательские возможности.**
+## Runtime Path
 
-UI с ИИ-ассистентом. Поддерживается Google-авторизация, история сообщений и streaming-инференс в UI. Основные типы задач: чат, суммаризация документов и генерация кода. В зависимости от типа задач бэкенд может задействовать поиск в RAG коллекциях и соответвтующий LoRA адаптер.
+A user request follows this path:
 
-**Backend и инфраструктура.**
+1. Streamlit UI sends an authenticated chat request to the Gateway.
+2. Gateway validates the session, routes the task, selects RAG sources when
+   needed, and builds a budgeted prompt.
+3. Gateway enqueues generation work in Celery.
+4. Worker asks vLLM for exact prompt token count, applies the final response
+   budget, and streams generation from vLLM.
+5. Tokens are sent back through Redis Pub/Sub and streamed to the UI.
+6. Chat metadata is persisted in PostgreSQL.
+7. Logs, traces, and inference events are emitted for debugging and analytics.
 
-* Инференс платформа. Основная часть, которая обеспечивает работу ИИ-ассистента. Состоит из следующих микросервисов:
-    * `gateway` - API gateway для аутентификации, маршрутизации запросов, prompt assembly, RAG и streaming-ответов.
-    * `vllm` - основной inference engine с OpenAI-совместимым API и поддержкой hot-loading LoRA адаптеров.
-    * `celery-worker` - асинхронное выполнение inference-задач и стриминг токенов обратно в пользовательский контур.
-    * `embeddings` - отдельный сервис для dense и sparse embeddings.
-    * `reranker` - отдельный сервис для cross-encoder reranking.
-    * `vllm-adapter-sync` - синхронизация LoRA артефактов из registry в serving-контур.
-    * `qdrant` - векторное хранилище для RAG коллекций
-    * `redis` - сессии, вспомогательное состояние и pub/sub для streaming-ответов.
-    * `rabbitmq` - брокер очередей для фоновых inference и workflow-задач.
-    * `postgres` - БД для пользовательских сущностей, истории диалогов, а также для backend микросервисов.
+The split is intentional: HTTP request handling stays separate from long-running
+generation, and the worker owns the exact token-budget check immediately before
+calling vLLM.
 
-* Платформа для экспериментов с RAG и LoRA. Включает все необходимое для проведения экспериментов с логированием, версионированием, автоматизацией отдельных шагов и бенчмарками. Состоит из следующих микросервисов:
-    * `airflow-webserver`, `airflow-scheduler`, `airflow-dag-processor` - основные Airflow сервисы.
-    * `airflow-worker` - CPU-воркер для бенчмарков, обновления RAG и прочих тяжелых фоновых задач без GPU.
-    * `airflow-worker-gpu` - GPU-воркер для обучения LoRA.
-    * `rag-ops` - одноразовый CLI-runner для ручных RAG-операций внутри docker network; использует тот же образ и маунты, что и `airflow-worker`.
-    * `jupyter` - точка входа для ручных экспериментов, анализа результатов и точечных операций.
-    * `mlflow` - трекинг экспериментов, model registry.
-    * `code-sandbox` - изолированная среда выполнения кода для бенчмарков с запуском кода.
+## Main Components
 
-* Платформа для мониторинга и аналитики. Observability обеспечивается следующими микросервисами:
-    * `prometheus` - сбор технических метрик с inference и инфраструктурных сервисов.
-    * `grafana` - дашборды для инфраструктурной observability и аналитики по ML-процессам.
-    * `flower` - мониторинг очередей и состояния Celery workers.
-    * `redisinsight` - мониторинг Redis-состояния, ключей и pub/sub активности.
-    * `mlflow` - аналитика по training runs, параметрам, метрикам и артефактам экспериментов.
+### Inference
 
-**Workflows и проработанные пайплайны.**
+- `gateway`: FastAPI API gateway, auth boundary, task routing, RAG orchestration,
+  prompt assembly, streaming response contract.
+- `vllm`: OpenAI-compatible inference server with LoRA hot-loading.
+- `celery-worker`: async generation worker; talks to vLLM and streams events
+  through Redis.
+- `embeddings`: service for dense embeddings and sparse BM25 embeddings.
+- `reranker`: cross-encoder reranking service.
+- `qdrant`: vector storage for RAG collections.
+- `redis`: sessions, prompt preview state, and token streaming.
+- `rabbitmq`: Celery broker.
+- `postgres`: operational state, auth/session-related data, chat history,
+  MLflow backend, and Airflow metadata.
 
-* Эксперименты с RAG
-    * Загрузка и подготовка данных, версионирование датасетов
-    * Создание коллекций
-    * Alias-based конфиги RAG-а
+### RAG And Model Operations
 
-**RAG operations entry point.**
+- `rag-ops`: one-shot container for manual RAG lifecycle commands inside the
+  same Docker network and dependency image as Airflow workers.
+- `airflow-*`: orchestration for RAG builds, cleanup, evaluation, and LoRA
+  training.
+- `mlflow`: experiment tracking and model registry.
+- `vllm-adapter-sync`: syncs aliased LoRA adapters from MLflow to vLLM.
+- `jupyter`: notebooks for inspection, experiments, and operational analysis.
+- `code-sandbox`: isolated code execution service for code evaluation tasks.
 
-Manual RAG lifecycle commands should run through the `rag-ops` Compose service
-so they execute inside the same Docker network and dependency image as Airflow
-worker tasks:
+### Observability And Analytics
+
+- `prometheus`: service and infrastructure metrics.
+- `grafana`: dashboards and Explore UI.
+- `loki` + `alloy`: searchable Docker/application logs.
+- `tempo` + `otel-collector`: request traces.
+- `redpanda` + `redpanda-console`: durable Kafka-compatible inference events.
+- `clickhouse`: analytics storage for inference events and future rollups.
+- `flower`: Celery queue visibility.
+- `redisinsight`: Redis inspection.
+
+## RAG Lifecycle
+
+RAG collections are built as artifacts and served through aliases. A typical
+manual build runs through `rag-ops`:
 
 ```bash
 bash scripts/rag_ops.sh python -m rag.sources.cli build-source \
@@ -90,30 +107,76 @@ bash scripts/rag_ops.sh python -m rag.sources.cli build-source \
   --limit 1
 ```
 
-Use Jupyter for artifact inspection and curation, and Airflow for scheduled
-orchestration; both should call the same Python/CLI lifecycle code.
-    * Бенчмарки
-    * Автоматическое обновление коллекций
+The same lifecycle code is used by Airflow DAGs. Jupyter is for inspection and
+curation, not as the production build entry point.
 
-* Эксперименты с LoRA
-    * Загрузка и подготовка данных, версионирование датасетов
-    * Обучение. Конфигурирование и трекинг экспериментов, версионирование моделей
-    * Бенчмарки, alias-based продвижение моделей в прод
+See [docs/rag-operations.md](docs/rag-operations.md) for naming, promotion,
+inspection, rollback, and Airflow parameters.
 
-* Разработка и CI/CD процессы. Автоматизироавны шаги:
-    * проверка кода
-    * тестирование
-    * сборка образов
-    * deploy
+## Configuration
 
-## Структура проекта
+Python runtime configuration is centralized in `src/shared/config.py`.
 
-Проект собран как единое рабочее пространство, в котором рядом живут runtime-сервисы, инфраструктура, эксперименты и operator workflows. Основные разделы репозитория:
+Runtime env vars use nested names:
 
-* `infra` - инфраструктура
-* `src` - основной runtime код сервиса
-* `experiments` - notebooks, training-код, eval-скрипты и операторские entrypoint'ы для ручной работы с RAG и LoRA
-* `scripts` - служебные shell-скрипты
-* `artifacts` и `assets` - весь "state" проекта
-* `tests` - unit и integration тесты
-* `dags` - Airflow DAG-и для обучения, evaluation, обновления RAG коллекций и других автоматизированных задач.
+```text
+GATEWAY__DEFAULT_MODEL
+RAG__EMBEDDING_MODEL
+CATALOG__PATH
+ADAPTER_REGISTRY__SYNC_ALIASES
+EVAL__JUDGE__MODEL
+PLATFORM__KAFKA_BOOTSTRAP_SERVERS
+```
+
+Flat names are reserved for Compose/bootstrap concerns such as host ports,
+image tags, and external service credentials. Operator-facing keys should be
+documented in `.env.example` and `infra/README.md`.
+
+## Running And Operating
+
+This repository is designed around Docker Compose on a single dedicated server.
+The full stack is defined in:
+
+```text
+infra/compose/docker-compose.yaml
+```
+
+Start with:
+
+- [infra/README.md](infra/README.md) for server layout, `.env`, Compose, shared
+  roots, deployment notes, and service ports;
+- [README-SYSTEM-DESIGN.md](README-SYSTEM-DESIGN.md) for the detailed
+  architecture;
+- [docs/observability.md](docs/observability.md) for logs, traces, and Grafana
+  workflow;
+- [docs/inference-events.md](docs/inference-events.md) for Redpanda event
+  schema and topic inspection;
+- [docs/clickhouse-analytics.md](docs/clickhouse-analytics.md) for ClickHouse
+  ingestion and starter analytics queries;
+- [experiments/README.md](experiments/README.md) for notebooks, evaluation, and
+  experiment workflows.
+
+## Repository Layout
+
+```text
+src/          runtime services and shared libraries
+dags/         Airflow DAGs
+experiments/  notebooks, eval scripts, training code, operator workflows
+infra/        Dockerfiles, Compose, Grafana, ClickHouse, nginx, Prometheus
+docs/         focused operator and workflow documentation
+scripts/      deployment and operational shell helpers
+tests/        unit and integration-style tests
+assets/       datasets, RAG data pointers, model assets
+```
+
+## Current Direction
+
+The current improvement track is focused on making the system easier to inspect
+and evaluate before expanding product features:
+
+1. observability, evaluation, and analytics;
+2. RAG quality improvements, including source citations;
+3. feedback collection and champion/challenger evaluation;
+4. broader platform expansion once the core loop is measurable.
+
+The working plan lives in [IMPROVEMENTS.md](IMPROVEMENTS.md).

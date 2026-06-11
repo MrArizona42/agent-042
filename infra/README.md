@@ -117,6 +117,9 @@ scripts/update_locks.sh --dry-run
 - `qdrant` — Qdrant (порт хоста по умолчанию `6333` → контейнер `6333`, volume: `qdrant_data`)
 - `rabbitmq` — RabbitMQ (порт хоста по умолчанию `5672` → контейнер `5672`, Management UI: `15672`)
 - `redis` — Redis 7 (порт хоста по умолчанию `6379` → контейнер `6379`, volume: `redis_data`)
+- `redpanda` — Kafka-compatible broker для durable inference events (порт хоста по умолчанию `19092` → контейнер `19092`)
+- `redpanda-console` — UI для инспекции Kafka/Redpanda topics (порт хоста по умолчанию `8081` → контейнер `8080`)
+- `clickhouse` — аналитическое хранилище inference events из Redpanda (HTTP порт `8123`, native порт `9000`)
 - `celery-worker` — Celery worker для асинхронного выполнения LLM-задач (1 процесс, GPU-bound)
 - `gateway` — FastAPI gateway (порт хоста по умолчанию `9001` → контейнер `9000`)
 - `ui` — Streamlit UI (порт хоста по умолчанию `8501` → контейнер `8501`)
@@ -125,7 +128,11 @@ scripts/update_locks.sh --dry-run
 - `flower` — Flower мониторинг Celery (порт хоста по умолчанию `5555` → контейнер `5555`)
 - `redisinsight` — RedisInsight мониторинг Redis (порт хоста по умолчанию `5540` → контейнер `5540`)
 - `prometheus` — Prometheus (порт хоста по умолчанию `9090` → контейнер `9090`); scrapes gateway, vLLM, RabbitMQ
-- `grafana` — Grafana (порт хоста по умолчанию `3000` → контейнер `3000`); доступна через nginx `/grafana/`; datasources: Postgres (ML analytics) + Prometheus (infra)
+- `loki` — Loki для хранения Docker/application logs (порт хоста по умолчанию `3100` → контейнер `3100`)
+- `tempo` — Tempo для хранения OpenTelemetry traces (порт хоста по умолчанию `3200` → контейнер `3200`)
+- `otel-collector` — OpenTelemetry Collector; принимает OTLP от Python-сервисов и отправляет traces в Tempo
+- `alloy` — Grafana Alloy; читает Docker logs через Docker socket и отправляет их в Loki
+- `grafana` — Grafana (порт хоста по умолчанию `3000` → контейнер `3000`); доступна через nginx `/grafana/`; datasources: Postgres, Prometheus, Loki, Tempo
 - `airflow-init` — одноразовая миграция БД Airflow и создание admin-пользователя
 - `airflow-webserver` — Airflow UI (порт хоста по умолчанию `8080` → контейнер `8080`)
 - `airflow-scheduler` — Airflow Scheduler (LocalExecutor)
@@ -168,9 +175,16 @@ cp .env.example .env
 - `PLATFORM__*`, `GATEWAY__*`, `RAG__*`, `AUTH__*`, `CATALOG__*`, `ADAPTER_REGISTRY__*`, `EVAL__*`, `WORKER__*`, `UI__*` — nested runtime settings contract для Python-сервисов, когда конкретный ключ действительно operator-facing
 - `RABBITMQ_*` — логин/пароль и порты RabbitMQ (брокер для Celery)
 - `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
+- `REDPANDA_*` — host-bound порты Redpanda broker/admin/schema registry/proxy и Redpanda Console
+- `CLICKHOUSE_*` — база, пользователь, пароль и host-bound HTTP/native порты ClickHouse
 - `FLOWER_*` — порт Flower (мониторинг Celery)
 - `REDISINSIGHT_*` — порт RedisInsight (мониторинг Redis)
 - `PROMETHEUS_PORT` — порт Prometheus (по умолчанию `9090`)
+- `LOKI_PORT` — порт Loki (по умолчанию `3100`)
+- `TEMPO_PORT` — порт Tempo HTTP API (по умолчанию `3200`)
+- `ALLOY_PORT` — порт Alloy UI/API (по умолчанию `12345`)
+- `OTEL_COLLECTOR_GRPC_PORT` / `OTEL_COLLECTOR_HTTP_PORT` — host-bound OTLP порты collector'а
+- `OTEL_TRACES_SAMPLER_ARG` — доля трассировки для `parentbased_traceidratio`; на старте `1.0`
 - `GRAFANA_PORT` — порт Grafana (по умолчанию `3000`)
 - `GRAFANA_ADMIN_PASSWORD` — пароль admin-пользователя Grafana
 - `AIRFLOW_*` — конфиг Airflow (порт, БД, Fernet-ключ, admin-пользователь)
@@ -182,6 +196,7 @@ cp .env.example .env
 - На текущем этапе checkout-based Compose уже использует `ASSETS_ROOT`, `ARTIFACTS_ROOT` и
   `DVC_CONFIG_LOCAL_PATH` для shared mounts, а `GITHUB_*`-переменные использует Airflow data-sync
   path. `IMAGE_TAG` остаётся зарезервированным для последующих deploy фаз.
+- Workflow для logs/traces/metrics описан в `docs/observability.md`; durable inference events описаны в `docs/inference-events.md`; ClickHouse analytics описана в `docs/clickhouse-analytics.md`.
 
 ### Разделение env surfaces
 
@@ -387,21 +402,32 @@ DAG-файлы размещаются в директории `dags/` в кор�
 
 | DAG | Расписание | Описание |
 |-----|-----------|----------|
-| `arxiv_rag_update` | `@daily` | Загрузка новых ArXiv статей → temp clone + `dvc add/push` + bot-branch PR → refresh коллекции за alias `arxiv_champion` через `rag.ops.update.update_arxiv_collection()` |
-| `pytorch_docs_rag_update` | `@weekly` | Скрейпинг документации PyTorch → temp clone + `dvc add/push` + bot-branch PR → rebuild successor collection из `_meta` у `pytorch_docs_champion` через `rag.ops.update.update_pytorch_docs_collection()` |
+| `rag_lifecycle` | manual | Generic RAG lifecycle: `build-source` → `materialize` → optional `promote-alias` for any configured KB/source pair |
+| `rag_collection_cleanup` | manual | Cleanup of old physical Qdrant collections that are not behind active aliases |
 
-Каждый DAG состоит из трёх задач:
-```
-download / scrape  >>  dvc_version_via_temp_clone  >>  build_index
+`rag_lifecycle` принимает параметры Airflow UI:
+
+- `kb` — KB id из `src/shared/catalog.toml`, например `ml_papers_core` или `pytorch_reference`
+- `source` — source instance id внутри KB, например `papers` или `docs`
+- `alias_config` — alias profile used for build settings, for example `champion` or `challenger`
+- `promote_alias` — optional alias to repoint after materialization; leave empty for build-only runs
+- `document_ids`, `limit`, `collection`, `force_fetch`, `force_extract`, `force_chunk`,
+  `force_recreate` — operator controls for scoped rebuilds and cache invalidation
+- `sync_dvc` — if true, sync generated RAG artifacts through DVC before promotion
+- `dvc_artifacts` — optional artifact subdirs to sync; defaults to generated
+  `extracted`, `chunks`, `manifests`, `metadata`
+
+Основной server entrypoint для тех же операций без Airflow:
+
+```bash
+bash current/scripts/rag_ops.sh python -m rag.sources.cli build-source --kb pytorch_reference --source docs
+bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize --kb pytorch_reference --alias-config challenger
+bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias --kb pytorch_reference --alias challenger --collection rag__pytorch_reference__20260605_120000
 ```
 
-- **download / scrape** — PythonOperator: загрузка данных (ArXiv API или web scraping)
-- **dvc_version** — PythonOperator: создаёт временный clone, staging'ом подготавливает shared
-  dataset как обычную директорию внутри clone (hardlink если возможно, иначе copy), запускает
-  `dvc add` + `dvc push`, коммитит `.dvc`/`.gitignore` изменения в `data-sync/*` и
-  открывает или обновляет PR в `develop`
-- **build_index** — PythonOperator: вызов production update-функций из `src/rag/ops/update`
-  (`update_arxiv_collection` или `update_pytorch_docs_collection`) для refresh/rebuild векторного индекса
+RAG DVC policy: curated `sources.toml` stays in Git; generated `extracted`,
+`chunks`, `manifests`, and optional `metadata` can be DVC-tracked; raw cache is
+server-local by default.
 
 ### Зависимости DAG'ов
 
@@ -462,7 +488,8 @@ Compose interpolation на хосте.
 Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.
 
 RAG operator boundary в JupyterLab:
-- `experiments/rag/notebook_ops.py` — единственная notebook façade над production entrypoints из `src/rag/ops/`.
+- `experiments/rag/rag_ops.ipynb` — прямые Qdrant операции, аналитика и observability для ручной проверки коллекций/aliases.
+- Production lifecycle запускается через `rag-ops` container и `python -m rag.sources.cli`, либо через Airflow `rag_lifecycle`.
 - `experiments/rag/sandboxes/` — notebook-only experimental код. Gateway, Airflow DAG-и и production evals не должны импортировать его.
 
 ## DVC с бэкэндом Yandex Cloud S3
