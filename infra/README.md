@@ -196,7 +196,7 @@ cp .env.example .env
 - На текущем этапе checkout-based Compose уже использует `ASSETS_ROOT`, `ARTIFACTS_ROOT` и
   `DVC_CONFIG_LOCAL_PATH` для shared mounts, а `GITHUB_*`-переменные использует Airflow data-sync
   path. `IMAGE_TAG` остаётся зарезервированным для последующих deploy фаз.
-- Workflow для logs/traces/metrics описан в `docs/operations/observability.md`; durable inference events описаны в `docs/operations/inference-events.md`; ClickHouse analytics описана в `docs/operations/clickhouse-analytics.md`.
+- Workflow для logs/traces/metrics описан в `docs/analytics/observability.md`; durable inference events описаны в `docs/analytics/inference-events.md`; ClickHouse analytics описана в `docs/analytics/clickhouse-analytics.md`.
 
 ### Разделение env surfaces
 

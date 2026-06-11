@@ -148,11 +148,13 @@ Start with:
   roots, deployment notes, and service ports;
 - [docs/architecture/system-design.md](docs/architecture/system-design.md) for
   the detailed architecture;
-- [docs/operations/observability.md](docs/operations/observability.md) for logs,
+- [docs/analytics/observability-evaluation-workflow.md](docs/analytics/observability-evaluation-workflow.md)
+  for the end-to-end diagnostic workflow;
+- [docs/analytics/observability.md](docs/analytics/observability.md) for logs,
   traces, and Grafana workflow;
-- [docs/operations/inference-events.md](docs/operations/inference-events.md) for
+- [docs/analytics/inference-events.md](docs/analytics/inference-events.md) for
   Redpanda event schema and topic inspection;
-- [docs/operations/clickhouse-analytics.md](docs/operations/clickhouse-analytics.md)
+- [docs/analytics/clickhouse-analytics.md](docs/analytics/clickhouse-analytics.md)
   for ClickHouse ingestion and starter analytics queries;
 - [experiments/README.md](experiments/README.md) for notebooks, evaluation, and
   experiment workflows.

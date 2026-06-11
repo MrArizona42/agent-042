@@ -11,11 +11,13 @@ in the repository root: [README.md](../README.md).
   Docker Compose, shared roots, ports, and operational setup.
 - [RAG Operations](operations/rag-operations.md): build, materialize, promote,
   inspect, and roll back RAG collections.
-- [Observability](operations/observability.md): logs, traces, Grafana Explore,
+- [Observability, Evaluation, And Analytics Workflow](analytics/observability-evaluation-workflow.md):
+  one-request diagnostics and the overall control loop.
+- [Observability](analytics/observability.md): logs, traces, Grafana Explore,
   and request correlation.
-- [Durable Inference Events](operations/inference-events.md): Redpanda topic,
+- [Durable Inference Events](analytics/inference-events.md): Redpanda topic,
   event schema, and topic inspection.
-- [ClickHouse Analytics](operations/clickhouse-analytics.md): ingestion from
+- [ClickHouse Analytics](analytics/clickhouse-analytics.md): ingestion from
   Redpanda and starter analytics queries.
 - [Experiments](../experiments/README.md): notebooks, evaluation scripts, LoRA
   training, and model registry workflows.
@@ -24,9 +26,11 @@ in the repository root: [README.md](../README.md).
 ## Documentation Ownership
 
 - `architecture/`: why the system is shaped this way.
-- `operations/`: how to run, inspect, and debug the deployed system.
-- `evaluation/`: evaluation workflow, metric interpretation, and failure
-  analysis.
+- `operations/`: how to run operational workflows on the deployed system.
+- `analytics/`: observability, monitoring, inference events, ClickHouse
+  analytics, evaluation workflow, and failure analysis.
+- `evaluation/`: reserved for evaluation-specific references if they grow large
+  enough to split out of `analytics/`.
 - `experiments/`: experiment and notebook workflow docs.
 - `planning/`: active planning documents.
 - `legacy/`: older project planning material kept for reference.
