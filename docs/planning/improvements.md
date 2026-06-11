@@ -78,7 +78,8 @@ Implementation notes:
 - OpenTelemetry is enabled for deployed services through Compose-provided OTLP
   settings and remains no-op when the endpoint is absent.
 - Grafana datasources now include Postgres, Prometheus, Loki, and Tempo.
-- The operator workflow is documented in `docs/observability.md`.
+- The operator workflow is documented in
+  `docs/operations/observability.md`.
 
 ### 2. Durable Inference Events With Kafka Or Redpanda
 
@@ -126,7 +127,7 @@ Implementation notes:
 - Shared event schema and producer live under `src/shared/events/`.
 - The first topic is `inference.events.v1`.
 - Gateway and worker publish lifecycle metadata only.
-- Operator workflow is documented in `docs/inference-events.md`.
+- Operator workflow is documented in `docs/operations/inference-events.md`.
 
 ### 3. ClickHouse Analytics Expansion
 
@@ -180,7 +181,7 @@ Implementation notes:
   plugin.
 - Initial SQL lives in `infra/clickhouse/init/001_inference_events.sql`.
 - Operator workflow and starter queries are documented in
-  `docs/clickhouse-analytics.md`.
+  `docs/operations/clickhouse-analytics.md`.
 
 ### 4. Observability And Evaluation Technical Workflow
 
@@ -192,7 +193,7 @@ use them together.
 
 Target state:
 
-- Add `docs/observability-evaluation-workflow.md`.
+- Add `docs/evaluation/observability-evaluation-workflow.md`.
 - Document the end-to-end diagnostic path for a chat/RAG response:
   - request enters gateway;
   - task routing and KB selection happen;

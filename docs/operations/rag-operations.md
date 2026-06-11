@@ -5,8 +5,8 @@ entrypoint is the `rag-ops` Compose service, wrapped by `scripts/rag_ops.sh`.
 Airflow uses the same CLI through the `rag_lifecycle` DAG.
 
 For the conceptual model and runtime architecture, see section 5 of
-`README-SYSTEM-DESIGN.md`. This document focuses on operator commands and
-server workflow.
+`docs/architecture/system-design.md`. This document focuses on operator
+commands and server workflow.
 
 ## Naming
 

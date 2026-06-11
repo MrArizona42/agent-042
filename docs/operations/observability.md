@@ -103,6 +103,7 @@ order by created_at;
 - Logs intentionally do not include full prompts, full responses, access tokens,
   API keys, cookies, or OAuth payloads.
 - Prompt preview remains a short-lived Redis debugging aid, not a Loki log.
-- Durable inference event details are documented in `docs/inference-events.md`.
+- Durable inference event details are documented in
+  `docs/operations/inference-events.md`.
 - ClickHouse analytics ingestion and first queries are documented in
-  `docs/clickhouse-analytics.md`.
+  `docs/operations/clickhouse-analytics.md`.
