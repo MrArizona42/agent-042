@@ -16,7 +16,6 @@ from qdrant_client.models import SparseVector
 
 from rag.vector_store import Document
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

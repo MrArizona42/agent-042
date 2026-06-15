@@ -339,7 +339,7 @@ class TestKnowledgeBaseRegistryResolution:
                 "vllm": {"model": "override-model"},
                 "gateway": {
                     "budget": {"min_response_budget": 1024},
-                }
+                },
             }
         )
 
@@ -356,9 +356,7 @@ class TestKnowledgeBaseRegistryResolution:
 
         settings = load_settings()
 
-        assert settings.gateway.cors_allow_origins == (
-            "*",
-        )
+        assert settings.gateway.cors_allow_origins == ("*",)
         assert settings.adapter_registry.sync_aliases == ("champion", "challenger")
 
     def test_runtime_path_is_required(self, monkeypatch):
@@ -388,7 +386,7 @@ class TestKnowledgeBaseRegistryResolution:
         path = tmp_path / "runtime.toml"
         path.write_text(
             Path("runtime.toml").read_text(encoding="utf-8")
-            + "\n[vllm]\nmodel = \"/models/example\"\n",
+            + '\n[vllm]\nmodel = "/models/example"\n',
             encoding="utf-8",
         )
 
@@ -404,7 +402,7 @@ class TestKnowledgeBaseRegistryResolution:
         runtime_toml = Path("runtime.toml").read_text(encoding="utf-8")
         runtime_toml = runtime_toml.replace(
             "[gateway]\n",
-            "[gateway]\nurl = \"http://gateway:9000\"\n",
+            '[gateway]\nurl = "http://gateway:9000"\n',
             1,
         )
         path.write_text(runtime_toml, encoding="utf-8")

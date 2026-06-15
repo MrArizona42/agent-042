@@ -11,13 +11,11 @@ pytest.importorskip("hydra")
 pytest.importorskip("mlflow")
 pytest.importorskip("pytorch_lightning")
 pytest.importorskip("datasets")
-torch = pytest.importorskip("torch")
 
+from datasets import Dataset, DatasetDict
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from hydra.utils import instantiate
-
-from datasets import Dataset, DatasetDict
 
 from experiments.training.train_adapter.config import (
     DataConfig,
@@ -37,6 +35,8 @@ from experiments.training.train_adapter.pipeline import (
     _restore_best_checkpoint_for_export,
     _write_training_summary,
 )
+
+torch = pytest.importorskip("torch")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 

@@ -171,6 +171,7 @@ class PlatformSettings(BaseModel):
         description="Kafka-compatible bootstrap servers for durable inference events",
     )
 
+
 class BudgetSettings(BaseModel):
     """Prompt and response budgeting settings for online inference."""
 
@@ -849,9 +850,7 @@ def resolve_runtime_config_path(runtime_path: str | Path | None = None) -> Path:
 
     raw_path = runtime_path if runtime_path is not None else os.getenv(RUNTIME_CONFIG_PATH_ENV)
     if raw_path is None or not str(raw_path).strip():
-        raise RuntimeError(
-            f"{RUNTIME_CONFIG_PATH_ENV} must point to the runtime TOML config file"
-        )
+        raise RuntimeError(f"{RUNTIME_CONFIG_PATH_ENV} must point to the runtime TOML config file")
 
     path = Path(raw_path).expanduser()
     if not path.is_absolute():
@@ -922,9 +921,7 @@ def load_settings(
             "internal_api_key": _required_env("AUTH__INTERNAL_API_KEY"),
         }
     )
-    runtime_payload["eval"]["judge"]["api_key"] = _explicit_optional_env(
-        "EVAL__JUDGE__API_KEY"
-    )
+    runtime_payload["eval"]["judge"]["api_key"] = _explicit_optional_env("EVAL__JUDGE__API_KEY")
     runtime_payload["postgres"] = {
         "user": _required_env("POSTGRES_USER"),
         "password": _required_env("POSTGRES_PASSWORD"),
