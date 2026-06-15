@@ -72,8 +72,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise RuntimeError("GATEWAY__ASYNC_ENABLED=false is no longer supported.")
     if not platform.celery_broker_url:
         raise RuntimeError(
-            "PLATFORM__CELERY_BROKER_URL must be set because async inference is required. "
-            "Example: amqp://user:password@rabbitmq:5672//"
+            "RabbitMQ broker URL could not be derived. Check RABBITMQ_DEFAULT_USER, "
+            "RABBITMQ_DEFAULT_PASS, and NETWORK__RABBITMQ_AMQP__*."
         )
 
     # --- Create managed connections ---

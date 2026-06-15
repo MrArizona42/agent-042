@@ -202,25 +202,24 @@ cp .env.example .env
 
 В проекте теперь есть жёсткое разделение между двумя типами переменных:
 
-- flat env keys для Compose/bootstrap concerns: порты, image/build параметры и конфиг внешних сервисов вроде `VLLM_MODEL`, `QDRANT_PORT`, `AIRFLOW_PORT`, `RABBITMQ_*`
-- nested env keys для runtime settings Python-сервисов: `SECTION__FIELD`
+- native env keys для service/bootstrap concerns: image/build параметры, credentials и конфиг внешних сервисов вроде `RABBITMQ_DEFAULT_PASS`, `GF_SECURITY_ADMIN_PASSWORD`, `AWS_ACCESS_KEY_ID`
+- project-owned nested env keys для topology/secrets: `NETWORK__...`, `PUBLIC__...`, `AUTH__...`
+- runtime behavior lives in root `runtime.toml`
 
 Практические правила:
 
-- если ключ читает `src/shared/config.py`, используйте только nested имя
-- если ключ нужен только Compose, host port mapping или отдельному контейнеру, flat имя допустимо
-- новые runtime settings не должны получать flat compatibility aliases
+- если ключ имеет upstream/native имя, сохраняйте native имя
+- если ключ описывает project-owned endpoint topology, используйте `NETWORK__...`
+- новые runtime settings добавляйте в `runtime.toml`, а не в env
 - catalog-specific helpers и schema не должны документироваться как часть `shared.config`; их владелец — `src/shared/catalog/`
 
 Типичные operator-facing nested keys из текущего контракта:
 
-- `RAG__EMBEDDING_MODEL`
-- `GATEWAY__ASYNC_ENABLED`
+- `NETWORK__VLLM__INTERNAL_HOST`
+- `NETWORK__VLLM__INTERNAL_PORT`
 - `AUTH__INTERNAL_API_KEY`
-- `EVAL__DB_URL`
-- `CATALOG__PATH`
-- `ADAPTER_REGISTRY__SYNC_ALIASES`
-- `WORKER__CONCURRENCY`
+- `RABBITMQ_DEFAULT_PASS`
+- `POSTGRES_APP_DB`
 
 ### Подготовка shared roots и прав доступа (Phase 2)
 

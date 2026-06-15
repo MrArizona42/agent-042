@@ -120,6 +120,25 @@ class NetworkSettings(BaseModel):
         return self.service(name).host_url(host=host)
 
 
+class PostgresSettings(BaseModel):
+    """Native PostgreSQL credentials and project database names."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    user: str
+    password: SecretStr
+    app_db: str
+
+
+class RabbitMqSettings(BaseModel):
+    """Native RabbitMQ credentials."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    default_user: str
+    default_pass: SecretStr
+
+
 class PlatformSettings(BaseModel):
     """Legacy endpoint facade derived from canonical network settings."""
 
@@ -649,6 +668,8 @@ class Settings(BaseSettings):
 
     vllm: VllmSettings
     network: NetworkSettings
+    postgres: PostgresSettings
+    rabbitmq: RabbitMqSettings
     platform: PlatformSettings = Field(default_factory=PlatformSettings)
     gateway: GatewayConfig
     rag: RagSettings
@@ -687,8 +708,35 @@ class Settings(BaseSettings):
             qdrant_port=self.network.qdrant_http.internal_port,
             mlflow_tracking_uri=self.network.internal_url("mlflow"),
             redis_url=f"redis://{self.network.redis.internal_address()}/0",
-            celery_broker_url=self.platform.celery_broker_url,
+            celery_broker_url=(
+                "amqp://"
+                f"{self.rabbitmq.default_user}:"
+                f"{secret_value(self.rabbitmq.default_pass)}@"
+                f"{self.network.rabbitmq_amqp.internal_address()}//"
+            ),
             kafka_bootstrap_servers=self.network.redpanda_kafka.internal_address(),
+        )
+        auth = self.auth.model_copy(
+            update={
+                "agent042_db_url": (
+                    "postgresql+asyncpg://"
+                    f"{self.postgres.user}:"
+                    f"{secret_value(self.postgres.password)}@"
+                    f"{self.network.postgres.internal_address()}/"
+                    f"{self.postgres.app_db}"
+                )
+            },
+        )
+        eval_config = self.eval.model_copy(
+            update={
+                "db_url": (
+                    "postgresql://"
+                    f"{self.postgres.user}:"
+                    f"{secret_value(self.postgres.password)}@"
+                    f"{self.network.postgres.internal_address()}/"
+                    f"{self.postgres.app_db}"
+                )
+            },
         )
         gateway = self.gateway.model_copy(
             update={"url": self.network.internal_url("gateway")},
@@ -698,6 +746,8 @@ class Settings(BaseSettings):
         )
 
         object.__setattr__(self, "platform", platform)
+        object.__setattr__(self, "auth", auth)
+        object.__setattr__(self, "eval", eval_config)
         object.__setattr__(self, "gateway", gateway)
         object.__setattr__(self, "rag", rag)
         return self
@@ -752,6 +802,13 @@ def secret_value(value: SecretStr | str | None) -> str | None:
     return value
 
 
+def _required_env(name: str) -> str:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        raise RuntimeError(f"{name} must be set")
+    return value
+
+
 def load_settings(
     overrides: dict[str, Any] | None = None,
     *,
@@ -768,6 +825,15 @@ def load_settings(
     catalog_path = os.getenv(CATALOG_CONFIG_PATH_ENV)
     if catalog_path is not None and catalog_path.strip():
         runtime_payload["catalog"] = {"path": catalog_path}
+    runtime_payload["postgres"] = {
+        "user": _required_env("POSTGRES_USER"),
+        "password": _required_env("POSTGRES_PASSWORD"),
+        "app_db": _required_env("POSTGRES_APP_DB"),
+    }
+    runtime_payload["rabbitmq"] = {
+        "default_user": _required_env("RABBITMQ_DEFAULT_USER"),
+        "default_pass": _required_env("RABBITMQ_DEFAULT_PASS"),
+    }
     settings = Settings(**runtime_payload)
     if not overrides:
         return settings
