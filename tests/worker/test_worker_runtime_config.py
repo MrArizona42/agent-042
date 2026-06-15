@@ -31,11 +31,11 @@ def test_worker_settings_default_to_observable_prefork_runtime() -> None:
     assert settings.platform.celery_broker_url == "amqp://guest:guest@localhost:5672//"
 
 
-def test_worker_settings_read_nested_env_names(monkeypatch) -> None:
+def test_worker_settings_ignore_runtime_nested_env_names(monkeypatch) -> None:
     monkeypatch.setenv("WORKER__CONCURRENCY", "4")
 
     settings = load_settings(
         overrides={"platform": {"celery_broker_url": "amqp://guest:guest@localhost:5672//"}}
     )
 
-    assert settings.worker.concurrency == 4
+    assert settings.worker.concurrency == 2

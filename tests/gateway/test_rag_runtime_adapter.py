@@ -4,7 +4,7 @@ from gateway.services.rag_service import RAGService
 from rag.domain import RetrievalHit
 from rag.runtime import RagRuntimeResult
 from shared.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
-from shared.config import Settings
+from shared.config import Settings, load_settings
 
 
 class _Embedding:
@@ -47,22 +47,25 @@ class _Runtime:
 
 
 def _settings() -> Settings:
-    return Settings(
-        platform={
-            "qdrant_host": "localhost",
-            "qdrant_port": 6333,
-            "embeddings_url": "http://embeddings:8100",
-            "vllm_base_url": "http://localhost:8000",
-        },
-        gateway={"embeddings_timeout": 10.0, "default_model": "base-model"},
-        rag={
-            "rag_enabled": True,
-            "embedding_model": "test-embedding",
-            "embedding_device": "cpu",
-            "build": {"embedding_batch_size": 32, "qdrant_upsert_batch_size": 128},
-            "kb_selection_threshold": 0.3,
-            "rag_strict_startup": False,
-        },
+    return load_settings(
+        overrides={
+            "vllm": {"model": "base-model"},
+            "platform": {
+                "qdrant_host": "localhost",
+                "qdrant_port": 6333,
+                "embeddings_url": "http://embeddings:8100",
+                "vllm_base_url": "http://localhost:8000",
+            },
+            "gateway": {"embeddings_timeout": 10.0},
+            "rag": {
+                "enabled": True,
+                "embedding_model": "test-embedding",
+                "embedding_device": "cpu",
+                "build": {"embedding_batch_size": 32, "qdrant_upsert_batch_size": 128},
+                "kb_selection_threshold": 0.3,
+                "strict_startup": False,
+            },
+        }
     )
 
 

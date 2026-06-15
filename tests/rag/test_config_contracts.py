@@ -314,10 +314,11 @@ class TestKnowledgeBaseRegistryResolution:
 
         monkeypatch.setenv("PLATFORM__VLLM_BASE_URL", "http://platform-vllm:8000")
 
-        settings = load_settings({"rag": {"rag_enabled": False}})
+        settings = load_settings({"rag": {"enabled": False}})
 
         assert settings.platform.vllm_base_url == "http://platform-vllm:8000"
-        assert settings.rag.rag_enabled is False
+        assert settings.rag.enabled is False
+        assert settings.vllm.model == "/models/Qwen/Qwen3-0.6B"
         assert settings.gateway.service_name == "agent-042-gateway"
         assert settings.auth.session_ttl_seconds == 86400
         with pytest.raises(AttributeError):
@@ -325,7 +326,7 @@ class TestKnowledgeBaseRegistryResolution:
         with pytest.raises(AttributeError):
             _ = settings.rag.knowledge_bases_path
 
-    def test_load_settings_merges_env_backed_nested_defaults_with_overrides(self, monkeypatch):
+    def test_load_settings_merges_runtime_toml_with_explicit_overrides(self, monkeypatch):
         from shared.config import load_settings
 
         monkeypatch.setenv("GATEWAY__URL", "http://gateway-from-env:9001")
@@ -333,19 +334,19 @@ class TestKnowledgeBaseRegistryResolution:
 
         settings = load_settings(
             {
+                "vllm": {"model": "override-model"},
                 "gateway": {
-                    "default_model": "override-model",
                     "budget": {"min_response_budget": 1024},
                 }
             }
         )
 
-        assert settings.gateway.default_model == "override-model"
+        assert settings.vllm.model == "override-model"
         assert settings.gateway.url == "http://gateway-from-env:9001"
-        assert settings.gateway.budget.model_max_tokens == 4096
+        assert settings.gateway.budget.model_max_tokens == 32768
         assert settings.gateway.budget.min_response_budget == 1024
 
-    def test_gateway_cors_and_adapter_aliases_use_canonical_nested_names(self, monkeypatch):
+    def test_runtime_env_names_do_not_override_toml_values(self, monkeypatch):
         from shared.config import load_settings
 
         monkeypatch.setenv("GATEWAY__CORS_ALLOW_ORIGINS", "https://a.example, https://b.example")
@@ -354,10 +355,45 @@ class TestKnowledgeBaseRegistryResolution:
         settings = load_settings()
 
         assert settings.gateway.cors_allow_origins == (
-            "https://a.example",
-            "https://b.example",
+            "*",
         )
-        assert settings.adapter_registry.sync_aliases == ("champion", "shadow")
+        assert settings.adapter_registry.sync_aliases == ("champion", "challenger")
+
+    def test_runtime_path_is_required(self, monkeypatch):
+        from shared.config import load_settings
+
+        monkeypatch.delenv("CONFIG__RUNTIME_PATH", raising=False)
+
+        with pytest.raises(RuntimeError, match="CONFIG__RUNTIME_PATH"):
+            load_settings()
+
+    def test_missing_runtime_toml_field_is_validation_error(self, tmp_path: Path):
+        from pydantic import ValidationError
+
+        from shared.config import load_settings
+
+        path = tmp_path / "runtime.toml"
+        path.write_text("schema_version = 1\n[vllm]\nmodel = 'x'\n", encoding="utf-8")
+
+        with pytest.raises(ValidationError, match="gateway"):
+            load_settings(runtime_path=path)
+
+    def test_runtime_toml_rejects_derived_or_env_only_keys(self, tmp_path: Path):
+        from pydantic import ValidationError
+
+        from shared.config import load_settings
+
+        path = tmp_path / "runtime.toml"
+        runtime_toml = Path("config/runtime.toml").read_text(encoding="utf-8")
+        runtime_toml = runtime_toml.replace(
+            "[gateway]\n",
+            "[gateway]\nurl = \"http://gateway:9000\"\n",
+            1,
+        )
+        path.write_text(runtime_toml, encoding="utf-8")
+
+        with pytest.raises(ValidationError, match="gateway.url"):
+            load_settings(runtime_path=path)
 
     def test_legacy_flat_env_names_are_ignored(self, monkeypatch):
         from shared.config import load_settings

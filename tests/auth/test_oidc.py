@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from gateway.auth.oidc import OIDCClient
-from shared.config import Settings
+from shared.config import Settings, load_settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -29,7 +29,7 @@ def _make_settings(**overrides) -> Settings:
         "google_discovery_url": ("https://accounts.google.com/.well-known/openid-configuration"),
     }
     auth_values.update(overrides.pop("auth", {}))
-    return Settings(auth=auth_values, **overrides)
+    return load_settings(overrides={"auth": auth_values, **overrides})
 
 
 def _generate_rsa_keypair():

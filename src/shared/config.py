@@ -1,19 +1,15 @@
 """Unified configuration for all services.
 
-This module provides a single source of truth for all configuration settings
-across the gateway, RAG, and UI services. Configuration is loaded from
-environment variables with sensible defaults for local development.
-
-Usage:
-    from shared.config import get_settings
-
-    settings = get_settings()
-    print(settings.platform.qdrant_host)
+Runtime behavior is loaded from the explicit TOML file pointed to by
+``CONFIG__RUNTIME_PATH``. Infrastructure coordinates and secrets are still
+read from process environment variables injected by the caller.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import tomllib
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -32,6 +28,26 @@ from shared import catalog
 
 logger = logging.getLogger(__name__)
 
+RUNTIME_CONFIG_PATH_ENV = "CONFIG__RUNTIME_PATH"
+
+
+class VllmSettings(BaseModel):
+    """Runtime policy for the local vLLM server."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    model: str = Field(description="Model served by the local vLLM container")
+    dtype: str = Field(description="vLLM dtype argument")
+    quantization: str = Field(description="vLLM quantization argument")
+    gpu_utilization: float = Field(gt=0.0, le=1.0)
+    gpu_count: int = Field(ge=0)
+    max_num_seqs: int = Field(ge=1)
+    max_num_batched_tokens: int = Field(ge=1)
+    kv_cache_dtype: str
+    max_loras: int = Field(ge=0)
+    max_lora_rank: int = Field(ge=0)
+    allow_runtime_lora_updating: bool
+
 
 class PlatformSettings(BaseModel):
     """Canonical shared endpoint settings used across services.
@@ -45,7 +61,6 @@ class PlatformSettings(BaseModel):
         PLATFORM__REDIS_URL
         PLATFORM__CELERY_BROKER_URL
         PLATFORM__KAFKA_BOOTSTRAP_SERVERS
-        PLATFORM__INFERENCE_EVENTS_TOPIC
 
     """
 
@@ -84,11 +99,6 @@ class PlatformSettings(BaseModel):
         default=None,
         description="Kafka-compatible bootstrap servers for durable inference events",
     )
-    inference_events_topic: str = Field(
-        default="inference.events.v1",
-        description="Kafka-compatible topic for durable inference lifecycle events",
-    )
-
 
 class BudgetSettings(BaseModel):
     """Prompt and response budgeting settings for online inference."""
@@ -96,42 +106,34 @@ class BudgetSettings(BaseModel):
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     model_max_tokens: int = Field(
-        default=32768,
         description="Configured max model window used for prompt/response budgeting",
         ge=1,
     )
     chars_per_token: float = Field(
-        default=4.0,
         description="Approximate character-to-token ratio used for gateway shaping",
         gt=0.0,
     )
     budget_guard: int = Field(
-        default=512,
         description="Reserved safeguard gap for estimation and chat-template overhead",
         ge=0,
     )
     budget_system: int = Field(
-        default=768,
         description="Approximate token budget reserved for the system prompt",
         ge=1,
     )
     budget_turn: int = Field(
-        default=10240,
         description="Approximate token budget reserved for the current user turn",
         ge=1,
     )
     min_budget_history: int = Field(
-        default=4096,
         description="Minimum approximate token budget reserved for chat history",
         ge=0,
     )
     budget_rag: int = Field(
-        default=6144,
         description="Approximate token budget reserved for all retrieved RAG context",
         ge=0,
     )
     min_response_budget: int = Field(
-        default=256,
         description="Minimum exact response token budget required before generation",
         ge=1,
     )
@@ -142,51 +144,40 @@ class GatewayConfig(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
-    default_model: str = Field(
-        default="/models/Qwen/Qwen3-0.6B",
-        description="Default model when none specified in request",
-    )
     api_key: SecretStr | None = Field(
         default=None,
         description="Optional API key for vLLM authentication",
     )
     vllm_timeout: float = Field(
-        default=60.0,
         description="Timeout for vLLM requests in seconds",
         ge=1.0,
     )
     repetition_penalty: float = Field(
-        default=1.1,
         description="Repetition penalty applied to all generation requests to prevent token loops",
         ge=1.0,
     )
     streaming_timeout: float = Field(
-        default=300.0,
         description="Idle timeout for Redis Pub/Sub streaming in seconds",
         ge=1.0,
     )
     embeddings_timeout: float = Field(
-        default=120.0,
         description="Timeout for embeddings service HTTP requests in seconds",
         ge=1.0,
     )
     async_enabled: bool = Field(
-        default=True,
         description="Enable async inference via Celery workers",
     )
     cors_allow_origins: Annotated[tuple[str, ...], NoDecode] = Field(
-        default=("*",),
         description="Allowed CORS origins.",
     )
     service_name: str = Field(
-        default="agent-042-gateway",
         description="Service name displayed in API docs",
     )
     url: str = Field(
         default="http://localhost:9001",
         description="Full URL to the gateway (used by UI)",
     )
-    budget: BudgetSettings = Field(default_factory=BudgetSettings)
+    budget: BudgetSettings
 
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
@@ -204,12 +195,10 @@ class RagBuildSettings(BaseModel):
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     embedding_batch_size: int = Field(
-        default=32,
         description="Batch size for embedding generation during RAG builds",
         ge=1,
     )
     qdrant_upsert_batch_size: int = Field(
-        default=128,
         description="Batch size for Qdrant upserts during RAG materialization",
         ge=1,
     )
@@ -220,27 +209,20 @@ class RagSettings(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
-    rag_enabled: bool = Field(
-        default=True,
-        description="Enable RAG functionality",
-    )
+    enabled: bool = Field(description="Enable RAG functionality")
     embedding_model: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2",
         description="HuggingFace model for embeddings",
     )
     embedding_device: Literal["cpu", "cuda", "mps"] = Field(
-        default="cpu",
         description="Device for embedding model",
     )
-    build: RagBuildSettings = Field(default_factory=RagBuildSettings)
+    build: RagBuildSettings
     kb_selection_threshold: float = Field(
-        default=0.3,
         description="Cosine similarity threshold for automatic KB selection",
         ge=0.0,
         le=1.0,
     )
     task_classification_threshold: float = Field(
-        default=0.0,
         description=(
             "Minimum cosine similarity for task classification; "
             "0.0 means always pick the closest task"
@@ -248,13 +230,11 @@ class RagSettings(BaseModel):
         ge=0.0,
         le=1.0,
     )
-    rag_strict_startup: bool = Field(
-        default=False,
+    strict_startup: bool = Field(
         description="If True, raise on legacy / invalid Qdrant collections at startup "
         "instead of logging and marking them unavailable",
     )
     sparse_encoder_model: str = Field(
-        default="Qdrant/bm25",
         description="fastembed model name for sparse (BM25) vector encoding",
     )
     reranker_url: str = Field(
@@ -262,7 +242,6 @@ class RagSettings(BaseModel):
         description="URL of the reranker microservice",
     )
     reranker_model: str = Field(
-        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
         description="Cross-encoder model loaded by the reranker service",
     )
 
@@ -285,7 +264,6 @@ class AuthSettings(BaseModel):
         description="OAuth2 callback URL (e.g. https://agent.antonlab.ru:8443/auth/callback)",
     )
     google_discovery_url: str = Field(
-        default="https://accounts.google.com/.well-known/openid-configuration",
         description="Google OIDC discovery URL",
     )
     agent042_db_url: str | None = Field(
@@ -297,7 +275,6 @@ class AuthSettings(BaseModel):
         description="Secret key for signing session cookies (32-byte hex)",
     )
     session_ttl_seconds: int = Field(
-        default=86400,
         description="Session TTL in seconds (default 24 hours)",
         ge=60,
     )
@@ -338,21 +315,24 @@ class AdapterRegistryConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     adapters_dir: Path = Field(
-        default=Path("./adapters"),
         description="Local directory for downloaded LoRA adapters",
     )
     production_alias: str | None = Field(
-        default=None,
         description="MLflow alias that marks an adapter as production-ready.",
     )
     sync_aliases: Annotated[tuple[str, ...], NoDecode] = Field(
-        default=("champion", "challenger"),
         description="MLflow aliases to sync to vLLM.",
     )
     auto_sync: bool = Field(
-        default=False,
         description="Automatically sync production adapters on startup",
     )
+
+    @field_validator("production_alias", mode="before")
+    @classmethod
+    def _normalize_production_alias(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("sync_aliases", mode="before")
     @classmethod
@@ -374,12 +354,10 @@ class JudgeSettings(BaseModel):
     base_url: str
     api_key: str | None = None
     timeout: float = Field(
-        default=60.0,
         ge=1.0,
         description="Timeout for one judge request in seconds",
     )
     request_delay_seconds: float = Field(
-        default=0.0,
         ge=0.0,
         description="Optional delay inserted between consecutive judge requests",
     )
@@ -390,21 +368,19 @@ class EvalJudgeSettings(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
-    backend: Literal["local_vllm", "openai_compatible"] = Field(default="local_vllm")
+    backend: Literal["local_vllm", "openai_compatible"]
     model: str = Field(
-        default="/models/Qwen/Qwen3-0.6B",
         description="Judge model name used for LLM-as-judge scoring.",
     )
     base_url: str = Field(
-        default="",
         description="Base URL for external OpenAI-compatible judge backends.",
     )
     api_key: SecretStr = Field(
         default_factory=lambda: SecretStr(""),
         description="Optional API key for external OpenAI-compatible judge backends.",
     )
-    timeout: float = Field(default=60.0, ge=1.0)
-    request_delay_seconds: float = Field(default=0.0, ge=0.0)
+    timeout: float = Field(ge=1.0)
+    request_delay_seconds: float = Field(ge=0.0)
 
 
 class EvalMetricSettings(BaseModel):
@@ -413,11 +389,10 @@ class EvalMetricSettings(BaseModel):
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     bert_score_model: str = Field(
-        default="microsoft/deberta-v3-base",
         description="Model for BERTScore computation",
     )
-    temperature: float = Field(default=0.0, ge=0.0)
-    max_completion_tokens: int = Field(default=2048, ge=1)
+    temperature: float = Field(ge=0.0)
+    max_completion_tokens: int = Field(ge=1)
 
 
 class EvalSandboxSettings(BaseModel):
@@ -425,15 +400,14 @@ class EvalSandboxSettings(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
-    code_exec_timeout: int = Field(default=30, ge=1)
+    code_exec_timeout: int = Field(ge=1)
     code_exec_mem_limit: str = Field(
-        default="512m",
         description=(
             "Memory limit string for sandboxed code execution. Accepted for config "
             "compatibility; not currently enforced by bwrap."
         ),
     )
-    code_exec_cpus: float = Field(default=1.0, ge=0.1)
+    code_exec_cpus: float = Field(ge=0.1)
 
 
 class EvalConfig(BaseModel):
@@ -441,9 +415,9 @@ class EvalConfig(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
-    judge: EvalJudgeSettings = Field(default_factory=EvalJudgeSettings)
-    metrics: EvalMetricSettings = Field(default_factory=EvalMetricSettings)
-    sandbox: EvalSandboxSettings = Field(default_factory=EvalSandboxSettings)
+    judge: EvalJudgeSettings
+    metrics: EvalMetricSettings
+    sandbox: EvalSandboxSettings
     db_url: str | None = Field(
         default=None,
         description="PostgreSQL connection URL for eval results (sync: postgresql://...)",
@@ -481,23 +455,28 @@ class EvalConfig(BaseModel):
         )
 
 
+class EventsSettings(BaseModel):
+    """Runtime event-stream settings."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    inference_topic: str = Field(description="Kafka-compatible inference lifecycle topic")
+
+
 class UIConfig(BaseModel):
     """UI-specific request timeout settings."""
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     health_timeout: float = Field(
-        default=10.0,
         description="Timeout for health check requests in seconds",
         ge=1.0,
     )
     models_timeout: float = Field(
-        default=30.0,
         description="Timeout for models list requests in seconds",
         ge=1.0,
     )
     chat_timeout: float = Field(
-        default=300.0,
         description="Timeout for chat completion requests in seconds",
         ge=1.0,
     )
@@ -509,34 +488,83 @@ class WorkerConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     default_timeout: int = Field(
-        default=300,
         description="Default task timeout in seconds",
     )
     max_retries: int = Field(
-        default=3,
         description="Maximum number of task retries",
     )
     retry_delay: int = Field(
-        default=5,
         description="Delay between retries in seconds",
     )
     pool: str = Field(
-        default="prefork",
         description="Celery execution pool for gateway inference tasks",
     )
     concurrency: int = Field(
-        default=2,
         description="Concurrent worker slots for gateway inference tasks",
         ge=1,
     )
     send_task_events: bool = Field(
-        default=True,
         description="Emit Celery task events so Flower can observe queued/running tasks",
     )
     cancel_long_running_tasks_on_connection_loss: bool = Field(
-        default=True,
         description="Cancel in-flight tasks if the broker connection is lost",
     )
+
+
+class RuntimeConfig(BaseModel):
+    """Validated non-secret runtime policy loaded from TOML."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1]
+    vllm: VllmSettings
+    gateway: GatewayConfig
+    rag: RagSettings
+    auth: AuthSettings
+    adapter_registry: AdapterRegistryConfig
+    events: EventsSettings
+    eval: EvalConfig
+    worker: WorkerConfig
+    ui: UIConfig
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_non_runtime_keys(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+
+        forbidden_by_section = {
+            "gateway": {"api_key", "url", "default_model"},
+            "rag": {"rag_enabled", "rag_strict_startup", "reranker_url"},
+            "auth": {
+                "google_client_id",
+                "google_client_secret",
+                "google_redirect_uri",
+                "agent042_db_url",
+                "session_secret_key",
+                "internal_api_key",
+            },
+            "eval.judge": {"api_key"},
+        }
+
+        violations: list[str] = []
+        for section, forbidden_keys in forbidden_by_section.items():
+            current: object = value
+            for part in section.split("."):
+                if not isinstance(current, dict):
+                    current = None
+                    break
+                current = current.get(part)
+            if not isinstance(current, dict):
+                continue
+            for key in forbidden_keys & current.keys():
+                violations.append(f"{section}.{key}")
+
+        if violations:
+            keys = ", ".join(sorted(violations))
+            raise ValueError(f"Runtime TOML contains non-runtime keys: {keys}")
+
+        return value
 
 
 class Settings(BaseSettings):
@@ -548,15 +576,17 @@ class Settings(BaseSettings):
         frozen=True,
     )
 
+    vllm: VllmSettings
     platform: PlatformSettings = Field(default_factory=PlatformSettings)
-    gateway: GatewayConfig = Field(default_factory=GatewayConfig)
-    rag: RagSettings = Field(default_factory=RagSettings)
-    auth: AuthSettings = Field(default_factory=AuthSettings)
+    gateway: GatewayConfig
+    rag: RagSettings
+    auth: AuthSettings
     catalog: CatalogConfig = Field(default_factory=CatalogConfig)
-    adapter_registry: AdapterRegistryConfig = Field(default_factory=AdapterRegistryConfig)
-    eval: EvalConfig = Field(default_factory=EvalConfig)
-    worker: WorkerConfig = Field(default_factory=WorkerConfig)
-    ui: UIConfig = Field(default_factory=UIConfig)
+    adapter_registry: AdapterRegistryConfig
+    events: EventsSettings
+    eval: EvalConfig
+    worker: WorkerConfig
+    ui: UIConfig
 
     @classmethod
     def settings_customise_sources(
@@ -585,6 +615,35 @@ def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, An
     return merged
 
 
+def resolve_runtime_config_path(runtime_path: str | Path | None = None) -> Path:
+    """Resolve the explicit runtime TOML path from argument or process env."""
+
+    raw_path = runtime_path if runtime_path is not None else os.getenv(RUNTIME_CONFIG_PATH_ENV)
+    if raw_path is None or not str(raw_path).strip():
+        raise RuntimeError(
+            f"{RUNTIME_CONFIG_PATH_ENV} must point to the runtime TOML config file"
+        )
+
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
+def load_runtime_config(runtime_path: str | Path | None = None) -> RuntimeConfig:
+    """Load and validate the non-secret runtime policy TOML."""
+
+    path = resolve_runtime_config_path(runtime_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Runtime config file not found: {path}")
+    if not path.is_file():
+        raise FileNotFoundError(f"Runtime config path is not a file: {path}")
+
+    with path.open("rb") as fh:
+        raw = tomllib.load(fh)
+    return RuntimeConfig.model_validate(raw)
+
+
 def secret_value(value: SecretStr | str | None) -> str | None:
     """Return the raw value for a secret-like field."""
 
@@ -595,10 +654,20 @@ def secret_value(value: SecretStr | str | None) -> str | None:
     return value
 
 
-def load_settings(overrides: dict[str, Any] | None = None) -> Settings:
-    """Build the runtime settings tree from nested env names and explicit overrides."""
+def load_settings(
+    overrides: dict[str, Any] | None = None,
+    *,
+    runtime_path: str | Path | None = None,
+) -> Settings:
+    """Build settings from runtime TOML, process env, and explicit overrides."""
 
-    settings = Settings()
+    runtime = load_runtime_config(runtime_path)
+    runtime_payload = runtime.model_dump(
+        exclude={"schema_version"},
+        exclude_unset=True,
+        exclude_none=False,
+    )
+    settings = Settings(**runtime_payload)
     if not overrides:
         return settings
 
@@ -636,14 +705,14 @@ def log_configuration_summary() -> None:
 
     logger.info("Configuration loaded successfully")
     logger.info("vLLM URL: %s", settings.platform.vllm_base_url)
-    logger.info("Default model: %s", settings.gateway.default_model)
+    logger.info("vLLM model: %s", settings.vllm.model)
     logger.info("Async inference enabled: %s", settings.gateway.async_enabled)
     logger.info(
         "Qdrant: %s:%s",
         settings.platform.qdrant_host,
         settings.platform.qdrant_port,
     )
-    logger.info("RAG enabled: %s", settings.rag.rag_enabled)
+    logger.info("RAG enabled: %s", settings.rag.enabled)
     logger.info("Embeddings URL: %s", settings.platform.embeddings_url)
     logger.info("Embedding model: %s", settings.rag.embedding_model)
     logger.info("Embedding device: %s", settings.rag.embedding_device)

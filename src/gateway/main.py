@@ -54,9 +54,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     logger.info(f"Starting {gateway.service_name}")
     logger.info(f"vLLM endpoint: {platform.vllm_base_url}")
-    logger.info(f"Default model: {gateway.default_model}")
-    logger.info(f"RAG enabled: {rag.rag_enabled}")
-    if rag.rag_enabled:
+    logger.info(f"vLLM model: {settings.vllm.model}")
+    logger.info(f"RAG enabled: {rag.enabled}")
+    if rag.enabled:
         logger.info(f"Qdrant: {platform.qdrant_host}:{platform.qdrant_port}")
         logger.info(f"Embedding model: {rag.embedding_model}")
         # Validate knowledge base aliases at startup
@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             process_chat.ensure_rag_service(settings=settings, validate=True)
             logger.info("Knowledge base startup validation complete")
         except Exception:
-            if rag.rag_strict_startup:
+            if rag.strict_startup:
                 raise
             logger.warning("Knowledge base startup validation failed", exc_info=True)
 

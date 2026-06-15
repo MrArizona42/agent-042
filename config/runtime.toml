@@ -1,0 +1,91 @@
+schema_version = 1
+
+[vllm]
+model = "/models/Qwen/Qwen3-0.6B"
+dtype = "float16"
+quantization = "bitsandbytes"
+gpu_utilization = 0.7
+gpu_count = 1
+max_num_seqs = 1
+max_num_batched_tokens = 1024
+kv_cache_dtype = "fp8"
+max_loras = 4
+max_lora_rank = 16
+allow_runtime_lora_updating = true
+
+[gateway]
+vllm_timeout = 60.0
+repetition_penalty = 1.1
+streaming_timeout = 300.0
+embeddings_timeout = 120.0
+async_enabled = true
+cors_allow_origins = ["*"]
+service_name = "agent-042-gateway"
+
+[gateway.budget]
+model_max_tokens = 32768
+chars_per_token = 4.0
+budget_guard = 512
+budget_system = 768
+budget_turn = 10240
+min_budget_history = 4096
+budget_rag = 6144
+min_response_budget = 256
+
+[rag]
+enabled = true
+embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+embedding_device = "cpu"
+kb_selection_threshold = 0.3
+task_classification_threshold = 0.0
+strict_startup = false
+sparse_encoder_model = "Qdrant/bm25"
+reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+[rag.build]
+embedding_batch_size = 32
+qdrant_upsert_batch_size = 128
+
+[auth]
+google_discovery_url = "https://accounts.google.com/.well-known/openid-configuration"
+session_ttl_seconds = 86400
+
+[adapter_registry]
+adapters_dir = "./assets/adapters"
+production_alias = ""
+sync_aliases = ["champion", "challenger"]
+auto_sync = false
+
+[events]
+inference_topic = "inference.events.v1"
+
+[eval.judge]
+backend = "local_vllm"
+model = "/models/Qwen/Qwen3-0.6B"
+base_url = ""
+timeout = 60.0
+request_delay_seconds = 0.0
+
+[eval.metrics]
+bert_score_model = "microsoft/deberta-v3-base"
+temperature = 0.0
+max_completion_tokens = 2048
+
+[eval.sandbox]
+code_exec_timeout = 30
+code_exec_mem_limit = "512m"
+code_exec_cpus = 1.0
+
+[ui]
+health_timeout = 10.0
+models_timeout = 30.0
+chat_timeout = 300.0
+
+[worker]
+default_timeout = 300
+max_retries = 3
+retry_delay = 5
+pool = "prefork"
+concurrency = 2
+send_task_events = true
+cancel_long_running_tasks_on_connection_loss = true
