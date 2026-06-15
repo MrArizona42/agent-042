@@ -36,7 +36,8 @@ checkout-based запуск Compose. Каноническая серверная
 - repo-root `.env` остаётся активным env-файлом для локального checkout и текущего Compose запуска
 - release-based deploy будет использовать внешний `/home/anton-m/agent-042/.env`, а не `.env` внутри релиза
 - переменные `GITHUB_REPOSITORY`, `GITHUB_DATA_SYNC_TOKEN` и `IMAGE_TAG` остаются частью
-  server contract; persistent project data монтируется через `PROJECT_ROOT`
+  server contract; release code/config монтируются через `PROJECT_ROOT`, а persistent project data
+  монтируется через `SHARED_ROOT`
 
 ## Требования
 
@@ -154,6 +155,8 @@ cp .env.example .env
   активного релиза
   - Linux пример: `/home/user/agent-042`
   - Windows пример (как в шаблоне): `C:/Users/user/MyGitRepos/agent-042`
+- `SHARED_ROOT` — host-side путь к durable state root с `assets/`, `artifacts/` и `.dvc`;
+  для release-based deploy это обычно `/home/anton-m/agent-042`, а не `current`
 - `runtime.toml` и `catalog.toml` лежат в `PROJECT_ROOT` и монтируются в контейнеры
   как `/opt/agent/runtime.toml` и `/opt/agent/catalog.toml`
 - `GITHUB_REPOSITORY` / `GITHUB_DATA_SYNC_TOKEN` — используются Airflow temp-clone DVC/Git sync
@@ -179,8 +182,8 @@ cp .env.example .env
 Замечание:
 - Канонический шаблон `.env.example` не содержит полные внутренние endpoint'ы.
   Python derives project-owned URLs from `NETWORK__...` via `shared.config`.
-- Compose derives mounts from `PROJECT_ROOT`; `IMAGE_TAG` controls image tags
-  for deploy/local runs.
+- Compose derives code/config mounts from `PROJECT_ROOT`, durable data mounts from `SHARED_ROOT`;
+  `IMAGE_TAG` controls image tags for deploy/local runs.
 - Workflow для logs/traces/metrics описан в `docs/analytics/observability.md`; durable inference events описаны в `docs/analytics/inference-events.md`; ClickHouse analytics описана в `docs/analytics/clickhouse-analytics.md`.
 
 ### Разделение env surfaces
@@ -340,7 +343,7 @@ sudo setfacl -R -d -m u:${DEPLOY_USER}:rwx,u:${AIRFLOW_UID}:rwx,u:${JUPYTER_UID}
 
 ### Модели для vLLM
 
-Контейнер vLLM монтирует папку `assets/models` как `/models`.
+Контейнер vLLM монтирует папку `${SHARED_ROOT}/assets/models` как `/models`.
 Чтобы использовать локальную модель из репозитория, укажите:
 - `VLLM__MODEL=/models/<vendor>/<model>`
 
@@ -370,11 +373,11 @@ Airflow развёрнут с CeleryExecutor и использует общий 
 
 DAG-файлы размещаются в директории `dags/` в корне репозитория и монтируются в контейнеры Airflow.
 Корень проекта так же монтируется как `/opt/airflow/project`. Shared state остаётся
-project-relative, а Compose строит bind mount'ы от `PROJECT_ROOT`:
-- `${PROJECT_ROOT}/assets/datasets` → `/opt/airflow/project/assets/datasets`
-- `${PROJECT_ROOT}/assets/rag_data` → `/opt/airflow/project/assets/rag_data`
-- `${PROJECT_ROOT}/artifacts/training` → `/opt/airflow/project/artifacts/training`
-- `${PROJECT_ROOT}/.dvc/config.local` → `/opt/airflow/project/.dvc/config.local`
+project-relative, а Compose строит bind mount'ы от `SHARED_ROOT`:
+- `${SHARED_ROOT}/assets/datasets` → `/opt/airflow/project/assets/datasets`
+- `${SHARED_ROOT}/assets/rag_data` → `/opt/airflow/project/assets/rag_data`
+- `${SHARED_ROOT}/artifacts/training` → `/opt/airflow/project/artifacts/training`
+- `${SHARED_ROOT}/.dvc/config.local` → `/opt/airflow/project/.dvc/config.local`
 
 Это даёт DAG'ам стабильные project-relative пути, но убирает зависимость от записи в checkout-backed
 `assets/`, `artifacts/` и `.dvc`.
@@ -451,7 +454,7 @@ JupyterLab предоставляет интерактивную среду дл
 Монтируемые директории:
 - `${PROJECT_ROOT}/src` → `/home/jovyan/src` (ro) — production-модули для импортов `shared/*`, `rag/*`, `gateway/*`
 - `experiments/` → `/home/jovyan/experiments` (rw) — скрипты и конфиги экспериментов
-- `${PROJECT_ROOT}/assets` → `/home/jovyan/assets` (rw) — shared root для данных, моделей и адаптеров
+- `${SHARED_ROOT}/assets` → `/home/jovyan/assets` (rw) — shared root для данных, моделей и адаптеров
 - `dags/` → `/home/jovyan/dags` (rw) — Airflow DAG-файлы
 
 Переменные окружения (`.env`):

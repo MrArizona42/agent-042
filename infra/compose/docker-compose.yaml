@@ -52,6 +52,12 @@ x-config-volumes: &config-volumes
   - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
   - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
 
+x-shared-root-volumes: &shared-root-volumes
+  datasets: &shared-datasets-volume ${SHARED_ROOT}/assets/datasets:/opt/airflow/project/assets/datasets
+  rag_data: &shared-rag-data-volume ${SHARED_ROOT}/assets/rag_data:/opt/airflow/project/assets/rag_data
+  training_artifacts: &shared-training-artifacts-volume ${SHARED_ROOT}/artifacts/training:/opt/airflow/project/artifacts/training
+  dvc_config: &shared-dvc-config-volume ${SHARED_ROOT}/.dvc/config.local:/opt/airflow/project/.dvc/config.local:ro
+
 x-s3-client-env: &s3-client-env
   MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
@@ -138,10 +144,10 @@ x-airflow-worker-gpu-image: &airflow-worker-gpu-image "ghcr.io/${GITHUB_REPOSITO
 x-airflow-common-volumes: &airflow-common-volumes
   - ${PROJECT_ROOT}/dags:/opt/airflow/dags
   - ${PROJECT_ROOT}:/opt/airflow/project
-  - ${PROJECT_ROOT}/assets/datasets:/opt/airflow/project/assets/datasets
-  - ${PROJECT_ROOT}/assets/rag_data:/opt/airflow/project/assets/rag_data
-  - ${PROJECT_ROOT}/artifacts/training:/opt/airflow/project/artifacts/training
-  - ${PROJECT_ROOT}/.dvc/config.local:/opt/airflow/project/.dvc/config.local:ro
+  - *shared-datasets-volume
+  - *shared-rag-data-volume
+  - *shared-training-artifacts-volume
+  - *shared-dvc-config-volume
   - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
   - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
   - airflow_logs:/opt/airflow/logs
@@ -267,7 +273,7 @@ services:
     volumes:
       - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
       - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
-      - ${PROJECT_ROOT}/assets/adapters:/adapters:rw
+      - ${SHARED_ROOT}/assets/adapters:/adapters:rw
 
     depends_on:
       vllm:
@@ -316,8 +322,8 @@ services:
       - "127.0.0.1:${NETWORK__VLLM__HOST_PORT}:${NETWORK__VLLM__INTERNAL_PORT}"
 
     volumes:
-      - ${PROJECT_ROOT}/assets/models:/models:rw
-      - ${PROJECT_ROOT}/assets/adapters:/adapters:rw
+      - ${SHARED_ROOT}/assets/models:/models:rw
+      - ${SHARED_ROOT}/assets/adapters:/adapters:rw
 
     depends_on:
       mlflow:
@@ -606,10 +612,10 @@ services:
     volumes:
       - ${PROJECT_ROOT}/dags:/opt/airflow/dags
       - ${PROJECT_ROOT}:/opt/airflow/project
-      - ${PROJECT_ROOT}/assets/datasets:/opt/airflow/project/assets/datasets
-      - ${PROJECT_ROOT}/assets/rag_data:/opt/airflow/project/assets/rag_data
-      - ${PROJECT_ROOT}/artifacts/training:/opt/airflow/project/artifacts/training
-      - ${PROJECT_ROOT}/.dvc/config.local:/opt/airflow/project/.dvc/config.local:ro
+      - *shared-datasets-volume
+      - *shared-rag-data-volume
+      - *shared-training-artifacts-volume
+      - *shared-dvc-config-volume
       - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
       - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
       - airflow_logs:/opt/airflow/logs
@@ -654,10 +660,10 @@ services:
     volumes:
       - ${PROJECT_ROOT}/dags:/opt/airflow/dags
       - ${PROJECT_ROOT}:/opt/airflow/project
-      - ${PROJECT_ROOT}/assets/datasets:/opt/airflow/project/assets/datasets
-      - ${PROJECT_ROOT}/assets/rag_data:/opt/airflow/project/assets/rag_data
-      - ${PROJECT_ROOT}/artifacts/training:/opt/airflow/project/artifacts/training
-      - ${PROJECT_ROOT}/.dvc/config.local:/opt/airflow/project/.dvc/config.local:ro
+      - *shared-datasets-volume
+      - *shared-rag-data-volume
+      - *shared-training-artifacts-volume
+      - *shared-dvc-config-volume
       - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
       - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
       - airflow_logs:/opt/airflow/logs
@@ -1367,7 +1373,7 @@ services:
       - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
       - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
       - ${PROJECT_ROOT}/experiments:/home/jovyan/experiments:rw
-      - ${PROJECT_ROOT}/assets:/home/jovyan/assets:rw
+      - ${SHARED_ROOT}/assets:/home/jovyan/assets:rw
       - ${PROJECT_ROOT}/dags:/home/jovyan/dags:rw
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8888/jupyter/api || exit 1"]

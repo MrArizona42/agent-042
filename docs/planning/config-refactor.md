@@ -40,6 +40,7 @@ Use one host project root:
 
 ```env
 PROJECT_ROOT=/home/anton-m/agent-042/current
+SHARED_ROOT=/home/anton-m/agent-042
 ```
 
 Do not keep separate host config path envs such as
@@ -67,6 +68,12 @@ receive it through their own host wrapper arguments or already-loaded host env.
 `PROJECT_ROOT` means a host path in `.env`. If a container needs a project-root
 path, use `CONTAINER__PROJECT_ROOT`; do not export host-named `PROJECT_ROOT`
 into containers.
+
+Mutable deployment state is intentionally separate from release code. Compose
+derives durable `assets/`, `artifacts/`, and `.dvc` bind mounts from
+`SHARED_ROOT`, so release smoke checks can run against an unpromoted
+`PROJECT_ROOT` without losing access to models, datasets, adapters, or DVC
+local config.
 
 ## Env Naming
 
@@ -616,6 +623,7 @@ COMPOSE__*
 
 `PROJECT_ROOT`, `IMAGE_TAG`, and `VLLM__*` are intentionally not in this
 removed list: they are canonical `.env` values in the revised design.
+`SHARED_ROOT` is also canonical for durable host state.
 
 ## Implementation Order
 

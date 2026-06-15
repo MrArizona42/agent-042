@@ -96,6 +96,7 @@ compose() {
 
     COMPOSE_PROJECT_NAME="$compose_project_name" \
     PROJECT_ROOT="$project_root" \
+    SHARED_ROOT="$release_root" \
     IMAGE_TAG="$image_tag" \
     docker compose \
         --project-name "$compose_project_name" \
@@ -291,6 +292,7 @@ show_failure_diagnostics() {
         ui
         embeddings
         reranker
+        vllm
         vllm-adapter-sync
         qdrant
         rabbitmq
@@ -528,6 +530,9 @@ promote_current_release
 
 log "Updating canonical PROJECT_ROOT in $env_file"
 upsert_env_value PROJECT_ROOT "$canonical_project_root" "$env_file"
+
+log "Persisting shared root in $env_file"
+upsert_env_value SHARED_ROOT "$release_root" "$env_file"
 
 log "Persisting active IMAGE_TAG in $env_file"
 upsert_env_value IMAGE_TAG "$image_tag" "$env_file"
