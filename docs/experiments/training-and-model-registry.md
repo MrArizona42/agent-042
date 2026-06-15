@@ -378,8 +378,9 @@ python -m experiments.training.train_adapter.start_train \
 > Python API.
 
 Скрипт `src/shared/model_registry.py` — программный интерфейс для управления
-адаптерами в реестре. Для локальных запусков читает `MLFLOW_TRACKING_URI`
-из корневого `.env` репозитория, созданного из корневого `.env.example`.
+адаптерами в реестре. Shared-модуль не читает `.env`: контейнеры получают env
+через Compose, а локальные host-side запуски должны либо заранее загрузить env
+в процесс, либо использовать wrapper `scripts/host/model_registry.py --env-file .env`.
 
 **Просмотр всех зарегистрированных адаптеров:**
 
@@ -409,11 +410,11 @@ registry.demote(model_name="lora-summarize", alias="champion")
 через hot-load REST API (`POST /v1/load_lora_adapter`) — без рестарта сервера.
 
 ```bash
-# Из корня проекта (с настроенным .env)
-python -m shared.model_registry sync --adapters-dir ./assets/adapters
+# Из корня проекта (host-side wrapper явно читает .env)
+python scripts/host/model_registry.py --env-file .env sync --adapters-dir ./assets/adapters
 ```
 
-По умолчанию команда читает endpoint vLLM из `VLLM_BASE_URL`
+По умолчанию команда строит endpoint vLLM из `NETWORK__VLLM__...`;
 `--vllm-url` нужен только для явного override.
 
 Результат на диске:

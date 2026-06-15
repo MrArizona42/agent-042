@@ -28,6 +28,12 @@ def _bootstrap_project_imports() -> None:
 _bootstrap_project_imports()
 
 
+def _configured_catalog_path() -> str:
+    from shared.config import get_settings
+
+    return str(get_settings().catalog.path)
+
+
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
@@ -245,7 +251,7 @@ with DAG(
     catchup=False,
     tags=["rag", "lifecycle"],
     params={
-        "catalog": Param("catalog.toml", type="string"),
+        "catalog": Param(_configured_catalog_path(), type="string"),
         "kb": Param("pytorch_reference", type="string"),
         "source": Param("docs", type="string"),
         "alias_config": Param("challenger", type="string"),

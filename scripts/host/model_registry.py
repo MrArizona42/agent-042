@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -47,8 +48,20 @@ def _load_host_env(env_file: str) -> Path:
         raise FileNotFoundError(f"Host env file not found: {path}")
 
     dotenv.load_dotenv(path, override=False)
+    _derive_host_env()
     logging.getLogger(__name__).info("Loaded host env from %s", path)
     return path
+
+
+def _derive_host_env() -> None:
+    project_root = Path(os.environ.get("PROJECT_ROOT", REPO_ROOT)).expanduser()
+    os.environ.setdefault("CONFIG__RUNTIME_PATH", str(project_root / "runtime.toml"))
+    os.environ.setdefault("CONFIG__CATALOG_PATH", str(project_root / "catalog.toml"))
+
+    public_base_url = os.environ.get("PUBLIC__BASE_URL", "").rstrip("/")
+    callback_path = os.environ.get("PUBLIC__AUTH_CALLBACK_PATH", "")
+    if public_base_url and callback_path:
+        os.environ.setdefault("AUTH__GOOGLE_REDIRECT_URI", f"{public_base_url}{callback_path}")
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -32,7 +32,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-_PORT = int(os.environ.get("SANDBOX_PORT", "8200"))
+_PORT = int(os.environ["SANDBOX_PORT"])
 _MAX_CODE_BYTES = 256 * 1024  # 256 KB — guard against absurd payloads
 
 

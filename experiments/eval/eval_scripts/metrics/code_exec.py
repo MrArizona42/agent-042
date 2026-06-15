@@ -5,15 +5,13 @@ which is always running alongside the airflow-worker and provides Docker-level
 isolation (read-only filesystem, tmpfs /tmp, no internet access, CPU/memory
 limits) without requiring kernel user-namespace support on the host.
 
-The URL of the sandbox is read from the ``CODE_SANDBOX_URL`` environment
-variable (default: ``http://code-sandbox:8200``).
+The URL of the sandbox is derived from the runtime network settings.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import textwrap
 import urllib.error
@@ -21,9 +19,6 @@ import urllib.request
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-# Resolved at import time so tests can override via environment.
-_SANDBOX_URL: str = os.environ.get("CODE_SANDBOX_URL", "http://code-sandbox:8200").rstrip("/")
 
 # Matches the first ```python / ```py / ``` fenced block in an LLM response.
 _FENCE_RE = re.compile(r"```(?:python3?|py)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
@@ -46,6 +41,12 @@ _CODE_START_TOKENS = (
     "    ",
     "\t",
 )
+
+
+def _sandbox_url() -> str:
+    from shared.config import get_settings
+
+    return get_settings().network.internal_url("code_sandbox").rstrip("/")
 
 
 def extract_code_from_response(response: str, prompt: str) -> str:
@@ -187,7 +188,7 @@ def _run_in_sandbox(
     Returns:
         ``{"passed": bool, "exit_code": int, "stdout": str, "stderr": str}``
     """
-    url = f"{_SANDBOX_URL}/execute"
+    url = f"{_sandbox_url()}/execute"
     payload = json.dumps({"code": code, "timeout": timeout}).encode()
     req = urllib.request.Request(
         url,

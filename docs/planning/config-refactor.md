@@ -307,6 +307,10 @@ AUTH__INTERNAL_API_KEY=your-internal-api-key-here
 EVAL__JUDGE__API_KEY=
 ```
 
+`GATEWAY__API_KEY` and `EVAL__JUDGE__API_KEY` may be intentionally empty for
+local unauthenticated vLLM / local judge usage, but the env names must still be
+present. Auth secrets must be present and non-empty.
+
 ## Runtime TOML Inventory
 
 The final `runtime.toml` contains non-secret application behavior only.

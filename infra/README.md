@@ -35,9 +35,8 @@ checkout-based запуск Compose. Каноническая серверная
 Что это означает на практике:
 - repo-root `.env` остаётся активным env-файлом для локального checkout и текущего Compose запуска
 - release-based deploy будет использовать внешний `/home/anton-m/agent-042/.env`, а не `.env` внутри релиза
-- переменные `ASSETS_ROOT`, `ARTIFACTS_ROOT`, `DVC_CONFIG_LOCAL_PATH`, `GITHUB_REPOSITORY`,
-  `GITHUB_DATA_SYNC_TOKEN` и `IMAGE_TAG` вводятся уже сейчас как часть server contract, хотя
-  часть из них начинает реально использоваться уже в Phase 2
+- переменные `GITHUB_REPOSITORY`, `GITHUB_DATA_SYNC_TOKEN` и `IMAGE_TAG` остаются частью
+  server contract; persistent project data монтируется через `PROJECT_ROOT`
 
 ## Требования
 
@@ -155,15 +154,8 @@ cp .env.example .env
   активного релиза
   - Linux пример: `/home/user/agent-042`
   - Windows пример (как в шаблоне): `C:/Users/user/MyGitRepos/agent-042`
-- `ASSETS_ROOT` — внешний корень для persistent `assets`
-  - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/assets`
-  - серверный deploy пример: `/home/anton-m/agent-042/assets`
-- `ARTIFACTS_ROOT` — внешний корень для persistent `artifacts`
-  - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/artifacts`
-  - серверный deploy пример: `/home/anton-m/agent-042/artifacts`
-- `DVC_CONFIG_LOCAL_PATH` — путь к machine-local `.dvc/config.local`
-  - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/.dvc/config.local`
-  - серверный deploy пример: `/home/anton-m/agent-042/.dvc/config.local`
+- `runtime.toml` и `catalog.toml` лежат в `PROJECT_ROOT` и монтируются в контейнеры
+  как `/opt/agent/runtime.toml` и `/opt/agent/catalog.toml`
 - `GITHUB_REPOSITORY` / `GITHUB_DATA_SYNC_TOKEN` — используются Airflow temp-clone DVC/Git sync
   helper'ом для push в bot branch и для открытия или обновления PR в GitHub
 - `IMAGE_TAG` — будущий deployment-scoped tag для CI-built images; в текущем checkout-based
@@ -171,24 +163,18 @@ cp .env.example .env
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — креды для Yandex Object Storage (нужны MLflow)
 - `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` — опциональная auth-пара для локальных MLflow-клиентов и ноутбуков
 - `MLFLOW_*` — конфиг MLflow (backend store + artifact root)
-- `VLLM_*` — bootstrap/env переменные самого vLLM контейнера (модель, dtype, quantization, scheduler caps)
-- `PLATFORM__*`, `GATEWAY__*`, `RAG__*`, `AUTH__*`, `CATALOG__*`, `ADAPTER_REGISTRY__*`, `EVAL__*`, `WORKER__*`, `UI__*` — nested runtime settings contract для Python-сервисов, когда конкретный ключ действительно operator-facing
-- `RABBITMQ_*` — логин/пароль и порты RabbitMQ (брокер для Celery)
-- `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
-- `REDPANDA_*` — host-bound порты Redpanda broker/admin/schema registry/proxy и Redpanda Console
-- `CLICKHOUSE_*` — база, пользователь, пароль и host-bound HTTP/native порты ClickHouse
-- `FLOWER_*` — порт Flower (мониторинг Celery)
-- `REDISINSIGHT_*` — порт RedisInsight (мониторинг Redis)
-- `PROMETHEUS_PORT` — порт Prometheus (по умолчанию `9090`)
-- `LOKI_PORT` — порт Loki (по умолчанию `3100`)
-- `TEMPO_PORT` — порт Tempo HTTP API (по умолчанию `3200`)
-- `ALLOY_PORT` — порт Alloy UI/API (по умолчанию `12345`)
-- `OTEL_COLLECTOR_GRPC_PORT` / `OTEL_COLLECTOR_HTTP_PORT` — host-bound OTLP порты collector'а
+- `VLLM__*` — bootstrap/env переменные самого vLLM контейнера (модель, dtype, quantization, scheduler caps)
+- `NETWORK__*` — internal host/internal port/host port/scheme primitives для Compose-managed сервисов
+- `PUBLIC__*` — публичный base URL и path prefixes, из которых Compose строит adapter env для сервисов
+- `GATEWAY__API_KEY`, `AUTH__*`, `EVAL__JUDGE__API_KEY` — runtime secrets, которые Compose явно передаёт Python-контейнерам
+- `RABBITMQ_DEFAULT_*` — native RabbitMQ логин/пароль
+- `CLICKHOUSE_*` — native ClickHouse база, пользователь и пароль
+- host/internal порты задаются через соответствующие `NETWORK__...__HOST_PORT` и
+  `NETWORK__...__INTERNAL_PORT`
 - `OTEL_TRACES_SAMPLER_ARG` — доля трассировки для `parentbased_traceidratio`; на старте `1.0`
-- `GRAFANA_PORT` — порт Grafana (по умолчанию `3000`)
-- `GRAFANA_ADMIN_PASSWORD` — пароль admin-пользователя Grafana
-- `AIRFLOW_*` — конфиг Airflow (порт, БД, Fernet-ключ, admin-пользователь)
-- `JUPYTER_*` — конфиг JupyterLab (порт, токен)
+- `GF_SECURITY_ADMIN_PASSWORD` — native пароль admin-пользователя Grafana
+- `AIRFLOW__*` / `AIRFLOW_ADMIN_*` — native/env конфиг Airflow
+- `JUPYTER_TOKEN` — native токен JupyterLab
 
 Замечание:
 - Канонический шаблон `.env.example` не содержит полные внутренние endpoint'ы.
@@ -383,12 +369,12 @@ Airflow развёрнут с CeleryExecutor и использует общий 
 - `airflow-worker-gpu` — worker с доступом к GPU для задач, которым он нужен
 
 DAG-файлы размещаются в директории `dags/` в корне репозитория и монтируются в контейнеры Airflow.
-Корень проекта так же монтируется как `/opt/airflow/project`, но shared state поверх него уже
-перекладывается на внешние bind mount'ы:
-- `${ASSETS_ROOT}/datasets` → `/opt/airflow/project/assets/datasets`
-- `${ASSETS_ROOT}/rag_data` → `/opt/airflow/project/assets/rag_data`
-- `${ARTIFACTS_ROOT}/training` → `/opt/airflow/project/artifacts/training`
-- `${DVC_CONFIG_LOCAL_PATH}` → `/opt/airflow/project/.dvc/config.local`
+Корень проекта так же монтируется как `/opt/airflow/project`. Shared state остаётся
+project-relative, а Compose строит bind mount'ы от `PROJECT_ROOT`:
+- `${PROJECT_ROOT}/assets/datasets` → `/opt/airflow/project/assets/datasets`
+- `${PROJECT_ROOT}/assets/rag_data` → `/opt/airflow/project/assets/rag_data`
+- `${PROJECT_ROOT}/artifacts/training` → `/opt/airflow/project/artifacts/training`
+- `${PROJECT_ROOT}/.dvc/config.local` → `/opt/airflow/project/.dvc/config.local`
 
 Это даёт DAG'ам стабильные project-relative пути, но убирает зависимость от записи в checkout-backed
 `assets/`, `artifacts/` и `.dvc`.
@@ -465,7 +451,7 @@ JupyterLab предоставляет интерактивную среду дл
 Монтируемые директории:
 - `${PROJECT_ROOT}/src` → `/home/jovyan/src` (ro) — production-модули для импортов `shared/*`, `rag/*`, `gateway/*`
 - `experiments/` → `/home/jovyan/experiments` (rw) — скрипты и конфиги экспериментов
-- `${ASSETS_ROOT}` → `/home/jovyan/assets` (rw) — внешний shared root для данных, моделей и адаптеров
+- `${PROJECT_ROOT}/assets` → `/home/jovyan/assets` (rw) — shared root для данных, моделей и адаптеров
 - `dags/` → `/home/jovyan/dags` (rw) — Airflow DAG-файлы
 
 Переменные окружения (`.env`):

@@ -95,6 +95,7 @@ class NetworkSettings(BaseModel):
     redpanda_kafka: NetworkServiceSettings
     embeddings: NetworkServiceSettings
     reranker: NetworkServiceSettings
+    code_sandbox: NetworkServiceSettings
     gateway: NetworkServiceSettings
 
     def service(self, name: str) -> NetworkServiceSettings:
@@ -215,7 +216,6 @@ class GatewayConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     api_key: SecretStr | None = Field(
-        default=None,
         description="Optional API key for vLLM authentication",
     )
     vllm_timeout: float = Field(
@@ -257,6 +257,44 @@ class GatewayConfig(BaseModel):
         if isinstance(value, (list, tuple, set)):
             return tuple(str(origin).strip() for origin in value if str(origin).strip())
         return value
+
+
+class RuntimeGatewayConfig(BaseModel):
+    """Gateway runtime policy loaded from TOML."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    vllm_timeout: float = Field(
+        description="Timeout for vLLM requests in seconds",
+        ge=1.0,
+    )
+    repetition_penalty: float = Field(
+        description="Repetition penalty applied to all generation requests to prevent token loops",
+        ge=1.0,
+    )
+    streaming_timeout: float = Field(
+        description="Idle timeout for Redis Pub/Sub streaming in seconds",
+        ge=1.0,
+    )
+    embeddings_timeout: float = Field(
+        description="Timeout for embeddings service HTTP requests in seconds",
+        ge=1.0,
+    )
+    async_enabled: bool = Field(
+        description="Enable async inference via Celery workers",
+    )
+    cors_allow_origins: Annotated[tuple[str, ...], NoDecode] = Field(
+        description="Allowed CORS origins.",
+    )
+    service_name: str = Field(
+        description="Service name displayed in API docs",
+    )
+    budget: BudgetSettings
+
+    @field_validator("cors_allow_origins", mode="before")
+    @classmethod
+    def _normalize_cors_allow_origins(cls, value: object) -> object:
+        return GatewayConfig._normalize_cors_allow_origins(value)
 
 
 class RagBuildSettings(BaseModel):
@@ -322,15 +360,12 @@ class AuthSettings(BaseModel):
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     google_client_id: str = Field(
-        default="",
         description="Google OAuth2 client ID",
     )
     google_client_secret: SecretStr = Field(
-        default_factory=lambda: SecretStr(""),
         description="Google OAuth2 client secret",
     )
     google_redirect_uri: str = Field(
-        default="",
         description="OAuth2 callback URL (e.g. https://agent.antonlab.ru:8443/auth/callback)",
     )
     google_discovery_url: str = Field(
@@ -341,7 +376,6 @@ class AuthSettings(BaseModel):
         description="PostgreSQL connection URL for agent042 DB (async: postgresql+asyncpg://...)",
     )
     session_secret_key: SecretStr = Field(
-        default_factory=lambda: SecretStr(""),
         description="Secret key for signing session cookies (32-byte hex)",
     )
     session_ttl_seconds: int = Field(
@@ -349,9 +383,22 @@ class AuthSettings(BaseModel):
         ge=60,
     )
     internal_api_key: SecretStr = Field(
-        default_factory=lambda: SecretStr(""),
         description="Pre-shared API key for internal service-to-service calls "
         "(e.g. Airflow eval runner)",
+    )
+
+
+class RuntimeAuthSettings(BaseModel):
+    """Auth runtime policy loaded from TOML."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    google_discovery_url: str = Field(
+        description="Google OIDC discovery URL",
+    )
+    session_ttl_seconds: int = Field(
+        description="Session TTL in seconds (default 24 hours)",
+        ge=60,
     )
 
 
@@ -421,7 +468,7 @@ class JudgeSettings(BaseModel):
     backend: Literal["local_vllm", "openai_compatible"]
     model: str
     base_url: str
-    api_key: str | None = None
+    api_key: str | None
     timeout: float = Field(
         ge=1.0,
         description="Timeout for one judge request in seconds",
@@ -444,8 +491,7 @@ class EvalJudgeSettings(BaseModel):
     base_url: str = Field(
         description="Base URL for external OpenAI-compatible judge backends.",
     )
-    api_key: SecretStr = Field(
-        default_factory=lambda: SecretStr(""),
+    api_key: SecretStr | None = Field(
         description="Optional API key for external OpenAI-compatible judge backends.",
     )
     timeout: float = Field(ge=1.0)
@@ -524,6 +570,40 @@ class EvalConfig(BaseModel):
         )
 
 
+class RuntimeEvalJudgeSettings(BaseModel):
+    """Eval judge runtime policy loaded from TOML."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    backend: Literal["local_vllm", "openai_compatible"]
+    model: str = Field(
+        description="Judge model name used for LLM-as-judge scoring.",
+    )
+    base_url: str = Field(
+        description="Base URL for external OpenAI-compatible judge backends.",
+    )
+    timeout: float = Field(ge=1.0)
+    request_delay_seconds: float = Field(ge=0.0)
+
+
+class RuntimeEvalConfig(BaseModel):
+    """Eval runtime policy loaded from TOML."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    judge: RuntimeEvalJudgeSettings
+    metrics: EvalMetricSettings
+    sandbox: EvalSandboxSettings
+
+    @model_validator(mode="after")
+    def _validate_judge_backend_config(self) -> "RuntimeEvalConfig":
+        if self.judge.backend == "openai_compatible" and not self.judge.base_url.strip():
+            raise ValueError(
+                "eval.judge.base_url must be set when eval.judge.backend=openai_compatible"
+            )
+        return self
+
+
 class EventsSettings(BaseModel):
     """Runtime event-stream settings."""
 
@@ -586,12 +666,12 @@ class RuntimeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1]
-    gateway: GatewayConfig
+    gateway: RuntimeGatewayConfig
     rag: RagSettings
-    auth: AuthSettings
+    auth: RuntimeAuthSettings
     adapter_registry: AdapterRegistryConfig
     events: EventsSettings
-    eval: EvalConfig
+    eval: RuntimeEvalConfig
     worker: WorkerConfig
     ui: UIConfig
 
@@ -810,6 +890,14 @@ def _required_env(name: str) -> str:
     return value
 
 
+def _explicit_optional_env(name: str) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        raise RuntimeError(f"{name} must be set; use an empty value when intentionally disabled")
+    value = value.strip()
+    return value or None
+
+
 def load_settings(
     overrides: dict[str, Any] | None = None,
     *,
@@ -824,6 +912,19 @@ def load_settings(
         exclude_none=False,
     )
     runtime_payload["catalog"] = {"path": _required_env(CATALOG_CONFIG_PATH_ENV)}
+    runtime_payload["gateway"]["api_key"] = _explicit_optional_env("GATEWAY__API_KEY")
+    runtime_payload["auth"].update(
+        {
+            "google_client_id": _required_env("AUTH__GOOGLE_CLIENT_ID"),
+            "google_client_secret": _required_env("AUTH__GOOGLE_CLIENT_SECRET"),
+            "google_redirect_uri": _required_env("AUTH__GOOGLE_REDIRECT_URI"),
+            "session_secret_key": _required_env("AUTH__SESSION_SECRET_KEY"),
+            "internal_api_key": _required_env("AUTH__INTERNAL_API_KEY"),
+        }
+    )
+    runtime_payload["eval"]["judge"]["api_key"] = _explicit_optional_env(
+        "EVAL__JUDGE__API_KEY"
+    )
     runtime_payload["postgres"] = {
         "user": _required_env("POSTGRES_USER"),
         "password": _required_env("POSTGRES_PASSWORD"),

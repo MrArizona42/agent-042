@@ -35,6 +35,9 @@ x-network-env: &network-env
   NETWORK__RERANKER__INTERNAL_HOST: ${NETWORK__RERANKER__INTERNAL_HOST}
   NETWORK__RERANKER__SCHEME: ${NETWORK__RERANKER__SCHEME}
   NETWORK__RERANKER__INTERNAL_PORT: ${NETWORK__RERANKER__INTERNAL_PORT}
+  NETWORK__CODE_SANDBOX__INTERNAL_HOST: ${NETWORK__CODE_SANDBOX__INTERNAL_HOST}
+  NETWORK__CODE_SANDBOX__SCHEME: ${NETWORK__CODE_SANDBOX__SCHEME}
+  NETWORK__CODE_SANDBOX__INTERNAL_PORT: ${NETWORK__CODE_SANDBOX__INTERNAL_PORT}
   NETWORK__GATEWAY__INTERNAL_HOST: ${NETWORK__GATEWAY__INTERNAL_HOST}
   NETWORK__GATEWAY__SCHEME: ${NETWORK__GATEWAY__SCHEME}
   NETWORK__GATEWAY__INTERNAL_PORT: ${NETWORK__GATEWAY__INTERNAL_PORT}
@@ -64,6 +67,15 @@ x-rabbitmq-client-env: &rabbitmq-client-env
   RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
   RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
 
+x-runtime-secret-env: &runtime-secret-env
+  GATEWAY__API_KEY: ${GATEWAY__API_KEY}
+  AUTH__GOOGLE_CLIENT_ID: ${AUTH__GOOGLE_CLIENT_ID}
+  AUTH__GOOGLE_CLIENT_SECRET: ${AUTH__GOOGLE_CLIENT_SECRET}
+  AUTH__GOOGLE_REDIRECT_URI: ${PUBLIC__BASE_URL}${PUBLIC__AUTH_CALLBACK_PATH}
+  AUTH__SESSION_SECRET_KEY: ${AUTH__SESSION_SECRET_KEY}
+  AUTH__INTERNAL_API_KEY: ${AUTH__INTERNAL_API_KEY}
+  EVAL__JUDGE__API_KEY: ${EVAL__JUDGE__API_KEY}
+
 x-observability-env: &observability-env
   OTEL_EXPORTER_OTLP_ENDPOINT: http://${NETWORK__OTEL_COLLECTOR_GRPC__INTERNAL_HOST}:${NETWORK__OTEL_COLLECTOR_GRPC__INTERNAL_PORT}
   OTEL_EXPORTER_OTLP_PROTOCOL: grpc
@@ -71,7 +83,7 @@ x-observability-env: &observability-env
   OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG}
 
 x-airflow-common-env: &airflow-common-env
-  <<: [*network-env, *config-path-env, *s3-client-env, *postgres-client-env, *rabbitmq-client-env]
+  <<: [*network-env, *config-path-env, *runtime-secret-env, *s3-client-env, *postgres-client-env, *rabbitmq-client-env]
   AIRFLOW__CORE__EXECUTOR: CeleryExecutor
   AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@${NETWORK__RABBITMQ_AMQP__INTERNAL_HOST}:${NETWORK__RABBITMQ_AMQP__INTERNAL_PORT}//
   AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_AIRFLOW_DB}
@@ -96,8 +108,6 @@ x-airflow-common-env: &airflow-common-env
 
   # Project paths & service endpoints used by DAGs
   CONTAINER__PROJECT_ROOT: /opt/airflow/project
-  AUTH__INTERNAL_API_KEY: ${AUTH__INTERNAL_API_KEY}
-  EVAL__JUDGE__API_KEY: ${EVAL__JUDGE__API_KEY}
   GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}
   GITHUB_DATA_SYNC_TOKEN: ${GITHUB_DATA_SYNC_TOKEN}
 
@@ -252,7 +262,7 @@ services:
       dockerfile: infra/docker/adapter-sync/Dockerfile
 
     environment:
-      <<: [*network-env, *config-path-env, *s3-client-env, *postgres-client-env, *rabbitmq-client-env]
+      <<: [*network-env, *config-path-env, *runtime-secret-env, *s3-client-env, *postgres-client-env, *rabbitmq-client-env]
 
     volumes:
       - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
@@ -502,7 +512,7 @@ services:
       dockerfile: infra/docker/embeddings/Dockerfile
 
     environment:
-      <<: [*network-env, *observability-env, *config-path-env, *postgres-client-env, *rabbitmq-client-env]
+      <<: [*network-env, *observability-env, *config-path-env, *runtime-secret-env, *postgres-client-env, *rabbitmq-client-env]
 
     volumes: *config-volumes
 
@@ -529,7 +539,7 @@ services:
       dockerfile: infra/docker/reranker/Dockerfile
 
     environment:
-      <<: [*network-env, *observability-env, *config-path-env, *postgres-client-env, *rabbitmq-client-env]
+      <<: [*network-env, *observability-env, *config-path-env, *runtime-secret-env, *postgres-client-env, *rabbitmq-client-env]
 
     volumes: *config-volumes
 
@@ -556,7 +566,7 @@ services:
       dockerfile: infra/docker/celery/Dockerfile
 
     environment:
-      <<: [*network-env, *observability-env, *config-path-env, *postgres-client-env, *rabbitmq-client-env]
+      <<: [*network-env, *observability-env, *config-path-env, *runtime-secret-env, *postgres-client-env, *rabbitmq-client-env]
 
     volumes: *config-volumes
 
@@ -696,14 +706,14 @@ services:
     tmpfs:
       - /tmp
     environment:
-      SANDBOX_PORT: "8200"
+      SANDBOX_PORT: ${NETWORK__CODE_SANDBOX__INTERNAL_PORT}
     cpus: 1.0
     mem_limit: 256m
     # Isolated network — only reachable by airflow-worker, no internet.
     networks:
       - sandbox_net
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8200/health')\""]
+      test: ["CMD-SHELL", "python3 -c \"import os, urllib.request; urllib.request.urlopen(f'http://localhost:{os.environ[\"SANDBOX_PORT\"]}/health')\""]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -720,13 +730,7 @@ services:
       dockerfile: infra/docker/gateway/Dockerfile
 
     environment:
-      <<: [*network-env, *observability-env, *config-path-env, *postgres-client-env, *rabbitmq-client-env]
-      # OAuth2 / OIDC
-      AUTH__GOOGLE_CLIENT_ID: ${AUTH__GOOGLE_CLIENT_ID}
-      AUTH__GOOGLE_CLIENT_SECRET: ${AUTH__GOOGLE_CLIENT_SECRET}
-      AUTH__GOOGLE_REDIRECT_URI: ${PUBLIC__BASE_URL}${PUBLIC__AUTH_CALLBACK_PATH}
-      AUTH__SESSION_SECRET_KEY: ${AUTH__SESSION_SECRET_KEY}
-      AUTH__INTERNAL_API_KEY: ${AUTH__INTERNAL_API_KEY}
+      <<: [*network-env, *observability-env, *config-path-env, *runtime-secret-env, *postgres-client-env, *rabbitmq-client-env]
 
     volumes: *config-volumes
 
@@ -778,7 +782,7 @@ services:
       dockerfile: infra/docker/ui/Dockerfile
 
     environment:
-      <<: [*network-env, *config-path-env, *postgres-client-env, *rabbitmq-client-env]
+      <<: [*network-env, *config-path-env, *runtime-secret-env, *postgres-client-env, *rabbitmq-client-env]
 
     volumes: *config-volumes
 
@@ -1349,7 +1353,7 @@ services:
       dockerfile: infra/docker/jupyter/Dockerfile
     command: start-notebook.py --ServerApp.base_url=${PUBLIC__JUPYTER_PATH}
     environment:
-      <<: [*network-env, *config-path-env, *s3-client-env, *postgres-client-env, *rabbitmq-client-env]
+      <<: [*network-env, *config-path-env, *runtime-secret-env, *s3-client-env, *postgres-client-env, *rabbitmq-client-env]
       CONTAINER__PROJECT_ROOT: /home/jovyan
       PYTHONPATH: /home/jovyan:/home/jovyan/src
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}

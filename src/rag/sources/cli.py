@@ -71,7 +71,10 @@ def _parser() -> argparse.ArgumentParser:
     materialize.add_argument("--force-recreate", action="store_true")
 
     promote = subparsers.add_parser("promote-alias")
-    promote.add_argument("--catalog", default="catalog.toml")
+    promote.add_argument(
+        "--catalog",
+        help="Catalog TOML path. Defaults to CONFIG__CATALOG_PATH when omitted.",
+    )
     promote.add_argument("--kb", required=True)
     promote.add_argument("--alias", required=True)
     promote.add_argument("--collection", required=True)
@@ -97,6 +100,10 @@ def _alias_strategy(*, catalog_path: Path | str, kb_id: str, alias: str) -> str:
     if alias_cfg is None:
         raise ValueError(f"Unknown alias config '{alias}' for KB '{kb_id}'")
     return alias_cfg.retrieval_strategy
+
+
+def _catalog_path_from_args(args: argparse.Namespace) -> Path | str:
+    return args.catalog or get_settings().catalog.path
 
 
 def _vector_store(*, collection_name: str) -> QdrantVectorStore:
@@ -186,7 +193,8 @@ def main(
         return 0
 
     if args.command == "promote-alias":
-        strategy = _alias_strategy(catalog_path=args.catalog, kb_id=args.kb, alias=args.alias)
+        catalog_path = _catalog_path_from_args(args)
+        strategy = _alias_strategy(catalog_path=catalog_path, kb_id=args.kb, alias=args.alias)
         vector_store = _vector_store(collection_name=args.collection)
         payload = vector_store.read_meta()
         if payload is None:

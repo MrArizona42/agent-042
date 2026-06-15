@@ -750,7 +750,9 @@ Eval DAG с alias="challenger"
 - `infra-network` — инфраструктурные сервисы (БД, брокеры).
 - `monitoring-network` — observability стек.
 
-Volumes хранят персистентные данные: qdrant-storage, postgres-data, redis-data, mlflow-artifacts, airflow-logs, модели и датасеты (монтируются из хост-директории через `ASSETS_ROOT`).
+Volumes хранят персистентные данные: qdrant-storage, postgres-data, redis-data,
+mlflow-artifacts и airflow-logs; модели, датасеты и project artifacts
+монтируются из host-side `PROJECT_ROOT`.
 
 ### 10.2 Release-based деплой
 
