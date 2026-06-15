@@ -440,7 +440,6 @@ Final reusable fragments:
 
 ```text
 x-network-env
-x-derived-endpoints
 x-config-path-env
 x-config-volumes
 x-observability-env
@@ -472,8 +471,9 @@ Rules:
 - `x-config-path-env` contains only container-local config paths and any
   env values Python still needs directly, such as `VLLM__MODEL`.
 - `x-config-volumes` mounts root `runtime.toml` and `catalog.toml` read-only.
-- `x-derived-endpoints` may exist during migration for legacy Python settings,
-  but it must disappear when Python reads network primitives directly.
+- `x-derived-endpoints` must not exist. Python derives project-owned endpoints
+  from `NETWORK__...`; third-party native endpoint envs may be exported only at
+  the service boundary that requires them.
 - Native adapter envs such as `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN`,
   `AIRFLOW__CELERY__BROKER_URL`, `CELERY_BROKER_URL`, and
   `MLFLOW_TRACKING_URI` are allowed only inside the service/image boundary that

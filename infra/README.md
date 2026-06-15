@@ -191,11 +191,10 @@ cp .env.example .env
 - `JUPYTER_*` — конфиг JupyterLab (порт, токен)
 
 Замечание:
-- Канонический шаблон `.env.example` намеренно не содержит внутренние endpoint'ы вроде `PLATFORM__VLLM_BASE_URL`, `PLATFORM__EMBEDDINGS_URL`, `GATEWAY__URL`, `PLATFORM__QDRANT_HOST` или `PLATFORM__MLFLOW_TRACKING_URI`.
-  Compose подставляет свои Docker-network значения напрямую из `infra/compose/docker-compose.yaml`, а локальные Python-запуски используют значения по умолчанию из `shared.config`.
-- На текущем этапе checkout-based Compose уже использует `ASSETS_ROOT`, `ARTIFACTS_ROOT` и
-  `DVC_CONFIG_LOCAL_PATH` для shared mounts, а `GITHUB_*`-переменные использует Airflow data-sync
-  path. `IMAGE_TAG` остаётся зарезервированным для последующих deploy фаз.
+- Канонический шаблон `.env.example` не содержит полные внутренние endpoint'ы.
+  Python derives project-owned URLs from `NETWORK__...` via `shared.config`.
+- Compose derives mounts from `PROJECT_ROOT`; `IMAGE_TAG` controls image tags
+  for deploy/local runs.
 - Workflow для logs/traces/metrics описан в `docs/analytics/observability.md`; durable inference events описаны в `docs/analytics/inference-events.md`; ClickHouse analytics описана в `docs/analytics/clickhouse-analytics.md`.
 
 ### Разделение env surfaces
@@ -452,8 +451,8 @@ docker compose up -d airflow-worker
 - `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` — логин/пароль admin-пользователя
 
 DAG'и также используют следующие переменные (передаются через `x-airflow-common-env`):
-- `PLATFORM__QDRANT_HOST` / `PLATFORM__QDRANT_PORT` — адрес Qdrant для пересборки индексов
-- `EMBEDDING_MODEL` — модель эмбеддингов (берётся из `RAG__EMBEDDING_MODEL`)
+- `NETWORK__QDRANT_HTTP__INTERNAL_HOST` / `NETWORK__QDRANT_HTTP__INTERNAL_PORT` — адрес Qdrant для пересборки индексов
+- `CONFIG__RUNTIME_PATH` — путь к mounted `runtime.toml` с runtime policy
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_DEFAULT_REGION` — для `dvc push` в Yandex Cloud S3
 - `GITHUB_REPOSITORY` / `GITHUB_DATA_SYNC_TOKEN` — для temp-clone Git push и GitHub PR API
 
@@ -474,13 +473,13 @@ JupyterLab предоставляет интерактивную среду дл
 - `JUPYTER_TOKEN` — токен для аутентификации (по умолчанию `agent042`)
 
 Дополнительно контейнер получает сервисные переменные:
-- `PROJECT_ROOT=/home/jovyan`
+- `CONTAINER__PROJECT_ROOT=/home/jovyan`
 - `PYTHONPATH=/home/jovyan:/home/jovyan/src`
-- `PLATFORM__QDRANT_HOST=qdrant`, `PLATFORM__QDRANT_PORT=${PLATFORM__QDRANT_PORT}`
-- `PLATFORM__EMBEDDINGS_URL=http://embeddings:8100`
-- `GATEWAY__URL=http://gateway:9000`
+- `NETWORK__...` primitives for internal service discovery
+- `CONFIG__RUNTIME_PATH=/opt/agent/runtime.toml`
+- `CONFIG__CATALOG_PATH=/opt/agent/catalog.toml`
 
-Важно: этот `PROJECT_ROOT=/home/jovyan` относится только к контейнеру Jupyter. Это не тот же
+Важно: `CONTAINER__PROJECT_ROOT=/home/jovyan` относится только к контейнеру Jupyter. Это не тот же
 самый `PROJECT_ROOT`, который оператор задаёт в repo-root `.env` или в `/home/anton-m/agent-042/.env` для
 Compose interpolation на хосте.
 

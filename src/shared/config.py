@@ -144,37 +144,29 @@ class PlatformSettings(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
     vllm_base_url: str = Field(
-        default="http://localhost:8000",
         description="URL where the shared vLLM server is reachable",
     )
     embeddings_url: str = Field(
-        default="http://localhost:8100",
         description="URL of the shared embeddings microservice",
     )
     qdrant_host: str = Field(
-        default="localhost",
         description="Shared Qdrant server hostname",
     )
     qdrant_port: int = Field(
-        default=6333,
         description="Shared Qdrant server port",
         ge=1,
         le=65535,
     )
     mlflow_tracking_uri: str = Field(
-        default="http://localhost:5050",
         description="Shared MLflow tracking server URL",
     )
     redis_url: str = Field(
-        default="redis://localhost:6379/0",
         description="Redis connection URL for shared streaming and coordination",
     )
-    celery_broker_url: str | None = Field(
-        default=None,
+    celery_broker_url: str = Field(
         description="RabbitMQ broker URL for shared Celery-based workflows",
     )
-    kafka_bootstrap_servers: str | None = Field(
-        default=None,
+    kafka_bootstrap_servers: str = Field(
         description="Kafka-compatible bootstrap servers for durable inference events",
     )
 
@@ -251,8 +243,8 @@ class GatewayConfig(BaseModel):
     service_name: str = Field(
         description="Service name displayed in API docs",
     )
-    url: str = Field(
-        default="http://localhost:9001",
+    url: str | None = Field(
+        default=None,
         description="Full URL to the gateway (used by UI)",
     )
     budget: BudgetSettings
@@ -315,8 +307,8 @@ class RagSettings(BaseModel):
     sparse_encoder_model: str = Field(
         description="fastembed model name for sparse (BM25) vector encoding",
     )
-    reranker_url: str = Field(
-        default="http://reranker:8101",
+    reranker_url: str | None = Field(
+        default=None,
         description="URL of the reranker microservice",
     )
     reranker_model: str = Field(
@@ -670,7 +662,7 @@ class Settings(BaseSettings):
     network: NetworkSettings
     postgres: PostgresSettings
     rabbitmq: RabbitMqSettings
-    platform: PlatformSettings = Field(default_factory=PlatformSettings)
+    platform: PlatformSettings | None = None
     gateway: GatewayConfig
     rag: RagSettings
     auth: AuthSettings
@@ -696,6 +688,17 @@ class Settings(BaseSettings):
             dotenv_settings,
             file_secret_settings,
         )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_derived_facade_inputs(cls, value: object) -> object:
+        """Ignore legacy facade inputs; they are derived from canonical config."""
+
+        if isinstance(value, dict):
+            cleaned = dict(value)
+            cleaned.pop("platform", None)
+            return cleaned
+        return value
 
     @model_validator(mode="after")
     def _derive_legacy_endpoint_facades(self) -> "Settings":

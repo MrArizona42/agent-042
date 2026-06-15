@@ -36,14 +36,14 @@ Typical flow
 
 Environment variables
 ---------------------
-``PLATFORM__MLFLOW_TRACKING_URI``
-    Legacy adapter value for the MLflow tracking server URL.
+``NETWORK__MLFLOW__...``
+    Network coordinates used to derive the MLflow tracking server URL.
 ``MLFLOW_S3_ENDPOINT_URL``, ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``
     Credentials for downloading artifacts from S3.
 ``CONFIG__RUNTIME_PATH``
     Runtime TOML file containing adapter registry aliases and policy.
-``PLATFORM__VLLM_BASE_URL``
-    Legacy adapter value for the vLLM hot-load API.
+``NETWORK__VLLM__...``
+    Network coordinates used to derive the vLLM hot-load API URL.
 """
 
 from __future__ import annotations
@@ -534,19 +534,6 @@ class AdapterSyncer:
 # ── CLI entry point ──────────────────────────────────────────────────────────
 
 
-def _load_env(env_file: str | None) -> None:
-    """Load dotenv only when a host-side CLI call passes an explicit env file."""
-    from shared.local_env import load_local_env, resolve_local_env_path
-
-    if not env_file:
-        return
-
-    loaded_env = load_local_env(env_file)
-
-    if loaded_env is None:
-        logger.warning("Env file missing: %s", resolve_local_env_path(env_file))
-
-
 def _resolve_aliases(aliases: str | list | tuple | None):
     """Parse comma-separated aliases or fall back to config default."""
     from shared.config import get_settings
@@ -563,12 +550,10 @@ def _cmd_sync(
     adapters_dir: str | None = None,
     vllm_url: str | None = None,
     aliases: str | None = None,
-    env_file: str | None = None,
 ) -> None:
     """Download and hot-load aliased adapters."""
     from shared.config import get_settings
 
-    _load_env(env_file)
     settings = get_settings()
     adapter_registry = settings.adapter_registry
     platform = settings.platform
@@ -589,12 +574,10 @@ def _cmd_sync(
 
 def _cmd_list(
     aliases: str | None = None,
-    env_file: str | None = None,
 ) -> None:
     """List aliased adapters in MLflow (no download)."""
     from shared.config import get_settings
 
-    _load_env(env_file)
     settings = get_settings()
     adapter_registry = settings.adapter_registry
     platform = settings.platform
