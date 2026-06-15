@@ -109,7 +109,7 @@
 После аутентификации Gateway определяет тип задачи: `chat`, `code` или `summarize`. Это влияет на выбор RAG-коллекции и LoRA-адаптера.
 
 **Embedding-based routing:**
-Основной метод — `EmbeddingTaskRouter`. Для каждой задачи в catalog (`src/shared/catalog.toml`) задано `routing_description` — текстовое описание задачи. При инициализации Gateway вычисляет эмбеддинги всех `routing_description` и кэширует их. При запросе:
+Основной метод — `EmbeddingTaskRouter`. Для каждой задачи в catalog (`catalog.toml`) задано `routing_description` — текстовое описание задачи. При инициализации Gateway вычисляет эмбеддинги всех `routing_description` и кэширует их. При запросе:
 
 1. Вычисляется эмбеддинг последнего сообщения пользователя.
 2. Считается косинусное сходство с эмбеддингами каждой задачи.
@@ -226,7 +226,7 @@ Worker отслеживает повторяющиеся последовате�
 
 RAG в проекте разделён на несколько независимых понятий:
 
-- **KB id** — логическая база знаний из `src/shared/catalog.toml`, например
+- **KB id** — логическая база знаний из `catalog.toml`, например
   `ml_papers_core` или `pytorch_reference`.
 - **Source type** — тип connector/extractor, например `arxiv_paper` или
   `html_docs`.
@@ -526,7 +526,7 @@ registry.promote("lora-summarize", version=2, alias="champion")
 |---|---|
 | `.env` | Операторский env-файл. Runtime settings используют nested имена вида `SECTION__FIELD`; инфраструктурные bootstrap/env-переменные Compose могут оставаться flat |
 | `src/shared/config.py` | Root runtime settings loader: `Settings(BaseSettings)`, cache helpers и safe startup logging для Python-сервисов |
-| `src/shared/catalog/` + `src/shared/catalog.toml` | Catalog schema, loader и override helpers для задач, баз знаний и источников |
+| `src/shared/catalog/` + `catalog.toml` | Catalog schema, loader и operator catalog для задач, баз знаний и источников |
 | `infra/compose/docker-compose.yaml` | Topology всей системы: сети, port bindings, volumes, health checks, зависимости между сервисами |
 | `infra/docker/**/Dockerfile` | Определения образов: базовые образы, установка зависимостей, process defaults |
 | `infra/nginx/*.conf` | TLS termination, reverse proxy rules и маршрутизация между UI и Gateway |
@@ -597,7 +597,7 @@ Python-конфигурация реализована через `pydantic-sett
 При добавлении нового catalog field:
 
 1. меняйте schema/models в `src/shared/catalog/`
-2. обновляйте `src/shared/catalog.toml` и sample/contract tests
+2. обновляйте `catalog.toml` и sample/contract tests
 3. используйте `catalog_override(...)` в тестах вместо manual global mutation
 4. не добавляйте catalog helper re-exports обратно в `shared.config`
 

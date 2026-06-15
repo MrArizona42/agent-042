@@ -71,7 +71,7 @@ def _parser() -> argparse.ArgumentParser:
     materialize.add_argument("--force-recreate", action="store_true")
 
     promote = subparsers.add_parser("promote-alias")
-    promote.add_argument("--catalog", default="src/shared/catalog.toml")
+    promote.add_argument("--catalog", default="catalog.toml")
     promote.add_argument("--kb", required=True)
     promote.add_argument("--alias", required=True)
     promote.add_argument("--collection", required=True)

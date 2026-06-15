@@ -8,7 +8,7 @@ from typing import Protocol
 
 from shared.local_env import get_repo_root
 
-DEFAULT_CATALOG_PATH = Path(__file__).resolve().parents[1] / "catalog.toml"
+DEFAULT_CATALOG_PATH = Path(__file__).resolve().parents[3] / "catalog.toml"
 CATALOG_PATH_ENV = "CATALOG__PATH"
 
 

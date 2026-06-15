@@ -245,7 +245,7 @@ with DAG(
     catchup=False,
     tags=["rag", "lifecycle"],
     params={
-        "catalog": Param("src/shared/catalog.toml", type="string"),
+        "catalog": Param("catalog.toml", type="string"),
         "kb": Param("pytorch_reference", type="string"),
         "source": Param("docs", type="string"),
         "alias_config": Param("challenger", type="string"),

@@ -60,7 +60,7 @@ def _load_dag(monkeypatch: pytest.MonkeyPatch):
 
 def _context(**overrides):
     params = {
-        "catalog": "src/shared/catalog.toml",
+        "catalog": "catalog.toml",
         "kb": "pytorch_reference",
         "source": "docs",
         "alias_config": "challenger",
@@ -125,7 +125,7 @@ def test_build_source_task_constructs_source_cli(monkeypatch: pytest.MonkeyPatch
         [
             "build-source",
             "--catalog",
-            "src/shared/catalog.toml",
+            "catalog.toml",
             "--kb",
             "pytorch_reference",
             "--source",
@@ -226,7 +226,7 @@ def test_promote_task_uses_materialize_xcom_collection(monkeypatch: pytest.Monke
         [
             "promote-alias",
             "--catalog",
-            "src/shared/catalog.toml",
+            "catalog.toml",
             "--kb",
             "pytorch_reference",
             "--alias",

@@ -8,21 +8,21 @@ Usage:
 
 Examples:
   bash current/scripts/rag_ops.sh python -m rag.sources.cli build-source \
-    --catalog src/shared/catalog.toml \
+    --catalog catalog.toml \
     --kb pytorch_reference \
     --source docs \
     --rag-data-root assets/rag_data \
     --limit 1
 
   bash current/scripts/rag_ops.sh python -m rag.sources.cli collect-bundle \
-    --catalog src/shared/catalog.toml \
+    --catalog catalog.toml \
     --kb pytorch_reference \
     --source docs \
     --rag-data-root assets/rag_data \
     --limit 1
 
   bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize \
-    --catalog src/shared/catalog.toml \
+    --catalog catalog.toml \
     --kb pytorch_reference \
     --source docs \
     --alias-config challenger \

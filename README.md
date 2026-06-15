@@ -100,7 +100,7 @@ manual build runs through `rag-ops`:
 
 ```bash
 bash scripts/rag_ops.sh python -m rag.sources.cli build-source \
-  --catalog src/shared/catalog.toml \
+  --catalog catalog.toml \
   --kb pytorch_reference \
   --source docs \
   --rag-data-root assets/rag_data \

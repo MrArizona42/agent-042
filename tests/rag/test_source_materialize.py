@@ -146,7 +146,7 @@ def test_materialize_dense_collection_writes_manifest_and_attestation(tmp_path: 
         rag_data_root=tmp_path,
         target_alias="challenger",
         qdrant_upsert_batch_size=64,
-        build_config_ref="src/shared/catalog.toml",
+        build_config_ref="catalog.toml",
     )
     manifest = read_index_manifest(result.manifest_path)
     attestation = attestation_from_payload(store.meta or {})

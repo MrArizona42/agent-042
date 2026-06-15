@@ -29,24 +29,15 @@ from shared import catalog
 logger = logging.getLogger(__name__)
 
 RUNTIME_CONFIG_PATH_ENV = "CONFIG__RUNTIME_PATH"
+CATALOG_CONFIG_PATH_ENV = "CONFIG__CATALOG_PATH"
 
 
 class VllmSettings(BaseModel):
-    """Runtime policy for the local vLLM server."""
+    """Identity of the local vLLM model served by Compose."""
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     model: str = Field(description="Model served by the local vLLM container")
-    dtype: str = Field(description="vLLM dtype argument")
-    quantization: str = Field(description="vLLM quantization argument")
-    gpu_utilization: float = Field(gt=0.0, le=1.0)
-    gpu_count: int = Field(ge=0)
-    max_num_seqs: int = Field(ge=1)
-    max_num_batched_tokens: int = Field(ge=1)
-    kv_cache_dtype: str
-    max_loras: int = Field(ge=0)
-    max_lora_rank: int = Field(ge=0)
-    allow_runtime_lora_updating: bool
 
 
 class PlatformSettings(BaseModel):
@@ -517,7 +508,6 @@ class RuntimeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1]
-    vllm: VllmSettings
     gateway: GatewayConfig
     rag: RagSettings
     auth: AuthSettings
@@ -534,6 +524,19 @@ class RuntimeConfig(BaseModel):
             return value
 
         forbidden_by_section = {
+            "vllm": {
+                "model",
+                "dtype",
+                "quantization",
+                "gpu_utilization",
+                "gpu_count",
+                "max_num_seqs",
+                "max_num_batched_tokens",
+                "kv_cache_dtype",
+                "max_loras",
+                "max_lora_rank",
+                "allow_runtime_lora_updating",
+            },
             "gateway": {"api_key", "url", "default_model"},
             "rag": {"rag_enabled", "rag_strict_startup", "reranker_url"},
             "auth": {
@@ -667,6 +670,9 @@ def load_settings(
         exclude_unset=True,
         exclude_none=False,
     )
+    catalog_path = os.getenv(CATALOG_CONFIG_PATH_ENV)
+    if catalog_path is not None and catalog_path.strip():
+        runtime_payload["catalog"] = {"path": catalog_path}
     settings = Settings(**runtime_payload)
     if not overrides:
         return settings

@@ -407,7 +407,7 @@ DAG-файлы размещаются в директории `dags/` в кор�
 
 `rag_lifecycle` принимает параметры Airflow UI:
 
-- `kb` — KB id из `src/shared/catalog.toml`, например `ml_papers_core` или `pytorch_reference`
+- `kb` — KB id из `catalog.toml`, например `ml_papers_core` или `pytorch_reference`
 - `source` — source instance id внутри KB, например `papers` или `docs`
 - `alias_config` — alias profile used for build settings, for example `champion` or `challenger`
 - `promote_alias` — optional alias to repoint after materialization; leave empty for build-only runs

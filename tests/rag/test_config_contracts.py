@@ -373,9 +373,24 @@ class TestKnowledgeBaseRegistryResolution:
         from shared.config import load_settings
 
         path = tmp_path / "runtime.toml"
-        path.write_text("schema_version = 1\n[vllm]\nmodel = 'x'\n", encoding="utf-8")
+        path.write_text("schema_version = 1\n", encoding="utf-8")
 
         with pytest.raises(ValidationError, match="gateway"):
+            load_settings(runtime_path=path)
+
+    def test_runtime_toml_rejects_vllm_launch_settings(self, tmp_path: Path):
+        from pydantic import ValidationError
+
+        from shared.config import load_settings
+
+        path = tmp_path / "runtime.toml"
+        path.write_text(
+            Path("runtime.toml").read_text(encoding="utf-8")
+            + "\n[vllm]\nmodel = \"/models/example\"\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValidationError, match="vllm.model"):
             load_settings(runtime_path=path)
 
     def test_runtime_toml_rejects_derived_or_env_only_keys(self, tmp_path: Path):
@@ -384,7 +399,7 @@ class TestKnowledgeBaseRegistryResolution:
         from shared.config import load_settings
 
         path = tmp_path / "runtime.toml"
-        runtime_toml = Path("config/runtime.toml").read_text(encoding="utf-8")
+        runtime_toml = Path("runtime.toml").read_text(encoding="utf-8")
         runtime_toml = runtime_toml.replace(
             "[gateway]\n",
             "[gateway]\nurl = \"http://gateway:9000\"\n",
@@ -394,6 +409,16 @@ class TestKnowledgeBaseRegistryResolution:
 
         with pytest.raises(ValidationError, match="gateway.url"):
             load_settings(runtime_path=path)
+
+    def test_config_catalog_path_env_sets_catalog_settings(self, tmp_path: Path, monkeypatch):
+        from shared.config import load_settings
+
+        catalog_path = tmp_path / "catalog.toml"
+        monkeypatch.setenv("CONFIG__CATALOG_PATH", str(catalog_path))
+
+        settings = load_settings()
+
+        assert settings.catalog.path == catalog_path
 
     def test_legacy_flat_env_names_are_ignored(self, monkeypatch):
         from shared.config import load_settings

@@ -37,15 +37,13 @@ Typical flow
 Environment variables
 ---------------------
 ``PLATFORM__MLFLOW_TRACKING_URI``
-    MLflow tracking server URL (e.g. ``http://mlflow:5000``).
+    Derived container adapter value for the MLflow tracking server URL.
 ``MLFLOW_S3_ENDPOINT_URL``, ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``
     Credentials for downloading artifacts from S3.
-``ADAPTER_REGISTRY__ADAPTERS_DIR``
-    Where to store downloaded adapters (default ``./adapters``).
-``ADAPTER_REGISTRY__SYNC_ALIASES``
-    Comma-separated list of MLflow aliases to sync (default ``champion,challenger``).
+``CONFIG__RUNTIME_PATH``
+    Runtime TOML file containing adapter registry aliases and policy.
 ``PLATFORM__VLLM_BASE_URL``
-    Canonical vLLM server URL for the hot-load API (default ``http://localhost:8000``).
+    Derived container adapter value for the vLLM hot-load API.
 """
 
 from __future__ import annotations
@@ -336,8 +334,7 @@ class AdapterSyncer:
 
     Args:
         tracking_uri: MLflow tracking URI. Falls back to
-            ``settings.platform.mlflow_tracking_uri`` /
-            ``PLATFORM__MLFLOW_TRACKING_URI``, then to the MLflow default.
+            ``settings.platform.mlflow_tracking_uri``, then to the MLflow default.
         adapters_dir: Local root for downloaded adapter files.
         sync_aliases: List of MLflow aliases to iterate over.
         vllm_base_url: vLLM OpenAI-compatible server base URL.
@@ -538,12 +535,15 @@ class AdapterSyncer:
 
 
 def _load_env(env_file: str | None) -> None:
-    """Load dotenv from *env_file* or the canonical repo-root `.env`."""
+    """Load dotenv only when a host-side CLI call passes an explicit env file."""
     from shared.local_env import load_local_env, resolve_local_env_path
+
+    if not env_file:
+        return
 
     loaded_env = load_local_env(env_file)
 
-    if env_file and loaded_env is None:
+    if loaded_env is None:
         logger.warning("Env file missing: %s", resolve_local_env_path(env_file))
 
 
@@ -568,10 +568,10 @@ def _cmd_sync(
     """Download and hot-load aliased adapters."""
     from shared.config import get_settings
 
+    _load_env(env_file)
     settings = get_settings()
     adapter_registry = settings.adapter_registry
     platform = settings.platform
-    _load_env(env_file)
 
     syncer = AdapterSyncer(
         adapters_dir=adapters_dir or adapter_registry.adapters_dir,
@@ -594,10 +594,10 @@ def _cmd_list(
     """List aliased adapters in MLflow (no download)."""
     from shared.config import get_settings
 
+    _load_env(env_file)
     settings = get_settings()
     adapter_registry = settings.adapter_registry
     platform = settings.platform
-    _load_env(env_file)
 
     syncer = AdapterSyncer(
         adapters_dir=adapter_registry.adapters_dir,

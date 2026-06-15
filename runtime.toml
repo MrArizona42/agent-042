@@ -1,18 +1,5 @@
 schema_version = 1
 
-[vllm]
-model = "/models/Qwen/Qwen3-0.6B"
-dtype = "float16"
-quantization = "bitsandbytes"
-gpu_utilization = 0.7
-gpu_count = 1
-max_num_seqs = 1
-max_num_batched_tokens = 1024
-kv_cache_dtype = "fp8"
-max_loras = 4
-max_lora_rank = 16
-allow_runtime_lora_updating = true
-
 [gateway]
 vllm_timeout = 60.0
 repetition_penalty = 1.1
