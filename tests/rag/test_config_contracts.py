@@ -422,6 +422,14 @@ class TestKnowledgeBaseRegistryResolution:
 
         assert settings.catalog.path == catalog_path
 
+    def test_config_catalog_path_env_is_required(self, monkeypatch):
+        from shared.config import load_settings
+
+        monkeypatch.delenv("CONFIG__CATALOG_PATH", raising=False)
+
+        with pytest.raises(RuntimeError, match="CONFIG__CATALOG_PATH"):
+            load_settings()
+
     def test_legacy_flat_env_names_are_ignored(self, monkeypatch):
         from shared.config import load_settings
 
@@ -439,7 +447,7 @@ class TestKnowledgeBaseRegistryResolution:
         settings = CatalogConfig(path="configs/catalog.toml")
 
         assert settings.path == Path("configs/catalog.toml")
-        assert resolve_catalog_path(settings).as_posix().endswith("configs/catalog.toml")
+        assert resolve_catalog_path(settings) == Path.cwd() / "configs/catalog.toml"
 
     def test_get_catalog_prefers_catalog_settings_path(self, tmp_path: Path, monkeypatch):
         import shared.config as cfg
@@ -447,7 +455,7 @@ class TestKnowledgeBaseRegistryResolution:
 
         path = write_code_only_catalog(tmp_path / "catalog.toml")
 
-        monkeypatch.setenv("CATALOG__PATH", str(path))
+        monkeypatch.setenv("CONFIG__CATALOG_PATH", str(path))
         cfg.clear_knowledge_base_caches()
 
         catalog = get_catalog()
@@ -464,23 +472,24 @@ class TestKnowledgeBaseRegistryResolution:
         first = write_chat_only_catalog(tmp_path / "catalog-first.toml")
         second = write_code_only_catalog(tmp_path / "catalog-second.toml")
 
-        monkeypatch.setenv("CATALOG__PATH", str(first))
+        monkeypatch.setenv("CONFIG__CATALOG_PATH", str(first))
         cfg.clear_knowledge_base_caches()
         assert get_kb_names() == ["ml_papers_core"]
 
-        monkeypatch.setenv("CATALOG__PATH", str(second))
+        monkeypatch.setenv("CONFIG__CATALOG_PATH", str(second))
         cfg.clear_knowledge_base_caches()
         assert get_kb_names() == ["pytorch_reference"]
 
-    def test_legacy_flat_catalog_env_name_is_ignored(self, tmp_path: Path, monkeypatch):
-        from shared.catalog import resolve_catalog_path
+    def test_legacy_catalog_env_names_are_ignored(self, tmp_path: Path, monkeypatch):
+        from shared.config import load_settings
 
         path = write_chat_only_catalog(tmp_path / "catalog.toml")
 
         monkeypatch.setenv("CATALOG_PATH", str(path))
-        resolved = resolve_catalog_path()
+        monkeypatch.setenv("CATALOG__PATH", str(path))
+        settings = load_settings()
 
-        assert resolved != path
+        assert settings.catalog.path != path
 
     def test_in_memory_catalog_override_bypasses_disk_loading(self):
         from shared.catalog import (

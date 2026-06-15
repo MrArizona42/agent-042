@@ -360,11 +360,10 @@ class CatalogConfig(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
-    path: Path | None = Field(
-        default=None,
+    path: Path = Field(
         description=(
-            "Override path to the catalog TOML file; relative paths resolve from "
-            "the repository root, empty uses the bundled default"
+            "Explicit path to the catalog TOML file; relative paths resolve from "
+            "the current working directory"
         ),
     )
 
@@ -374,7 +373,7 @@ class CatalogConfig(BaseModel):
         if isinstance(value, str):
             stripped = value.strip()
             if not stripped:
-                return None
+                raise ValueError("catalog path must not be empty")
             return Path(stripped)
         return value
 
@@ -666,7 +665,7 @@ class Settings(BaseSettings):
     gateway: GatewayConfig
     rag: RagSettings
     auth: AuthSettings
-    catalog: CatalogConfig = Field(default_factory=CatalogConfig)
+    catalog: CatalogConfig
     adapter_registry: AdapterRegistryConfig
     events: EventsSettings
     eval: EvalConfig
@@ -685,7 +684,6 @@ class Settings(BaseSettings):
         return (
             init_settings,
             env_settings,
-            dotenv_settings,
             file_secret_settings,
         )
 
@@ -825,9 +823,7 @@ def load_settings(
         exclude_unset=True,
         exclude_none=False,
     )
-    catalog_path = os.getenv(CATALOG_CONFIG_PATH_ENV)
-    if catalog_path is not None and catalog_path.strip():
-        runtime_payload["catalog"] = {"path": catalog_path}
+    runtime_payload["catalog"] = {"path": _required_env(CATALOG_CONFIG_PATH_ENV)}
     runtime_payload["postgres"] = {
         "user": _required_env("POSTGRES_USER"),
         "password": _required_env("POSTGRES_PASSWORD"),

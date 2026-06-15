@@ -84,6 +84,11 @@ def get_loaded_catalog_state(
     if _CATALOG_OVERRIDE is not None and _CATALOG_INDEX_OVERRIDE is not None:
         return _CATALOG_OVERRIDE, _CATALOG_INDEX_OVERRIDE
 
+    if settings is None:
+        from shared.config import get_settings
+
+        settings = get_settings().catalog
+
     path = resolve_catalog_path(settings).resolve()
     return _load_catalog_cached(str(path))
 

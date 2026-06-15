@@ -321,10 +321,10 @@ PY
 не причина возвращать `airflow-prepare-dirs`.
 
 Практический тюнинг vLLM для локальной GPU:
-- `VLLM_MAX_NUM_SEQS` — жёсткий верхний предел числа последовательностей, которые vLLM одновременно держит в scheduler batch. Для 12 GB GPU и длинного контекста безопасно начинать с `1-2`.
-- `VLLM_MAX_NUM_BATCHED_TOKENS` — верхний предел числа токенов в одном scheduler/pre-fill шаге. Это не размер полного контекста; при chunked prefill длинный prompt просто режется на куски такого размера. Для старта разумно держать `1024-2048`.
-- Соотношение параметров: `prompt_tokens + final_generation_budget` должны помещаться в `max_model_len`, а `VLLM_MAX_NUM_BATCHED_TOKENS` обычно должен быть заметно меньше `max_model_len`, потому что он ограничивает пик памяти на шаг, а не общий размер одного запроса.
-- Если vLLM падает именно на `Capturing CUDA graphs`, сначала снижайте `VLLM_GPU_UTIL` или `VLLM_MAX_NUM_BATCHED_TOKENS`; только потом повышайте `VLLM_MAX_NUM_SEQS`.
+- `VLLM__MAX_NUM_SEQS` — жёсткий верхний предел числа последовательностей, которые vLLM одновременно держит в scheduler batch. Для 12 GB GPU и длинного контекста безопасно начинать с `1-2`.
+- `VLLM__MAX_NUM_BATCHED_TOKENS` — верхний предел числа токенов в одном scheduler/pre-fill шаге. Это не размер полного контекста; при chunked prefill длинный prompt просто режется на куски такого размера. Для старта разумно держать `1024-2048`.
+- Соотношение параметров: `prompt_tokens + final_generation_budget` должны помещаться в `max_model_len`, а `VLLM__MAX_NUM_BATCHED_TOKENS` обычно должен быть заметно меньше `max_model_len`, потому что он ограничивает пик памяти на шаг, а не общий размер одного запроса.
+- Если vLLM падает именно на `Capturing CUDA graphs`, сначала снижайте `VLLM__GPU_UTILIZATION` или `VLLM__MAX_NUM_BATCHED_TOKENS`; только потом повышайте `VLLM__MAX_NUM_SEQS`.
 
 Важно:
 - MLflow в текущей конфигурации подключён к S3, но не проксирует артефакты (опция `--serve-artifacts` отключена).
@@ -356,9 +356,9 @@ sudo setfacl -R -d -m u:${DEPLOY_USER}:rwx,u:${AIRFLOW_UID}:rwx,u:${JUPYTER_UID}
 
 Контейнер vLLM монтирует папку `assets/models` как `/models`.
 Чтобы использовать локальную модель из репозитория, укажите:
-- `VLLM_MODEL=/models/<vendor>/<model>`
+- `VLLM__MODEL=/models/<vendor>/<model>`
 
-Если хотите использовать HuggingFace model id (без локальных файлов), укажите `VLLM_MODEL=<org>/<name>`.
+Если хотите использовать HuggingFace model id (без локальных файлов), укажите `VLLM__MODEL=<org>/<name>`.
 В этом случае модели будут скачиваться в кэш внутри контейнера (см. `HF_HOME=/models/.cache`).
 
 ## MLFlow tracking server

@@ -82,7 +82,7 @@ def test_eval_dags_kb_options_use_shared_registry(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.eval_dags", None)
@@ -97,7 +97,7 @@ def test_eval_dags_alias_options_prefer_adapter_registry_env(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     monkeypatch.setenv("ADAPTER_REGISTRY__SYNC_ALIASES", "champion,shadow")
     _install_airflow_stubs(monkeypatch)
 
@@ -114,7 +114,7 @@ def test_eval_dags_resolve_params_supports_auto_kb_mode(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.eval_dags", None)
@@ -142,7 +142,7 @@ def test_eval_dags_resolve_params_requires_kb_for_explicit_mode(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.eval_dags", None)
@@ -168,7 +168,7 @@ def test_generation_dag_params_expose_kb_mode_controls(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.eval_dags", None)
@@ -197,7 +197,7 @@ def test_fetch_predictions_task_forwards_use_auto_rag(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.eval_dags", None)

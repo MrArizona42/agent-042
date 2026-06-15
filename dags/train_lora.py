@@ -27,7 +27,7 @@ from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import Param
 
-PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PROJECT_ROOT = Path(os.environ["CONTAINER__PROJECT_ROOT"])
 
 default_args = {
     "owner": "airflow",

@@ -96,7 +96,6 @@ x-airflow-common-env: &airflow-common-env
 
   # Project paths & service endpoints used by DAGs
   CONTAINER__PROJECT_ROOT: /opt/airflow/project
-  PROJECT_ROOT: /opt/airflow/project
   AUTH__INTERNAL_API_KEY: ${AUTH__INTERNAL_API_KEY}
   EVAL__JUDGE__API_KEY: ${EVAL__JUDGE__API_KEY}
   GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}

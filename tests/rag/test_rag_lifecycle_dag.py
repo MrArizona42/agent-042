@@ -52,7 +52,7 @@ def _install_airflow_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _load_dag(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("PROJECT_ROOT", Path.cwd().as_posix())
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", Path.cwd().as_posix())
     _install_airflow_stubs(monkeypatch)
     sys.modules.pop("dags.rag_lifecycle", None)
     return importlib.import_module("dags.rag_lifecycle")

@@ -461,10 +461,10 @@ python -m shared.model_registry sync
 
 ```yaml
 command: [
-  "--model", "${VLLM_MODEL}",
+  "--model", "${VLLM__MODEL}",
   "--enable-lora",
-  "--max-loras", "${VLLM_MAX_LORAS}",
-  "--max-lora-rank", "${VLLM_MAX_LORA_RANK}",
+  "--max-loras", "${VLLM__MAX_LORAS}",
+  "--max-lora-rank", "${VLLM__MAX_LORA_RANK}",
   ...
 ]
 environment:
@@ -477,6 +477,6 @@ volumes:
 Ключевые переменные окружения (`.env`):
 
 ```bash
-VLLM_MAX_LORAS=4        # макс. число одновременно загруженных LoRA
-VLLM_MAX_LORA_RANK=16   # >= lora.r из конфига обучения
+VLLM__MAX_LORAS=4        # макс. число одновременно загруженных LoRA
+VLLM__MAX_LORA_RANK=16   # >= lora.r из конфига обучения
 ```

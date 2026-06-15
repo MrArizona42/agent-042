@@ -58,10 +58,15 @@ CONFIG__RUNTIME_PATH: /opt/agent/runtime.toml
 CONFIG__CATALOG_PATH: /opt/agent/catalog.toml
 ```
 
+Python must treat these paths as explicit process configuration. It must not
+discover the repository root to find `catalog.toml`, must not fall back to
+`src/shared/catalog.toml` or a hardcoded repo-root `catalog.toml`, and must not
+read legacy `CATALOG__PATH`. Host-side tools that need a catalog path should
+receive it through their own host wrapper arguments or already-loaded host env.
+
 `PROJECT_ROOT` means a host path in `.env`. If a container needs a project-root
-path, use `CONTAINER__PROJECT_ROOT`. Temporary legacy container exports named
-`PROJECT_ROOT` are allowed only where existing DAG code still requires them and
-must be removed when that code is migrated.
+path, use `CONTAINER__PROJECT_ROOT`; do not export host-named `PROJECT_ROOT`
+into containers.
 
 ## Env Naming
 
@@ -629,8 +634,10 @@ removed list: they are canonical `.env` values in the revised design.
    helpers.
 9. Replace legacy project-owned URL env consumption in Python with derived
    network settings.
-10. Remove hidden defaults from `src/shared/config.py`.
-11. Split host-side wrappers from container entrypoints and remove `.env`
+10. Remove catalog repo-root discovery and require explicit
+    `CONFIG__CATALOG_PATH` / explicit CLI catalog paths.
+11. Remove hidden defaults from `src/shared/config.py`.
+12. Split host-side wrappers from container entrypoints and remove `.env`
    loading from shared/runtime code.
 
 ## Acceptance Criteria
@@ -643,6 +650,8 @@ removed list: they are canonical `.env` values in the revised design.
 - Containers receive root TOML files through read-only mounts.
 - Containers receive `CONFIG__RUNTIME_PATH` and `CONFIG__CATALOG_PATH`
   explicitly from Compose.
+- Catalog loading uses the explicit configured path only; shared Python code
+  does not discover the repo root or read `CATALOG__PATH`.
 - Python services, DAGs, and shared library code do not read `.env`.
 - Host-side `.env` loading exists only in explicit host/deploy wrappers.
 - No operator-maintained env var stores full URLs for project-owned services.

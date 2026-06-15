@@ -48,7 +48,7 @@ from airflow.operators.python import PythonOperator
 # Configuration
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PROJECT_ROOT = Path(os.environ["CONTAINER__PROJECT_ROOT"])
 
 for _p in (str(PROJECT_ROOT / "src"), str(PROJECT_ROOT)):
     if _p not in sys.path:

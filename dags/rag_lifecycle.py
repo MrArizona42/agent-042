@@ -14,7 +14,7 @@ from airflow import DAG
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
 
-PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PROJECT_ROOT = Path(os.environ["CONTAINER__PROJECT_ROOT"])
 
 
 def _bootstrap_project_imports() -> None:
@@ -187,7 +187,7 @@ def _dvc_artifact_rel_paths(params: dict[str, Any]) -> list[str]:
             rel_path = absolute_path.relative_to(PROJECT_ROOT)
         except ValueError as exc:
             raise ValueError(
-                f"DVC artifact path must be under PROJECT_ROOT: {absolute_path}"
+                f"DVC artifact path must be under CONTAINER__PROJECT_ROOT: {absolute_path}"
             ) from exc
         rel_paths.append(rel_path.as_posix())
     return rel_paths

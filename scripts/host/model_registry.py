@@ -8,13 +8,14 @@ import logging
 import sys
 from pathlib import Path
 
+import dotenv
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from shared.local_env import load_local_env  # noqa: E402
 from shared.model_registry import _cmd_list, _cmd_sync  # noqa: E402
 
 
@@ -37,13 +38,26 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_host_env(env_file: str) -> Path:
+    path = Path(env_file).expanduser()
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    path = path.resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"Host env file not found: {path}")
+
+    dotenv.load_dotenv(path, override=False)
+    logging.getLogger(__name__).info("Loaded host env from %s", path)
+    return path
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  %(message)s",
     )
     args = _parser().parse_args(argv)
-    load_local_env(args.env_file, override=False)
+    _load_host_env(args.env_file)
 
     if args.command == "sync":
         _cmd_sync(

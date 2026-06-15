@@ -115,22 +115,18 @@ naming, promotion, inspection, rollback, and Airflow parameters.
 
 ## Configuration
 
-Python runtime configuration is centralized in `src/shared/config.py`.
-
-Runtime env vars use nested names:
+Operator-facing configuration is split across three root files:
 
 ```text
-GATEWAY__DEFAULT_MODEL
-RAG__EMBEDDING_MODEL
-CATALOG__PATH
-ADAPTER_REGISTRY__SYNC_ALIASES
-EVAL__JUDGE__MODEL
-PLATFORM__KAFKA_BOOTSTRAP_SERVERS
+.env
+runtime.toml
+catalog.toml
 ```
 
-Flat names are reserved for Compose/bootstrap concerns such as host ports,
-image tags, and external service credentials. Operator-facing keys should be
-documented in `.env.example` and `infra/README.md`.
+Compose reads `.env`, mounts the root TOML files into containers, and passes
+`CONFIG__RUNTIME_PATH` / `CONFIG__CATALOG_PATH` explicitly. Python reads only
+process env plus those mounted TOML files; shared runtime code does not load
+`.env`.
 
 ## Running And Operating
 
