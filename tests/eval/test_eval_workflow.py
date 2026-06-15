@@ -131,7 +131,7 @@ class TestEvalSettings:
         assert s.judge.model == "/models/Qwen/Qwen3-0.6B"
         assert resolved_judge.backend == "local_vllm"
         assert resolved_judge.model == "/models/Qwen/Qwen3-0.6B"
-        assert resolved_judge.base_url == "http://localhost:8000"
+        assert resolved_judge.base_url == "http://vllm:8000"
         assert s.metrics.temperature == 0.0
         assert s.metrics.max_completion_tokens == 2048
         assert s.sandbox.code_exec_timeout == 30

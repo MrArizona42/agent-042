@@ -37,13 +37,13 @@ Typical flow
 Environment variables
 ---------------------
 ``PLATFORM__MLFLOW_TRACKING_URI``
-    Derived container adapter value for the MLflow tracking server URL.
+    Legacy adapter value for the MLflow tracking server URL.
 ``MLFLOW_S3_ENDPOINT_URL``, ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``
     Credentials for downloading artifacts from S3.
 ``CONFIG__RUNTIME_PATH``
     Runtime TOML file containing adapter registry aliases and policy.
 ``PLATFORM__VLLM_BASE_URL``
-    Derived container adapter value for the vLLM hot-load API.
+    Legacy adapter value for the vLLM hot-load API.
 """
 
 from __future__ import annotations

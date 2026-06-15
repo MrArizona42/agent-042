@@ -439,6 +439,7 @@ containers receive only explicitly mapped env.
 Final reusable fragments:
 
 ```text
+x-network-env
 x-derived-endpoints
 x-config-path-env
 x-config-volumes
@@ -466,6 +467,8 @@ Rules:
 - Repeated env mappings go into a named `x-*` fragment.
 - One-off service-specific values stay in the service block.
 - Do not use service-level `env_file:` to inject the whole `.env`.
+- `x-network-env` passes canonical `NETWORK__...` primitives to Python
+  containers that build derived endpoints through `Settings`.
 - `x-config-path-env` contains only container-local config paths and any
   env values Python still needs directly, such as `VLLM__MODEL`.
 - `x-config-volumes` mounts root `runtime.toml` and `catalog.toml` read-only.

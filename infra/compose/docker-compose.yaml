@@ -2,7 +2,45 @@
 # Reusable fragments
 # =====================
 
-x-shared-endpoints: &shared-endpoints
+x-network-env: &network-env
+  NETWORK__POSTGRES__INTERNAL_HOST: ${NETWORK__POSTGRES__INTERNAL_HOST}
+  NETWORK__POSTGRES__INTERNAL_PORT: ${NETWORK__POSTGRES__INTERNAL_PORT}
+  NETWORK__POSTGRES__HOST_PORT: ${NETWORK__POSTGRES__HOST_PORT}
+  NETWORK__MLFLOW__INTERNAL_HOST: ${NETWORK__MLFLOW__INTERNAL_HOST}
+  NETWORK__MLFLOW__SCHEME: ${NETWORK__MLFLOW__SCHEME}
+  NETWORK__MLFLOW__INTERNAL_PORT: ${NETWORK__MLFLOW__INTERNAL_PORT}
+  NETWORK__MLFLOW__HOST_PORT: ${NETWORK__MLFLOW__HOST_PORT}
+  NETWORK__VLLM__INTERNAL_HOST: ${NETWORK__VLLM__INTERNAL_HOST}
+  NETWORK__VLLM__SCHEME: ${NETWORK__VLLM__SCHEME}
+  NETWORK__VLLM__INTERNAL_PORT: ${NETWORK__VLLM__INTERNAL_PORT}
+  NETWORK__VLLM__HOST_PORT: ${NETWORK__VLLM__HOST_PORT}
+  NETWORK__QDRANT_HTTP__INTERNAL_HOST: ${NETWORK__QDRANT_HTTP__INTERNAL_HOST}
+  NETWORK__QDRANT_HTTP__INTERNAL_PORT: ${NETWORK__QDRANT_HTTP__INTERNAL_PORT}
+  NETWORK__QDRANT_HTTP__HOST_PORT: ${NETWORK__QDRANT_HTTP__HOST_PORT}
+  NETWORK__QDRANT_GRPC__INTERNAL_HOST: ${NETWORK__QDRANT_GRPC__INTERNAL_HOST}
+  NETWORK__QDRANT_GRPC__INTERNAL_PORT: ${NETWORK__QDRANT_GRPC__INTERNAL_PORT}
+  NETWORK__QDRANT_GRPC__HOST_PORT: ${NETWORK__QDRANT_GRPC__HOST_PORT}
+  NETWORK__RABBITMQ_AMQP__INTERNAL_HOST: ${NETWORK__RABBITMQ_AMQP__INTERNAL_HOST}
+  NETWORK__RABBITMQ_AMQP__INTERNAL_PORT: ${NETWORK__RABBITMQ_AMQP__INTERNAL_PORT}
+  NETWORK__RABBITMQ_AMQP__HOST_PORT: ${NETWORK__RABBITMQ_AMQP__HOST_PORT}
+  NETWORK__REDIS__INTERNAL_HOST: ${NETWORK__REDIS__INTERNAL_HOST}
+  NETWORK__REDIS__INTERNAL_PORT: ${NETWORK__REDIS__INTERNAL_PORT}
+  NETWORK__REDIS__HOST_PORT: ${NETWORK__REDIS__HOST_PORT}
+  NETWORK__REDPANDA_KAFKA__INTERNAL_HOST: ${NETWORK__REDPANDA_KAFKA__INTERNAL_HOST}
+  NETWORK__REDPANDA_KAFKA__INTERNAL_PORT: ${NETWORK__REDPANDA_KAFKA__INTERNAL_PORT}
+  NETWORK__REDPANDA_KAFKA__HOST_PORT: ${NETWORK__REDPANDA_KAFKA__HOST_PORT}
+  NETWORK__EMBEDDINGS__INTERNAL_HOST: ${NETWORK__EMBEDDINGS__INTERNAL_HOST}
+  NETWORK__EMBEDDINGS__SCHEME: ${NETWORK__EMBEDDINGS__SCHEME}
+  NETWORK__EMBEDDINGS__INTERNAL_PORT: ${NETWORK__EMBEDDINGS__INTERNAL_PORT}
+  NETWORK__RERANKER__INTERNAL_HOST: ${NETWORK__RERANKER__INTERNAL_HOST}
+  NETWORK__RERANKER__SCHEME: ${NETWORK__RERANKER__SCHEME}
+  NETWORK__RERANKER__INTERNAL_PORT: ${NETWORK__RERANKER__INTERNAL_PORT}
+  NETWORK__GATEWAY__INTERNAL_HOST: ${NETWORK__GATEWAY__INTERNAL_HOST}
+  NETWORK__GATEWAY__SCHEME: ${NETWORK__GATEWAY__SCHEME}
+  NETWORK__GATEWAY__INTERNAL_PORT: ${NETWORK__GATEWAY__INTERNAL_PORT}
+  NETWORK__GATEWAY__HOST_PORT: ${NETWORK__GATEWAY__HOST_PORT}
+
+x-derived-endpoints: &derived-endpoints
   PLATFORM__VLLM_BASE_URL: ${NETWORK__VLLM__SCHEME}://${NETWORK__VLLM__INTERNAL_HOST}:${NETWORK__VLLM__INTERNAL_PORT}
   PLATFORM__REDIS_URL: redis://${NETWORK__REDIS__INTERNAL_HOST}:${NETWORK__REDIS__INTERNAL_PORT}/0
   PLATFORM__EMBEDDINGS_URL: ${NETWORK__EMBEDDINGS__SCHEME}://${NETWORK__EMBEDDINGS__INTERNAL_HOST}:${NETWORK__EMBEDDINGS__INTERNAL_PORT}
@@ -22,6 +60,12 @@ x-config-volumes: &config-volumes
   - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
   - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
 
+x-s3-client-env: &s3-client-env
+  MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+
 x-observability-env: &observability-env
   OTEL_EXPORTER_OTLP_ENDPOINT: http://${NETWORK__OTEL_COLLECTOR_GRPC__INTERNAL_HOST}:${NETWORK__OTEL_COLLECTOR_GRPC__INTERNAL_PORT}
   OTEL_EXPORTER_OTLP_PROTOCOL: grpc
@@ -29,7 +73,7 @@ x-observability-env: &observability-env
   OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG}
 
 x-airflow-common-env: &airflow-common-env
-  <<: [*shared-endpoints, *config-path-env]
+  <<: [*network-env, *derived-endpoints, *config-path-env, *s3-client-env]
   AIRFLOW__CORE__EXECUTOR: CeleryExecutor
   AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@${NETWORK__RABBITMQ_AMQP__INTERNAL_HOST}:${NETWORK__RABBITMQ_AMQP__INTERNAL_PORT}//
   AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_AIRFLOW_DB}
@@ -58,9 +102,6 @@ x-airflow-common-env: &airflow-common-env
   AUTH__INTERNAL_API_KEY: ${AUTH__INTERNAL_API_KEY}
   EVAL__DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_APP_DB}
   EVAL__JUDGE__API_KEY: ${EVAL__JUDGE__API_KEY}
-  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
   GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}
   GITHUB_DATA_SYNC_TOKEN: ${GITHUB_DATA_SYNC_TOKEN}
 
@@ -215,11 +256,7 @@ services:
       dockerfile: infra/docker/adapter-sync/Dockerfile
 
     environment:
-      <<: [*shared-endpoints, *config-path-env]
-      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      <<: [*network-env, *derived-endpoints, *config-path-env, *s3-client-env]
 
     volumes:
       - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
@@ -469,7 +506,7 @@ services:
       dockerfile: infra/docker/embeddings/Dockerfile
 
     environment:
-      <<: [*observability-env, *config-path-env]
+      <<: [*network-env, *observability-env, *config-path-env]
 
     volumes: *config-volumes
 
@@ -496,7 +533,7 @@ services:
       dockerfile: infra/docker/reranker/Dockerfile
 
     environment:
-      <<: [*observability-env, *config-path-env]
+      <<: [*network-env, *observability-env, *config-path-env]
 
     volumes: *config-volumes
 
@@ -523,7 +560,7 @@ services:
       dockerfile: infra/docker/celery/Dockerfile
 
     environment:
-      <<: [*shared-endpoints, *observability-env, *config-path-env]
+      <<: [*network-env, *derived-endpoints, *observability-env, *config-path-env]
       PLATFORM__CELERY_BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@${NETWORK__RABBITMQ_AMQP__INTERNAL_HOST}:${NETWORK__RABBITMQ_AMQP__INTERNAL_PORT}//
 
     volumes: *config-volumes
@@ -688,7 +725,7 @@ services:
       dockerfile: infra/docker/gateway/Dockerfile
 
     environment:
-      <<: [*shared-endpoints, *observability-env, *config-path-env]
+      <<: [*network-env, *derived-endpoints, *observability-env, *config-path-env]
       PLATFORM__CELERY_BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@${NETWORK__RABBITMQ_AMQP__INTERNAL_HOST}:${NETWORK__RABBITMQ_AMQP__INTERNAL_PORT}//
       # OAuth2 / OIDC
       AUTH__GOOGLE_CLIENT_ID: ${AUTH__GOOGLE_CLIENT_ID}
@@ -748,8 +785,7 @@ services:
       dockerfile: infra/docker/ui/Dockerfile
 
     environment:
-      <<: *config-path-env
-      GATEWAY__URL: ${NETWORK__GATEWAY__SCHEME}://${NETWORK__GATEWAY__INTERNAL_HOST}:${NETWORK__GATEWAY__INTERNAL_PORT}
+      <<: [*network-env, *config-path-env]
 
     volumes: *config-volumes
 
@@ -1320,18 +1356,13 @@ services:
       dockerfile: infra/docker/jupyter/Dockerfile
     command: start-notebook.py --ServerApp.base_url=${PUBLIC__JUPYTER_PATH}
     environment:
-      <<: [*shared-endpoints, *config-path-env]
+      <<: [*network-env, *derived-endpoints, *config-path-env, *s3-client-env]
       CONTAINER__PROJECT_ROOT: /home/jovyan
       PYTHONPATH: /home/jovyan:/home/jovyan/src
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
       # Shared services are reached over the internal Docker network.
       # PostgreSQL — used by diagnostics/analytics notebooks
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_DB}
-      # S3 / Yandex Object Storage — needed for artifact upload/download
-      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
     ports:
       - "127.0.0.1:${NETWORK__JUPYTER__HOST_PORT}:8888"
     volumes:

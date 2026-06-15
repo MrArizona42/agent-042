@@ -40,20 +40,88 @@ class VllmSettings(BaseModel):
     model: str = Field(description="Model served by the local vLLM container")
 
 
+class NetworkServiceSettings(BaseModel):
+    """Network coordinates for one Compose-managed service endpoint."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    internal_host: str = Field(description="Docker-network hostname")
+    internal_port: int = Field(description="Port listened on inside Docker", ge=1, le=65535)
+    host_port: int | None = Field(
+        default=None,
+        description="Port published on host loopback, if the service is published",
+        ge=1,
+        le=65535,
+    )
+    scheme: str | None = Field(
+        default=None,
+        description="URL scheme for HTTP-like services",
+    )
+
+    def internal_address(self) -> str:
+        """Return host:port for Docker-internal clients."""
+
+        return f"{self.internal_host}:{self.internal_port}"
+
+    def internal_url(self) -> str:
+        """Return scheme://host:port for Docker-internal clients."""
+
+        if not self.scheme:
+            raise ValueError("Service does not define a URL scheme")
+        return f"{self.scheme}://{self.internal_address()}"
+
+    def host_url(self, host: str = "localhost") -> str:
+        """Return scheme://host:port for host-side clients."""
+
+        if not self.scheme:
+            raise ValueError("Service does not define a URL scheme")
+        if self.host_port is None:
+            raise ValueError("Service does not define a host-published port")
+        return f"{self.scheme}://{host}:{self.host_port}"
+
+
+class NetworkSettings(BaseModel):
+    """Compose network coordinates used to derive project-owned endpoints."""
+
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
+
+    postgres: NetworkServiceSettings
+    mlflow: NetworkServiceSettings
+    vllm: NetworkServiceSettings
+    qdrant_http: NetworkServiceSettings
+    qdrant_grpc: NetworkServiceSettings
+    rabbitmq_amqp: NetworkServiceSettings
+    redis: NetworkServiceSettings
+    redpanda_kafka: NetworkServiceSettings
+    embeddings: NetworkServiceSettings
+    reranker: NetworkServiceSettings
+    gateway: NetworkServiceSettings
+
+    def service(self, name: str) -> NetworkServiceSettings:
+        """Return a named service by canonical config name."""
+
+        normalized = name.strip().lower().replace("-", "_")
+        try:
+            service = getattr(self, normalized)
+        except AttributeError as exc:
+            raise KeyError(f"Unknown network service: {name}") from exc
+        if not isinstance(service, NetworkServiceSettings):
+            raise KeyError(f"Unknown network service: {name}")
+        return service
+
+    def internal_url(self, name: str) -> str:
+        """Return a Docker-internal URL for a named service."""
+
+        return self.service(name).internal_url()
+
+    def host_url(self, name: str, host: str = "localhost") -> str:
+        """Return a host-side URL for a named service."""
+
+        return self.service(name).host_url(host=host)
+
+
 class PlatformSettings(BaseModel):
-    """Canonical shared endpoint settings used across services.
-
-    Canonical nested environment variable names read by the root settings loader:
-        PLATFORM__VLLM_BASE_URL
-        PLATFORM__EMBEDDINGS_URL
-        PLATFORM__QDRANT_HOST
-        PLATFORM__QDRANT_PORT
-        PLATFORM__MLFLOW_TRACKING_URI
-        PLATFORM__REDIS_URL
-        PLATFORM__CELERY_BROKER_URL
-        PLATFORM__KAFKA_BOOTSTRAP_SERVERS
-
-    """
+    """Legacy endpoint facade derived from canonical network settings."""
 
     model_config = ConfigDict(populate_by_name=True, frozen=True)
     vllm_base_url: str = Field(
@@ -580,6 +648,7 @@ class Settings(BaseSettings):
     )
 
     vllm: VllmSettings
+    network: NetworkSettings
     platform: PlatformSettings = Field(default_factory=PlatformSettings)
     gateway: GatewayConfig
     rag: RagSettings
@@ -606,6 +675,32 @@ class Settings(BaseSettings):
             dotenv_settings,
             file_secret_settings,
         )
+
+    @model_validator(mode="after")
+    def _derive_legacy_endpoint_facades(self) -> "Settings":
+        """Populate legacy settings fields from canonical network coordinates."""
+
+        platform = PlatformSettings(
+            vllm_base_url=self.network.internal_url("vllm"),
+            embeddings_url=self.network.internal_url("embeddings"),
+            qdrant_host=self.network.qdrant_http.internal_host,
+            qdrant_port=self.network.qdrant_http.internal_port,
+            mlflow_tracking_uri=self.network.internal_url("mlflow"),
+            redis_url=f"redis://{self.network.redis.internal_address()}/0",
+            celery_broker_url=self.platform.celery_broker_url,
+            kafka_bootstrap_servers=self.network.redpanda_kafka.internal_address(),
+        )
+        gateway = self.gateway.model_copy(
+            update={"url": self.network.internal_url("gateway")},
+        )
+        rag = self.rag.model_copy(
+            update={"reranker_url": self.network.internal_url("reranker")},
+        )
+
+        object.__setattr__(self, "platform", platform)
+        object.__setattr__(self, "gateway", gateway)
+        object.__setattr__(self, "rag", rag)
+        return self
 
 
 def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:

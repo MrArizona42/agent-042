@@ -316,7 +316,9 @@ class TestKnowledgeBaseRegistryResolution:
 
         settings = load_settings({"rag": {"enabled": False}})
 
-        assert settings.platform.vllm_base_url == "http://platform-vllm:8000"
+        assert settings.platform.vllm_base_url == "http://vllm:8000"
+        assert settings.network.internal_url("vllm") == "http://vllm:8000"
+        assert settings.network.host_url("vllm") == "http://localhost:8000"
         assert settings.rag.enabled is False
         assert settings.vllm.model == "/models/Qwen/Qwen3-0.6B"
         assert settings.gateway.service_name == "agent-042-gateway"
@@ -342,7 +344,7 @@ class TestKnowledgeBaseRegistryResolution:
         )
 
         assert settings.vllm.model == "override-model"
-        assert settings.gateway.url == "http://gateway-from-env:9001"
+        assert settings.gateway.url == "http://gateway:9000"
         assert settings.gateway.budget.model_max_tokens == 32768
         assert settings.gateway.budget.min_response_budget == 1024
 
@@ -428,7 +430,7 @@ class TestKnowledgeBaseRegistryResolution:
 
         settings = load_settings()
 
-        assert settings.platform.vllm_base_url == "http://localhost:8000"
+        assert settings.platform.vllm_base_url == "http://vllm:8000"
 
     def test_catalog_settings_own_catalog_path(self):
         from shared.catalog import resolve_catalog_path

@@ -22,8 +22,8 @@ from airflow.operators.python import PythonOperator
 # Configuration
 # ---------------------------------------------------------------------------
 
-QDRANT_HOST = os.environ["PLATFORM__QDRANT_HOST"]
-QDRANT_PORT = int(os.environ["PLATFORM__QDRANT_PORT"])
+QDRANT_HOST = os.environ["NETWORK__QDRANT_HTTP__INTERNAL_HOST"]
+QDRANT_PORT = int(os.environ["NETWORK__QDRANT_HTTP__INTERNAL_PORT"])
 RETENTION_DAYS = 7
 
 # Legacy collections that don't follow the rag__{kb}__{timestamp} naming convention.
