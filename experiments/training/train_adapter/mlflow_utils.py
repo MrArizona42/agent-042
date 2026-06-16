@@ -16,38 +16,19 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.loggers import MLFlowLogger
 
-from shared.local_env import load_local_env, resolve_local_env_path
-
 from .config import AppConfig
 
 logger = logging.getLogger(__name__)
 
 
 def configure_mlflow_tracking(cfg: AppConfig) -> str:
-    """Load MLflow environment settings and return the active tracking URI."""
-    tracking_cfg = cfg.tracking
-    project_root = Path(cfg.paths.project_root)
-
-    env_path = tracking_cfg.env_path
-    if env_path:
-        env_file = resolve_local_env_path(env_path, repo_root=project_root)
-        loaded_env = load_local_env(
-            env_file,
-            repo_root=project_root,
-        )
-        if loaded_env is None:
-            logger.warning("MLflow env file missing: %s", env_file)
-    else:
-        loaded_env = load_local_env(
-            repo_root=project_root,
-        )
-        if loaded_env is None:
-            logger.info("No local env file loaded; using process environment only")
-
+    """Configure MLflow from the already-provided process environment."""
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
         logger.info("MLflow tracking URI: %s", tracking_uri)
+    else:
+        logger.info("MLflow tracking URI not set; using MLflow default")
 
     return mlflow.get_tracking_uri()
 

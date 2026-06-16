@@ -11,9 +11,42 @@
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-LOG_DIR="/home/anton-m/agent-042/artifacts/infra/compose_logs"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="${COMPOSE_ENV_FILE:-$REPO_ROOT/.env}"
 
-compose_args=(--project-name "agent-042")
+[[ -f "$ENV_FILE" ]] || {
+    echo "Env file not found: $ENV_FILE" >&2
+    exit 1
+}
+
+read_env_value() {
+    local name="$1"
+    awk -F= -v key="$name" '
+        $0 !~ /^[[:space:]]*#/ && $1 == key {
+            value = substr($0, index($0, "=") + 1)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            gsub(/^"|"$/, "", value)
+            print value
+            exit
+        }
+    ' "$ENV_FILE"
+}
+
+compose_project_name="$(read_env_value COMPOSE_PROJECT_NAME)"
+project_root="$(read_env_value PROJECT_ROOT)"
+
+[[ -n "$compose_project_name" ]] || {
+    echo "COMPOSE_PROJECT_NAME is missing in $ENV_FILE" >&2
+    exit 1
+}
+[[ -n "$project_root" ]] || {
+    echo "PROJECT_ROOT is missing in $ENV_FILE" >&2
+    exit 1
+}
+
+LOG_DIR="$project_root/artifacts/infra/compose_logs"
+compose_args=(--env-file "$ENV_FILE" --project-name "$compose_project_name")
 
 mkdir -p "$LOG_DIR"
 

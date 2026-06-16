@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from gateway.services.rag_service import RAGService
 from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
-from shared.config import Settings
+from shared.config import Settings, load_settings
 
 
 def _alias_config() -> dict[str, object]:
@@ -34,15 +34,14 @@ def _settings(
         "embeddings_timeout": 10.0,
         "vllm_timeout": 30.0,
         "api_key": None,
-        "default_model": "base-model",
     }
     rag_values = {
-        "rag_enabled": True,
+        "enabled": True,
         "embedding_model": "test-embedding",
         "embedding_device": "cpu",
         "build": {"embedding_batch_size": 32, "qdrant_upsert_batch_size": 128},
         "kb_selection_threshold": 0.3,
-        "rag_strict_startup": False,
+        "strict_startup": False,
         "sparse_encoder_model": "Qdrant/bm25",
     }
     if platform is not None:
@@ -51,10 +50,13 @@ def _settings(
         gateway_values.update(behavior)
     if rag is not None:
         rag_values.update(rag)
-    return Settings(
-        platform=platform_values,
-        gateway=gateway_values,
-        rag=rag_values,
+    return load_settings(
+        overrides={
+            "vllm": {"model": "base-model"},
+            "platform": platform_values,
+            "gateway": gateway_values,
+            "rag": rag_values,
+        }
     )
 
 
@@ -106,7 +108,7 @@ def test_validate_knowledge_bases_warns_for_missing_enabled_adapter(caplog) -> N
                     service.validate_knowledge_bases()
 
             assert "lora-summarize-champion" in caplog.text
-            assert "fall back to default_model" in caplog.text
+            assert "fall back to the configured vLLM model" in caplog.text
 
 
 def test_validate_knowledge_bases_accepts_present_enabled_adapter() -> None:

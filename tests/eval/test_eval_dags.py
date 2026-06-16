@@ -82,7 +82,7 @@ def test_eval_dags_kb_options_use_shared_registry(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.eval_dags", None)
@@ -93,11 +93,11 @@ def test_eval_dags_kb_options_use_shared_registry(
     assert eval_dags._kb_options == ["ml_papers_core", "pytorch_reference"]
 
 
-def test_eval_dags_alias_options_prefer_adapter_registry_env(
+def test_eval_dags_alias_options_use_runtime_adapter_registry(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     monkeypatch.setenv("ADAPTER_REGISTRY__SYNC_ALIASES", "champion,shadow")
     _install_airflow_stubs(monkeypatch)
 
@@ -105,8 +105,8 @@ def test_eval_dags_alias_options_prefer_adapter_registry_env(
     eval_dags = importlib.import_module("dags.eval_dags")
     eval_dags = importlib.reload(eval_dags)
 
-    assert eval_dags._sync_aliases == ["champion", "shadow"]
-    assert eval_dags._lora_alias_options == ["none", "champion", "shadow"]
+    assert eval_dags._sync_aliases == ["champion", "challenger"]
+    assert eval_dags._lora_alias_options == ["none", "champion", "challenger"]
     assert eval_dags._kb_alias_options == ["none", "challenger", "champion"]
 
 
@@ -114,7 +114,7 @@ def test_eval_dags_resolve_params_supports_auto_kb_mode(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.eval_dags", None)
@@ -142,7 +142,7 @@ def test_eval_dags_resolve_params_requires_kb_for_explicit_mode(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.eval_dags", None)
@@ -168,7 +168,7 @@ def test_generation_dag_params_expose_kb_mode_controls(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.eval_dags", None)
@@ -197,7 +197,7 @@ def test_fetch_predictions_task_forwards_use_auto_rag(
     monkeypatch: pytest.MonkeyPatch,
     loaded_kb_catalog,
 ):
-    monkeypatch.setenv("PROJECT_ROOT", str(PROJECT_ROOT))
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", str(PROJECT_ROOT))
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.eval_dags", None)

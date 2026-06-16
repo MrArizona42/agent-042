@@ -7,7 +7,6 @@ admin endpoint, error handling for missing KB/aliases, and reload-config.
 
 from __future__ import annotations
 
-import os
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -22,7 +21,7 @@ from shared.catalog import (
     get_kb_config,
     load_catalog,
 )
-from shared.config import Settings
+from shared.config import Settings, load_settings
 from tests.catalog_samples import (
     write_chat_and_code_catalog,
 )
@@ -30,9 +29,6 @@ from tests.catalog_samples import (
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
 # ---------------------------------------------------------------------------
-
-# Ensure settings don't bleed between tests
-os.environ.setdefault("RAG__RAG_ENABLED", "false")
 
 _KB_CATALOG_OVERRIDE_STACK: ExitStack | None = None
 
@@ -82,17 +78,16 @@ def _make_gateway_settings(
     }
     gateway_values: dict[str, object] = {
         "service_name": "gateway-test",
-        "default_model": "test-model",
         "async_enabled": True,
         "cors_allow_origins": [],
         "embeddings_timeout": 30.0,
     }
     rag_values: dict[str, object] = {
-        "rag_enabled": True,
+        "enabled": True,
         "embedding_model": "test-model",
         "embedding_device": "cpu",
         "build": {"embedding_batch_size": 32, "qdrant_upsert_batch_size": 128},
-        "rag_strict_startup": False,
+        "strict_startup": False,
         "sparse_encoder_model": "Qdrant/bm25",
     }
     auth_values: dict[str, object] = {
@@ -109,11 +104,14 @@ def _make_gateway_settings(
     if auth is not None:
         auth_values.update(auth)
 
-    return Settings(
-        platform=platform_values,
-        gateway=gateway_values,
-        rag=rag_values,
-        auth=auth_values,
+    return load_settings(
+        overrides={
+            "vllm": {"model": "test-model"},
+            "platform": platform_values,
+            "gateway": gateway_values,
+            "rag": rag_values,
+            "auth": auth_values,
+        }
     )
 
 
@@ -140,11 +138,9 @@ class TestKnowledgeBaseConfig:
         assert "challenger" in ml_papers_cfg.aliases
         assert pytorch_cfg.label == "PyTorch reference"
 
-    def test_load_missing_file_returns_empty(self, tmp_path: Path):
-        catalog, index = load_catalog(tmp_path / "nonexistent.toml")
-        assert catalog == {}
-        assert index == {}
-        assert index == {}
+    def test_load_missing_file_raises(self, tmp_path: Path):
+        with pytest.raises(FileNotFoundError, match="Catalog config file not found"):
+            load_catalog(tmp_path / "nonexistent.toml")
 
     def test_kb_index_lookup(self, catalog_file: Path):
         """get_kb_config returns correct entries from the flat index."""
@@ -295,8 +291,10 @@ class TestKnowledgeBasesEndpoint:
         assert ml_papers_entry["update_strategy"] == "replace"
         assert "champion" in ml_papers_entry["aliases"]
 
-    def test_list_knowledge_bases_empty(self, tmp_path: Path):
-        _override_loaded_kb_catalog(tmp_path / "nonexistent.toml")
+    def test_list_knowledge_bases_empty(self):
+        if _KB_CATALOG_OVERRIDE_STACK is None:
+            raise RuntimeError("KB catalog override stack is not initialized")
+        _KB_CATALOG_OVERRIDE_STACK.enter_context(catalog_override({}, index={}))
 
         app = _make_test_app()
         client = TestClient(app)
@@ -561,13 +559,13 @@ class TestReloadConfigEndpoint:
 
 
 class TestGatewayStartupValidation:
-    """Gateway lifespan honors rag_strict_startup for RAG validation failures."""
+    """Gateway lifespan honors strict_startup for RAG validation failures."""
 
     def test_strict_startup_raises(self):
         import gateway.main as gateway_main
 
         mock_settings = _make_gateway_settings(
-            rag={"embedding_model": "test-embedding", "rag_strict_startup": True}
+            rag={"embedding_model": "test-embedding", "strict_startup": True}
         )
 
         with (
@@ -591,7 +589,7 @@ class TestGatewayStartupValidation:
         mock_settings = _make_gateway_settings(
             behavior={"async_enabled": False},
             platform={"celery_broker_url": None},
-            rag={"rag_enabled": False},
+            rag={"enabled": False},
         )
 
         with (

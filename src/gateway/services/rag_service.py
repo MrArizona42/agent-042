@@ -51,7 +51,7 @@ class RAGService:
         self.gateway_settings = settings.gateway
         self.rag_settings = settings.rag
 
-        self.enabled = self.rag_settings.rag_enabled
+        self.enabled = self.rag_settings.enabled
 
         # Always initialise caches so invalidate_caches() is safe even when RAG is disabled.
         self._kb_embeddings: dict[str, list[float]] = {}
@@ -180,7 +180,7 @@ class RAGService:
 
             logger.warning(
                 "Enabled adapter not found in vLLM at validation time: task=%s adapter=%s; "
-                "gateway will fall back to default_model until it is loaded",
+                "gateway will fall back to the configured vLLM model until it is loaded",
                 task_cfg.task,
                 model_name,
             )
@@ -270,7 +270,7 @@ class RAGService:
         if not self.enabled:
             return
 
-        self.runtime.validate_aliases(strict=self.rag_settings.rag_strict_startup)
+        self.runtime.validate_aliases(strict=self.rag_settings.strict_startup)
         self._validate_task_adapters()
 
     def retrieve_documents(

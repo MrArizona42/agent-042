@@ -14,7 +14,7 @@ from airflow import DAG
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
 
-PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PROJECT_ROOT = Path(os.environ["CONTAINER__PROJECT_ROOT"])
 
 
 def _bootstrap_project_imports() -> None:
@@ -26,6 +26,12 @@ def _bootstrap_project_imports() -> None:
 
 
 _bootstrap_project_imports()
+
+
+def _configured_catalog_path() -> str:
+    from shared.config import get_settings
+
+    return str(get_settings().catalog.path)
 
 
 default_args = {
@@ -187,7 +193,7 @@ def _dvc_artifact_rel_paths(params: dict[str, Any]) -> list[str]:
             rel_path = absolute_path.relative_to(PROJECT_ROOT)
         except ValueError as exc:
             raise ValueError(
-                f"DVC artifact path must be under PROJECT_ROOT: {absolute_path}"
+                f"DVC artifact path must be under CONTAINER__PROJECT_ROOT: {absolute_path}"
             ) from exc
         rel_paths.append(rel_path.as_posix())
     return rel_paths
@@ -245,7 +251,7 @@ with DAG(
     catchup=False,
     tags=["rag", "lifecycle"],
     params={
-        "catalog": Param("src/shared/catalog.toml", type="string"),
+        "catalog": Param(_configured_catalog_path(), type="string"),
         "kb": Param("pytorch_reference", type="string"),
         "source": Param("docs", type="string"),
         "alias_config": Param("challenger", type="string"),

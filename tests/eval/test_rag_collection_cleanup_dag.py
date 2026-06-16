@@ -36,14 +36,14 @@ def _install_airflow_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "airflow.operators.python", python_module)
 
 
-def test_cleanup_dag_prefers_nested_platform_qdrant_env(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("PLATFORM__QDRANT_HOST", "nested-qdrant")
-    monkeypatch.setenv("PLATFORM__QDRANT_PORT", "7000")
+def test_cleanup_dag_reads_network_qdrant_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("NETWORK__QDRANT_HTTP__INTERNAL_HOST", "qdrant")
+    monkeypatch.setenv("NETWORK__QDRANT_HTTP__INTERNAL_PORT", "7000")
     _install_airflow_stubs(monkeypatch)
 
     sys.modules.pop("dags.rag_collection_cleanup", None)
     cleanup_dag = importlib.import_module("dags.rag_collection_cleanup")
     cleanup_dag = importlib.reload(cleanup_dag)
 
-    assert cleanup_dag.QDRANT_HOST == "nested-qdrant"
+    assert cleanup_dag.QDRANT_HOST == "qdrant"
     assert cleanup_dag.QDRANT_PORT == 7000

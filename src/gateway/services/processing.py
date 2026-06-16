@@ -106,7 +106,7 @@ class _ProcessChat:
             settings = get_settings()
         rag_settings = settings.rag
 
-        if not rag_settings.rag_enabled:
+        if not rag_settings.enabled:
             self._rag_service = None
             return None
 
@@ -266,7 +266,7 @@ class _ProcessChat:
         task_cfg = get_catalog().get(task)
         if task_cfg is not None and task_cfg.adapter.enabled:
             return f"{task_cfg.adapter.name}-{task_cfg.adapter.alias}"
-        return settings.gateway.default_model
+        return settings.vllm.model
 
     def _retrieve_rag_chunks(
         self,
@@ -349,7 +349,7 @@ class _ProcessChat:
         if (
             rag_request.mode == "auto"
             and rag_request.task_has_knowledge_bases
-            and rag_settings.rag_enabled
+            and rag_settings.enabled
         ):
             rag_requested = True
             rag_sources = self._auto_select_rag_sources(query=last_user, task=decision.task)

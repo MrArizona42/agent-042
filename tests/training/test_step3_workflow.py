@@ -6,16 +6,16 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-import torch
-from hydra import compose, initialize_config_dir
-from hydra.core.global_hydra import GlobalHydra
-from hydra.utils import instantiate
 
+pytest.importorskip("hydra")
 pytest.importorskip("mlflow")
 pytest.importorskip("pytorch_lightning")
 pytest.importorskip("datasets")
 
 from datasets import Dataset, DatasetDict
+from hydra import compose, initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
+from hydra.utils import instantiate
 
 from experiments.training.train_adapter.config import (
     DataConfig,
@@ -35,6 +35,8 @@ from experiments.training.train_adapter.pipeline import (
     _restore_best_checkpoint_for_export,
     _write_training_summary,
 )
+
+torch = pytest.importorskip("torch")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -89,7 +91,7 @@ def test_compose_training_cfg_uses_structured_defaults_and_selected_presets():
     assert raw_cfg.training.seed == 42
     assert raw_cfg.training.lr == 1e-5
     assert raw_cfg.training.weight_decay == 0.01
-    assert raw_cfg.tracking.env_path == ".env"
+    assert "env_path" not in raw_cfg.tracking
     assert raw_cfg.trainer.precision == "16-mixed"
     assert raw_cfg.callbacks.checkpoint.monitor == "val_loss"
     assert raw_cfg.callbacks.checkpoint.save_top_k == 3

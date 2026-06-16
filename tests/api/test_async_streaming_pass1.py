@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
-
-os.environ.setdefault("PLATFORM__CELERY_BROKER_URL", "amqp://guest:guest@localhost//")
 
 from gateway.schemas.openai_chat import ChatCompletionRequest
 from gateway.services.processing import PreparedChatRequest, _ProcessChat
