@@ -12,8 +12,8 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 from qdrant_client.models import SparseVector
 
-from rag.domain import IndexManifest, RetrievalCapability
-from rag.domain.manifests import (
+from rag.contracts import IndexManifest, RetrievalCapability
+from rag.contracts.manifests import (
     attestation_from_payload,
     attestation_payload,
     manifest_path,

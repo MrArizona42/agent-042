@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Callable
 
-from rag.domain import CollectionAttestation, RetrievalHit, attestation_from_payload
+from rag.contracts import CollectionAttestation, RetrievalHit, attestation_from_payload
 from rag.embeddings import EmbeddingService
 from rag.reranker import Reranker, get_reranker
 from rag.retriever import Retriever

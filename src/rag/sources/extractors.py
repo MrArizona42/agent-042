@@ -8,7 +8,7 @@ from typing import Protocol
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
 
-from rag.domain import DocumentSection, ExtractedDocument
+from rag.contracts import DocumentSection, ExtractedDocument
 from rag.sources.fetchers import SourceFetchResult
 
 

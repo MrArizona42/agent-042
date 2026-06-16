@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from rag.domain import SourceDocument
+from rag.contracts import SourceDocument
 
 
 class SourceCachePaths(BaseModel):

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.domain import Chunk
+from rag.contracts import Chunk
 from rag.sources.cache import safe_document_id, sha256_bytes
 from rag.sources.chunks import ChunkArtifact, read_chunk_artifact
 

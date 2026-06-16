@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.domain import ExtractedDocument, SourceDocument
+from rag.contracts import ExtractedDocument, SourceDocument
 from rag.sources.cache import safe_document_id, write_json_immutable
 from rag.sources.fetchers import SourceFetchResult
 

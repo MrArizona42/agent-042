@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from rag.domain import SourceDocument
+from rag.contracts import SourceDocument
 
 SourceType = Literal["arxiv_paper", "html_docs"]
 

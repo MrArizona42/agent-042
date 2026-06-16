@@ -1,7 +1,45 @@
-"""Stable RAG data contracts.
+"""Stable RAG data contracts and artifact helpers."""
 
-This package is the planned home for source, extraction, chunk, index,
-retrieval, and evaluation contract models. Existing models remain in their
-current modules until the contracts phase migrates them.
-"""
+from rag.contracts.manifests import (
+    attestation_from_payload,
+    attestation_payload,
+    canonical_manifest_payload,
+    compare_manifest_attestation,
+    compute_manifest_id,
+    manifest_path,
+    read_index_manifest,
+    with_manifest_id,
+    write_index_manifest,
+)
+from rag.contracts.models import (
+    Chunk,
+    CollectionAttestation,
+    DocumentSection,
+    ExtractedDocument,
+    IndexManifest,
+    ManifestComparison,
+    RetrievalCapability,
+    RetrievalHit,
+    SourceDocument,
+)
 
+__all__ = [
+    "Chunk",
+    "CollectionAttestation",
+    "DocumentSection",
+    "ExtractedDocument",
+    "IndexManifest",
+    "ManifestComparison",
+    "RetrievalCapability",
+    "RetrievalHit",
+    "SourceDocument",
+    "attestation_from_payload",
+    "attestation_payload",
+    "canonical_manifest_payload",
+    "compare_manifest_attestation",
+    "compute_manifest_id",
+    "manifest_path",
+    "read_index_manifest",
+    "with_manifest_id",
+    "write_index_manifest",
+]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from rag.domain import SourceDocument
+from rag.contracts import SourceDocument
 from rag.sources.models import SourceManifest, SourceType
 
 

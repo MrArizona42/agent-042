@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.domain import RetrievalHit
+from rag.contracts import RetrievalHit
 
 
 class RagRuntimeSource(BaseModel):

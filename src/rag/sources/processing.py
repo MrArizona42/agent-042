@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.domain import SourceDocument
+from rag.contracts import SourceDocument
 from rag.sources.artifacts import (
     extracted_artifact_from_result,
     extracted_artifact_path,

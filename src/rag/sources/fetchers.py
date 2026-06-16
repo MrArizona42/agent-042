@@ -8,7 +8,7 @@ from typing import Protocol
 import httpx
 from pydantic import BaseModel, ConfigDict
 
-from rag.domain import SourceDocument
+from rag.contracts import SourceDocument
 from rag.sources.cache import (
     SourceCachePaths,
     sha256_bytes,

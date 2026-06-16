@@ -9,7 +9,7 @@ from typing import Any
 from llama_index.core.node_parser import SentenceSplitter
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from rag.domain import Chunk, DocumentSection
+from rag.contracts import Chunk, DocumentSection
 from rag.sources.artifacts import ExtractedDocumentArtifact, read_extracted_artifact
 from rag.sources.cache import safe_document_id, sha256_bytes, write_json_immutable
 
