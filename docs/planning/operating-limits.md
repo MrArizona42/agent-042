@@ -62,4 +62,3 @@ on the selected model, RAG pipeline, reranker, and token budgets.
 | RAG baseline | TBD | TBD | TBD | TBD | TBD |
 | RAG + reranker | TBD | TBD | TBD | TBD | TBD |
 | cold adapter | TBD | TBD | TBD | TBD | TBD |
-

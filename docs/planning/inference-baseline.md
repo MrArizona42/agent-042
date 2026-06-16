@@ -69,4 +69,3 @@ fixed dependency.
 The selected profile becomes `inference_baseline_v1`. RAG and LoRA experiments
 should use it as a fixed dependency unless an experiment explicitly studies
 inference parameters.
-

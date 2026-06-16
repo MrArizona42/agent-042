@@ -62,4 +62,3 @@ Each experiment should include:
 - promotion or rollback rule;
 - result table;
 - follow-up work.
-

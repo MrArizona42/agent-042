@@ -87,4 +87,3 @@ An adapter can be promoted only if it:
 - does not exceed serving latency or VRAM limits;
 - has a rollback alias;
 - has MLflow metadata sufficient to reproduce the run.
-
