@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from gateway.services.rag_service import RAGService
-from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
+from app_config.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
 from shared.config import Settings, load_settings
 
 

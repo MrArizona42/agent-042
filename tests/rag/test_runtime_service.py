@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from rag.contracts import CollectionAttestation, RetrievalCapability, attestation_payload
 from rag.runtime import RagRuntime, RagRuntimeSource
 from rag.vector_store import Document
-from shared.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
+from app_config.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
 from shared.config import load_settings
 
 

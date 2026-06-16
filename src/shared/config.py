@@ -24,7 +24,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, PydanticBaseSettingsSource, SettingsConfigDict
 
-from shared import catalog
+from app_config import catalog
 
 logger = logging.getLogger(__name__)
 

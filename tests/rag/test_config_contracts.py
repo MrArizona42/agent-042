@@ -37,7 +37,7 @@ class TestAliasConfigValidation:
     def test_missing_top_k_raises(self):
         from pydantic import ValidationError
 
-        from shared.catalog import AliasConfig
+        from app_config.catalog import AliasConfig
 
         with pytest.raises(ValidationError, match="top_k"):
             AliasConfig(
@@ -48,13 +48,13 @@ class TestAliasConfigValidation:
     def test_missing_score_threshold_raises(self):
         from pydantic import ValidationError
 
-        from shared.catalog import AliasConfig
+        from app_config.catalog import AliasConfig
 
         with pytest.raises(ValidationError, match="score_threshold"):
             AliasConfig(top_k=5, reranker=None)
 
     def test_missing_reranker_defaults_to_off(self):
-        from shared.catalog import AliasConfig
+        from app_config.catalog import AliasConfig
 
         cfg = AliasConfig(
             top_k=5,
@@ -66,7 +66,7 @@ class TestAliasConfigValidation:
         assert cfg.reranker is None
 
     def test_complete_alias_config_ok(self):
-        from shared.catalog import AliasConfig
+        from app_config.catalog import AliasConfig
 
         cfg = AliasConfig(
             top_k=5,
@@ -79,7 +79,7 @@ class TestAliasConfigValidation:
         assert cfg.reranker is None
 
     def test_sparse_alias_config_ok(self):
-        from shared.catalog import AliasConfig
+        from app_config.catalog import AliasConfig
 
         cfg = AliasConfig(
             top_k=5,
@@ -94,7 +94,7 @@ class TestAliasConfigValidation:
 
 class TestAdapterConfigValidation:
     def test_disabled_adapter_allows_empty_strings(self):
-        from shared.catalog import AdapterConfig
+        from app_config.catalog import AdapterConfig
 
         cfg = AdapterConfig(name="", alias="", enabled=False)
 
@@ -105,7 +105,7 @@ class TestAdapterConfigValidation:
     def test_enabled_adapter_requires_name(self):
         from pydantic import ValidationError
 
-        from shared.catalog import AdapterConfig
+        from app_config.catalog import AdapterConfig
 
         with pytest.raises(ValidationError, match="enabled adapter"):
             AdapterConfig(name="", alias="champion", enabled=True)
@@ -113,7 +113,7 @@ class TestAdapterConfigValidation:
     def test_enabled_adapter_requires_alias(self):
         from pydantic import ValidationError
 
-        from shared.catalog import AdapterConfig
+        from app_config.catalog import AdapterConfig
 
         with pytest.raises(ValidationError, match="enabled adapter"):
             AdapterConfig(name="lora-chat", alias="", enabled=True)
@@ -128,7 +128,7 @@ class TestKBConfigDefaultAlias:
     def test_default_alias_must_be_declared(self):
         from pydantic import ValidationError
 
-        from shared.catalog import KBConfig
+        from app_config.catalog import KBConfig
 
         with pytest.raises(ValidationError, match="default_alias"):
             KBConfig(
@@ -148,7 +148,7 @@ class TestKBConfigDefaultAlias:
             )
 
     def test_valid_default_alias_ok(self):
-        from shared.catalog import KBConfig
+        from app_config.catalog import KBConfig
 
         cfg = KBConfig(
             name="test_kb",
@@ -170,7 +170,7 @@ class TestKBConfigDefaultAlias:
     def test_selection_description_is_required(self):
         from pydantic import ValidationError
 
-        from shared.catalog import KBConfig
+        from app_config.catalog import KBConfig
 
         with pytest.raises(ValidationError, match="selection_description"):
             KBConfig(
@@ -191,7 +191,7 @@ class TestKBConfigDefaultAlias:
 
 class TestTaskConfigValidation:
     def test_task_config_allows_empty_knowledge_bases(self):
-        from shared.catalog import TaskConfig
+        from app_config.catalog import TaskConfig
 
         cfg = TaskConfig(
             task="summarize",
@@ -207,7 +207,7 @@ class TestTaskConfigValidation:
     def test_task_config_requires_routing_description(self):
         from pydantic import ValidationError
 
-        from shared.catalog import TaskConfig
+        from app_config.catalog import TaskConfig
 
         with pytest.raises(ValidationError, match="routing_description"):
             TaskConfig(
@@ -224,7 +224,7 @@ class TestTaskConfigValidation:
 
 class TestRegistryReferenceValidation:
     def test_unknown_kb_ref_is_rejected(self, tmp_path: Path):
-        from shared.catalog import load_catalog
+        from app_config.catalog import load_catalog
 
         path = tmp_path / "invalid.toml"
         path.write_text(
@@ -247,7 +247,7 @@ class TestRegistryReferenceValidation:
             load_catalog(path)
 
     def test_source_instance_unknown_kb_is_rejected(self, tmp_path: Path):
-        from shared.catalog import load_catalog
+        from app_config.catalog import load_catalog
 
         path = tmp_path / "invalid.toml"
         path.write_text(
@@ -269,7 +269,7 @@ class TestRegistryReferenceValidation:
             load_catalog(path)
 
     def test_source_instance_id_is_unique_within_kb(self, tmp_path: Path):
-        from shared.catalog import load_catalog
+        from app_config.catalog import load_catalog
 
         path = tmp_path / "invalid.toml"
         path.write_text(
@@ -439,7 +439,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.platform.vllm_base_url == "http://vllm:8000"
 
     def test_catalog_settings_own_catalog_path(self):
-        from shared.catalog import resolve_catalog_path
+        from app_config.catalog import resolve_catalog_path
         from shared.config import CatalogConfig
 
         settings = CatalogConfig(path="configs/catalog.toml")
@@ -449,7 +449,7 @@ class TestKnowledgeBaseRegistryResolution:
 
     def test_get_catalog_prefers_catalog_settings_path(self, tmp_path: Path, monkeypatch):
         import shared.config as cfg
-        from shared.catalog import get_catalog, get_kb_names
+        from app_config.catalog import get_catalog, get_kb_names
 
         path = write_code_only_catalog(tmp_path / "catalog.toml")
 
@@ -465,7 +465,7 @@ class TestKnowledgeBaseRegistryResolution:
         self, tmp_path: Path, monkeypatch
     ):
         import shared.config as cfg
-        from shared.catalog import get_kb_names
+        from app_config.catalog import get_kb_names
 
         first = write_chat_only_catalog(tmp_path / "catalog-first.toml")
         second = write_code_only_catalog(tmp_path / "catalog-second.toml")
@@ -490,7 +490,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.catalog.path != path
 
     def test_in_memory_catalog_override_bypasses_disk_loading(self):
-        from shared.catalog import (
+        from app_config.catalog import (
             AdapterConfig,
             KBConfig,
             TaskConfig,
@@ -529,7 +529,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert get_kb_names() != ["ml_papers_core"]
 
     def test_get_catalog_reloads_when_settings_path_changes(self, tmp_path: Path):
-        from shared.catalog import get_catalog, get_kb_names
+        from app_config.catalog import get_catalog, get_kb_names
         from shared.config import CatalogConfig
 
         first = write_chat_only_catalog(tmp_path / "kb-first.toml")
@@ -544,7 +544,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert get_kb_names(settings=CatalogConfig(path=str(second))) == ["pytorch_reference"]
 
     def test_load_catalog_from_canonical_toml(self, tmp_path: Path):
-        from shared.catalog import load_catalog
+        from app_config.catalog import load_catalog
 
         path = tmp_path / "catalog.toml"
         path.write_text(
@@ -613,7 +613,7 @@ class TestKnowledgeBaseRegistryResolution:
 class TestValidateKbAlias:
     @pytest.fixture()
     def _loaded_registry(self, tmp_path: Path):
-        from shared.catalog import catalog_override, load_catalog
+        from app_config.catalog import catalog_override, load_catalog
 
         path = write_chat_only_catalog(tmp_path / "kb.toml")
         catalog, index = load_catalog(path)
@@ -621,24 +621,24 @@ class TestValidateKbAlias:
             yield
 
     def test_unknown_kb_raises_valueerror(self, _loaded_registry):
-        from shared.catalog import validate_kb_alias
+        from app_config.catalog import validate_kb_alias
 
         with pytest.raises(ValueError, match="not found"):
             validate_kb_alias("nonexistent", "champion")
 
     def test_unknown_alias_raises_valueerror(self, _loaded_registry):
-        from shared.catalog import validate_kb_alias
+        from app_config.catalog import validate_kb_alias
 
         with pytest.raises(ValueError, match="not valid"):
             validate_kb_alias("ml_papers_core", "nonexistent")
 
     def test_valid_kb_and_alias_passes(self, _loaded_registry):
-        from shared.catalog import validate_kb_alias
+        from app_config.catalog import validate_kb_alias
 
         validate_kb_alias("ml_papers_core", "champion")  # no exception
 
     def test_kb_only_validation(self, _loaded_registry):
-        from shared.catalog import validate_kb_alias
+        from app_config.catalog import validate_kb_alias
 
         validate_kb_alias("ml_papers_core")  # alias=None is fine
 

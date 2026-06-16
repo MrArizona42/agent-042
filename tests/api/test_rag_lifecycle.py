@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from shared.catalog import (
+from app_config.catalog import (
     catalog_override,
     get_catalog,
     get_kb_config,

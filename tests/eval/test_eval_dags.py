@@ -71,7 +71,7 @@ def _install_airflow_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def loaded_kb_catalog(catalog_file: Path):
-    from shared.catalog import catalog_override, load_catalog
+    from app_config.catalog import catalog_override, load_catalog
 
     catalog, index = load_catalog(catalog_file)
     with catalog_override(catalog, index=index):
