@@ -89,6 +89,15 @@ Use `rag_lifecycle` for the same lifecycle:
   default is `extracted,chunks,manifests,metadata` when those paths exist.
 - `dvc_base_branch`, `dvc_bot_branch`: Git branch controls for the temp-clone
   DVC sync PR.
+- `build_run_id`: optional stable audit id. When omitted, Airflow derives one
+  from the DAG run id and passes it through build, materialize, and promotion.
+
+Each persisted build run is written under
+`<rag_data_root>/<kb>/metadata/build_runs/<build_run_id>.json`. The record
+captures the catalog digest, selected source manifest digests, source adapter
+versions, build profile digest, per-stage results, final collection name, and
+promotion status. Use it as the first restore/debug handle before touching DVC
+or Qdrant aliases.
 
 DVC policy:
 

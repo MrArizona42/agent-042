@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
@@ -51,6 +52,53 @@ def test_create_build_run_records_request_and_catalog_digest(tmp_path: Path) -> 
     assert build_run.catalog_digest.startswith("sha256:")
     assert build_run.build_profile_digest is not None
     assert build_run.started_at == datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+
+
+def test_create_build_run_records_source_manifest_and_adapter_attestation(
+    tmp_path: Path,
+) -> None:
+    docs_manifest = tmp_path / "docs.sources.toml"
+    tutorials_manifest = tmp_path / "tutorials.sources.toml"
+    docs_manifest.write_text('[[documents]]\nid = "docs:intro"\n', encoding="utf-8")
+    tutorials_manifest.write_text('[[documents]]\nid = "tutorials:intro"\n', encoding="utf-8")
+    catalog_path = tmp_path / "catalog.toml"
+    catalog_path.write_text(
+        dedent(
+            """
+            schema_version = 2
+
+            [[sources]]
+            type = "html_docs"
+            kb = "pytorch_reference"
+            id = "docs"
+            manifest = "docs.sources.toml"
+            ingest_adapter = { id = "generic.http_html", version = "1" }
+
+            [[sources]]
+            type = "html_docs"
+            kb = "pytorch_reference"
+            id = "tutorials"
+            manifest = "tutorials.sources.toml"
+            ingest_adapter = { id = "generic.http_html", version = "2" }
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    build_run = create_build_run(
+        BuildRequest(
+            catalog_path=catalog_path.as_posix(),
+            kb_id="pytorch_reference",
+            source_ids=["docs"],
+            rag_data_root=(tmp_path / "rag_data").as_posix(),
+        ),
+        run_id="manual-run",
+    )
+
+    assert set(build_run.manifest_digests) == {"docs"}
+    assert build_run.manifest_digests["docs"].startswith("sha256:")
+    assert build_run.adapter_versions == {"docs": "generic.http_html@1"}
 
 
 def test_run_source_build_stage_persists_successful_build_run(tmp_path: Path) -> None:

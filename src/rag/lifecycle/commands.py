@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from app_config.catalog import CatalogConfig
 from rag.lifecycle.models import BuildRequest, BuildRun, LifecycleStageResult
 
 
@@ -40,6 +42,48 @@ def _run_id(*, kb_id: str, created_at: datetime) -> str:
     return f"rag_build_{kb_id}_{created_at.strftime('%Y%m%d_%H%M%S')}"
 
 
+def _manifest_path(*, catalog_path: Path, manifest_ref: str) -> Path:
+    path = Path(manifest_ref)
+    if path.is_absolute():
+        return path
+    catalog_relative = catalog_path.parent / path
+    return catalog_relative if catalog_relative.exists() else path
+
+
+def _source_attestation(request: BuildRequest) -> tuple[dict[str, str], dict[str, str]]:
+    catalog_path = Path(request.catalog_path)
+    if not catalog_path.exists() or not catalog_path.is_file():
+        return {}, {}
+
+    try:
+        catalog = CatalogConfig(**tomllib.loads(catalog_path.read_text(encoding="utf-8")))
+    except (OSError, tomllib.TOMLDecodeError, ValueError):
+        return {}, {}
+
+    selected = set(request.source_ids) if request.source_ids is not None else None
+    manifest_digests: dict[str, str] = {}
+    adapter_versions: dict[str, str] = {}
+
+    for source in catalog.sources:
+        if source.kb != request.kb_id:
+            continue
+        if selected is not None and source.id not in selected:
+            continue
+
+        digest = _sha256_file(
+            _manifest_path(catalog_path=catalog_path, manifest_ref=source.manifest)
+        )
+        if digest is not None:
+            manifest_digests[source.id] = digest
+
+        if source.ingest_adapter is not None:
+            adapter_versions[source.id] = (
+                f"{source.ingest_adapter.id}@{source.ingest_adapter.version}"
+            )
+
+    return manifest_digests, adapter_versions
+
+
 def create_build_run(
     request: BuildRequest,
     *,
@@ -48,6 +92,7 @@ def create_build_run(
 ) -> BuildRun:
     """Create a planned BuildRun for a request."""
     created_at = created_at or datetime.now(tz=UTC)
+    manifest_digests, adapter_versions = _source_attestation(request)
     profile_payload = request.model_dump(
         mode="json",
         exclude={"catalog_path", "rag_data_root"},
@@ -63,6 +108,8 @@ def create_build_run(
         alias_config=request.alias_config,
         collection_name=request.collection_name,
         catalog_digest=_sha256_file(Path(request.catalog_path)),
+        manifest_digests=manifest_digests,
+        adapter_versions=adapter_versions,
         build_profile_digest=_digest_payload(profile_payload),
         started_at=created_at,
     )
