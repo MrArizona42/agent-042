@@ -13,9 +13,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from rag.domain import RetrievalCapability
-from rag.domain.manifests import attestation_from_payload
-from rag.sources.materialize import qdrant_alias_name
+from rag.contracts import RetrievalCapability
+from rag.contracts.manifests import attestation_from_payload
+from rag.indexing.materialize import qdrant_alias_name
 
 logger = logging.getLogger(__name__)
 

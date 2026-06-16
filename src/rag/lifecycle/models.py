@@ -78,6 +78,7 @@ class BuildRun(BaseModel):
     manifest_digests: dict[str, str] = Field(default_factory=dict)
     adapter_versions: dict[str, str] = Field(default_factory=dict)
     build_profile_digest: str | None = None
+    report_ref: str | None = None
     started_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
     finished_at: datetime | None = None
     stage_results: dict[str, Any] = Field(default_factory=dict)

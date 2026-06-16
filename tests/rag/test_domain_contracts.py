@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from rag.domain import (
+from rag.contracts import (
     Chunk,
     DocumentSection,
     ExtractedDocument,
@@ -18,7 +18,7 @@ from rag.domain import (
     with_manifest_id,
     write_index_manifest,
 )
-from rag.domain.llamaindex import (
+from rag.contracts.llamaindex import (
     chunk_to_text_node,
     extracted_document_to_llama_document,
 )

@@ -650,7 +650,7 @@ class TestValidateKbAlias:
 
 class TestQueryBuildCompatibility:
     def test_dense_query_accepts_dense_collection(self):
-        from rag.sources.materialize import validate_strategy_supported
+        from rag.indexing.materialize import validate_strategy_supported
 
         validate_strategy_supported(
             retrieval_strategy="dense",
@@ -658,7 +658,7 @@ class TestQueryBuildCompatibility:
         )
 
     def test_dense_query_accepts_hybrid_collection(self):
-        from rag.sources.materialize import validate_strategy_supported
+        from rag.indexing.materialize import validate_strategy_supported
 
         validate_strategy_supported(
             retrieval_strategy="dense",
@@ -666,7 +666,7 @@ class TestQueryBuildCompatibility:
         )
 
     def test_hybrid_query_accepts_hybrid_collection(self):
-        from rag.sources.materialize import validate_strategy_supported
+        from rag.indexing.materialize import validate_strategy_supported
 
         validate_strategy_supported(
             retrieval_strategy="hybrid",
@@ -674,7 +674,7 @@ class TestQueryBuildCompatibility:
         )
 
     def test_hybrid_query_rejects_dense_collection(self):
-        from rag.sources.materialize import validate_strategy_supported
+        from rag.indexing.materialize import validate_strategy_supported
 
         with pytest.raises(ValueError, match="not supported"):
             validate_strategy_supported(

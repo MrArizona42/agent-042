@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rag.domain import DocumentSection, ExtractedDocument, SourceDocument
+from rag.contracts import DocumentSection, ExtractedDocument, SourceDocument
 from rag.sources.artifacts import (
     ExtractedDocumentArtifact,
     ExtractionArtifactMeta,

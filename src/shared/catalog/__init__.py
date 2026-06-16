@@ -4,7 +4,18 @@ New production code should import from ``app_config.catalog``. This package
 remains as a stable compatibility path while the config split is migrated.
 """
 
-from shared.catalog.cache import (
+from app_config.catalog import (
+    AdapterConfig,
+    AliasConfig,
+    CatalogAliasConfig,
+    CatalogConfig,
+    CatalogKBConfig,
+    CatalogPathSettings,
+    CatalogTaskConfig,
+    KBConfig,
+    SourceConfig,
+    SourceIngestAdapterConfig,
+    TaskConfig,
     build_kb_index,
     catalog_override,
     clear_catalog_caches,
@@ -12,23 +23,12 @@ from shared.catalog.cache import (
     get_catalog,
     get_kb_config,
     get_kb_names,
-    set_catalog_override,
-)
-from shared.catalog.loader import load_catalog, materialize_catalog
-from shared.catalog.models import AdapterConfig, AliasConfig, KBConfig, TaskConfig
-from shared.catalog.paths import (
-    CatalogPathSettings,
+    load_catalog,
+    materialize_catalog,
     resolve_catalog_path,
+    set_catalog_override,
+    validate_kb_alias,
 )
-from shared.catalog.schema import (
-    CatalogAliasConfig,
-    CatalogConfig,
-    CatalogKBConfig,
-    CatalogTaskConfig,
-    SourceConfig,
-    SourceIngestAdapterConfig,
-)
-from shared.catalog.validation import validate_kb_alias
 
 __all__ = [
     "AdapterConfig",

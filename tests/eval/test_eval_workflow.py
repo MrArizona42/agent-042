@@ -1384,7 +1384,7 @@ class TestRetrievalEvalParity:
             EvalBuildConfig,
             build_temp_collection,
         )
-        from rag.domain import RetrievalCapability
+        from rag.contracts import RetrievalCapability
 
         build_config = EvalBuildConfig(
             qdrant_alias="rag__arxiv__challenger",
@@ -1436,7 +1436,7 @@ class TestRetrievalEvalParity:
     def test_fetch_retrieval_predictions_uses_alias_configured_retriever(self):
         from experiments.eval.eval_scripts.retrieval_bench import EvalBuildConfig
         from experiments.eval.eval_scripts.runner import _fetch_retrieval_predictions
-        from rag.domain import RetrievalCapability
+        from rag.contracts import RetrievalCapability
 
         build_config = EvalBuildConfig(
             qdrant_alias="rag__arxiv__challenger",

@@ -5,10 +5,9 @@ from pathlib import Path
 import pytest
 from qdrant_client.models import SparseVector
 
-from rag.domain import Chunk, RetrievalCapability
-from rag.domain.manifests import attestation_from_payload, read_index_manifest
-from rag.sources.bundles import SourceChunkBundle
-from rag.sources.materialize import (
+from rag.contracts import Chunk, RetrievalCapability
+from rag.contracts.manifests import attestation_from_payload, read_index_manifest
+from rag.indexing.materialize import (
     collection_name_for_build,
     materialize_kb_collection,
     promote_materialized_alias,
@@ -16,6 +15,7 @@ from rag.sources.materialize import (
     retrieval_capability_for_strategy,
     validate_strategy_supported,
 )
+from rag.sources.bundles import SourceChunkBundle
 
 
 class _EmbeddingClient:

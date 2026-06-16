@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from rag.domain import DocumentSection, ExtractedDocument, SourceDocument
+from rag.contracts import DocumentSection, ExtractedDocument, SourceDocument
 from rag.sources.artifacts import (
     ExtractedDocumentArtifact,
     ExtractionArtifactMeta,

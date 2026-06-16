@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from rag.domain import CollectionAttestation, RetrievalCapability, attestation_payload
+from rag.contracts import CollectionAttestation, RetrievalCapability, attestation_payload
 from rag.runtime import RagRuntime, RagRuntimeSource
 from rag.vector_store import Document
 from shared.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override

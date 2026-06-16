@@ -257,8 +257,10 @@ def _sync_dvc(**context: Any) -> dict[str, Any]:
         return {"synced": False, "paths": []}
 
     kb_id = str(params["kb"])
+    run_id = _build_run_id(context)
     base_branch = str(params.get("dvc_base_branch") or "develop")
-    bot_branch = str(params.get("dvc_bot_branch") or f"data-sync/rag-{kb_id}")
+    _default_bot_branch = f"data/rag/{kb_id}/{run_id}" if run_id else f"data/rag/{kb_id}"
+    bot_branch = str(params.get("dvc_bot_branch") or _default_bot_branch)
     results = []
     for rel_path in rel_paths:
         results.append(
@@ -295,8 +297,8 @@ with DAG(
     tags=["rag", "lifecycle"],
     params={
         "catalog": Param(_configured_catalog_path(), type="string"),
-        "kb": Param("pytorch_reference", type="string"),
-        "source": Param("docs", type=["null", "string", "array"]),
+        "kb": Param("", type="string"),
+        "source": Param("", type=["null", "string", "array"]),
         "alias_config": Param("challenger", type="string"),
         "rag_data_root": Param("assets/rag_data", type="string"),
         "document_ids": Param("", type=["null", "string", "array"]),

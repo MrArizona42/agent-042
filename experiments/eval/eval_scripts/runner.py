@@ -57,6 +57,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
+from app_config.catalog import get_kb_config
+
 # Add src to path so shared/rag modules are importable
 # Canonical directory for pre-downloaded datasets (HF Arrow format).
 from experiments.eval.eval_scripts.datasets import DATASET_LOCAL, load_dataset_samples
@@ -78,12 +80,11 @@ from experiments.eval.eval_scripts.retrieval_bench import (
     read_build_config,
 )
 from rag.embeddings import EmbeddingService
+from rag.indexing.materialize import validate_strategy_supported
 from rag.reranker import get_reranker
 from rag.retriever import Retriever
-from rag.sources.materialize import validate_strategy_supported
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
-from shared.catalog import get_kb_config
 from shared.config import (
     JudgeSettings,
     get_settings,

@@ -11,6 +11,13 @@ from typing import Any
 
 from app_config.catalog import CatalogConfig, load_catalog
 from rag.embeddings import EmbeddingService
+from rag.indexing.materialize import (
+    collection_name_for_build,
+    materialize_kb_collection,
+    promote_materialized_alias,
+    retrieval_capability_for_strategy,
+    validate_strategy_supported,
+)
 from rag.lifecycle import (
     BuildRequest,
     run_alias_promotion_stage,
@@ -20,13 +27,6 @@ from rag.lifecycle import (
 from rag.sources.build import build_catalog_source, build_catalog_sources, resolve_catalog_sources
 from rag.sources.bundles import collect_source_bundles, collect_source_chunks
 from rag.sources.chunks import ChunkingConfig
-from rag.sources.materialize import (
-    collection_name_for_build,
-    materialize_kb_collection,
-    promote_materialized_alias,
-    retrieval_capability_for_strategy,
-    validate_strategy_supported,
-)
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
 from shared.config import get_settings

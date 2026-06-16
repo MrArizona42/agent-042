@@ -1,5 +1,22 @@
-"""Compatibility module for catalog validation helpers."""
+"""Catalog validation helpers."""
 
-from shared.catalog.validation import validate_kb_alias
+from __future__ import annotations
 
-__all__ = ["validate_kb_alias"]
+from app_config.catalog.cache import get_kb_config, get_kb_names
+from app_config.catalog.paths import CatalogPathSettings
+
+
+def validate_kb_alias(
+    kb: str,
+    alias: str | None = None,
+    *,
+    settings: CatalogPathSettings | None = None,
+) -> None:
+    """Raise ValueError with a consistent message if kb or alias is unknown."""
+    kb_cfg = get_kb_config(kb, settings=settings)
+    if kb_cfg is None:
+        raise ValueError(f"KB '{kb}' not found. Available: {get_kb_names(settings=settings)}")
+    if alias is not None and alias not in kb_cfg.aliases:
+        raise ValueError(
+            f"Alias '{alias}' not valid for KB '{kb}'. Available: {list(kb_cfg.aliases.keys())}"
+        )

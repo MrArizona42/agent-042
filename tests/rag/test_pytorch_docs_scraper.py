@@ -13,7 +13,7 @@ for path in (PROJECT_ROOT / "src", PROJECT_ROOT):
     if path_str not in sys.path:
         sys.path.insert(0, path_str)
 scrape_pytorch_doc_page = importlib.import_module(
-    "shared.pytorch_docs_scraper"
+    "rag_data_pipelines.pytorch_docs.scraper"
 ).scrape_pytorch_doc_page
 
 
