@@ -117,7 +117,7 @@ def test_run_source_build_stage_persists_successful_build_run(tmp_path: Path) ->
             kb_id="pytorch_reference",
             source_ids=["docs"],
             rag_data_root=rag_data_root.as_posix(),
-            document_ids=["html:tensors"],
+            document_ids=["html_docs:tensors"],
             limit=1,
             force_chunk=True,
         ),
@@ -137,7 +137,7 @@ def test_run_source_build_stage_persists_successful_build_run(tmp_path: Path) ->
     assert payload["current_stage"] == "build_source"
     assert payload["stage_results"]["build_source"] == {"status": "success", "source": "docs"}
     assert calls[0]["source_instance_id"] == "docs"
-    assert calls[0]["document_ids"] == ["html:tensors"]
+    assert calls[0]["document_ids"] == ["html_docs:tensors"]
     assert calls[0]["force_chunk"] is True
 
 

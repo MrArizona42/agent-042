@@ -98,7 +98,7 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
             "--rag-data-root",
             "assets/rag_data",
             "--document-id",
-            "html:tensors",
+            "html_docs:tensors",
             "--limit",
             "1",
             "--force-fetch",
@@ -117,7 +117,7 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
     assert payload == {"status": "success"}
     assert calls[0]["kb_id"] == "pytorch_reference"
     assert calls[0]["source_instance_id"] == "docs"
-    assert calls[0]["document_ids"] == ["html:tensors"]
+    assert calls[0]["document_ids"] == ["html_docs:tensors"]
     assert calls[0]["limit"] == 1
     assert calls[0]["force_fetch"] is True
     assert calls[0]["force_extract"] is True

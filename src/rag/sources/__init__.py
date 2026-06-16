@@ -46,9 +46,7 @@ from rag.sources.fetchers import (
 )
 from rag.sources.manifests import load_source_manifest
 from rag.sources.models import (
-    ArxivPaperEntry,
     GenericSourceEntry,
-    HtmlDocsEntry,
     SourceManifest,
     SourceType,
     source_manifest_from_raw,
@@ -62,7 +60,6 @@ from rag.sources.processing import (
 __all__ = [
     "DEFAULT_CHUNK_OVERLAP",
     "DEFAULT_CHUNK_SIZE",
-    "ArxivPaperEntry",
     "ArxivPaperFetcher",
     "ArxivPdfExtractor",
     "ChunkArtifact",
@@ -72,7 +69,6 @@ __all__ = [
     "ExtractedDocumentArtifact",
     "ExtractionArtifactMeta",
     "GenericSourceEntry",
-    "HtmlDocsEntry",
     "HtmlDocsFetcher",
     "HtmlDocsExtractor",
     "LLAMAINDEX_SENTENCE_SPLITTER",

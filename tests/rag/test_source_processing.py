@@ -70,7 +70,7 @@ def test_process_source_instance_writes_extracted_artifact(tmp_path: Path) -> No
         rag_data_root=tmp_path,
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_document_id="html:tensors",
+        source_document_id="html_docs:tensors",
     )
     artifact = read_extracted_artifact(artifact_path)
 
@@ -81,7 +81,7 @@ def test_process_source_instance_writes_extracted_artifact(tmp_path: Path) -> No
     assert summary.extracted_from_cache == 0
     assert summary.failed == []
     assert artifact.document.text == "tensors body text."
-    assert artifact.raw.path.endswith("pytorch_reference/raw/docs/html_tensors/page.html")
+    assert artifact.raw.path.endswith("pytorch_reference/raw/docs/html_docs_tensors/page.html")
 
 
 def test_process_source_instance_reuses_extracted_artifact(tmp_path: Path) -> None:
@@ -156,7 +156,7 @@ def test_process_source_instance_filters_documents_and_collects_failures(
         source_instance_id="docs",
         manifest_path=manifest_path,
         rag_data_root=tmp_path,
-        document_ids=["html:broken"],
+        document_ids=["html_docs:broken"],
         source_adapter=_html_adapter(),
     )
 
@@ -164,7 +164,7 @@ def test_process_source_instance_filters_documents_and_collects_failures(
     assert summary.fetched == 0
     assert summary.extracted == 0
     assert len(summary.failed) == 1
-    assert summary.failed[0].document_id == "html:broken"
+    assert summary.failed[0].document_id == "html_docs:broken"
     assert summary.failed[0].error_type == "HTTPStatusError"
 
 

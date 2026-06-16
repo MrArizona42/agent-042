@@ -6,9 +6,7 @@ from textwrap import dedent
 import pytest
 
 from rag.sources import (
-    ArxivPaperEntry,
     GenericSourceEntry,
-    HtmlDocsEntry,
     SourceManifest,
     load_source_manifest,
 )
@@ -36,10 +34,10 @@ def test_arxiv_source_manifest_loads_source_documents(tmp_path: Path) -> None:
     documents = manifest.to_source_documents()
 
     assert manifest.source_type == "arxiv_paper"
-    assert isinstance(manifest.documents[0], ArxivPaperEntry)
-    assert documents[0].id == "arxiv:1706.03762"
-    assert documents[0].uri == "arxiv:1706.03762"
-    assert documents[0].metadata["arxiv_id"] == "1706.03762"
+    assert isinstance(manifest.documents[0], GenericSourceEntry)
+    assert documents[0].id == "arxiv_paper:1706.03762"
+    assert documents[0].uri == "arxiv_paper:1706.03762"
+    assert documents[0].metadata == {}
 
 
 def test_html_docs_manifest_loads_source_documents(tmp_path: Path) -> None:
@@ -60,10 +58,10 @@ def test_html_docs_manifest_loads_source_documents(tmp_path: Path) -> None:
     documents = manifest.to_source_documents()
 
     assert manifest.source_type == "html_docs"
-    assert isinstance(manifest.documents[0], HtmlDocsEntry)
-    assert documents[0].id == "html:tensors"
+    assert isinstance(manifest.documents[0], GenericSourceEntry)
+    assert documents[0].id == "html_docs:tensors"
     assert documents[0].uri == "https://pytorch.org/docs/stable/tensors.html"
-    assert documents[0].metadata["page_id"] == "tensors"
+    assert documents[0].metadata == {}
 
 
 def test_arxiv_source_manifest_allows_blank_url_and_uses_arxiv_uri(tmp_path: Path) -> None:
@@ -84,7 +82,7 @@ def test_arxiv_source_manifest_allows_blank_url_and_uses_arxiv_uri(tmp_path: Pat
     documents = manifest.to_source_documents()
 
     assert manifest.documents[0].url is None
-    assert documents[0].uri == "arxiv:1706.03762"
+    assert documents[0].uri == "arxiv_paper:1706.03762"
 
 
 def test_source_manifest_rejects_duplicate_document_ids(tmp_path: Path) -> None:
@@ -108,20 +106,6 @@ def test_source_manifest_rejects_duplicate_document_ids(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Duplicate source document id 'tensors'"):
         load_source_manifest(path)
-
-
-def test_source_manifest_rejects_mixed_document_types() -> None:
-    with pytest.raises(ValueError, match="incompatible document entry"):
-        SourceManifest(
-            source_type="arxiv_paper",
-            documents=[
-                HtmlDocsEntry(
-                    id="tensors",
-                    url="https://pytorch.org/docs/stable/tensors.html",
-                    title="Tensors",
-                )
-            ],
-        )
 
 
 def test_unknown_source_manifest_uses_generic_entries(tmp_path: Path) -> None:
@@ -148,5 +132,3 @@ def test_unknown_source_manifest_uses_generic_entries(tmp_path: Path) -> None:
     assert documents[0].source_type == "qasper"
     assert documents[0].uri == "s3://datasets/qasper/paper-1.json"
     assert documents[0].metadata == {"split": "train"}
-
-

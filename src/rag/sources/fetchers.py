@@ -187,6 +187,12 @@ class ArxivPaperFetcher(HttpSourceFetcher):
     def _pdf_url(self, source_document: SourceDocument) -> str:
         arxiv_id = str(source_document.metadata.get("arxiv_id") or "").strip()
         if not arxiv_id:
+            uri = source_document.uri
+            for prefix in ("arxiv_paper:", "arxiv:"):
+                if uri.startswith(prefix):
+                    arxiv_id = uri[len(prefix):]
+                    break
+        if not arxiv_id:
             raise ValueError(f"ArXiv source document '{source_document.id}' is missing arxiv_id")
         return f"https://arxiv.org/pdf/{arxiv_id}"
 
@@ -200,7 +206,7 @@ class ArxivPaperFetcher(HttpSourceFetcher):
         force: bool = False,
     ) -> SourceFetchResult:
         fetch_document = source_document
-        if source_document.uri.startswith("arxiv:"):
+        if source_document.uri.startswith(("arxiv:", "arxiv_paper:")):
             fetch_document = source_document.model_copy(
                 update={"uri": self._pdf_url(source_document)}
             )

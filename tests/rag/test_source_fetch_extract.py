@@ -29,7 +29,7 @@ def _client(content: bytes, *, content_type: str) -> httpx.Client:
 
 def test_html_fetcher_writes_raw_html_and_metadata_immutably(tmp_path) -> None:
     source = SourceDocument(
-        id="html:tensors",
+        id="html_docs:tensors",
         source_type="html_docs",
         uri="https://pytorch.org/docs/stable/tensors.html",
         title="Tensors",
@@ -61,7 +61,7 @@ def test_html_fetcher_writes_raw_html_and_metadata_immutably(tmp_path) -> None:
         force=True,
     )
 
-    assert first.raw_path.as_posix().endswith("pytorch_reference/raw/docs/html_tensors/page.html")
+    assert first.raw_path.as_posix().endswith("pytorch_reference/raw/docs/html_docs_tensors/page.html")
     assert first.metadata_path.exists()
     assert second.from_cache is True
     assert forced.from_cache is False
@@ -70,11 +70,10 @@ def test_html_fetcher_writes_raw_html_and_metadata_immutably(tmp_path) -> None:
 
 def test_arxiv_fetcher_stores_pdf_bytes(tmp_path) -> None:
     source = SourceDocument(
-        id="arxiv:1706.03762",
+        id="arxiv_paper:1706.03762",
         source_type="arxiv_paper",
-        uri="arxiv:1706.03762",
+        uri="arxiv_paper:1706.03762",
         title="Attention Is All You Need",
-        metadata={"arxiv_id": "1706.03762"},
     )
     fetcher = ArxivPaperFetcher(client=_client(b"%PDF fake", content_type="application/pdf"))
 
@@ -86,7 +85,7 @@ def test_arxiv_fetcher_stores_pdf_bytes(tmp_path) -> None:
     )
 
     assert result.raw_path.as_posix().endswith(
-        "ml_papers_core/raw/papers/arxiv_1706.03762/paper.pdf"
+        "ml_papers_core/raw/papers/arxiv_paper_1706.03762/paper.pdf"
     )
     assert result.raw_path.read_bytes() == b"%PDF fake"
     assert result.source_document.uri == "https://arxiv.org/pdf/1706.03762"
@@ -109,7 +108,7 @@ def test_html_extractor_preserves_heading_sections(tmp_path) -> None:
     )
     fetch_result = SourceFetchResult(
         source_document=SourceDocument(
-            id="html:tensors",
+            id="html_docs:tensors",
             source_type="html_docs",
             uri="https://pytorch.org/docs/stable/tensors.html",
             title="Tensors",
@@ -121,7 +120,7 @@ def test_html_extractor_preserves_heading_sections(tmp_path) -> None:
 
     extracted = HtmlDocsExtractor().extract(fetch_result)
 
-    assert extracted.source_document_id == "html:tensors"
+    assert extracted.source_document_id == "html_docs:tensors"
     assert extracted.extraction_method == "html_bs4"
     assert [section.title for section in extracted.sections] == ["Tensors", "Creation"]
     assert "torch.tensor" in extracted.text
@@ -132,7 +131,7 @@ def test_arxiv_pdf_extractor_uses_pypdf_reader(tmp_path) -> None:
     raw_path.write_bytes(b"%PDF fake")
     fetch_result = SourceFetchResult(
         source_document=SourceDocument(
-            id="arxiv:1706.03762",
+            id="arxiv_paper:1706.03762",
             source_type="arxiv_paper",
             uri="https://arxiv.org/pdf/1706.03762",
             title="Attention Is All You Need",
@@ -165,7 +164,7 @@ def test_arxiv_pdf_extractor_uses_pypdf_reader(tmp_path) -> None:
 
 def test_extracted_artifact_round_trips_immutably(tmp_path) -> None:
     source = SourceDocument(
-        id="html:tensors",
+        id="html_docs:tensors",
         source_type="html_docs",
         uri="https://pytorch.org/docs/stable/tensors.html",
         title="Tensors",
@@ -204,7 +203,7 @@ def test_extracted_artifact_round_trips_immutably(tmp_path) -> None:
     write_extracted_artifact(path, artifact, force=True)
     restored = read_extracted_artifact(path)
 
-    assert path.as_posix().endswith("pytorch_reference/extracted/docs/html_tensors.json")
+    assert path.as_posix().endswith("pytorch_reference/extracted/docs/html_docs_tensors.json")
     assert restored.kb_id == "pytorch_reference"
     assert restored.source_instance_id == "docs"
     assert restored.raw.path == fetch_result.raw_path.as_posix()

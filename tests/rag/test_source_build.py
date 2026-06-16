@@ -143,14 +143,14 @@ def test_build_source_instance_runs_full_pre_index_lifecycle(tmp_path: Path) -> 
         manifest_path=_manifest(tmp_path),
         rag_data_root=tmp_path,
         source_adapter=_html_adapter(),
-        document_ids=["html:tensors"],
+        document_ids=["html_docs:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
     )
     path = chunk_artifact_path(
         rag_data_root=tmp_path,
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_document_id="html:tensors",
+        source_document_id="html_docs:tensors",
     )
     artifact = read_chunk_artifact(path)
 
@@ -170,7 +170,7 @@ def test_build_source_instance_reuses_artifact_caches(tmp_path: Path) -> None:
         "manifest_path": _manifest(tmp_path),
         "rag_data_root": tmp_path,
         "source_adapter": _html_adapter(),
-        "document_ids": ["html:tensors"],
+        "document_ids": ["html_docs:tensors"],
         "chunking": ChunkingConfig(chunk_size=24, chunk_overlap=4),
     }
 
@@ -210,7 +210,7 @@ def test_build_source_instance_reports_partial_and_failed_statuses(tmp_path: Pat
         manifest_path=_manifest(tmp_path),
         rag_data_root=tmp_path,
         source_adapter=_html_adapter(),
-        document_ids=["html:broken"],
+        document_ids=["html_docs:broken"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
     )
 
@@ -231,7 +231,7 @@ def test_build_source_instance_reports_empty_selection(tmp_path: Path) -> None:
         manifest_path=_manifest(tmp_path),
         rag_data_root=tmp_path,
         source_adapter=_html_adapter(),
-        document_ids=["html:missing"],
+        document_ids=["html_docs:missing"],
     )
 
     assert summary.status == "empty"
@@ -248,7 +248,7 @@ def test_build_catalog_source_uses_kb_and_source_instance_pair(tmp_path: Path) -
         kb_id="pytorch_reference",
         source_instance_id="docs",
         rag_data_root=tmp_path,
-        document_ids=["html:tensors"],
+        document_ids=["html_docs:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
         adapter_registry=_mock_registry(),
     )
@@ -306,7 +306,7 @@ def test_build_catalog_source_resolves_manifest_relative_to_catalog(
         kb_id="pytorch_reference",
         source_instance_id="docs",
         rag_data_root=tmp_path,
-        document_ids=["html:tensors"],
+        document_ids=["html_docs:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
         adapter_registry=_mock_registry(),
     )
@@ -372,7 +372,7 @@ def test_build_catalog_sources_builds_selected_sources(tmp_path: Path) -> None:
         kb_id="pytorch_reference",
         source_instance_ids=["docs"],
         rag_data_root=tmp_path,
-        document_ids=["html:tensors"],
+        document_ids=["html_docs:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
         adapter_registry=_mock_registry(),
     )
