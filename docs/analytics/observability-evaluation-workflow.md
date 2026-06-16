@@ -158,7 +158,7 @@ Use evaluation data for:
 - repeated failure categories;
 - champion/challenger alias comparisons.
 
-Phase 1 should keep this path simple:
+With Phase 1 complete, keep this path simple:
 
 1. Find the bad production request by `request_id`.
 2. Inspect logs, trace, and ClickHouse events.

@@ -13,8 +13,10 @@ traces, metrics, and persisted metadata are all available from Grafana.
   messages, evaluation runs, and evaluation samples.
 - Redpanda stores replayable inference lifecycle events for analytics and later
   ClickHouse ingestion.
+- ClickHouse stores production inference analytics ingested from Redpanda
+  events.
 
-Grafana provisions all four datasources from
+Grafana provisions the core datasources from
 `infra/grafana/provisioning/datasources/datasources.yml`.
 
 ## Correlation Fields

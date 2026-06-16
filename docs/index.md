@@ -23,7 +23,10 @@ in the repository root: [README.md](../README.md).
   field meanings, and common SQL.
 - [Experiments](../experiments/README.md): notebooks, evaluation scripts, LoRA
   training, and model registry workflows.
-- [Improvement Plan](planning/improvements.md): current staged work plan.
+- [Improvement Plan](planning/improvements.md): staged roadmap; Phase 1 is
+  complete and Phase 2 RAG quality work is next.
+- [Experiment Planning](planning/experiments.md): inference, RAG, LoRA, and
+  operating-limit experiment plans.
 
 ## Documentation Ownership
 
