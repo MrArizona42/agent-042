@@ -42,11 +42,3 @@ def test_default_source_adapter_rejects_wrong_manifest_type():
 
     with pytest.raises(ValueError, match="expects source_type 'html_docs'"):
         adapter.validate_manifest(_Manifest("arxiv_paper"))
-
-
-def test_legacy_source_adapter_ids_remain_registered():
-    from rag.ingest import DEFAULT_SOURCE_ADAPTERS
-
-    adapter = DEFAULT_SOURCE_ADAPTERS.get("html_docs", version="legacy")
-
-    assert adapter.source_type == "html_docs"

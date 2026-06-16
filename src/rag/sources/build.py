@@ -15,8 +15,6 @@ from rag.sources.chunks import (
     SourceInstanceChunkingSummary,
     chunk_source_instance,
 )
-from rag.sources.extractors import SourceExtractor
-from rag.sources.fetchers import SourceFetcher
 from rag.sources.processing import SourceProcessingSummary, process_source_instance
 
 SourceBuildStatus = Literal["empty", "success", "partial", "failed"]
@@ -136,33 +134,27 @@ def build_source_instance(
     *,
     kb_id: str,
     source_instance_id: str,
-    source_type: str,
     manifest_path: Path | str,
     rag_data_root: Path | str,
+    source_adapter: SourceAdapter,
     document_ids: list[str] | None = None,
     limit: int | None = None,
     force_fetch: bool = False,
     force_extract: bool = False,
     force_chunk: bool = False,
     chunking: ChunkingConfig | None = None,
-    fetchers: dict[str, SourceFetcher] | None = None,
-    extractors: dict[str, SourceExtractor] | None = None,
-    source_adapter: SourceAdapter | None = None,
 ) -> SourceBuildSummary:
     """Run fetch/extract/chunk lifecycle for one source instance."""
     processing = process_source_instance(
         kb_id=kb_id,
         source_instance_id=source_instance_id,
-        source_type=source_type,
         manifest_path=manifest_path,
         rag_data_root=rag_data_root,
+        source_adapter=source_adapter,
         limit=limit,
         document_ids=document_ids,
         force_fetch=force_fetch,
         force_extract=force_extract,
-        source_adapter=source_adapter,
-        fetchers=fetchers,
-        extractors=extractors,
     )
     chunking_summary = chunk_source_instance(
         rag_data_root=rag_data_root,
@@ -176,7 +168,7 @@ def build_source_instance(
     return SourceBuildSummary(
         kb_id=kb_id,
         source_instance_id=source_instance_id,
-        source_type=source_adapter.source_type if source_adapter is not None else source_type,
+        source_type=source_adapter.source_type,
         status=_build_status(processing=processing, chunking=chunking_summary),
         processing=processing,
         chunking=chunking_summary,
@@ -188,10 +180,7 @@ def _resolve_source_adapter(
     *,
     adapter_registry: SourceAdapterRegistry,
 ) -> SourceAdapter:
-    ingest_adapter = source.ingest_adapter
-    if ingest_adapter is None:
-        raise ValueError(f"Catalog source '{source.kb}/{source.id}' is missing ingest_adapter")
-    adapter = adapter_registry.get(ingest_adapter.id, version=ingest_adapter.version)
+    adapter = adapter_registry.get(source.ingest_adapter.id, version=source.ingest_adapter.version)
     if adapter.source_type != source.type:
         raise ValueError(
             f"Catalog source '{source.kb}/{source.id}' has type '{source.type}' but "
@@ -213,8 +202,6 @@ def build_catalog_source(
     force_extract: bool = False,
     force_chunk: bool = False,
     chunking: ChunkingConfig | None = None,
-    fetchers: dict[str, SourceFetcher] | None = None,
-    extractors: dict[str, SourceExtractor] | None = None,
     adapter_registry: SourceAdapterRegistry | None = None,
 ) -> CatalogSourceBuildSummary:
     """Build one source instance addressed by its catalog (kb, source id) pair."""
@@ -232,21 +219,18 @@ def build_catalog_source(
     build = build_source_instance(
         kb_id=source.kb,
         source_instance_id=source.id,
-        source_type=source.type,
         manifest_path=_catalog_manifest_path(
             catalog_path=catalog_path,
             manifest_ref=source.manifest,
         ),
         rag_data_root=rag_data_root,
+        source_adapter=source_adapter,
         document_ids=document_ids,
         limit=limit,
         force_fetch=force_fetch,
         force_extract=force_extract,
         force_chunk=force_chunk,
         chunking=chunking,
-        fetchers=fetchers,
-        extractors=extractors,
-        source_adapter=source_adapter,
     )
     return CatalogSourceBuildSummary(
         catalog_path=catalog_path.as_posix(),
@@ -267,8 +251,6 @@ def build_catalog_sources(
     force_extract: bool = False,
     force_chunk: bool = False,
     chunking: ChunkingConfig | None = None,
-    fetchers: dict[str, SourceFetcher] | None = None,
-    extractors: dict[str, SourceExtractor] | None = None,
     adapter_registry: SourceAdapterRegistry | None = None,
 ) -> CatalogSourcesBuildSummary:
     """Build all or selected source instances for a KB."""
@@ -291,8 +273,6 @@ def build_catalog_sources(
             force_extract=force_extract,
             force_chunk=force_chunk,
             chunking=chunking,
-            fetchers=fetchers,
-            extractors=extractors,
             adapter_registry=adapter_registry,
         )
         for source in sources

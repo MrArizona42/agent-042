@@ -146,24 +146,6 @@ class SourceAdapterRegistry:
                 _extractor_factory=_arxiv_paper_extractor,
             )
         )
-        registry.register(
-            ManifestSourceAdapter(
-                adapter_id="html_docs",
-                version="legacy",
-                source_type="html_docs",
-                _fetcher_factory=_html_docs_fetcher,
-                _extractor_factory=_html_docs_extractor,
-            )
-        )
-        registry.register(
-            ManifestSourceAdapter(
-                adapter_id="arxiv_paper",
-                version="legacy",
-                source_type="arxiv_paper",
-                _fetcher_factory=_arxiv_paper_fetcher,
-                _extractor_factory=_arxiv_paper_extractor,
-            )
-        )
         return registry
 
 

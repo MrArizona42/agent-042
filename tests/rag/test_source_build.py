@@ -6,6 +6,7 @@ from textwrap import dedent
 import httpx
 
 from app_config.catalog.schema import CatalogConfig
+from rag.ingest.adapters import ManifestSourceAdapter, SourceAdapterRegistry
 from rag.sources import (
     ChunkingConfig,
     build_catalog_source,
@@ -14,6 +15,7 @@ from rag.sources import (
     resolve_catalog_sources,
 )
 from rag.sources.chunks import chunk_artifact_path, read_chunk_artifact
+from rag.sources.extractors import HtmlDocsExtractor
 from rag.sources.fetchers import HtmlDocsFetcher
 
 
@@ -39,6 +41,22 @@ def _html_client() -> httpx.Client:
         )
 
     return httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+
+
+def _mock_registry() -> SourceAdapterRegistry:
+    registry = SourceAdapterRegistry()
+    registry.register(_html_adapter())
+    return registry
+
+
+def _html_adapter() -> ManifestSourceAdapter:
+    return ManifestSourceAdapter(
+        adapter_id="generic.http_html",
+        version="1",
+        source_type="html_docs",
+        _fetcher_factory=lambda: HtmlDocsFetcher(client=_html_client()),
+        _extractor_factory=HtmlDocsExtractor,
+    )
 
 
 def _manifest(tmp_path: Path) -> Path:
@@ -122,12 +140,11 @@ def test_build_source_instance_runs_full_pre_index_lifecycle(tmp_path: Path) -> 
     summary = build_source_instance(
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_type="html_docs",
         manifest_path=_manifest(tmp_path),
         rag_data_root=tmp_path,
+        source_adapter=_html_adapter(),
         document_ids=["html:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
     )
     path = chunk_artifact_path(
         rag_data_root=tmp_path,
@@ -147,16 +164,14 @@ def test_build_source_instance_runs_full_pre_index_lifecycle(tmp_path: Path) -> 
 
 
 def test_build_source_instance_reuses_artifact_caches(tmp_path: Path) -> None:
-    fetchers = {"html_docs": HtmlDocsFetcher(client=_html_client())}
     kwargs = {
         "kb_id": "pytorch_reference",
         "source_instance_id": "docs",
-        "source_type": "html_docs",
         "manifest_path": _manifest(tmp_path),
         "rag_data_root": tmp_path,
+        "source_adapter": _html_adapter(),
         "document_ids": ["html:tensors"],
         "chunking": ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        "fetchers": fetchers,
     }
 
     first = build_source_instance(**kwargs)
@@ -184,21 +199,19 @@ def test_build_source_instance_reports_partial_and_failed_statuses(tmp_path: Pat
     partial = build_source_instance(
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_type="html_docs",
         manifest_path=_manifest(tmp_path),
         rag_data_root=tmp_path,
+        source_adapter=_html_adapter(),
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
     )
     failed = build_source_instance(
         kb_id="pytorch_reference",
         source_instance_id="docs_failed",
-        source_type="html_docs",
         manifest_path=_manifest(tmp_path),
         rag_data_root=tmp_path,
+        source_adapter=_html_adapter(),
         document_ids=["html:broken"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
     )
 
     assert partial.status == "partial"
@@ -215,11 +228,10 @@ def test_build_source_instance_reports_empty_selection(tmp_path: Path) -> None:
     summary = build_source_instance(
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_type="html_docs",
         manifest_path=_manifest(tmp_path),
         rag_data_root=tmp_path,
+        source_adapter=_html_adapter(),
         document_ids=["html:missing"],
-        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
     )
 
     assert summary.status == "empty"
@@ -238,13 +250,12 @@ def test_build_catalog_source_uses_kb_and_source_instance_pair(tmp_path: Path) -
         rag_data_root=tmp_path,
         document_ids=["html:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
+        adapter_registry=_mock_registry(),
     )
 
     assert summary.catalog_path == catalog_path.as_posix()
     assert summary.source.kb == "pytorch_reference"
     assert summary.source.id == "docs"
-    assert summary.source.ingest_adapter is not None
     assert summary.source.ingest_adapter.id == "generic.http_html"
     assert summary.build.status == "success"
     assert summary.build.kb_id == "pytorch_reference"
@@ -297,7 +308,7 @@ def test_build_catalog_source_resolves_manifest_relative_to_catalog(
         rag_data_root=tmp_path,
         document_ids=["html:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
+        adapter_registry=_mock_registry(),
     )
 
     assert manifest_path.exists()
@@ -363,7 +374,7 @@ def test_build_catalog_sources_builds_selected_sources(tmp_path: Path) -> None:
         rag_data_root=tmp_path,
         document_ids=["html:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
+        adapter_registry=_mock_registry(),
     )
 
     assert summary.kb_id == "pytorch_reference"

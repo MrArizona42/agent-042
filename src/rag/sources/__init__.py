@@ -1,4 +1,4 @@
-"""RAG source manifest contracts and connector registry."""
+"""RAG source manifest contracts and adapter-backed build pipeline."""
 
 from rag.sources.artifacts import (
     ExtractedDocumentArtifact,
@@ -37,12 +37,6 @@ from rag.sources.chunks import (
     read_chunk_artifact,
     write_chunk_artifact,
 )
-from rag.sources.connectors import (
-    DEFAULT_SOURCE_CONNECTORS,
-    ManifestOnlyConnector,
-    SourceConnector,
-    SourceConnectorRegistry,
-)
 from rag.sources.extractors import ArxivPdfExtractor, HtmlDocsExtractor, SourceExtractor
 from rag.sources.fetchers import (
     ArxivPaperFetcher,
@@ -60,19 +54,14 @@ from rag.sources.models import (
     source_manifest_from_raw,
 )
 from rag.sources.processing import (
-    DEFAULT_SOURCE_EXTRACTORS,
-    DEFAULT_SOURCE_FETCHERS,
     SourceProcessingFailure,
     SourceProcessingSummary,
     process_source_instance,
 )
 
 __all__ = [
-    "DEFAULT_SOURCE_CONNECTORS",
     "DEFAULT_CHUNK_OVERLAP",
     "DEFAULT_CHUNK_SIZE",
-    "DEFAULT_SOURCE_EXTRACTORS",
-    "DEFAULT_SOURCE_FETCHERS",
     "ArxivPaperEntry",
     "ArxivPaperFetcher",
     "ArxivPdfExtractor",
@@ -87,13 +76,10 @@ __all__ = [
     "HtmlDocsFetcher",
     "HtmlDocsExtractor",
     "LLAMAINDEX_SENTENCE_SPLITTER",
-    "ManifestOnlyConnector",
     "RawArtifactRef",
     "SourceBuildStatus",
     "SourceBuildSummary",
     "SourceChunkBundle",
-    "SourceConnector",
-    "SourceConnectorRegistry",
     "SourceExtractor",
     "SourceFetcher",
     "SourceFetchResult",

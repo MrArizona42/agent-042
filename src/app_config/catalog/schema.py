@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app_config.catalog.models import AdapterConfig, AliasConfig
 
@@ -59,14 +59,8 @@ class SourceConfig(BaseModel):
     kb: str
     id: str
     manifest: str
-    ingest_adapter: SourceIngestAdapterConfig | None = None
+    ingest_adapter: SourceIngestAdapterConfig
     settings: dict[str, object] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _default_ingest_adapter_from_type(self) -> "SourceConfig":
-        if self.ingest_adapter is None:
-            self.ingest_adapter = SourceIngestAdapterConfig(id=self.type, version="legacy")
-        return self
 
 
 class CatalogConfig(BaseModel):

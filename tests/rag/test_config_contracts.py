@@ -260,6 +260,7 @@ class TestRegistryReferenceValidation:
                     'kb = "missing_kb"',
                     'id = "docs"',
                     'manifest = "assets/rag_data/missing/sources.toml"',
+                    'ingest_adapter = { id = "generic.http_html", version = "1" }',
                 ]
             ),
             encoding="utf-8",
@@ -293,12 +294,14 @@ class TestRegistryReferenceValidation:
                     'kb = "pytorch_reference"',
                     'id = "docs"',
                     'manifest = "assets/rag_data/pytorch_reference/docs.sources.toml"',
+                    'ingest_adapter = { id = "generic.http_html", version = "1" }',
                     "",
                     "[[sources]]",
                     'type = "html_docs"',
                     'kb = "pytorch_reference"',
                     'id = "docs"',
                     'manifest = "assets/rag_data/pytorch_reference/tutorials.sources.toml"',
+                    'ingest_adapter = { id = "generic.http_html", version = "1" }',
                 ]
             ),
             encoding="utf-8",
@@ -588,6 +591,7 @@ class TestKnowledgeBaseRegistryResolution:
                     'kb = "ml_papers_core"',
                     'id = "papers"',
                     'manifest = "assets/rag_data/ml_papers_core/sources.toml"',
+                    'ingest_adapter = { id = "generic.arxiv_paper", version = "1" }',
                 ]
             ),
             encoding="utf-8",

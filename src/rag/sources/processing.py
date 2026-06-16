@@ -14,8 +14,6 @@ from rag.sources.artifacts import (
     read_extracted_artifact,
     write_extracted_artifact,
 )
-from rag.sources.extractors import ArxivPdfExtractor, HtmlDocsExtractor, SourceExtractor
-from rag.sources.fetchers import ArxivPaperFetcher, HtmlDocsFetcher, SourceFetcher
 from rag.sources.manifests import load_source_manifest
 
 
@@ -43,17 +41,6 @@ class SourceProcessingSummary(BaseModel):
     extracted: int = Field(default=0, ge=0)
     extracted_from_cache: int = Field(default=0, ge=0)
     failed: list[SourceProcessingFailure] = Field(default_factory=list)
-
-
-DEFAULT_SOURCE_FETCHERS: dict[str, SourceFetcher] = {
-    "arxiv_paper": ArxivPaperFetcher(),
-    "html_docs": HtmlDocsFetcher(),
-}
-
-DEFAULT_SOURCE_EXTRACTORS: dict[str, SourceExtractor] = {
-    "arxiv_paper": ArxivPdfExtractor(),
-    "html_docs": HtmlDocsExtractor(),
-}
 
 
 def _source_document_matches(
@@ -88,50 +75,22 @@ def process_source_instance(
     *,
     kb_id: str,
     source_instance_id: str,
-    source_type: str,
     manifest_path: Path | str,
     rag_data_root: Path | str,
+    source_adapter: SourceAdapter,
     limit: int | None = None,
     document_ids: list[str] | None = None,
     force_fetch: bool = False,
     force_extract: bool = False,
-    source_adapter: SourceAdapter | None = None,
-    fetchers: dict[str, SourceFetcher] | None = None,
-    extractors: dict[str, SourceExtractor] | None = None,
 ) -> SourceProcessingSummary:
     """Fetch, extract, and persist artifacts for one source instance."""
-    manifest = load_source_manifest(manifest_path)
-    if source_adapter is not None:
-        manifest = source_adapter.validate_manifest(manifest)
-        source_type = source_adapter.source_type
-    elif manifest.source_type != source_type:
-        raise ValueError(
-            f"Source manifest '{manifest_path}' has source_type '{manifest.source_type}' "
-            f"(expected '{source_type}')"
-        )
-
-    if fetchers is not None:
-        fetcher_registry = fetchers
-    elif source_adapter is not None:
-        fetcher_registry = {source_type: source_adapter.fetcher()}
-    else:
-        fetcher_registry = DEFAULT_SOURCE_FETCHERS
-
-    if extractors is not None:
-        extractor_registry = extractors
-    elif source_adapter is not None:
-        extractor_registry = {source_type: source_adapter.extractor()}
-    else:
-        extractor_registry = DEFAULT_SOURCE_EXTRACTORS
-    if source_type not in fetcher_registry:
-        raise ValueError(f"No source fetcher registered for source_type '{source_type}'")
-    if source_type not in extractor_registry:
-        raise ValueError(f"No source extractor registered for source_type '{source_type}'")
+    manifest = source_adapter.validate_manifest(load_source_manifest(manifest_path))
+    source_type = source_adapter.source_type
+    fetcher = source_adapter.fetcher()
+    extractor = source_adapter.extractor()
 
     selected_documents = _select_source_documents(
-        source_adapter.list_documents(manifest)
-        if source_adapter is not None
-        else manifest.to_source_documents(),
+        source_adapter.list_documents(manifest),
         document_ids=document_ids,
         limit=limit,
     )
@@ -141,8 +100,6 @@ def process_source_instance(
         source_type=source_type,
         total_selected=len(selected_documents),
     )
-    fetcher = fetcher_registry[source_type]
-    extractor = extractor_registry[source_type]
 
     for source_document in selected_documents:
         try:

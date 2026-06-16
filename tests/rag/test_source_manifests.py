@@ -6,11 +6,9 @@ from textwrap import dedent
 import pytest
 
 from rag.sources import (
-    DEFAULT_SOURCE_CONNECTORS,
     ArxivPaperEntry,
     GenericSourceEntry,
     HtmlDocsEntry,
-    SourceConnectorRegistry,
     SourceManifest,
     load_source_manifest,
 )
@@ -152,26 +150,3 @@ def test_unknown_source_manifest_uses_generic_entries(tmp_path: Path) -> None:
     assert documents[0].metadata == {"split": "train"}
 
 
-def test_default_source_connector_registry_materializes_manifest_documents() -> None:
-    manifest = SourceManifest(
-        source_type="html_docs",
-        documents=[
-            HtmlDocsEntry(
-                id="tensors",
-                url="https://pytorch.org/docs/stable/tensors.html",
-                title="Tensors",
-            )
-        ],
-    )
-
-    connector = DEFAULT_SOURCE_CONNECTORS.get("html_docs")
-    documents = connector.list_documents(manifest)
-
-    assert documents[0].source_type == "html_docs"
-
-
-def test_source_connector_registry_rejects_unknown_type() -> None:
-    registry = SourceConnectorRegistry()
-
-    with pytest.raises(ValueError, match="Unknown source connector"):
-        registry.get("html_docs")
