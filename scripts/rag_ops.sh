@@ -8,21 +8,21 @@ Usage:
 
 Examples:
   bash current/scripts/rag_ops.sh python -m rag.sources.cli build-source \
-    --catalog src/shared/catalog.toml \
+    --catalog catalog.toml \
     --kb pytorch_reference \
     --source docs \
     --rag-data-root assets/rag_data \
     --limit 1
 
   bash current/scripts/rag_ops.sh python -m rag.sources.cli collect-bundle \
-    --catalog src/shared/catalog.toml \
+    --catalog catalog.toml \
     --kb pytorch_reference \
     --source docs \
     --rag-data-root assets/rag_data \
     --limit 1
 
   bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize \
-    --catalog src/shared/catalog.toml \
+    --catalog catalog.toml \
     --kb pytorch_reference \
     --source docs \
     --alias-config challenger \
@@ -44,18 +44,7 @@ EOF
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd "$script_dir/.." && pwd)"
 compose_file="$project_root/infra/compose/docker-compose.yaml"
-
-if [[ -n "${RAG_OPS_ENV_FILE:-}" ]]; then
-  env_file="$RAG_OPS_ENV_FILE"
-elif [[ -f "$PWD/.env" ]]; then
-  env_file="$PWD/.env"
-elif [[ -f "$project_root/.env" ]]; then
-  env_file="$project_root/.env"
-elif [[ -f "$project_root/../.env" ]]; then
-  env_file="$project_root/../.env"
-else
-  env_file="$PWD/.env"
-fi
+env_file="${RAG_OPS_ENV_FILE:-$project_root/.env}"
 
 [[ -f "$env_file" ]] || {
   echo "error: env file not found: $env_file" >&2

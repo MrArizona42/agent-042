@@ -6,7 +6,7 @@ from rag.domain import CollectionAttestation, RetrievalCapability, attestation_p
 from rag.runtime import RagRuntime, RagRuntimeSource
 from rag.vector_store import Document
 from shared.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
-from shared.config import Settings
+from shared.config import load_settings
 
 
 class _Embedding:
@@ -129,18 +129,20 @@ def _stores(*, capability: str = "dense") -> dict[str, _Store]:
 
 def _runtime(stores: dict[str, _Store]) -> RagRuntime:
     return RagRuntime(
-        settings=Settings(
-            platform={
-                "qdrant_host": "localhost",
-                "qdrant_port": 6333,
-                "embeddings_url": "http://embeddings:8100",
-            },
-            gateway={"embeddings_timeout": 10.0},
-            rag={
-                "embedding_model": "test-embedding",
-                "embedding_device": "cpu",
-                "build": {"embedding_batch_size": 32, "qdrant_upsert_batch_size": 128},
-            },
+        settings=load_settings(
+            overrides={
+                "platform": {
+                    "qdrant_host": "localhost",
+                    "qdrant_port": 6333,
+                    "embeddings_url": "http://embeddings:8100",
+                },
+                "gateway": {"embeddings_timeout": 10.0},
+                "rag": {
+                    "embedding_model": "test-embedding",
+                    "embedding_device": "cpu",
+                    "build": {"embedding_batch_size": 32, "qdrant_upsert_batch_size": 128},
+                },
+            }
         ),
         embedding_service=_Embedding(),
         vector_store_factory=lambda name: stores.get(name) or _Store(name=name, stores=stores),

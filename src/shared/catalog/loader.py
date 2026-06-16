@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 import tomllib
 from pathlib import Path
 from typing import TypeVar
 
 from shared.catalog.models import AliasConfig, KBConfig, TaskConfig
 from shared.catalog.schema import CatalogConfig, CatalogKBConfig, CatalogTaskConfig, SourceConfig
-
-logger = logging.getLogger(__name__)
 
 _CatalogItem = TypeVar("_CatalogItem", CatalogTaskConfig, CatalogKBConfig, SourceConfig)
 
@@ -102,8 +99,9 @@ def load_catalog(path: Path | str) -> tuple[dict[str, TaskConfig], dict[str, KBC
     path = Path(path)
 
     if not path.exists():
-        logger.warning("Catalog not found at %s - using empty catalog", path)
-        return {}, {}
+        raise FileNotFoundError(f"Catalog config file not found: {path}")
+    if not path.is_file():
+        raise FileNotFoundError(f"Catalog config path is not a file: {path}")
 
     if path.suffix.lower() != ".toml":
         raise ValueError(f"Catalog must be a TOML file (got '{path.name}')")

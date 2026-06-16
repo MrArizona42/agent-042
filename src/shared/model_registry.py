@@ -36,16 +36,14 @@ Typical flow
 
 Environment variables
 ---------------------
-``PLATFORM__MLFLOW_TRACKING_URI``
-    MLflow tracking server URL (e.g. ``http://mlflow:5000``).
+``NETWORK__MLFLOW__...``
+    Network coordinates used to derive the MLflow tracking server URL.
 ``MLFLOW_S3_ENDPOINT_URL``, ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``
     Credentials for downloading artifacts from S3.
-``ADAPTER_REGISTRY__ADAPTERS_DIR``
-    Where to store downloaded adapters (default ``./adapters``).
-``ADAPTER_REGISTRY__SYNC_ALIASES``
-    Comma-separated list of MLflow aliases to sync (default ``champion,challenger``).
-``PLATFORM__VLLM_BASE_URL``
-    Canonical vLLM server URL for the hot-load API (default ``http://localhost:8000``).
+``CONFIG__RUNTIME_PATH``
+    Runtime TOML file containing adapter registry aliases and policy.
+``NETWORK__VLLM__...``
+    Network coordinates used to derive the vLLM hot-load API URL.
 """
 
 from __future__ import annotations
@@ -336,8 +334,7 @@ class AdapterSyncer:
 
     Args:
         tracking_uri: MLflow tracking URI. Falls back to
-            ``settings.platform.mlflow_tracking_uri`` /
-            ``PLATFORM__MLFLOW_TRACKING_URI``, then to the MLflow default.
+            ``settings.platform.mlflow_tracking_uri``, then to the MLflow default.
         adapters_dir: Local root for downloaded adapter files.
         sync_aliases: List of MLflow aliases to iterate over.
         vllm_base_url: vLLM OpenAI-compatible server base URL.
@@ -537,16 +534,6 @@ class AdapterSyncer:
 # ── CLI entry point ──────────────────────────────────────────────────────────
 
 
-def _load_env(env_file: str | None) -> None:
-    """Load dotenv from *env_file* or the canonical repo-root `.env`."""
-    from shared.local_env import load_local_env, resolve_local_env_path
-
-    loaded_env = load_local_env(env_file)
-
-    if env_file and loaded_env is None:
-        logger.warning("Env file missing: %s", resolve_local_env_path(env_file))
-
-
 def _resolve_aliases(aliases: str | list | tuple | None):
     """Parse comma-separated aliases or fall back to config default."""
     from shared.config import get_settings
@@ -563,7 +550,6 @@ def _cmd_sync(
     adapters_dir: str | None = None,
     vllm_url: str | None = None,
     aliases: str | None = None,
-    env_file: str | None = None,
 ) -> None:
     """Download and hot-load aliased adapters."""
     from shared.config import get_settings
@@ -571,7 +557,6 @@ def _cmd_sync(
     settings = get_settings()
     adapter_registry = settings.adapter_registry
     platform = settings.platform
-    _load_env(env_file)
 
     syncer = AdapterSyncer(
         adapters_dir=adapters_dir or adapter_registry.adapters_dir,
@@ -589,7 +574,6 @@ def _cmd_sync(
 
 def _cmd_list(
     aliases: str | None = None,
-    env_file: str | None = None,
 ) -> None:
     """List aliased adapters in MLflow (no download)."""
     from shared.config import get_settings
@@ -597,7 +581,6 @@ def _cmd_list(
     settings = get_settings()
     adapter_registry = settings.adapter_registry
     platform = settings.platform
-    _load_env(env_file)
 
     syncer = AdapterSyncer(
         adapters_dir=adapter_registry.adapters_dir,

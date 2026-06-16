@@ -314,10 +314,13 @@ class TestKnowledgeBaseRegistryResolution:
 
         monkeypatch.setenv("PLATFORM__VLLM_BASE_URL", "http://platform-vllm:8000")
 
-        settings = load_settings({"rag": {"rag_enabled": False}})
+        settings = load_settings({"rag": {"enabled": False}})
 
-        assert settings.platform.vllm_base_url == "http://platform-vllm:8000"
-        assert settings.rag.rag_enabled is False
+        assert settings.platform.vllm_base_url == "http://vllm:8000"
+        assert settings.network.internal_url("vllm") == "http://vllm:8000"
+        assert settings.network.host_url("vllm") == "http://localhost:8000"
+        assert settings.rag.enabled is False
+        assert settings.vllm.model == "/models/Qwen/Qwen3-0.6B"
         assert settings.gateway.service_name == "agent-042-gateway"
         assert settings.auth.session_ttl_seconds == 86400
         with pytest.raises(AttributeError):
@@ -325,7 +328,7 @@ class TestKnowledgeBaseRegistryResolution:
         with pytest.raises(AttributeError):
             _ = settings.rag.knowledge_bases_path
 
-    def test_load_settings_merges_env_backed_nested_defaults_with_overrides(self, monkeypatch):
+    def test_load_settings_merges_runtime_toml_with_explicit_overrides(self, monkeypatch):
         from shared.config import load_settings
 
         monkeypatch.setenv("GATEWAY__URL", "http://gateway-from-env:9001")
@@ -333,19 +336,19 @@ class TestKnowledgeBaseRegistryResolution:
 
         settings = load_settings(
             {
+                "vllm": {"model": "override-model"},
                 "gateway": {
-                    "default_model": "override-model",
                     "budget": {"min_response_budget": 1024},
-                }
+                },
             }
         )
 
-        assert settings.gateway.default_model == "override-model"
-        assert settings.gateway.url == "http://gateway-from-env:9001"
-        assert settings.gateway.budget.model_max_tokens == 4096
+        assert settings.vllm.model == "override-model"
+        assert settings.gateway.url == "http://gateway:9000"
+        assert settings.gateway.budget.model_max_tokens == 32768
         assert settings.gateway.budget.min_response_budget == 1024
 
-    def test_gateway_cors_and_adapter_aliases_use_canonical_nested_names(self, monkeypatch):
+    def test_runtime_env_names_do_not_override_toml_values(self, monkeypatch):
         from shared.config import load_settings
 
         monkeypatch.setenv("GATEWAY__CORS_ALLOW_ORIGINS", "https://a.example, https://b.example")
@@ -353,11 +356,77 @@ class TestKnowledgeBaseRegistryResolution:
 
         settings = load_settings()
 
-        assert settings.gateway.cors_allow_origins == (
-            "https://a.example",
-            "https://b.example",
+        assert settings.gateway.cors_allow_origins == ("*",)
+        assert settings.adapter_registry.sync_aliases == ("champion", "challenger")
+
+    def test_runtime_path_is_required(self, monkeypatch):
+        from shared.config import load_settings
+
+        monkeypatch.delenv("CONFIG__RUNTIME_PATH", raising=False)
+
+        with pytest.raises(RuntimeError, match="CONFIG__RUNTIME_PATH"):
+            load_settings()
+
+    def test_missing_runtime_toml_field_is_validation_error(self, tmp_path: Path):
+        from pydantic import ValidationError
+
+        from shared.config import load_settings
+
+        path = tmp_path / "runtime.toml"
+        path.write_text("schema_version = 1\n", encoding="utf-8")
+
+        with pytest.raises(ValidationError, match="gateway"):
+            load_settings(runtime_path=path)
+
+    def test_runtime_toml_rejects_vllm_launch_settings(self, tmp_path: Path):
+        from pydantic import ValidationError
+
+        from shared.config import load_settings
+
+        path = tmp_path / "runtime.toml"
+        path.write_text(
+            Path("runtime.toml").read_text(encoding="utf-8")
+            + '\n[vllm]\nmodel = "/models/example"\n',
+            encoding="utf-8",
         )
-        assert settings.adapter_registry.sync_aliases == ("champion", "shadow")
+
+        with pytest.raises(ValidationError, match="vllm.model"):
+            load_settings(runtime_path=path)
+
+    def test_runtime_toml_rejects_derived_or_env_only_keys(self, tmp_path: Path):
+        from pydantic import ValidationError
+
+        from shared.config import load_settings
+
+        path = tmp_path / "runtime.toml"
+        runtime_toml = Path("runtime.toml").read_text(encoding="utf-8")
+        runtime_toml = runtime_toml.replace(
+            "[gateway]\n",
+            '[gateway]\nurl = "http://gateway:9000"\n',
+            1,
+        )
+        path.write_text(runtime_toml, encoding="utf-8")
+
+        with pytest.raises(ValidationError, match="gateway.url"):
+            load_settings(runtime_path=path)
+
+    def test_config_catalog_path_env_sets_catalog_settings(self, tmp_path: Path, monkeypatch):
+        from shared.config import load_settings
+
+        catalog_path = tmp_path / "catalog.toml"
+        monkeypatch.setenv("CONFIG__CATALOG_PATH", str(catalog_path))
+
+        settings = load_settings()
+
+        assert settings.catalog.path == catalog_path
+
+    def test_config_catalog_path_env_is_required(self, monkeypatch):
+        from shared.config import load_settings
+
+        monkeypatch.delenv("CONFIG__CATALOG_PATH", raising=False)
+
+        with pytest.raises(RuntimeError, match="CONFIG__CATALOG_PATH"):
+            load_settings()
 
     def test_legacy_flat_env_names_are_ignored(self, monkeypatch):
         from shared.config import load_settings
@@ -367,7 +436,7 @@ class TestKnowledgeBaseRegistryResolution:
 
         settings = load_settings()
 
-        assert settings.platform.vllm_base_url == "http://localhost:8000"
+        assert settings.platform.vllm_base_url == "http://vllm:8000"
 
     def test_catalog_settings_own_catalog_path(self):
         from shared.catalog import resolve_catalog_path
@@ -376,7 +445,7 @@ class TestKnowledgeBaseRegistryResolution:
         settings = CatalogConfig(path="configs/catalog.toml")
 
         assert settings.path == Path("configs/catalog.toml")
-        assert resolve_catalog_path(settings).as_posix().endswith("configs/catalog.toml")
+        assert resolve_catalog_path(settings) == Path.cwd() / "configs/catalog.toml"
 
     def test_get_catalog_prefers_catalog_settings_path(self, tmp_path: Path, monkeypatch):
         import shared.config as cfg
@@ -384,7 +453,7 @@ class TestKnowledgeBaseRegistryResolution:
 
         path = write_code_only_catalog(tmp_path / "catalog.toml")
 
-        monkeypatch.setenv("CATALOG__PATH", str(path))
+        monkeypatch.setenv("CONFIG__CATALOG_PATH", str(path))
         cfg.clear_knowledge_base_caches()
 
         catalog = get_catalog()
@@ -401,23 +470,24 @@ class TestKnowledgeBaseRegistryResolution:
         first = write_chat_only_catalog(tmp_path / "catalog-first.toml")
         second = write_code_only_catalog(tmp_path / "catalog-second.toml")
 
-        monkeypatch.setenv("CATALOG__PATH", str(first))
+        monkeypatch.setenv("CONFIG__CATALOG_PATH", str(first))
         cfg.clear_knowledge_base_caches()
         assert get_kb_names() == ["ml_papers_core"]
 
-        monkeypatch.setenv("CATALOG__PATH", str(second))
+        monkeypatch.setenv("CONFIG__CATALOG_PATH", str(second))
         cfg.clear_knowledge_base_caches()
         assert get_kb_names() == ["pytorch_reference"]
 
-    def test_legacy_flat_catalog_env_name_is_ignored(self, tmp_path: Path, monkeypatch):
-        from shared.catalog import resolve_catalog_path
+    def test_legacy_catalog_env_names_are_ignored(self, tmp_path: Path, monkeypatch):
+        from shared.config import load_settings
 
         path = write_chat_only_catalog(tmp_path / "catalog.toml")
 
         monkeypatch.setenv("CATALOG_PATH", str(path))
-        resolved = resolve_catalog_path()
+        monkeypatch.setenv("CATALOG__PATH", str(path))
+        settings = load_settings()
 
-        assert resolved != path
+        assert settings.catalog.path != path
 
     def test_in_memory_catalog_override_bypasses_disk_loading(self):
         from shared.catalog import (

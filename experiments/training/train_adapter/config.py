@@ -94,7 +94,6 @@ class TrackingConfig:
     log_artifacts: bool = True
     log_metrics: bool = True
     log_params: bool = True
-    env_path: Optional[str] = ".env"
 
 
 @dataclass

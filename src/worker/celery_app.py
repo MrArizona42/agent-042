@@ -19,8 +19,8 @@ worker = settings.worker
 
 if not platform.celery_broker_url:
     raise RuntimeError(
-        "PLATFORM__CELERY_BROKER_URL must be set for the worker process. "
-        "Set it as an environment variable."
+        "RabbitMQ broker URL could not be derived. Check RABBITMQ_DEFAULT_USER, "
+        "RABBITMQ_DEFAULT_PASS, and NETWORK__RABBITMQ_AMQP__*."
     )
 
 celery_app = Celery(

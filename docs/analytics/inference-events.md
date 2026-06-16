@@ -7,11 +7,14 @@ analytics. The first topic is:
 inference.events.v1
 ```
 
-The stream is enabled by default in the server Compose deployment through:
+The stream is configured by the root operator files:
 
 ```text
-PLATFORM__KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
-PLATFORM__INFERENCE_EVENTS_TOPIC=inference.events.v1
+NETWORK__REDPANDA_KAFKA__INTERNAL_HOST=redpanda
+NETWORK__REDPANDA_KAFKA__INTERNAL_PORT=9092
+
+[events]
+inference_topic = "inference.events.v1"
 ```
 
 There is no separate `EVENTS_ENABLED` flag. If Redpanda is unavailable,

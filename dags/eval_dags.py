@@ -48,7 +48,7 @@ from airflow.operators.python import PythonOperator
 # Configuration
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PROJECT_ROOT = Path(os.environ["CONTAINER__PROJECT_ROOT"])
 
 for _p in (str(PROJECT_ROOT / "src"), str(PROJECT_ROOT)):
     if _p not in sys.path:
@@ -61,17 +61,6 @@ default_args = {
     "email_on_retry": False,
     "retries": 0,
 }
-
-
-def _read_env(*names: str, default: str | None = None) -> str:
-    """Return the first non-empty env value from a priority-ordered list."""
-    for name in names:
-        value = os.environ.get(name)
-        if value is not None and value != "":
-            return value
-    if default is not None:
-        return default
-    raise KeyError(f"None of the environment variables are set: {', '.join(names)}")
 
 
 def _list_knowledge_base_names() -> list[str]:
@@ -95,6 +84,13 @@ def _list_knowledge_base_aliases() -> list[str]:
             for alias in kb_cfg.aliases
         }
     )
+
+
+def _list_adapter_sync_aliases() -> list[str]:
+    """Load LoRA alias options from the runtime adapter-registry policy."""
+    from shared.config import get_settings
+
+    return list(get_settings().adapter_registry.sync_aliases)
 
 
 # ---------------------------------------------------------------------------
@@ -338,10 +334,9 @@ def _calculate_metrics_task(
 # DAG generation
 # ---------------------------------------------------------------------------
 
-# Build alias dropdown options dynamically from the canonical adapter registry env
-# name so that the Airflow UI stays in sync with the deployed configuration.
-_sync_raw = _read_env("ADAPTER_REGISTRY__SYNC_ALIASES", default="champion,challenger")
-_sync_aliases = [a.strip() for a in _sync_raw.split(",") if a.strip()]
+# Build alias dropdown options dynamically from the runtime adapter registry
+# policy so that the Airflow UI stays in sync with the deployed configuration.
+_sync_aliases = _list_adapter_sync_aliases()
 _lora_alias_options = ["none"] + _sync_aliases
 
 # Build knowledge-base dropdown options from the shared catalog.

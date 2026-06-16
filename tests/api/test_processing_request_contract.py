@@ -10,7 +10,7 @@ from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
 from gateway.services.processing import _ProcessChat
 from gateway.services.task_router import RouteDecision
 from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
-from shared.config import Settings
+from shared.config import Settings, load_settings
 
 
 def _alias_config() -> dict[str, object]:
@@ -80,7 +80,6 @@ def _settings(
     rag: dict[str, object] | None = None,
 ) -> Settings:
     gateway_values = {
-        "default_model": "base-model",
         "repetition_penalty": 1.1,
     }
     budget_values = {
@@ -89,7 +88,7 @@ def _settings(
         "min_response_budget": 4,
     }
     rag_values = {
-        "rag_enabled": True,
+        "enabled": True,
     }
     if behavior is not None:
         gateway_values.update(behavior)
@@ -97,9 +96,12 @@ def _settings(
         budget_values.update(budget)
     if rag is not None:
         rag_values.update(rag)
-    return Settings(
-        gateway={**gateway_values, "budget": budget_values},
-        rag=rag_values,
+    return load_settings(
+        overrides={
+            "vllm": {"model": "base-model"},
+            "gateway": {**gateway_values, "budget": budget_values},
+            "rag": rag_values,
+        }
     )
 
 
@@ -167,7 +169,7 @@ def test_prepare_request_uses_task_adapter_model_when_no_explicit_model() -> Non
     with (
         patch(
             "gateway.services.processing.get_settings",
-            return_value=_settings(rag={"rag_enabled": False}),
+            return_value=_settings(rag={"enabled": False}),
         ),
         patch.object(process._router, "decide", return_value=RouteDecision(task="code")),
         patch.object(process, "_retrieve_rag_chunks", return_value={}) as retrieve_rag,
@@ -191,7 +193,7 @@ def test_prepare_request_prefers_explicit_model_over_task_adapter() -> None:
     with (
         patch(
             "gateway.services.processing.get_settings",
-            return_value=_settings(rag={"rag_enabled": False}),
+            return_value=_settings(rag={"enabled": False}),
         ),
         patch.object(process._router, "decide", return_value=RouteDecision(task="code")),
         patch.object(process, "_retrieve_rag_chunks", return_value={}),

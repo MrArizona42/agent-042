@@ -107,8 +107,8 @@ Fixed design choices:
 - Use Redpanda as the Kafka-compatible broker for this single-node deployment.
 - Include Redpanda Console immediately for topic inspection.
 - Event publishing is enabled by default in server Compose via
-  `PLATFORM__KAFKA_BOOTSTRAP_SERVERS`; do not add a separate
-  `EVENTS__ENABLED` flag.
+  `NETWORK__REDPANDA_KAFKA__...` plus `[events].inference_topic`; do not add
+  a separate `EVENTS__ENABLED` flag.
 - Keep RAG event payloads coarse for now. Source/chunk details move to the
   source-citation phase.
 

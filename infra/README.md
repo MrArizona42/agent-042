@@ -35,9 +35,9 @@ checkout-based запуск Compose. Каноническая серверная
 Что это означает на практике:
 - repo-root `.env` остаётся активным env-файлом для локального checkout и текущего Compose запуска
 - release-based deploy будет использовать внешний `/home/anton-m/agent-042/.env`, а не `.env` внутри релиза
-- переменные `ASSETS_ROOT`, `ARTIFACTS_ROOT`, `DVC_CONFIG_LOCAL_PATH`, `GITHUB_REPOSITORY`,
-  `GITHUB_DATA_SYNC_TOKEN` и `IMAGE_TAG` вводятся уже сейчас как часть server contract, хотя
-  часть из них начинает реально использоваться уже в Phase 2
+- переменные `GITHUB_REPOSITORY`, `GITHUB_DATA_SYNC_TOKEN` и `IMAGE_TAG` остаются частью
+  server contract; release code/config монтируются через `PROJECT_ROOT`, а persistent project data
+  монтируется через `SHARED_ROOT`
 
 ## Требования
 
@@ -155,15 +155,10 @@ cp .env.example .env
   активного релиза
   - Linux пример: `/home/user/agent-042`
   - Windows пример (как в шаблоне): `C:/Users/user/MyGitRepos/agent-042`
-- `ASSETS_ROOT` — внешний корень для persistent `assets`
-  - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/assets`
-  - серверный deploy пример: `/home/anton-m/agent-042/assets`
-- `ARTIFACTS_ROOT` — внешний корень для persistent `artifacts`
-  - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/artifacts`
-  - серверный deploy пример: `/home/anton-m/agent-042/artifacts`
-- `DVC_CONFIG_LOCAL_PATH` — путь к machine-local `.dvc/config.local`
-  - локальный checkout пример: `C:/Users/user/MyGitRepos/agent-042/.dvc/config.local`
-  - серверный deploy пример: `/home/anton-m/agent-042/.dvc/config.local`
+- `SHARED_ROOT` — host-side путь к durable state root с `assets/`, `artifacts/` и `.dvc`;
+  для release-based deploy это обычно `/home/anton-m/agent-042`, а не `current`
+- `runtime.toml` и `catalog.toml` лежат в `PROJECT_ROOT` и монтируются в контейнеры
+  как `/opt/agent/runtime.toml` и `/opt/agent/catalog.toml`
 - `GITHUB_REPOSITORY` / `GITHUB_DATA_SYNC_TOKEN` — используются Airflow temp-clone DVC/Git sync
   helper'ом для push в bot branch и для открытия или обновления PR в GitHub
 - `IMAGE_TAG` — будущий deployment-scoped tag для CI-built images; в текущем checkout-based
@@ -171,56 +166,48 @@ cp .env.example .env
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — креды для Yandex Object Storage (нужны MLflow)
 - `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` — опциональная auth-пара для локальных MLflow-клиентов и ноутбуков
 - `MLFLOW_*` — конфиг MLflow (backend store + artifact root)
-- `VLLM_*` — bootstrap/env переменные самого vLLM контейнера (модель, dtype, quantization, scheduler caps)
-- `PLATFORM__*`, `GATEWAY__*`, `RAG__*`, `AUTH__*`, `CATALOG__*`, `ADAPTER_REGISTRY__*`, `EVAL__*`, `WORKER__*`, `UI__*` — nested runtime settings contract для Python-сервисов, когда конкретный ключ действительно operator-facing
-- `RABBITMQ_*` — логин/пароль и порты RabbitMQ (брокер для Celery)
-- `REDIS_*` — порт Redis (pub/sub для потоковой передачи токенов)
-- `REDPANDA_*` — host-bound порты Redpanda broker/admin/schema registry/proxy и Redpanda Console
-- `CLICKHOUSE_*` — база, пользователь, пароль и host-bound HTTP/native порты ClickHouse
-- `FLOWER_*` — порт Flower (мониторинг Celery)
-- `REDISINSIGHT_*` — порт RedisInsight (мониторинг Redis)
-- `PROMETHEUS_PORT` — порт Prometheus (по умолчанию `9090`)
-- `LOKI_PORT` — порт Loki (по умолчанию `3100`)
-- `TEMPO_PORT` — порт Tempo HTTP API (по умолчанию `3200`)
-- `ALLOY_PORT` — порт Alloy UI/API (по умолчанию `12345`)
-- `OTEL_COLLECTOR_GRPC_PORT` / `OTEL_COLLECTOR_HTTP_PORT` — host-bound OTLP порты collector'а
+- `VLLM__*` — bootstrap/env переменные самого vLLM контейнера (модель, dtype, quantization, scheduler caps)
+- `NETWORK__*` — internal host/internal port/host port/scheme primitives для Compose-managed сервисов
+- `PUBLIC__*` — публичный base URL и path prefixes, из которых Compose строит adapter env для сервисов
+- `GATEWAY__API_KEY`, `AUTH__*`, `EVAL__JUDGE__API_KEY` — runtime secrets, которые Compose явно передаёт Python-контейнерам
+- `RABBITMQ_DEFAULT_*` — native RabbitMQ логин/пароль
+- `CLICKHOUSE_*` — native ClickHouse база, пользователь и пароль
+- host/internal порты задаются через соответствующие `NETWORK__...__HOST_PORT` и
+  `NETWORK__...__INTERNAL_PORT`
 - `OTEL_TRACES_SAMPLER_ARG` — доля трассировки для `parentbased_traceidratio`; на старте `1.0`
-- `GRAFANA_PORT` — порт Grafana (по умолчанию `3000`)
-- `GRAFANA_ADMIN_PASSWORD` — пароль admin-пользователя Grafana
-- `AIRFLOW_*` — конфиг Airflow (порт, БД, Fernet-ключ, admin-пользователь)
-- `JUPYTER_*` — конфиг JupyterLab (порт, токен)
+- `GF_SECURITY_ADMIN_PASSWORD` — native пароль admin-пользователя Grafana
+- `AIRFLOW__*` / `AIRFLOW_ADMIN_*` — native/env конфиг Airflow
+- `JUPYTER_TOKEN` — native токен JupyterLab
 
 Замечание:
-- Канонический шаблон `.env.example` намеренно не содержит внутренние endpoint'ы вроде `PLATFORM__VLLM_BASE_URL`, `PLATFORM__EMBEDDINGS_URL`, `GATEWAY__URL`, `PLATFORM__QDRANT_HOST` или `PLATFORM__MLFLOW_TRACKING_URI`.
-  Compose подставляет свои Docker-network значения напрямую из `infra/compose/docker-compose.yaml`, а локальные Python-запуски используют значения по умолчанию из `shared.config`.
-- На текущем этапе checkout-based Compose уже использует `ASSETS_ROOT`, `ARTIFACTS_ROOT` и
-  `DVC_CONFIG_LOCAL_PATH` для shared mounts, а `GITHUB_*`-переменные использует Airflow data-sync
-  path. `IMAGE_TAG` остаётся зарезервированным для последующих deploy фаз.
+- Канонический шаблон `.env.example` не содержит полные внутренние endpoint'ы.
+  Python derives project-owned URLs from `NETWORK__...` via `shared.config`.
+- Compose derives code/config mounts from `PROJECT_ROOT`, durable data mounts from `SHARED_ROOT`;
+  `IMAGE_TAG` controls image tags for deploy/local runs.
 - Workflow для logs/traces/metrics описан в `docs/analytics/observability.md`; durable inference events описаны в `docs/analytics/inference-events.md`; ClickHouse analytics описана в `docs/analytics/clickhouse-analytics.md`.
 
 ### Разделение env surfaces
 
 В проекте теперь есть жёсткое разделение между двумя типами переменных:
 
-- flat env keys для Compose/bootstrap concerns: порты, image/build параметры и конфиг внешних сервисов вроде `VLLM_MODEL`, `QDRANT_PORT`, `AIRFLOW_PORT`, `RABBITMQ_*`
-- nested env keys для runtime settings Python-сервисов: `SECTION__FIELD`
+- native env keys для service/bootstrap concerns: image/build параметры, credentials и конфиг внешних сервисов вроде `RABBITMQ_DEFAULT_PASS`, `GF_SECURITY_ADMIN_PASSWORD`, `AWS_ACCESS_KEY_ID`
+- project-owned nested env keys для topology/secrets: `NETWORK__...`, `PUBLIC__...`, `AUTH__...`
+- runtime behavior lives in root `runtime.toml`
 
 Практические правила:
 
-- если ключ читает `src/shared/config.py`, используйте только nested имя
-- если ключ нужен только Compose, host port mapping или отдельному контейнеру, flat имя допустимо
-- новые runtime settings не должны получать flat compatibility aliases
+- если ключ имеет upstream/native имя, сохраняйте native имя
+- если ключ описывает project-owned endpoint topology, используйте `NETWORK__...`
+- новые runtime settings добавляйте в `runtime.toml`, а не в env
 - catalog-specific helpers и schema не должны документироваться как часть `shared.config`; их владелец — `src/shared/catalog/`
 
 Типичные operator-facing nested keys из текущего контракта:
 
-- `RAG__EMBEDDING_MODEL`
-- `GATEWAY__ASYNC_ENABLED`
+- `NETWORK__VLLM__INTERNAL_HOST`
+- `NETWORK__VLLM__INTERNAL_PORT`
 - `AUTH__INTERNAL_API_KEY`
-- `EVAL__DB_URL`
-- `CATALOG__PATH`
-- `ADAPTER_REGISTRY__SYNC_ALIASES`
-- `WORKER__CONCURRENCY`
+- `RABBITMQ_DEFAULT_PASS`
+- `POSTGRES_APP_DB`
 
 ### Подготовка shared roots и прав доступа (Phase 2)
 
@@ -323,10 +310,10 @@ PY
 не причина возвращать `airflow-prepare-dirs`.
 
 Практический тюнинг vLLM для локальной GPU:
-- `VLLM_MAX_NUM_SEQS` — жёсткий верхний предел числа последовательностей, которые vLLM одновременно держит в scheduler batch. Для 12 GB GPU и длинного контекста безопасно начинать с `1-2`.
-- `VLLM_MAX_NUM_BATCHED_TOKENS` — верхний предел числа токенов в одном scheduler/pre-fill шаге. Это не размер полного контекста; при chunked prefill длинный prompt просто режется на куски такого размера. Для старта разумно держать `1024-2048`.
-- Соотношение параметров: `prompt_tokens + final_generation_budget` должны помещаться в `max_model_len`, а `VLLM_MAX_NUM_BATCHED_TOKENS` обычно должен быть заметно меньше `max_model_len`, потому что он ограничивает пик памяти на шаг, а не общий размер одного запроса.
-- Если vLLM падает именно на `Capturing CUDA graphs`, сначала снижайте `VLLM_GPU_UTIL` или `VLLM_MAX_NUM_BATCHED_TOKENS`; только потом повышайте `VLLM_MAX_NUM_SEQS`.
+- `VLLM__MAX_NUM_SEQS` — жёсткий верхний предел числа последовательностей, которые vLLM одновременно держит в scheduler batch. Для 12 GB GPU и длинного контекста безопасно начинать с `1-2`.
+- `VLLM__MAX_NUM_BATCHED_TOKENS` — верхний предел числа токенов в одном scheduler/pre-fill шаге. Это не размер полного контекста; при chunked prefill длинный prompt просто режется на куски такого размера. Для старта разумно держать `1024-2048`.
+- Соотношение параметров: `prompt_tokens + final_generation_budget` должны помещаться в `max_model_len`, а `VLLM__MAX_NUM_BATCHED_TOKENS` обычно должен быть заметно меньше `max_model_len`, потому что он ограничивает пик памяти на шаг, а не общий размер одного запроса.
+- Если vLLM падает именно на `Capturing CUDA graphs`, сначала снижайте `VLLM__GPU_UTILIZATION` или `VLLM__MAX_NUM_BATCHED_TOKENS`; только потом повышайте `VLLM__MAX_NUM_SEQS`.
 
 Важно:
 - MLflow в текущей конфигурации подключён к S3, но не проксирует артефакты (опция `--serve-artifacts` отключена).
@@ -356,11 +343,11 @@ sudo setfacl -R -d -m u:${DEPLOY_USER}:rwx,u:${AIRFLOW_UID}:rwx,u:${JUPYTER_UID}
 
 ### Модели для vLLM
 
-Контейнер vLLM монтирует папку `assets/models` как `/models`.
+Контейнер vLLM монтирует папку `${SHARED_ROOT}/assets/models` как `/models`.
 Чтобы использовать локальную модель из репозитория, укажите:
-- `VLLM_MODEL=/models/<vendor>/<model>`
+- `VLLM__MODEL=/models/<vendor>/<model>`
 
-Если хотите использовать HuggingFace model id (без локальных файлов), укажите `VLLM_MODEL=<org>/<name>`.
+Если хотите использовать HuggingFace model id (без локальных файлов), укажите `VLLM__MODEL=<org>/<name>`.
 В этом случае модели будут скачиваться в кэш внутри контейнера (см. `HF_HOME=/models/.cache`).
 
 ## MLFlow tracking server
@@ -385,12 +372,12 @@ Airflow развёрнут с CeleryExecutor и использует общий 
 - `airflow-worker-gpu` — worker с доступом к GPU для задач, которым он нужен
 
 DAG-файлы размещаются в директории `dags/` в корне репозитория и монтируются в контейнеры Airflow.
-Корень проекта так же монтируется как `/opt/airflow/project`, но shared state поверх него уже
-перекладывается на внешние bind mount'ы:
-- `${ASSETS_ROOT}/datasets` → `/opt/airflow/project/assets/datasets`
-- `${ASSETS_ROOT}/rag_data` → `/opt/airflow/project/assets/rag_data`
-- `${ARTIFACTS_ROOT}/training` → `/opt/airflow/project/artifacts/training`
-- `${DVC_CONFIG_LOCAL_PATH}` → `/opt/airflow/project/.dvc/config.local`
+Корень проекта так же монтируется как `/opt/airflow/project`. Shared state остаётся
+project-relative, а Compose строит bind mount'ы от `SHARED_ROOT`:
+- `${SHARED_ROOT}/assets/datasets` → `/opt/airflow/project/assets/datasets`
+- `${SHARED_ROOT}/assets/rag_data` → `/opt/airflow/project/assets/rag_data`
+- `${SHARED_ROOT}/artifacts/training` → `/opt/airflow/project/artifacts/training`
+- `${SHARED_ROOT}/.dvc/config.local` → `/opt/airflow/project/.dvc/config.local`
 
 Это даёт DAG'ам стабильные project-relative пути, но убирает зависимость от записи в checkout-backed
 `assets/`, `artifacts/` и `.dvc`.
@@ -407,7 +394,7 @@ DAG-файлы размещаются в директории `dags/` в кор�
 
 `rag_lifecycle` принимает параметры Airflow UI:
 
-- `kb` — KB id из `src/shared/catalog.toml`, например `ml_papers_core` или `pytorch_reference`
+- `kb` — KB id из `catalog.toml`, например `ml_papers_core` или `pytorch_reference`
 - `source` — source instance id внутри KB, например `papers` или `docs`
 - `alias_config` — alias profile used for build settings, for example `champion` or `challenger`
 - `promote_alias` — optional alias to repoint after materialization; leave empty for build-only runs
@@ -453,8 +440,8 @@ docker compose up -d airflow-worker
 - `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` — логин/пароль admin-пользователя
 
 DAG'и также используют следующие переменные (передаются через `x-airflow-common-env`):
-- `PLATFORM__QDRANT_HOST` / `PLATFORM__QDRANT_PORT` — адрес Qdrant для пересборки индексов
-- `EMBEDDING_MODEL` — модель эмбеддингов (берётся из `RAG__EMBEDDING_MODEL`)
+- `NETWORK__QDRANT_HTTP__INTERNAL_HOST` / `NETWORK__QDRANT_HTTP__INTERNAL_PORT` — адрес Qdrant для пересборки индексов
+- `CONFIG__RUNTIME_PATH` — путь к mounted `runtime.toml` с runtime policy
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_DEFAULT_REGION` — для `dvc push` в Yandex Cloud S3
 - `GITHUB_REPOSITORY` / `GITHUB_DATA_SYNC_TOKEN` — для temp-clone Git push и GitHub PR API
 
@@ -467,7 +454,7 @@ JupyterLab предоставляет интерактивную среду дл
 Монтируемые директории:
 - `${PROJECT_ROOT}/src` → `/home/jovyan/src` (ro) — production-модули для импортов `shared/*`, `rag/*`, `gateway/*`
 - `experiments/` → `/home/jovyan/experiments` (rw) — скрипты и конфиги экспериментов
-- `${ASSETS_ROOT}` → `/home/jovyan/assets` (rw) — внешний shared root для данных, моделей и адаптеров
+- `${SHARED_ROOT}/assets` → `/home/jovyan/assets` (rw) — shared root для данных, моделей и адаптеров
 - `dags/` → `/home/jovyan/dags` (rw) — Airflow DAG-файлы
 
 Переменные окружения (`.env`):
@@ -475,13 +462,13 @@ JupyterLab предоставляет интерактивную среду дл
 - `JUPYTER_TOKEN` — токен для аутентификации (по умолчанию `agent042`)
 
 Дополнительно контейнер получает сервисные переменные:
-- `PROJECT_ROOT=/home/jovyan`
+- `CONTAINER__PROJECT_ROOT=/home/jovyan`
 - `PYTHONPATH=/home/jovyan:/home/jovyan/src`
-- `PLATFORM__QDRANT_HOST=qdrant`, `PLATFORM__QDRANT_PORT=${PLATFORM__QDRANT_PORT}`
-- `PLATFORM__EMBEDDINGS_URL=http://embeddings:8100`
-- `GATEWAY__URL=http://gateway:9000`
+- `NETWORK__...` primitives for internal service discovery
+- `CONFIG__RUNTIME_PATH=/opt/agent/runtime.toml`
+- `CONFIG__CATALOG_PATH=/opt/agent/catalog.toml`
 
-Важно: этот `PROJECT_ROOT=/home/jovyan` относится только к контейнеру Jupyter. Это не тот же
+Важно: `CONTAINER__PROJECT_ROOT=/home/jovyan` относится только к контейнеру Jupyter. Это не тот же
 самый `PROJECT_ROOT`, который оператор задаёт в repo-root `.env` или в `/home/anton-m/agent-042/.env` для
 Compose interpolation на хосте.
 

@@ -891,7 +891,7 @@ def fetch_predictions(
     settings = get_settings()
     eval_settings = settings.eval
     metrics = eval_settings.metrics
-    base_model = settings.gateway.default_model
+    base_model = settings.vllm.model
     judge_settings = _resolve_judge_settings(
         eval_settings=eval_settings,
         platform=settings.platform,

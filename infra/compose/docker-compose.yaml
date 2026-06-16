@@ -2,46 +2,109 @@
 # Reusable fragments
 # =====================
 
-# Canonical nested settings env vars injected into services.
-# Legacy flat names remain temporarily supported in code, but deployment wiring
-# should use the nested root-settings surface below.
-x-shared-endpoints: &shared-endpoints
-  PLATFORM__VLLM_BASE_URL: ${PLATFORM__VLLM_BASE_URL:-http://vllm:8000}
-  PLATFORM__REDIS_URL: ${PLATFORM__REDIS_URL:-redis://redis:6379/0}
-  PLATFORM__EMBEDDINGS_URL: ${PLATFORM__EMBEDDINGS_URL:-http://embeddings:8100}
-  RAG__RERANKER_URL: ${RAG__RERANKER_URL:-http://reranker:8101}
-  # Container-to-container Gateway URL.  Host-side .env may set GATEWAY__URL
-  # to localhost for operator scripts, but Docker services must use Compose DNS.
-  GATEWAY__URL: http://gateway:9000
-  PLATFORM__MLFLOW_TRACKING_URI: ${PLATFORM__MLFLOW_TRACKING_URI:-http://mlflow:5000}
-  PLATFORM__QDRANT_HOST: ${PLATFORM__QDRANT_HOST:-qdrant}
-  PLATFORM__QDRANT_PORT: ${PLATFORM__QDRANT_PORT:-6333}
-  PLATFORM__KAFKA_BOOTSTRAP_SERVERS: ${PLATFORM__KAFKA_BOOTSTRAP_SERVERS:-redpanda:9092}
-  PLATFORM__INFERENCE_EVENTS_TOPIC: ${PLATFORM__INFERENCE_EVENTS_TOPIC:-inference.events.v1}
+x-network-env: &network-env
+  NETWORK__POSTGRES__INTERNAL_HOST: ${NETWORK__POSTGRES__INTERNAL_HOST}
+  NETWORK__POSTGRES__INTERNAL_PORT: ${NETWORK__POSTGRES__INTERNAL_PORT}
+  NETWORK__POSTGRES__HOST_PORT: ${NETWORK__POSTGRES__HOST_PORT}
+  NETWORK__MLFLOW__INTERNAL_HOST: ${NETWORK__MLFLOW__INTERNAL_HOST}
+  NETWORK__MLFLOW__SCHEME: ${NETWORK__MLFLOW__SCHEME}
+  NETWORK__MLFLOW__INTERNAL_PORT: ${NETWORK__MLFLOW__INTERNAL_PORT}
+  NETWORK__MLFLOW__HOST_PORT: ${NETWORK__MLFLOW__HOST_PORT}
+  NETWORK__VLLM__INTERNAL_HOST: ${NETWORK__VLLM__INTERNAL_HOST}
+  NETWORK__VLLM__SCHEME: ${NETWORK__VLLM__SCHEME}
+  NETWORK__VLLM__INTERNAL_PORT: ${NETWORK__VLLM__INTERNAL_PORT}
+  NETWORK__VLLM__HOST_PORT: ${NETWORK__VLLM__HOST_PORT}
+  NETWORK__QDRANT_HTTP__INTERNAL_HOST: ${NETWORK__QDRANT_HTTP__INTERNAL_HOST}
+  NETWORK__QDRANT_HTTP__INTERNAL_PORT: ${NETWORK__QDRANT_HTTP__INTERNAL_PORT}
+  NETWORK__QDRANT_HTTP__HOST_PORT: ${NETWORK__QDRANT_HTTP__HOST_PORT}
+  NETWORK__QDRANT_GRPC__INTERNAL_HOST: ${NETWORK__QDRANT_GRPC__INTERNAL_HOST}
+  NETWORK__QDRANT_GRPC__INTERNAL_PORT: ${NETWORK__QDRANT_GRPC__INTERNAL_PORT}
+  NETWORK__QDRANT_GRPC__HOST_PORT: ${NETWORK__QDRANT_GRPC__HOST_PORT}
+  NETWORK__RABBITMQ_AMQP__INTERNAL_HOST: ${NETWORK__RABBITMQ_AMQP__INTERNAL_HOST}
+  NETWORK__RABBITMQ_AMQP__INTERNAL_PORT: ${NETWORK__RABBITMQ_AMQP__INTERNAL_PORT}
+  NETWORK__RABBITMQ_AMQP__HOST_PORT: ${NETWORK__RABBITMQ_AMQP__HOST_PORT}
+  NETWORK__REDIS__INTERNAL_HOST: ${NETWORK__REDIS__INTERNAL_HOST}
+  NETWORK__REDIS__INTERNAL_PORT: ${NETWORK__REDIS__INTERNAL_PORT}
+  NETWORK__REDIS__HOST_PORT: ${NETWORK__REDIS__HOST_PORT}
+  NETWORK__REDPANDA_KAFKA__INTERNAL_HOST: ${NETWORK__REDPANDA_KAFKA__INTERNAL_HOST}
+  NETWORK__REDPANDA_KAFKA__INTERNAL_PORT: ${NETWORK__REDPANDA_KAFKA__INTERNAL_PORT}
+  NETWORK__REDPANDA_KAFKA__HOST_PORT: ${NETWORK__REDPANDA_KAFKA__HOST_PORT}
+  NETWORK__EMBEDDINGS__INTERNAL_HOST: ${NETWORK__EMBEDDINGS__INTERNAL_HOST}
+  NETWORK__EMBEDDINGS__SCHEME: ${NETWORK__EMBEDDINGS__SCHEME}
+  NETWORK__EMBEDDINGS__INTERNAL_PORT: ${NETWORK__EMBEDDINGS__INTERNAL_PORT}
+  NETWORK__RERANKER__INTERNAL_HOST: ${NETWORK__RERANKER__INTERNAL_HOST}
+  NETWORK__RERANKER__SCHEME: ${NETWORK__RERANKER__SCHEME}
+  NETWORK__RERANKER__INTERNAL_PORT: ${NETWORK__RERANKER__INTERNAL_PORT}
+  NETWORK__CODE_SANDBOX__INTERNAL_HOST: ${NETWORK__CODE_SANDBOX__INTERNAL_HOST}
+  NETWORK__CODE_SANDBOX__SCHEME: ${NETWORK__CODE_SANDBOX__SCHEME}
+  NETWORK__CODE_SANDBOX__INTERNAL_PORT: ${NETWORK__CODE_SANDBOX__INTERNAL_PORT}
+  NETWORK__GATEWAY__INTERNAL_HOST: ${NETWORK__GATEWAY__INTERNAL_HOST}
+  NETWORK__GATEWAY__SCHEME: ${NETWORK__GATEWAY__SCHEME}
+  NETWORK__GATEWAY__INTERNAL_PORT: ${NETWORK__GATEWAY__INTERNAL_PORT}
+  NETWORK__GATEWAY__HOST_PORT: ${NETWORK__GATEWAY__HOST_PORT}
+
+x-config-path-env: &config-path-env
+  CONFIG__RUNTIME_PATH: /opt/agent/runtime.toml
+  CONFIG__CATALOG_PATH: /opt/agent/catalog.toml
+  VLLM__MODEL: ${VLLM__MODEL}
+
+x-config-volumes: &config-volumes
+  - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
+  - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
+
+x-shared-root-volumes: &shared-root-volumes
+  datasets: &shared-datasets-volume ${SHARED_ROOT}/assets/datasets:/opt/airflow/project/assets/datasets
+  rag_data: &shared-rag-data-volume ${SHARED_ROOT}/assets/rag_data:/opt/airflow/project/assets/rag_data
+  training_artifacts: &shared-training-artifacts-volume ${SHARED_ROOT}/artifacts/training:/opt/airflow/project/artifacts/training
+  dvc_config: &shared-dvc-config-volume ${SHARED_ROOT}/.dvc/config.local:/opt/airflow/project/.dvc/config.local:ro
+
+x-s3-client-env: &s3-client-env
+  MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+
+x-postgres-client-env: &postgres-client-env
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  POSTGRES_APP_DB: ${POSTGRES_APP_DB}
+
+x-rabbitmq-client-env: &rabbitmq-client-env
+  RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+  RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+
+x-runtime-secret-env: &runtime-secret-env
+  GATEWAY__API_KEY: ${GATEWAY__API_KEY}
+  AUTH__GOOGLE_CLIENT_ID: ${AUTH__GOOGLE_CLIENT_ID}
+  AUTH__GOOGLE_CLIENT_SECRET: ${AUTH__GOOGLE_CLIENT_SECRET}
+  AUTH__GOOGLE_REDIRECT_URI: ${PUBLIC__BASE_URL}${PUBLIC__AUTH_CALLBACK_PATH}
+  AUTH__SESSION_SECRET_KEY: ${AUTH__SESSION_SECRET_KEY}
+  AUTH__INTERNAL_API_KEY: ${AUTH__INTERNAL_API_KEY}
+  EVAL__JUDGE__API_KEY: ${EVAL__JUDGE__API_KEY}
 
 x-observability-env: &observability-env
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://${NETWORK__OTEL_COLLECTOR_GRPC__INTERNAL_HOST}:${NETWORK__OTEL_COLLECTOR_GRPC__INTERNAL_PORT}
   OTEL_EXPORTER_OTLP_PROTOCOL: grpc
   OTEL_TRACES_SAMPLER: parentbased_traceidratio
-  OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+  OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG}
 
 x-airflow-common-env: &airflow-common-env
-  <<: *shared-endpoints
+  <<: [*network-env, *config-path-env, *runtime-secret-env, *s3-client-env, *postgres-client-env, *rabbitmq-client-env]
   AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-  AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
-  AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+  AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@${NETWORK__RABBITMQ_AMQP__INTERNAL_HOST}:${NETWORK__RABBITMQ_AMQP__INTERNAL_PORT}//
+  AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_AIRFLOW_DB}
   AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER}:admin
   AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/logs/simple_auth_manager_passwords.json
-  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
-  AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_AIRFLOW_DB}
+  AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/airflow/execution/
-  AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
-  AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER}
+  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: ${NETWORK__AIRFLOW_WEBSERVER__SCHEME}://${NETWORK__AIRFLOW_WEBSERVER__INTERNAL_HOST}:${NETWORK__AIRFLOW_WEBSERVER__INTERNAL_PORT}${PUBLIC__AIRFLOW_PATH}/execution/
+  AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
+  AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER}
   # Shared key for signing worker log-fetch JWTs (HS512).  Without this,
   # each container auto-generates a random key and the webserver cannot
   # read task logs from the worker (InvalidSignatureError).
-  AIRFLOW__API__SECRET_KEY: ${AIRFLOW_JWT_SECRET}
+  AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API_AUTH__JWT_SECRET}
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
@@ -50,21 +113,7 @@ x-airflow-common-env: &airflow-common-env
 
 
   # Project paths & service endpoints used by DAGs
-  PROJECT_ROOT: /opt/airflow/project
-  RAG__EMBEDDING_MODEL: ${RAG__EMBEDDING_MODEL}
-  AUTH__INTERNAL_API_KEY: ${AUTH__INTERNAL_API_KEY}
-  EVAL__DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/agent042
-  EVAL__JUDGE__BACKEND: ${EVAL__JUDGE__BACKEND:-local_vllm}
-  EVAL__JUDGE__MODEL: ${EVAL__JUDGE__MODEL:-${VLLM_MODEL}}
-  EVAL__JUDGE__BASE_URL: ${EVAL__JUDGE__BASE_URL:-}
-  EVAL__JUDGE__API_KEY: ${EVAL__JUDGE__API_KEY:-}
-  EVAL__JUDGE__TIMEOUT: ${EVAL__JUDGE__TIMEOUT:-60.0}
-  EVAL__JUDGE__REQUEST_DELAY_SECONDS: ${EVAL__JUDGE__REQUEST_DELAY_SECONDS:-0.0}
-  # MLflow client endpoint for training, eval, and registry access
-  ADAPTER_REGISTRY__SYNC_ALIASES: ${ADAPTER_REGISTRY__SYNC_ALIASES}
-  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+  CONTAINER__PROJECT_ROOT: /opt/airflow/project
   GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}
   GITHUB_DATA_SYNC_TOKEN: ${GITHUB_DATA_SYNC_TOKEN}
 
@@ -95,10 +144,12 @@ x-airflow-worker-gpu-image: &airflow-worker-gpu-image "ghcr.io/${GITHUB_REPOSITO
 x-airflow-common-volumes: &airflow-common-volumes
   - ${PROJECT_ROOT}/dags:/opt/airflow/dags
   - ${PROJECT_ROOT}:/opt/airflow/project
-  - ${ASSETS_ROOT}/datasets:/opt/airflow/project/assets/datasets
-  - ${ASSETS_ROOT}/rag_data:/opt/airflow/project/assets/rag_data
-  - ${ARTIFACTS_ROOT}/training:/opt/airflow/project/artifacts/training
-  - ${DVC_CONFIG_LOCAL_PATH}:/opt/airflow/project/.dvc/config.local:ro
+  - *shared-datasets-volume
+  - *shared-rag-data-volume
+  - *shared-training-artifacts-volume
+  - *shared-dvc-config-volume
+  - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
+  - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
   - airflow_logs:/opt/airflow/logs
 
 x-logging: &default-logging
@@ -136,7 +187,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
     ports:
-      - "127.0.0.1:${POSTGRES_PORT}:5432"
+      - "127.0.0.1:${NETWORK__POSTGRES__HOST_PORT}:5432"
 
     volumes:
       - mlflow_pg_data:/var/lib/postgresql/data
@@ -164,7 +215,7 @@ services:
 
     environment:
       MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_SERVER_ALLOWED_HOSTS}
-      MLFLOW_BACKEND_URI: ${MLFLOW_BACKEND_URI}
+      MLFLOW_BACKEND_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_DB}
       MLFLOW_ARTIFACT_ROOT: ${MLFLOW_ARTIFACT_ROOT}
       # S3 credentials (Yandex Object Storage)
       MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
@@ -173,7 +224,7 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
 
     ports:
-      - "127.0.0.1:${MLFLOW_PORT}:5000"
+      - "127.0.0.1:${NETWORK__MLFLOW__HOST_PORT}:5000"
 
     depends_on:
       postgres:
@@ -186,7 +237,7 @@ services:
       - --port
       - "5000"
       - --backend-store-uri
-      - ${MLFLOW_BACKEND_URI}
+      - postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_DB}
       - --default-artifact-root
       - ${MLFLOW_ARTIFACT_ROOT}
       - --allowed-hosts
@@ -217,16 +268,12 @@ services:
       dockerfile: infra/docker/adapter-sync/Dockerfile
 
     environment:
-      <<: *shared-endpoints
-      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
-      ADAPTER_REGISTRY__ADAPTERS_DIR: /adapters
-      ADAPTER_REGISTRY__SYNC_ALIASES: ${ADAPTER_REGISTRY__SYNC_ALIASES}
+      <<: [*network-env, *config-path-env, *runtime-secret-env, *s3-client-env, *postgres-client-env, *rabbitmq-client-env]
 
     volumes:
-      - ${ASSETS_ROOT}/adapters:/adapters:rw
+      - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
+      - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
+      - ${SHARED_ROOT}/assets/adapters:/adapters:rw
 
     depends_on:
       vllm:
@@ -248,40 +295,35 @@ services:
     image: vllm/vllm-openai:v0.16.0
 
     environment:
-      VLLM_MODEL: ${VLLM_MODEL}
-      VLLM_DTYPE: ${VLLM_DTYPE}
-      VLLM_QUANT: ${VLLM_QUANT}
-      VLLM_GPU_UTIL: ${VLLM_GPU_UTIL}
-      VLLM_KV_CACHE_DTYPE: ${VLLM_KV_CACHE_DTYPE}
       HF_HOME: /models/.cache
       # Prioritise host-injected NVIDIA driver libs over the CUDA compat stubs
       # bundled inside the image (prevents Error 803 when host driver is newer).
       LD_LIBRARY_PATH: /lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
       # Allow loading/unloading LoRA adapters at runtime via the API
-      VLLM_ALLOW_RUNTIME_LORA_UPDATING: "true"
+      VLLM_ALLOW_RUNTIME_LORA_UPDATING: ${VLLM__ALLOW_RUNTIME_LORA_UPDATING}
 
     command: [
-      "--model", "${VLLM_MODEL}",
-      "--dtype", "${VLLM_DTYPE}",
-      "--tensor-parallel-size", "${VLLM_GPU_COUNT}",
-      "--gpu-memory-utilization", "${VLLM_GPU_UTIL}",
-      "--max-num-seqs", "${VLLM_MAX_NUM_SEQS}",
-      "--max-num-batched-tokens", "${VLLM_MAX_NUM_BATCHED_TOKENS}",
-      "--kv-cache-dtype", "${VLLM_KV_CACHE_DTYPE}",
-      "--quantization", "${VLLM_QUANT}",
+      "--model", "${VLLM__MODEL}",
+      "--dtype", "${VLLM__DTYPE}",
+      "--tensor-parallel-size", "${VLLM__GPU_COUNT}",
+      "--gpu-memory-utilization", "${VLLM__GPU_UTILIZATION}",
+      "--max-num-seqs", "${VLLM__MAX_NUM_SEQS}",
+      "--max-num-batched-tokens", "${VLLM__MAX_NUM_BATCHED_TOKENS}",
+      "--kv-cache-dtype", "${VLLM__KV_CACHE_DTYPE}",
+      "--quantization", "${VLLM__QUANTIZATION}",
       "--enable-lora",
-      "--max-loras", "${VLLM_MAX_LORAS}",
-      "--max-lora-rank", "${VLLM_MAX_LORA_RANK}",
+      "--max-loras", "${VLLM__MAX_LORAS}",
+      "--max-lora-rank", "${VLLM__MAX_LORA_RANK}",
       "--host", "0.0.0.0",
-      "--port", "8000"
+      "--port", "${NETWORK__VLLM__INTERNAL_PORT}"
     ]
 
     ports:
-      - "127.0.0.1:${VLLM_PORT}:8000"
+      - "127.0.0.1:${NETWORK__VLLM__HOST_PORT}:${NETWORK__VLLM__INTERNAL_PORT}"
 
     volumes:
-      - ${ASSETS_ROOT}/models:/models:rw
-      - ${ASSETS_ROOT}/adapters:/adapters:rw
+      - ${SHARED_ROOT}/assets/models:/models:rw
+      - ${SHARED_ROOT}/assets/adapters:/adapters:rw
 
     depends_on:
       mlflow:
@@ -292,11 +334,11 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: ${VLLM_GPU_COUNT}
+              count: ${VLLM__GPU_COUNT}
               capabilities: [gpu]
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/models"]
+      test: ["CMD", "curl", "-f", "http://localhost:${NETWORK__VLLM__INTERNAL_PORT}/v1/models"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -314,8 +356,8 @@ services:
     image: qdrant/qdrant:v1.17.0
 
     ports:
-      - "127.0.0.1:${QDRANT_PORT}:6333"
-      - "127.0.0.1:${QDRANT_GRPC_PORT}:6334"
+      - "127.0.0.1:${NETWORK__QDRANT_HTTP__HOST_PORT}:6333"
+      - "127.0.0.1:${NETWORK__QDRANT_GRPC__HOST_PORT}:6334"
 
     volumes:
       - qdrant_data:/qdrant/storage
@@ -339,12 +381,12 @@ services:
     image: rabbitmq:3-management
 
     ports:
-      - "127.0.0.1:${RABBITMQ_PORT}:5672"
-      - "127.0.0.1:${RABBITMQ_MGMT_PORT}:15672"
+      - "127.0.0.1:${NETWORK__RABBITMQ_AMQP__HOST_PORT}:5672"
+      - "127.0.0.1:${NETWORK__RABBITMQ_MGMT__HOST_PORT}:15672"
 
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
 
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
@@ -370,7 +412,7 @@ services:
     image: redis:7-alpine
 
     ports:
-      - "127.0.0.1:${REDIS_PORT}:6379"
+      - "127.0.0.1:${NETWORK__REDIS__HOST_PORT}:6379"
 
     volumes:
       - redis_data:/data
@@ -399,11 +441,11 @@ services:
       - --kafka-addr
       - internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr
-      - internal://redpanda:9092,external://localhost:${REDPANDA_KAFKA_PORT}
+      - internal://redpanda:9092,external://localhost:${NETWORK__REDPANDA_KAFKA__HOST_PORT}
       - --pandaproxy-addr
       - internal://0.0.0.0:8082,external://0.0.0.0:18082
       - --advertise-pandaproxy-addr
-      - internal://redpanda:8082,external://localhost:${REDPANDA_PANDAPROXY_PORT}
+      - internal://redpanda:8082,external://localhost:${NETWORK__REDPANDA_PANDAPROXY__HOST_PORT}
       - --schema-registry-addr
       - internal://0.0.0.0:8081,external://0.0.0.0:18081
       - --rpc-addr
@@ -417,10 +459,10 @@ services:
       - --default-log-level=info
 
     ports:
-      - "127.0.0.1:${REDPANDA_KAFKA_PORT}:19092"
-      - "127.0.0.1:${REDPANDA_SCHEMA_REGISTRY_PORT}:18081"
-      - "127.0.0.1:${REDPANDA_PANDAPROXY_PORT}:18082"
-      - "127.0.0.1:${REDPANDA_ADMIN_PORT}:9644"
+      - "127.0.0.1:${NETWORK__REDPANDA_KAFKA__HOST_PORT}:19092"
+      - "127.0.0.1:${NETWORK__REDPANDA_SCHEMA_REGISTRY__HOST_PORT}:18081"
+      - "127.0.0.1:${NETWORK__REDPANDA_PANDAPROXY__HOST_PORT}:18082"
+      - "127.0.0.1:${NETWORK__REDPANDA_ADMIN__HOST_PORT}:9644"
 
     volumes:
       - redpanda_data:/var/lib/redpanda/data
@@ -454,7 +496,7 @@ services:
             urls: ["http://redpanda:9644"]
 
     ports:
-      - "127.0.0.1:${REDPANDA_CONSOLE_PORT}:8080"
+      - "127.0.0.1:${NETWORK__REDPANDA_CONSOLE__HOST_PORT}:8080"
 
     depends_on:
       redpanda:
@@ -476,9 +518,9 @@ services:
       dockerfile: infra/docker/embeddings/Dockerfile
 
     environment:
-      <<: *observability-env
-      RAG__EMBEDDING_MODEL: ${RAG__EMBEDDING_MODEL}
-      RAG__EMBEDDING_DEVICE: ${RAG__EMBEDDING_DEVICE}
+      <<: [*network-env, *observability-env, *config-path-env, *runtime-secret-env, *postgres-client-env, *rabbitmq-client-env]
+
+    volumes: *config-volumes
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
@@ -503,8 +545,9 @@ services:
       dockerfile: infra/docker/reranker/Dockerfile
 
     environment:
-      <<: *observability-env
-      RAG__RERANKER_MODEL: ${RAG__RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+      <<: [*network-env, *observability-env, *config-path-env, *runtime-secret-env, *postgres-client-env, *rabbitmq-client-env]
+
+    volumes: *config-volumes
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
@@ -529,9 +572,9 @@ services:
       dockerfile: infra/docker/celery/Dockerfile
 
     environment:
-      <<: [*shared-endpoints, *observability-env]
-      PLATFORM__CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
-      GATEWAY__DEFAULT_MODEL: ${VLLM_MODEL}
+      <<: [*network-env, *observability-env, *config-path-env, *runtime-secret-env, *postgres-client-env, *rabbitmq-client-env]
+
+    volumes: *config-volumes
 
     depends_on:
       rabbitmq:
@@ -569,10 +612,12 @@ services:
     volumes:
       - ${PROJECT_ROOT}/dags:/opt/airflow/dags
       - ${PROJECT_ROOT}:/opt/airflow/project
-      - ${ASSETS_ROOT}/datasets:/opt/airflow/project/assets/datasets
-      - ${ASSETS_ROOT}/rag_data:/opt/airflow/project/assets/rag_data
-      - ${ARTIFACTS_ROOT}/training:/opt/airflow/project/artifacts/training
-      - ${DVC_CONFIG_LOCAL_PATH}:/opt/airflow/project/.dvc/config.local:ro
+      - *shared-datasets-volume
+      - *shared-rag-data-volume
+      - *shared-training-artifacts-volume
+      - *shared-dvc-config-volume
+      - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
+      - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
       - airflow_logs:/opt/airflow/logs
     depends_on:
       rabbitmq:
@@ -615,10 +660,12 @@ services:
     volumes:
       - ${PROJECT_ROOT}/dags:/opt/airflow/dags
       - ${PROJECT_ROOT}:/opt/airflow/project
-      - ${ASSETS_ROOT}/datasets:/opt/airflow/project/assets/datasets
-      - ${ASSETS_ROOT}/rag_data:/opt/airflow/project/assets/rag_data
-      - ${ARTIFACTS_ROOT}/training:/opt/airflow/project/artifacts/training
-      - ${DVC_CONFIG_LOCAL_PATH}:/opt/airflow/project/.dvc/config.local:ro
+      - *shared-datasets-volume
+      - *shared-rag-data-volume
+      - *shared-training-artifacts-volume
+      - *shared-dvc-config-volume
+      - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
+      - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
       - airflow_logs:/opt/airflow/logs
     depends_on:
       rabbitmq:
@@ -665,14 +712,14 @@ services:
     tmpfs:
       - /tmp
     environment:
-      SANDBOX_PORT: "8200"
+      SANDBOX_PORT: ${NETWORK__CODE_SANDBOX__INTERNAL_PORT}
     cpus: 1.0
     mem_limit: 256m
     # Isolated network — only reachable by airflow-worker, no internet.
     networks:
       - sandbox_net
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8200/health')\""]
+      test: ["CMD-SHELL", "python3 -c \"import os, urllib.request; urllib.request.urlopen(f'http://localhost:{os.environ[\"SANDBOX_PORT\"]}/health')\""]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -689,23 +736,12 @@ services:
       dockerfile: infra/docker/gateway/Dockerfile
 
     environment:
-      <<: [*shared-endpoints, *observability-env]
-      GATEWAY__DEFAULT_MODEL: ${VLLM_MODEL}
-      RAG__RAG_ENABLED: ${RAG__RAG_ENABLED}
-      RAG__EMBEDDING_MODEL: ${RAG__EMBEDDING_MODEL}
-      GATEWAY__ASYNC_ENABLED: ${GATEWAY__ASYNC_ENABLED}
-      PLATFORM__CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
-      # OAuth2 / OIDC
-      AUTH__GOOGLE_CLIENT_ID: ${AUTH__GOOGLE_CLIENT_ID}
-      AUTH__GOOGLE_CLIENT_SECRET: ${AUTH__GOOGLE_CLIENT_SECRET}
-      AUTH__GOOGLE_REDIRECT_URI: ${AUTH__GOOGLE_REDIRECT_URI}
-      AUTH__AGENT042_DB_URL: ${AUTH__AGENT042_DB_URL}
-      AUTH__SESSION_SECRET_KEY: ${AUTH__SESSION_SECRET_KEY}
-      AUTH__SESSION_TTL_SECONDS: ${AUTH__SESSION_TTL_SECONDS}
-      AUTH__INTERNAL_API_KEY: ${AUTH__INTERNAL_API_KEY}
+      <<: [*network-env, *observability-env, *config-path-env, *runtime-secret-env, *postgres-client-env, *rabbitmq-client-env]
+
+    volumes: *config-volumes
 
     ports:
-      - "127.0.0.1:${GATEWAY_PORT}:9000"
+      - "127.0.0.1:${NETWORK__GATEWAY__HOST_PORT}:9000"
 
     depends_on:
       vllm:
@@ -752,10 +788,12 @@ services:
       dockerfile: infra/docker/ui/Dockerfile
 
     environment:
-      GATEWAY__URL: http://gateway:9000
+      <<: [*network-env, *config-path-env, *runtime-secret-env, *postgres-client-env, *rabbitmq-client-env]
+
+    volumes: *config-volumes
 
     ports:
-      - "127.0.0.1:${UI_PORT}:8501"
+      - "127.0.0.1:${NETWORK__UI__HOST_PORT}:8501"
 
     depends_on:
       gateway:
@@ -774,12 +812,12 @@ services:
     image: mher/flower:2.0
 
     environment:
-      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
-      FLOWER_PORT: 5555
-      FLOWER_URL_PREFIX: /flower
+      CELERY_BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@${NETWORK__RABBITMQ_AMQP__INTERNAL_HOST}:${NETWORK__RABBITMQ_AMQP__INTERNAL_PORT}//
+      FLOWER_PORT: ${NETWORK__FLOWER__INTERNAL_PORT}
+      FLOWER_URL_PREFIX: ${PUBLIC__FLOWER_PATH}
 
     ports:
-      - "127.0.0.1:${FLOWER_PORT}:5555"
+      - "127.0.0.1:${NETWORK__FLOWER__HOST_PORT}:5555"
 
     depends_on:
       rabbitmq:
@@ -804,10 +842,10 @@ services:
     image: redis/redisinsight:3.2.0
 
     environment:
-      RI_PROXY_PATH: /redis-insight
+      RI_PROXY_PATH: ${PUBLIC__REDISINSIGHT_PATH}
 
     ports:
-      - "127.0.0.1:${REDISINSIGHT_PORT}:5540"
+      - "127.0.0.1:${NETWORK__REDISINSIGHT__HOST_PORT}:5540"
 
     volumes:
       - redisinsight_data:/data
@@ -884,7 +922,7 @@ services:
       - '--web.enable-lifecycle'
 
     ports:
-      - "127.0.0.1:${PROMETHEUS_PORT}:9090"
+      - "127.0.0.1:${NETWORK__PROMETHEUS__HOST_PORT}:9090"
 
     networks:
       - backend_net
@@ -914,8 +952,8 @@ services:
       - ${PROJECT_ROOT}/infra/clickhouse/init:/docker-entrypoint-initdb.d:ro
 
     ports:
-      - "127.0.0.1:${CLICKHOUSE_HTTP_PORT}:8123"
-      - "127.0.0.1:${CLICKHOUSE_NATIVE_PORT}:9000"
+      - "127.0.0.1:${NETWORK__CLICKHOUSE_HTTP__HOST_PORT}:8123"
+      - "127.0.0.1:${NETWORK__CLICKHOUSE_NATIVE__HOST_PORT}:9000"
 
     depends_on:
       redpanda:
@@ -948,7 +986,7 @@ services:
       - loki_data:/loki
 
     ports:
-      - "127.0.0.1:${LOKI_PORT}:3100"
+      - "127.0.0.1:${NETWORK__LOKI__HOST_PORT}:3100"
 
     networks:
       - backend_net
@@ -970,7 +1008,7 @@ services:
       - tempo_data:/var/tempo
 
     ports:
-      - "127.0.0.1:${TEMPO_PORT}:3200"
+      - "127.0.0.1:${NETWORK__TEMPO__HOST_PORT}:3200"
 
     networks:
       - backend_net
@@ -991,8 +1029,8 @@ services:
       - ${PROJECT_ROOT}/infra/docker/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
 
     ports:
-      - "127.0.0.1:${OTEL_COLLECTOR_GRPC_PORT}:4317"
-      - "127.0.0.1:${OTEL_COLLECTOR_HTTP_PORT}:4318"
+      - "127.0.0.1:${NETWORK__OTEL_COLLECTOR_GRPC__HOST_PORT}:4317"
+      - "127.0.0.1:${NETWORK__OTEL_COLLECTOR_HTTP__HOST_PORT}:4318"
 
     depends_on:
       tempo:
@@ -1020,7 +1058,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
     ports:
-      - "127.0.0.1:${ALLOY_PORT}:12345"
+      - "127.0.0.1:${NETWORK__ALLOY__HOST_PORT}:12345"
 
     depends_on:
       loki:
@@ -1039,8 +1077,8 @@ services:
     image: grafana/grafana-oss:13.0.1
 
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
-      GF_SERVER_ROOT_URL: https://agent.antonlab.ru:8443/grafana
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: ${PUBLIC__BASE_URL}${PUBLIC__GRAFANA_PATH}
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
       # Passed through for provisioning interpolation in datasources.yml
@@ -1056,7 +1094,7 @@ services:
       - grafana_data:/var/lib/grafana
 
     ports:
-      - "127.0.0.1:${GRAFANA_PORT}:3000"
+      - "127.0.0.1:${NETWORK__GRAFANA__HOST_PORT}:3000"
 
     depends_on:
       postgres:
@@ -1098,7 +1136,7 @@ services:
         import psycopg2
         from psycopg2 import sql
         from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-        conn = psycopg2.connect(host="postgres", port=5432,
+        conn = psycopg2.connect(host=os.environ["PG_HOST"], port=int(os.environ["PG_PORT"]),
                                 user=os.environ["PG_USER"],
                                 password=os.environ["PG_PASSWORD"],
                                 dbname=os.environ["PG_DB"])
@@ -1111,13 +1149,14 @@ services:
             print("Created database " + db)
         else:
             print("Database " + db + " already exists")
-        # Also create the agent042 application database
-        cur.execute("SELECT 1 FROM pg_database WHERE datname = 'agent042'")
+        # Also create the application database.
+        app_db = os.environ["APP_DB_NAME"]
+        cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (app_db,))
         if not cur.fetchone():
-            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier("agent042")))
-            print("Created database agent042")
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(app_db)))
+            print("Created database " + app_db)
         else:
-            print("Database agent042 already exists")
+            print("Database " + app_db + " already exists")
         conn.close()
         PYEOF
         # SimpleAuthManager stores credentials in a JSON file.
@@ -1151,14 +1190,14 @@ services:
         fi
     environment:
       AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-      AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672//
-      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
-      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/airflow/execution/
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
-      AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW_JWT_ISSUER}
-      AIRFLOW__API__SECRET_KEY: ${AIRFLOW_JWT_SECRET}
+      AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@${NETWORK__RABBITMQ_AMQP__INTERNAL_HOST}:${NETWORK__RABBITMQ_AMQP__INTERNAL_PORT}//
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_AIRFLOW_DB}
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: ${NETWORK__AIRFLOW_WEBSERVER__SCHEME}://${NETWORK__AIRFLOW_WEBSERVER__INTERNAL_HOST}:${NETWORK__AIRFLOW_WEBSERVER__INTERNAL_PORT}${PUBLIC__AIRFLOW_PATH}/execution/
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_AIRFLOW_DB}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
+      AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER}
+      AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API_AUTH__JWT_SECRET}
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER}:admin
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/logs/simple_auth_manager_passwords.json
@@ -1166,10 +1205,13 @@ services:
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
       AIRFLOW_SIMPLE_AUTH_PASSWORDS_FILE: /opt/airflow/logs/simple_auth_manager_passwords.json
       # Postgres connection for automatic DB creation
+      PG_HOST: ${NETWORK__POSTGRES__INTERNAL_HOST}
+      PG_PORT: ${NETWORK__POSTGRES__INTERNAL_PORT}
       PG_USER: ${POSTGRES_USER}
       PG_PASSWORD: ${POSTGRES_PASSWORD}
       PG_DB: ${POSTGRES_DB}
-      AIRFLOW_DB_NAME: ${AIRFLOW_DB}
+      AIRFLOW_DB_NAME: ${POSTGRES_AIRFLOW_DB}
+      APP_DB_NAME: ${POSTGRES_APP_DB}
     volumes:
       - airflow_logs:/opt/airflow/logs
     depends_on:
@@ -1193,9 +1235,9 @@ services:
     environment:
       <<: *airflow-common-env
       AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX: "true"
-      AIRFLOW__API__BASE_URL: https://agent.antonlab.ru:8443/airflow
+      AIRFLOW__API__BASE_URL: ${PUBLIC__BASE_URL}${PUBLIC__AIRFLOW_PATH}
     ports:
-      - "127.0.0.1:${AIRFLOW_PORT}:8080"
+      - "127.0.0.1:${NETWORK__AIRFLOW_WEBSERVER__HOST_PORT}:8080"
     volumes: *airflow-common-volumes
     depends_on:
       airflow-init:
@@ -1275,7 +1317,7 @@ services:
   #
   # Example:
   #   docker compose --profile ops --env-file .env -f infra/compose/docker-compose.yaml run --rm rag-ops \
-  #     python -m rag.sources.cli build-source --catalog src/shared/catalog.toml \
+  #     python -m rag.sources.cli build-source --catalog catalog.toml \
   #     --kb pytorch_reference --source docs --rag-data-root assets/rag_data --limit 1
   # =====================
   rag-ops:
@@ -1315,26 +1357,23 @@ services:
     build:
       context: ${PROJECT_ROOT}
       dockerfile: infra/docker/jupyter/Dockerfile
-    command: start-notebook.py --ServerApp.base_url=/jupyter
+    command: start-notebook.py --ServerApp.base_url=${PUBLIC__JUPYTER_PATH}
     environment:
-      <<: *shared-endpoints
-      PROJECT_ROOT: /home/jovyan
+      <<: [*network-env, *config-path-env, *runtime-secret-env, *s3-client-env, *postgres-client-env, *rabbitmq-client-env]
+      CONTAINER__PROJECT_ROOT: /home/jovyan
       PYTHONPATH: /home/jovyan:/home/jovyan/src
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
       # Shared services are reached over the internal Docker network.
       # PostgreSQL — used by diagnostics/analytics notebooks
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      # S3 / Yandex Object Storage — needed for artifact upload/download
-      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${NETWORK__POSTGRES__INTERNAL_HOST}:${NETWORK__POSTGRES__INTERNAL_PORT}/${POSTGRES_DB}
     ports:
-      - "127.0.0.1:${JUPYTER_PORT}:8888"
+      - "127.0.0.1:${NETWORK__JUPYTER__HOST_PORT}:8888"
     volumes:
+      - ${PROJECT_ROOT}/runtime.toml:/opt/agent/runtime.toml:ro
+      - ${PROJECT_ROOT}/catalog.toml:/opt/agent/catalog.toml:ro
       - ${PROJECT_ROOT}/src:/home/jovyan/src:ro
       - ${PROJECT_ROOT}/experiments:/home/jovyan/experiments:rw
-      - ${ASSETS_ROOT}:/home/jovyan/assets:rw
+      - ${SHARED_ROOT}/assets:/home/jovyan/assets:rw
       - ${PROJECT_ROOT}/dags:/home/jovyan/dags:rw
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8888/jupyter/api || exit 1"]

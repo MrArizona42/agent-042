@@ -10,7 +10,7 @@ commands and server workflow.
 
 ## Naming
 
-- KB id: logical knowledge base id from `src/shared/catalog.toml`, for example
+- KB id: logical knowledge base id from `catalog.toml`, for example
   `ml_papers_core` or `pytorch_reference`.
 - Source type: connector/extractor family, for example `arxiv_paper` or
   `html_docs`.
@@ -33,7 +33,7 @@ Run commands from the deployment root on the server:
 
 ```bash
 bash current/scripts/rag_ops.sh python -m rag.sources.cli build-source \
-  --catalog src/shared/catalog.toml \
+  --catalog catalog.toml \
   --kb pytorch_reference \
   --source docs \
   --rag-data-root assets/rag_data
@@ -43,7 +43,7 @@ Build a collection from existing chunk artifacts:
 
 ```bash
 bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize \
-  --catalog src/shared/catalog.toml \
+  --catalog catalog.toml \
   --kb pytorch_reference \
   --source docs \
   --alias-config challenger \

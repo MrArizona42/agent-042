@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import types
 import uuid
@@ -16,11 +15,6 @@ import pytest
 from qdrant_client.models import SparseVector
 
 from rag.vector_store import Document
-
-# Ensure settings don't require live services
-os.environ.setdefault("RAG__RAG_ENABLED", "false")
-os.environ.setdefault("EVAL__JUDGE__MODEL", "/models/Qwen/Qwen3-0.6B")
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -136,7 +130,7 @@ class TestEvalSettings:
         assert s.judge.model == "/models/Qwen/Qwen3-0.6B"
         assert resolved_judge.backend == "local_vllm"
         assert resolved_judge.model == "/models/Qwen/Qwen3-0.6B"
-        assert resolved_judge.base_url == "http://localhost:8000"
+        assert resolved_judge.base_url == "http://vllm:8000"
         assert s.metrics.temperature == 0.0
         assert s.metrics.max_completion_tokens == 2048
         assert s.sandbox.code_exec_timeout == 30
@@ -146,15 +140,22 @@ class TestEvalSettings:
         assert s.metrics.max_completion_tokens == 2048
         assert s.sandbox.code_exec_timeout == 30
 
-    def test_env_override(self, monkeypatch):
+    def test_explicit_override_and_secret_env(self, monkeypatch):
         from shared.config import load_settings
 
-        monkeypatch.setenv("EVAL__JUDGE__MODEL", "judge-model")
-        monkeypatch.setenv("EVAL__JUDGE__BACKEND", "openai_compatible")
-        monkeypatch.setenv("EVAL__JUDGE__BASE_URL", "https://judge.example")
         monkeypatch.setenv("EVAL__JUDGE__API_KEY", "secret")
-        monkeypatch.setenv("EVAL__METRICS__TEMPERATURE", "0.7")
-        settings = load_settings()
+        settings = load_settings(
+            {
+                "eval": {
+                    "judge": {
+                        "model": "judge-model",
+                        "backend": "openai_compatible",
+                        "base_url": "https://judge.example",
+                    },
+                    "metrics": {"temperature": 0.7},
+                }
+            }
+        )
         s = settings.eval
         resolved_judge = s.resolve_judge_settings(settings.platform)
 
@@ -480,6 +481,9 @@ class TestLLMJudge:
                 backend="local_vllm",
                 model="judge-model",
                 base_url="http://localhost:8000",
+                api_key=None,
+                timeout=60.0,
+                request_delay_seconds=0.0,
             ),
         )
         assert result["score"] == 4
@@ -504,6 +508,8 @@ class TestLLMJudge:
                 model="judge-model",
                 base_url="https://judge.example",
                 api_key="secret",
+                timeout=60.0,
+                request_delay_seconds=0.0,
             ),
         )
         assert "correctness" in result
@@ -521,6 +527,9 @@ class TestLLMJudge:
                     backend="local_vllm",
                     model="judge-model",
                     base_url="http://localhost:8000",
+                    api_key=None,
+                    timeout=60.0,
+                    request_delay_seconds=0.0,
                 ),
             )
 
@@ -1166,7 +1175,7 @@ class TestFetchPredictionsRagSelection:
         )
         settings = types.SimpleNamespace(
             platform=types.SimpleNamespace(vllm_base_url="http://localhost:8000"),
-            gateway=types.SimpleNamespace(default_model="base-model"),
+            vllm=types.SimpleNamespace(model="base-model"),
             eval=eval_settings,
         )
 
@@ -1219,7 +1228,7 @@ class TestFetchPredictionsRagSelection:
         )
         settings = types.SimpleNamespace(
             platform=types.SimpleNamespace(vllm_base_url="http://localhost:8000"),
-            gateway=types.SimpleNamespace(default_model="base-model"),
+            vllm=types.SimpleNamespace(model="base-model"),
             eval=eval_settings,
         )
 

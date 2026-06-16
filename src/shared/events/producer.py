@@ -156,6 +156,6 @@ def create_inference_event_producer(
 ) -> InferenceEventProducer:
     return InferenceEventProducer(
         service=service,
-        topic=settings.platform.inference_events_topic,
+        topic=settings.events.inference_topic,
         bootstrap_servers=settings.platform.kafka_bootstrap_servers,
     )
