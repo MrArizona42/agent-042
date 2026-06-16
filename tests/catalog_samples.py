@@ -71,12 +71,14 @@ def write_chat_and_code_catalog(path: Path) -> Path:
         kb = "ml_papers_core"
         id = "papers"
         manifest = "assets/rag_data/ml_papers_core/sources.toml"
+        ingest_adapter = { id = "generic.arxiv_paper", version = "1" }
 
         [[sources]]
         type = "html_docs"
         kb = "pytorch_reference"
         id = "docs"
         manifest = "assets/rag_data/pytorch_reference/sources.toml"
+        ingest_adapter = { id = "generic.http_html", version = "1" }
         """,
     )
 
@@ -117,6 +119,7 @@ def write_chat_only_catalog(
         kb = "ml_papers_core"
         id = "papers"
         manifest = "assets/rag_data/ml_papers_core/sources.toml"
+        ingest_adapter = {{ id = "generic.arxiv_paper", version = "1" }}
         """,
     )
 
@@ -149,5 +152,6 @@ def write_code_only_catalog(path: Path) -> Path:
         kb = "pytorch_reference"
         id = "docs"
         manifest = "assets/rag_data/pytorch_reference/sources.toml"
+        ingest_adapter = { id = "generic.http_html", version = "1" }
         """,
     )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from shared.catalog.models import AdapterConfig, AliasConfig
 
@@ -37,6 +37,21 @@ class CatalogKBConfig(BaseModel):
     selection_description: str
 
 
+class SourceIngestAdapterConfig(BaseModel):
+    """Source-level adapter contract for ingest lifecycle behavior."""
+
+    id: str
+    version: str = "1"
+    settings: dict[str, object] = Field(default_factory=dict)
+
+    @field_validator("id", "version")
+    @classmethod
+    def _required_strings_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value must be non-empty")
+        return value.strip()
+
+
 class SourceConfig(BaseModel):
     """Source instance metadata for a knowledge-base build pipeline."""
 
@@ -44,7 +59,14 @@ class SourceConfig(BaseModel):
     kb: str
     id: str
     manifest: str
+    ingest_adapter: SourceIngestAdapterConfig | None = None
     settings: dict[str, object] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _default_ingest_adapter_from_type(self) -> "SourceConfig":
+        if self.ingest_adapter is None:
+            self.ingest_adapter = SourceIngestAdapterConfig(id=self.type, version="legacy")
+        return self
 
 
 class CatalogConfig(BaseModel):

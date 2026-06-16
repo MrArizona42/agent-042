@@ -26,6 +26,7 @@ from shared.catalog.schema import (
     CatalogKBConfig,
     CatalogTaskConfig,
     SourceConfig,
+    SourceIngestAdapterConfig,
 )
 from shared.catalog.validation import validate_kb_alias
 
@@ -39,6 +40,7 @@ __all__ = [
     "CatalogTaskConfig",
     "KBConfig",
     "SourceConfig",
+    "SourceIngestAdapterConfig",
     "TaskConfig",
     "build_kb_index",
     "catalog_override",

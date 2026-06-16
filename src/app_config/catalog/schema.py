@@ -6,6 +6,7 @@ from shared.catalog.schema import (
     CatalogKBConfig,
     CatalogTaskConfig,
     SourceConfig,
+    SourceIngestAdapterConfig,
 )
 
 __all__ = [
@@ -14,5 +15,5 @@ __all__ = [
     "CatalogKBConfig",
     "CatalogTaskConfig",
     "SourceConfig",
+    "SourceIngestAdapterConfig",
 ]
-

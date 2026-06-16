@@ -10,6 +10,7 @@ from shared.catalog import (
     CatalogTaskConfig,
     KBConfig,
     SourceConfig,
+    SourceIngestAdapterConfig,
     TaskConfig,
     build_kb_index,
     catalog_override,
@@ -35,6 +36,7 @@ __all__ = [
     "CatalogTaskConfig",
     "KBConfig",
     "SourceConfig",
+    "SourceIngestAdapterConfig",
     "TaskConfig",
     "build_kb_index",
     "catalog_override",
@@ -49,4 +51,3 @@ __all__ = [
     "set_catalog_override",
     "validate_kb_alias",
 ]
-
