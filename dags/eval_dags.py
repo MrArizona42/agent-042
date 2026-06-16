@@ -64,8 +64,8 @@ default_args = {
 
 
 def _list_knowledge_base_names() -> list[str]:
-    """Load KB options from the shared task catalog."""
-    from shared.catalog import get_catalog
+    """Load KB options from the application task catalog."""
+    from app_config.catalog import get_catalog
 
     return sorted(
         {kb_cfg.name for task_cfg in get_catalog().values() for kb_cfg in task_cfg.knowledge_bases}
@@ -73,8 +73,8 @@ def _list_knowledge_base_names() -> list[str]:
 
 
 def _list_knowledge_base_aliases() -> list[str]:
-    """Load KB alias options from the shared task catalog."""
-    from shared.catalog import get_catalog
+    """Load KB alias options from the application task catalog."""
+    from app_config.catalog import get_catalog
 
     return sorted(
         {

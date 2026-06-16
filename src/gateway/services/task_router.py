@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from rag.embeddings import EmbeddingService
-from shared.catalog import TaskConfig, get_catalog
+from app_config.catalog import TaskConfig, get_catalog
 from shared.config import get_settings
 
 logger = logging.getLogger(__name__)

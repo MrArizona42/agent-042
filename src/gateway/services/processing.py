@@ -15,7 +15,7 @@ from gateway.services.rag_service import RAGService
 from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
-from shared.catalog import get_catalog, get_kb_config
+from app_config.catalog import get_catalog, get_kb_config
 from shared.config import get_settings, secret_value
 from shared.events import InferenceEventProducer, InferenceEventType
 from shared.logging import bind_log_context, reset_log_context

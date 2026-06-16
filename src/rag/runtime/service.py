@@ -15,7 +15,7 @@ from rag.runtime.models import RagRuntimeResult, RagRuntimeSource, RuntimeSkippe
 from rag.sources.materialize import qdrant_alias_name, validate_strategy_supported
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import Document, QdrantVectorStore
-from shared.catalog import KBConfig, get_catalog, get_kb_config
+from app_config.catalog import KBConfig, get_catalog, get_kb_config
 from shared.config import get_settings
 
 logger = logging.getLogger(__name__)

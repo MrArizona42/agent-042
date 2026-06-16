@@ -16,7 +16,7 @@ from rag.sources.chunks import (
 from rag.sources.extractors import SourceExtractor
 from rag.sources.fetchers import SourceFetcher
 from rag.sources.processing import SourceProcessingSummary, process_source_instance
-from shared.catalog import CatalogConfig, SourceConfig, materialize_catalog
+from app_config.catalog import CatalogConfig, SourceConfig, materialize_catalog
 
 SourceBuildStatus = Literal["empty", "success", "partial", "failed"]
 

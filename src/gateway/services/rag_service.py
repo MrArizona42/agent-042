@@ -12,7 +12,7 @@ from gateway.schemas.openai_chat import RAGSource
 from rag.embeddings import EmbeddingService
 from rag.runtime import RagRuntime, RagRuntimeSource
 from rag.vector_store import Document
-from shared.catalog import get_catalog, get_kb_config
+from app_config.catalog import get_catalog, get_kb_config
 from shared.config import get_settings, secret_value
 
 logger = logging.getLogger(__name__)

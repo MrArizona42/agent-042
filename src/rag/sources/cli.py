@@ -21,7 +21,7 @@ from rag.sources.materialize import (
 )
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
-from shared.catalog import load_catalog
+from app_config.catalog import load_catalog
 from shared.config import get_settings
 
 
