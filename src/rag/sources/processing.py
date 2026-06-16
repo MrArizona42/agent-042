@@ -7,6 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from rag.contracts import SourceDocument
+from rag.ingest import SourceAdapter
 from rag.sources.artifacts import (
     extracted_artifact_from_result,
     extracted_artifact_path,
@@ -94,26 +95,43 @@ def process_source_instance(
     document_ids: list[str] | None = None,
     force_fetch: bool = False,
     force_extract: bool = False,
+    source_adapter: SourceAdapter | None = None,
     fetchers: dict[str, SourceFetcher] | None = None,
     extractors: dict[str, SourceExtractor] | None = None,
 ) -> SourceProcessingSummary:
     """Fetch, extract, and persist artifacts for one source instance."""
     manifest = load_source_manifest(manifest_path)
-    if manifest.source_type != source_type:
+    if source_adapter is not None:
+        manifest = source_adapter.validate_manifest(manifest)
+        source_type = source_adapter.source_type
+    elif manifest.source_type != source_type:
         raise ValueError(
             f"Source manifest '{manifest_path}' has source_type '{manifest.source_type}' "
             f"(expected '{source_type}')"
         )
 
-    fetcher_registry = fetchers or DEFAULT_SOURCE_FETCHERS
-    extractor_registry = extractors or DEFAULT_SOURCE_EXTRACTORS
+    if fetchers is not None:
+        fetcher_registry = fetchers
+    elif source_adapter is not None:
+        fetcher_registry = {source_type: source_adapter.fetcher()}
+    else:
+        fetcher_registry = DEFAULT_SOURCE_FETCHERS
+
+    if extractors is not None:
+        extractor_registry = extractors
+    elif source_adapter is not None:
+        extractor_registry = {source_type: source_adapter.extractor()}
+    else:
+        extractor_registry = DEFAULT_SOURCE_EXTRACTORS
     if source_type not in fetcher_registry:
         raise ValueError(f"No source fetcher registered for source_type '{source_type}'")
     if source_type not in extractor_registry:
         raise ValueError(f"No source extractor registered for source_type '{source_type}'")
 
     selected_documents = _select_source_documents(
-        manifest.to_source_documents(),
+        source_adapter.list_documents(manifest)
+        if source_adapter is not None
+        else manifest.to_source_documents(),
         document_ids=document_ids,
         limit=limit,
     )

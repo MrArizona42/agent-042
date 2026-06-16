@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from app_config.catalog import CatalogConfig, SourceConfig, materialize_catalog
+from rag.ingest import DEFAULT_SOURCE_ADAPTERS, SourceAdapter, SourceAdapterRegistry
 from rag.sources.chunks import (
     ChunkingConfig,
     SourceInstanceChunkingSummary,
@@ -16,7 +18,6 @@ from rag.sources.chunks import (
 from rag.sources.extractors import SourceExtractor
 from rag.sources.fetchers import SourceFetcher
 from rag.sources.processing import SourceProcessingSummary, process_source_instance
-from app_config.catalog import CatalogConfig, SourceConfig, materialize_catalog
 
 SourceBuildStatus = Literal["empty", "success", "partial", "failed"]
 
@@ -102,6 +103,7 @@ def build_source_instance(
     chunking: ChunkingConfig | None = None,
     fetchers: dict[str, SourceFetcher] | None = None,
     extractors: dict[str, SourceExtractor] | None = None,
+    source_adapter: SourceAdapter | None = None,
 ) -> SourceBuildSummary:
     """Run fetch/extract/chunk lifecycle for one source instance."""
     processing = process_source_instance(
@@ -114,6 +116,7 @@ def build_source_instance(
         document_ids=document_ids,
         force_fetch=force_fetch,
         force_extract=force_extract,
+        source_adapter=source_adapter,
         fetchers=fetchers,
         extractors=extractors,
     )
@@ -129,11 +132,29 @@ def build_source_instance(
     return SourceBuildSummary(
         kb_id=kb_id,
         source_instance_id=source_instance_id,
-        source_type=source_type,
+        source_type=source_adapter.source_type if source_adapter is not None else source_type,
         status=_build_status(processing=processing, chunking=chunking_summary),
         processing=processing,
         chunking=chunking_summary,
     )
+
+
+def _resolve_source_adapter(
+    source: SourceConfig,
+    *,
+    adapter_registry: SourceAdapterRegistry,
+) -> SourceAdapter:
+    ingest_adapter = source.ingest_adapter
+    if ingest_adapter is None:
+        raise ValueError(f"Catalog source '{source.kb}/{source.id}' is missing ingest_adapter")
+    adapter = adapter_registry.get(ingest_adapter.id, version=ingest_adapter.version)
+    if adapter.source_type != source.type:
+        raise ValueError(
+            f"Catalog source '{source.kb}/{source.id}' has type '{source.type}' but "
+            f"ingest adapter '{adapter.adapter_id}@{adapter.version}' expects "
+            f"source_type '{adapter.source_type}'"
+        )
+    return adapter
 
 
 def build_catalog_source(
@@ -150,6 +171,7 @@ def build_catalog_source(
     chunking: ChunkingConfig | None = None,
     fetchers: dict[str, SourceFetcher] | None = None,
     extractors: dict[str, SourceExtractor] | None = None,
+    adapter_registry: SourceAdapterRegistry | None = None,
 ) -> CatalogSourceBuildSummary:
     """Build one source instance addressed by its catalog (kb, source id) pair."""
     catalog_path = Path(catalog_path)
@@ -158,6 +180,10 @@ def build_catalog_source(
         catalog,
         kb_id=kb_id,
         source_instance_id=source_instance_id,
+    )
+    source_adapter = _resolve_source_adapter(
+        source,
+        adapter_registry=adapter_registry or DEFAULT_SOURCE_ADAPTERS,
     )
     build = build_source_instance(
         kb_id=source.kb,
@@ -173,6 +199,7 @@ def build_catalog_source(
         chunking=chunking,
         fetchers=fetchers,
         extractors=extractors,
+        source_adapter=source_adapter,
     )
     return CatalogSourceBuildSummary(
         catalog_path=catalog_path.as_posix(),

@@ -21,4 +21,3 @@ __all__ = [
     "get_kb_names",
     "set_catalog_override",
 ]
-

@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from app_config.catalog import load_catalog
 from rag.embeddings import EmbeddingService
 from rag.sources.build import build_catalog_source
 from rag.sources.bundles import collect_source_chunks
@@ -21,7 +22,6 @@ from rag.sources.materialize import (
 )
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
-from app_config.catalog import load_catalog
 from shared.config import get_settings
 
 

@@ -99,12 +99,14 @@ def _catalog(tmp_path: Path, manifest_path: Path) -> Path:
         kb = "pytorch_reference"
         id = "docs"
         manifest = "{manifest_path.as_posix()}"
+        ingest_adapter = {{ id = "generic.http_html", version = "1" }}
 
         [[sources]]
         type = "html_docs"
         kb = "other_reference"
         id = "docs"
         manifest = "{manifest_path.as_posix()}"
+        ingest_adapter = {{ id = "generic.http_html", version = "1" }}
         """,
     )
 
@@ -235,6 +237,8 @@ def test_build_catalog_source_uses_kb_and_source_instance_pair(tmp_path: Path) -
     assert summary.catalog_path == catalog_path.as_posix()
     assert summary.source.kb == "pytorch_reference"
     assert summary.source.id == "docs"
+    assert summary.source.ingest_adapter is not None
+    assert summary.source.ingest_adapter.id == "generic.http_html"
     assert summary.build.status == "success"
     assert summary.build.kb_id == "pytorch_reference"
     assert summary.build.source_instance_id == "docs"

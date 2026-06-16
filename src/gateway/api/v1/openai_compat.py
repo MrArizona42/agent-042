@@ -7,10 +7,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from app_config.catalog import get_kb_config
 from gateway.schemas.openai_chat import ChatCompletionRequest
 from gateway.services.budget import BudgetValidationError
 from gateway.services.processing import process_chat
-from app_config.catalog import get_kb_config
 from shared.logging import bind_log_context, reset_log_context
 from shared.vllm_payloads import ResponseBudgetExceededError
 
