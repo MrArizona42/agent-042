@@ -84,10 +84,13 @@ def _build_run_id(context: dict[str, Any]) -> str:
 
 
 def _append_build_run_args(cmd: list[str], context: dict[str, Any]) -> None:
+    params = _params(context)
     cmd.append("--persist-build-run")
     run_id = _build_run_id(context)
     if run_id:
         cmd.extend(["--build-run-id", run_id])
+    if params.get("dry_run"):
+        cmd.append("--dry-run")
 
 
 def _append_common_source_args(cmd: list[str], params: dict[str, Any]) -> None:
@@ -305,6 +308,7 @@ with DAG(
         "dvc_base_branch": Param("develop", type="string"),
         "dvc_bot_branch": Param("", type=["null", "string"]),
         "build_run_id": Param("", type=["null", "string"]),
+        "dry_run": Param(False, type="boolean"),
         "force_fetch": Param(False, type="boolean"),
         "force_extract": Param(False, type="boolean"),
         "force_chunk": Param(False, type="boolean"),

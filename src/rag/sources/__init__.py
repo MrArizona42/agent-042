@@ -65,6 +65,7 @@ from rag.sources.materialize import (
 )
 from rag.sources.models import (
     ArxivPaperEntry,
+    GenericSourceEntry,
     HtmlDocsEntry,
     SourceManifest,
     SourceType,
@@ -94,6 +95,7 @@ __all__ = [
     "CatalogSourcesBuildSummary",
     "ExtractedDocumentArtifact",
     "ExtractionArtifactMeta",
+    "GenericSourceEntry",
     "HtmlDocsEntry",
     "HtmlDocsFetcher",
     "HtmlDocsExtractor",

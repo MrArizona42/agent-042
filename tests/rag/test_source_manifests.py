@@ -8,6 +8,7 @@ import pytest
 from rag.sources import (
     DEFAULT_SOURCE_CONNECTORS,
     ArxivPaperEntry,
+    GenericSourceEntry,
     HtmlDocsEntry,
     SourceConnectorRegistry,
     SourceManifest,
@@ -123,6 +124,32 @@ def test_source_manifest_rejects_mixed_document_types() -> None:
                 )
             ],
         )
+
+
+def test_unknown_source_manifest_uses_generic_entries(tmp_path: Path) -> None:
+    path = _write_manifest(
+        tmp_path / "sources.toml",
+        """
+        schema_version = 1
+        source_type = "qasper"
+
+        [[documents]]
+        id = "paper-1"
+        title = "Paper One"
+        uri = "s3://datasets/qasper/paper-1.json"
+        metadata = { split = "train" }
+        """,
+    )
+
+    manifest = load_source_manifest(path)
+    documents = manifest.to_source_documents()
+
+    assert manifest.source_type == "qasper"
+    assert isinstance(manifest.documents[0], GenericSourceEntry)
+    assert documents[0].id == "qasper:paper-1"
+    assert documents[0].source_type == "qasper"
+    assert documents[0].uri == "s3://datasets/qasper/paper-1.json"
+    assert documents[0].metadata == {"split": "train"}
 
 
 def test_default_source_connector_registry_materializes_manifest_documents() -> None:

@@ -251,6 +251,59 @@ def test_build_catalog_source_uses_kb_and_source_instance_pair(tmp_path: Path) -
     assert summary.build.source_instance_id == "docs"
 
 
+def test_build_catalog_source_resolves_manifest_relative_to_catalog(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _manifest(tmp_path)
+    catalog_path = _write_manifest(
+        tmp_path / "catalog.toml",
+        """
+        schema_version = 2
+
+        [[tasks]]
+        id = "code"
+        enabled = true
+        label = "Code"
+        routing_description = "Coding help"
+        kb_refs = ["pytorch_reference"]
+        adapter = { enabled = false }
+
+        [[knowledge_bases]]
+        id = "pytorch_reference"
+        enabled = true
+        label = "PyTorch reference"
+        description = "PyTorch documentation"
+        selection_description = "PyTorch docs"
+        update_strategy = "replace"
+        default_alias = "champion"
+        aliases.champion.top_k = 5
+        aliases.champion.score_threshold = 0.35
+        aliases.champion.retrieval_strategy = "dense"
+        aliases.champion.reranker_multiplier = 1
+
+        [[sources]]
+        type = "html_docs"
+        kb = "pytorch_reference"
+        id = "docs"
+        manifest = "sources.toml"
+        ingest_adapter = { id = "generic.http_html", version = "1" }
+        """,
+    )
+
+    summary = build_catalog_source(
+        catalog_path=catalog_path,
+        kb_id="pytorch_reference",
+        source_instance_id="docs",
+        rag_data_root=tmp_path,
+        document_ids=["html:tensors"],
+        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
+        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
+    )
+
+    assert manifest_path.exists()
+    assert summary.build.status == "success"
+
+
 def test_build_catalog_source_rejects_missing_kb_source_pair(tmp_path: Path) -> None:
     manifest_path = _manifest(tmp_path)
     catalog_path = _catalog(tmp_path, manifest_path)

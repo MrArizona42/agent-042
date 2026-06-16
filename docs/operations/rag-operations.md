@@ -91,6 +91,9 @@ Use `rag_lifecycle` for the same lifecycle:
   DVC sync PR.
 - `build_run_id`: optional stable audit id. When omitted, Airflow derives one
   from the DAG run id and passes it through build, materialize, and promotion.
+- `dry_run`: create and optionally persist the lifecycle request/plan without
+  fetching, extracting, chunking, materializing into Qdrant, or promoting an
+  alias.
 
 Each persisted build run is written under
 `<rag_data_root>/<kb>/metadata/build_runs/<build_run_id>.json`. The record

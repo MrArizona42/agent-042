@@ -173,6 +173,40 @@ def test_run_source_build_stage_persists_failed_build_run(tmp_path: Path) -> Non
     assert payload["errors"] == ["manifest disappeared"]
 
 
+def test_run_source_build_stage_dry_run_does_not_call_stage(tmp_path: Path) -> None:
+    catalog_path = tmp_path / "catalog.toml"
+    rag_data_root = tmp_path / "rag_data"
+    catalog_path.write_text("schema_version = 2\n", encoding="utf-8")
+
+    def fake_build(**_: object):
+        raise AssertionError("dry run should not execute build")
+
+    result = run_source_build_stage(
+        BuildRequest(
+            catalog_path=catalog_path.as_posix(),
+            kb_id="pytorch_reference",
+            source_ids=["docs"],
+            rag_data_root=rag_data_root.as_posix(),
+            dry_run=True,
+        ),
+        run_id="dry-run-1",
+        build_catalog_source_fn=fake_build,
+    )
+
+    payload = json.loads(
+        build_run_path(
+            rag_data_root=rag_data_root,
+            kb_id="pytorch_reference",
+            run_id="dry-run-1",
+        ).read_text(encoding="utf-8")
+    )
+
+    assert result.result["dry_run"] is True
+    assert result.result["stage"] == "build_source"
+    assert payload["status"] == "planned"
+    assert payload["stage_results"]["build_source"]["dry_run"] is True
+
+
 def test_run_source_build_stage_uses_multi_source_function(tmp_path: Path) -> None:
     catalog_path = tmp_path / "catalog.toml"
     catalog_path.write_text("schema_version = 2\n", encoding="utf-8")

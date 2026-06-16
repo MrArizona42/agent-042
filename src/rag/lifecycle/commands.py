@@ -173,6 +173,24 @@ def _run_recorded_stage(
             "collection_name": request.collection_name,
         }
     )
+    if request.dry_run:
+        result = {
+            "dry_run": True,
+            "stage": stage_name,
+            "request": request.model_dump(mode="json", exclude_none=True),
+        }
+        build_run = build_run.model_copy(
+            update={
+                "status": "planned",
+                "current_stage": stage_name,
+                "stage_results": {**build_run.stage_results, stage_name: result},
+                "errors": [],
+            }
+        )
+        if persist:
+            write_build_run(build_run)
+        return LifecycleStageResult(build_run=build_run, result=result)
+
     try:
         result = stage_fn()
         stage_results = {**build_run.stage_results, stage_name: _json_payload(result)}

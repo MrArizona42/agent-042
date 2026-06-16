@@ -74,6 +74,7 @@ def _context(**overrides):
         "dvc_base_branch": "develop",
         "dvc_bot_branch": "",
         "build_run_id": "",
+        "dry_run": False,
         "force_fetch": False,
         "force_extract": False,
         "force_chunk": False,
@@ -99,6 +100,7 @@ def test_rag_lifecycle_dag_exposes_generic_params(monkeypatch: pytest.MonkeyPatc
         "sync_dvc",
         "dvc_artifacts",
         "build_run_id",
+        "dry_run",
     }
 
 
@@ -184,6 +186,17 @@ def test_build_source_task_accepts_build_run_id(monkeypatch: pytest.MonkeyPatch)
 
     assert calls[0][:3] == ["build-source", "--persist-build-run", "--build-run-id"]
     assert calls[0][3] == "airflow-run-1"
+
+
+def test_build_source_task_passes_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    dag_module = _load_dag(monkeypatch)
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(dag_module, "_run_cli", lambda args: calls.append(args) or {"ok": True})
+
+    dag_module._build_source(**_context(dry_run=True))
+
+    assert "--dry-run" in calls[0]
 
 
 def test_run_cli_prints_subprocess_output_before_failure(

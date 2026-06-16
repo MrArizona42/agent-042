@@ -83,6 +83,14 @@ def _load_catalog_config(catalog_path: Path | str) -> CatalogConfig:
     return catalog
 
 
+def _catalog_manifest_path(*, catalog_path: Path, manifest_ref: str) -> Path:
+    path = Path(manifest_ref)
+    if path.is_absolute():
+        return path
+    catalog_relative = catalog_path.parent / path
+    return catalog_relative if catalog_relative.exists() else path
+
+
 def _find_source_config(
     catalog: CatalogConfig,
     *,
@@ -225,7 +233,10 @@ def build_catalog_source(
         kb_id=source.kb,
         source_instance_id=source.id,
         source_type=source.type,
-        manifest_path=source.manifest,
+        manifest_path=_catalog_manifest_path(
+            catalog_path=catalog_path,
+            manifest_ref=source.manifest,
+        ),
         rag_data_root=rag_data_root,
         document_ids=document_ids,
         limit=limit,

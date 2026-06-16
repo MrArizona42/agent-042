@@ -106,6 +106,7 @@ def _parser() -> argparse.ArgumentParser:
     def add_build_run_args(command: argparse.ArgumentParser) -> None:
         command.add_argument("--build-run-id")
         command.add_argument("--persist-build-run", action="store_true")
+        command.add_argument("--dry-run", action="store_true")
 
     build_source = subparsers.add_parser("build-source")
     add_common_source_args(build_source)
@@ -199,6 +200,7 @@ def main(
                 force_fetch=args.force_fetch,
                 force_extract=args.force_extract,
                 force_chunk=args.force_chunk,
+                dry_run=args.dry_run,
             ),
             run_id=args.build_run_id,
             build_catalog_source_fn=build_catalog_source_fn,
@@ -249,6 +251,7 @@ def main(
             document_ids=_document_ids(args.document_ids),
             limit=args.limit,
             force_recreate=args.force_recreate,
+            dry_run=args.dry_run,
         )
 
         def _materialize_stage() -> Any:
@@ -312,8 +315,8 @@ def main(
 
     if args.command == "promote-alias":
         catalog_path = _catalog_path_from_args(args)
-        if args.persist_build_run and not args.rag_data_root:
-            raise ValueError("--rag-data-root is required when --persist-build-run is set")
+        if (args.persist_build_run or args.dry_run) and not args.rag_data_root:
+            raise ValueError("--rag-data-root is required for --persist-build-run or --dry-run")
 
         def _promote_stage() -> Any:
             strategy = _alias_strategy(catalog_path=catalog_path, kb_id=args.kb, alias=args.alias)
@@ -340,6 +343,7 @@ def main(
                     rag_data_root=args.rag_data_root,
                     alias_config=args.alias,
                     collection_name=args.collection,
+                    dry_run=args.dry_run,
                 ),
                 stage_fn=_promote_stage,
                 run_id=args.build_run_id,

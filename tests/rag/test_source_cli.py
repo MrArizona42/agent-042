@@ -219,6 +219,33 @@ def test_cli_build_source_can_persist_build_run(
     }
 
 
+def test_cli_build_source_dry_run_does_not_execute_build(capsys) -> None:
+    def fake_build(**_: object):
+        raise AssertionError("dry run should not execute build")
+
+    exit_code = cli.main(
+        [
+            "build-source",
+            "--catalog",
+            "catalog.toml",
+            "--kb",
+            "pytorch_reference",
+            "--source",
+            "docs",
+            "--rag-data-root",
+            "assets/rag_data",
+            "--dry-run",
+        ],
+        build_catalog_source_fn=fake_build,
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["dry_run"] is True
+    assert payload["stage"] == "build_source"
+
+
 def test_cli_collect_bundle_with_all_uses_catalog_source_set(tmp_path: Path, capsys) -> None:
     catalog_path = _write_catalog(tmp_path / "catalog.toml")
     calls: list[dict] = []
