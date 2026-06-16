@@ -167,16 +167,3 @@ scripts/      deployment and operational shell helpers
 tests/        unit and integration-style tests
 assets/       datasets, RAG data pointers, model assets
 ```
-
-## Current Direction
-
-The current improvement track is focused on making the system easier to inspect
-and evaluate before expanding product features:
-
-1. observability, evaluation, and analytics;
-2. RAG quality improvements, including source citations;
-3. feedback collection and champion/challenger evaluation;
-4. broader platform expansion once the core loop is measurable.
-
-The working plan lives in
-[docs/planning/improvements.md](docs/planning/improvements.md).
