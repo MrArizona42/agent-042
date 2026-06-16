@@ -1,6 +1,6 @@
 # Agent 042 Improvement Plan
 
-This is the single planning document for the next project stage. Phase 1 is
+This is the top-level planning document for the next project stage. Phase 1 is
 complete; the active next stage is Phase 2 RAG quality work. The plan is
 organized around the core AI / LLM / RAG system goals:
 
@@ -9,12 +9,6 @@ organized around the core AI / LLM / RAG system goals:
 3. expand platform functionality where it directly supports production LLM/RAG
    workflows;
 4. keep lower-priority infrastructure and operational ideas deferred.
-
-## Phase 2: RAG Quality Improvements
-
-Phase 2 should improve the core RAG product: grounded answers, citations,
-retrieval evaluation, and judge-based quality checks. Evaluation groundwork
-started in Phase 1, but RAG-specific datasets and metrics belong here.
 
 ### 1. Source Citations In RAG Answers
 
@@ -59,136 +53,6 @@ Likely files:
 - `src/gateway/schemas/openai_chat.py`
 - `src/ui/app.py`
 
-### 2. RAG Evaluation Datasets
-
-Current state: the project has evaluation infrastructure, but RAG-specific
-quality depends on having curated questions, expected sources, and expected
-answer properties.
-
-Target state:
-
-- Add small curated RAG evaluation datasets for the main KBs.
-- Include examples that test:
-  - exact source lookup;
-  - multi-document synthesis;
-  - no-answer or insufficient-context behavior;
-  - citation correctness;
-  - questions that should prefer one KB over another.
-- Store dataset provenance and versioning so RAG eval results are reproducible.
-- Reuse Phase 1 failure analysis to turn real failures into new eval examples.
-
-Acceptance criteria:
-
-- Each core KB has at least a small representative eval set.
-- Dataset rows include enough metadata to evaluate retrieval and citation
-  quality, not only final answer text.
-- Eval datasets can be run from the existing eval workflow.
-
-Likely files:
-
-- `assets/datasets/`
-- `experiments/eval/eval_scripts/datasets.py`
-- `experiments/eval/eval_scripts/runner.py`
-
-### 3. RAG Metrics
-
-Current state: automatic metrics exist, but RAG quality should be decomposed
-into retrieval quality, citation quality, and final answer quality.
-
-Target state:
-
-- Add or formalize retrieval metrics:
-  - Recall@k;
-  - MRR;
-  - nDCG where labels support it;
-  - hit/no-hit rate;
-  - expected-source coverage.
-- Add citation metrics:
-  - citation presence when RAG is used;
-  - citation precision where expected sources are known;
-  - unsupported citation detection;
-  - answer sentences with/without cited support where feasible.
-- Add answer quality metrics:
-  - existing automatic metrics where appropriate;
-  - LLM-as-judge relevance;
-  - LLM-as-judge faithfulness/groundedness;
-  - refusal/no-answer correctness for insufficient context.
-- Store metric outputs in `eval_runs` / `eval_samples` with enough detail for
-  the failure analysis notebook.
-
-Acceptance criteria:
-
-- RAG eval can show whether a failure came from retrieval, citation behavior, or
-  answer generation.
-- LLM-as-judge prompts are versioned and documented.
-- Metrics can compare KB aliases such as champion/challenger.
-
-Likely files:
-
-- `experiments/eval/eval_scripts/metrics/automatic.py`
-- `experiments/eval/eval_scripts/metrics/llm_judge.py`
-- `experiments/eval/eval_scripts/retrieval_bench.py`
-- `experiments/eval/eval_scripts/runner.py`
-
-### 4. RAG Regression And Promotion Workflow
-
-Current state: Qdrant aliases and eval tables support comparison, but the
-promotion workflow should explicitly connect RAG builds, eval metrics, and
-failure analysis.
-
-Target state:
-
-- Define a repeatable workflow before promoting a new KB alias:
-  - build/materialize candidate collection;
-  - run RAG eval dataset;
-  - inspect retrieval/citation/answer metrics;
-  - review failure analysis notebook;
-  - promote or reject alias with a short operator note.
-- Document guardrails:
-  - retrieval quality must not regress;
-  - citation quality must not regress;
-  - answer quality must improve or stay neutral;
-  - latency impact should be visible.
-
-Acceptance criteria:
-
-- A RAG alias promotion can be justified with eval results and failure analysis.
-- The workflow is documented in RAG operations docs or a dedicated eval doc.
-
-## Phase 3: Functionality And Platform Expansion
-
-Phase 3 adds new platform capabilities incrementally. These should support the
-Phase 1 and Phase 2 quality loops rather than distract from them.
-
-### 1. LLM Observability Product Evaluation
-
-Current state: OpenTelemetry/Tempo/Loki/Prometheus/Grafana can provide a strong
-vendor-neutral observability stack. Specialized LLM observability tools may
-still be useful for prompt and retrieval review workflows.
-
-Target state:
-
-- Evaluate Langfuse or Arize Phoenix as part of the platform expansion.
-- Decide whether either tool adds enough value on top of the base stack.
-- Define what may be captured if adopted:
-  - prompt/response metadata;
-  - retrieval context metadata;
-  - latency per LLM/RAG step;
-  - feedback labels;
-  - redacted prompt/response samples only if explicitly allowed.
-- Define privacy, redaction, and retention rules before storing prompt or
-  response text.
-- Use these tools for prompt/retrieval review, not as replacements for the core
-  observability stack.
-
-Acceptance criteria:
-
-- There is a documented recommendation: adopt one product, defer adoption, or
-  explicitly skip for now.
-- The recommendation explains what problem the product solves that the base
-  stack does not.
-- Any prompt/response capture plan includes explicit redaction and retention
-  rules.
 
 ### 2. User Feedback Tracking
 
@@ -243,18 +107,9 @@ Acceptance criteria:
 - Promotion recommendations include guardrail checks, not only quality deltas.
 - The process is documented as an operator workflow.
 
-## Phase 4: Future Ideas
+## Future Ideas
 
 These are valuable, but they should not interrupt the phases above.
-
-### Operational Hardening
-
-- Add Alembic migrations for the `agent042` Postgres database and remove
-  startup `Base.metadata.create_all`.
-- Add Compose health inspection for an already-running deployment.
-- Add gateway abuse protection with Redis-backed rate limiting.
-- Document local reproduction of CI jobs.
-- Add a project quickstart once the new observability/RAG workflows exist.
 
 ### Spark For Data Quality And Feedback Loops
 
