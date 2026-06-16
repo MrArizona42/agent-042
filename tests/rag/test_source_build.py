@@ -5,7 +5,14 @@ from textwrap import dedent
 
 import httpx
 
-from rag.sources import ChunkingConfig, build_catalog_source, build_source_instance
+from app_config.catalog.schema import CatalogConfig
+from rag.sources import (
+    ChunkingConfig,
+    build_catalog_source,
+    build_catalog_sources,
+    build_source_instance,
+    resolve_catalog_sources,
+)
 from rag.sources.chunks import chunk_artifact_path, read_chunk_artifact
 from rag.sources.fetchers import HtmlDocsFetcher
 
@@ -260,3 +267,52 @@ def test_build_catalog_source_rejects_missing_kb_source_pair(tmp_path: Path) -> 
         assert "source_instance_id='docs'" in str(exc)
     else:
         raise AssertionError("expected missing catalog source pair to fail")
+
+
+def test_resolve_catalog_sources_supports_all_and_subset(tmp_path: Path) -> None:
+    manifest_path = _manifest(tmp_path)
+    catalog_path = _catalog(tmp_path, manifest_path)
+    catalog = CatalogConfig.model_validate(
+        __import__("tomllib").loads(catalog_path.read_text(encoding="utf-8"))
+    )
+
+    resolved_all = resolve_catalog_sources(catalog, kb_id="pytorch_reference")
+    assert [source.id for source in resolved_all] == ["docs"]
+    assert [
+        source.id
+        for source in resolve_catalog_sources(
+            catalog,
+            kb_id="pytorch_reference",
+            source_instance_ids=["docs"],
+        )
+    ] == ["docs"]
+
+    try:
+        resolve_catalog_sources(
+            catalog,
+            kb_id="pytorch_reference",
+            source_instance_ids=["missing"],
+        )
+    except ValueError as exc:
+        assert "source_instance_ids=['missing']" in str(exc)
+    else:
+        raise AssertionError("expected missing source subset to fail")
+
+
+def test_build_catalog_sources_builds_selected_sources(tmp_path: Path) -> None:
+    manifest_path = _manifest(tmp_path)
+    catalog_path = _catalog(tmp_path, manifest_path)
+
+    summary = build_catalog_sources(
+        catalog_path=catalog_path,
+        kb_id="pytorch_reference",
+        source_instance_ids=["docs"],
+        rag_data_root=tmp_path,
+        document_ids=["html:tensors"],
+        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
+        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
+    )
+
+    assert summary.kb_id == "pytorch_reference"
+    assert [source_summary.source.id for source_summary in summary.sources] == ["docs"]
+    assert summary.sources[0].build.status == "success"

@@ -45,6 +45,16 @@ class CatalogSourceBuildSummary(BaseModel):
     build: SourceBuildSummary
 
 
+class CatalogSourcesBuildSummary(BaseModel):
+    """Summary for one or more catalog-addressed source instance builds."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    catalog_path: str
+    kb_id: str
+    sources: list[CatalogSourceBuildSummary]
+
+
 def _build_status(
     *,
     processing: SourceProcessingSummary,
@@ -86,6 +96,32 @@ def _find_source_config(
         f"Catalog source not found for kb_id='{kb_id}' "
         f"and source_instance_id='{source_instance_id}'"
     )
+
+
+def resolve_catalog_sources(
+    catalog: CatalogConfig,
+    *,
+    kb_id: str,
+    source_instance_ids: list[str] | None = None,
+) -> list[SourceConfig]:
+    """Resolve all or selected source configs for a KB."""
+    selected_ids = set(source_instance_ids) if source_instance_ids is not None else None
+    sources = [
+        source
+        for source in catalog.sources
+        if source.kb == kb_id and (selected_ids is None or source.id in selected_ids)
+    ]
+    if selected_ids is not None:
+        found_ids = {source.id for source in sources}
+        missing_ids = sorted(selected_ids - found_ids)
+        if missing_ids:
+            raise ValueError(
+                f"Catalog sources not found for kb_id='{kb_id}' "
+                f"and source_instance_ids={missing_ids}"
+            )
+    if not sources:
+        raise ValueError(f"Catalog has no sources for kb_id='{kb_id}'")
+    return sources
 
 
 def build_source_instance(
@@ -205,4 +241,53 @@ def build_catalog_source(
         catalog_path=catalog_path.as_posix(),
         source=source,
         build=build,
+    )
+
+
+def build_catalog_sources(
+    *,
+    catalog_path: Path | str,
+    kb_id: str,
+    source_instance_ids: list[str] | None,
+    rag_data_root: Path | str,
+    document_ids: list[str] | None = None,
+    limit: int | None = None,
+    force_fetch: bool = False,
+    force_extract: bool = False,
+    force_chunk: bool = False,
+    chunking: ChunkingConfig | None = None,
+    fetchers: dict[str, SourceFetcher] | None = None,
+    extractors: dict[str, SourceExtractor] | None = None,
+    adapter_registry: SourceAdapterRegistry | None = None,
+) -> CatalogSourcesBuildSummary:
+    """Build all or selected source instances for a KB."""
+    catalog_path = Path(catalog_path)
+    catalog = _load_catalog_config(catalog_path)
+    sources = resolve_catalog_sources(
+        catalog,
+        kb_id=kb_id,
+        source_instance_ids=source_instance_ids,
+    )
+    summaries = [
+        build_catalog_source(
+            catalog_path=catalog_path,
+            kb_id=kb_id,
+            source_instance_id=source.id,
+            rag_data_root=rag_data_root,
+            document_ids=document_ids,
+            limit=limit,
+            force_fetch=force_fetch,
+            force_extract=force_extract,
+            force_chunk=force_chunk,
+            chunking=chunking,
+            fetchers=fetchers,
+            extractors=extractors,
+            adapter_registry=adapter_registry,
+        )
+        for source in sources
+    ]
+    return CatalogSourcesBuildSummary(
+        catalog_path=catalog_path.as_posix(),
+        kb_id=kb_id,
+        sources=summaries,
     )

@@ -86,3 +86,24 @@ def collect_source_chunks(
         document_count=len(document_ids_seen),
         chunk_count=len(chunks),
     )
+
+
+def collect_source_bundles(
+    *,
+    rag_data_root: Path | str,
+    kb_id: str,
+    source_instance_ids: list[str],
+    document_ids: list[str] | None = None,
+    limit: int | None = None,
+) -> list[SourceChunkBundle]:
+    """Collect materialization bundles for multiple source instances."""
+    return [
+        collect_source_chunks(
+            rag_data_root=rag_data_root,
+            kb_id=kb_id,
+            source_instance_id=source_instance_id,
+            document_ids=document_ids,
+            limit=limit,
+        )
+        for source_instance_id in source_instance_ids
+    ]

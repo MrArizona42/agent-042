@@ -71,8 +71,14 @@ def _append_common_source_args(cmd: list[str], params: dict[str, Any]) -> None:
             str(params["catalog"]),
             "--kb",
             str(params["kb"]),
-            "--source",
-            str(params["source"]),
+        ]
+    )
+
+    for source in _csv_values(params.get("source")):
+        cmd.extend(["--source", source])
+
+    cmd.extend(
+        [
             "--rag-data-root",
             str(params["rag_data_root"]),
         ]
@@ -253,7 +259,7 @@ with DAG(
     params={
         "catalog": Param(_configured_catalog_path(), type="string"),
         "kb": Param("pytorch_reference", type="string"),
-        "source": Param("docs", type="string"),
+        "source": Param("docs", type=["null", "string", "array"]),
         "alias_config": Param("challenger", type="string"),
         "rag_data_root": Param("assets/rag_data", type="string"),
         "document_ids": Param("", type=["null", "string", "array"]),

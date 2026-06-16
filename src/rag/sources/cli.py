@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import tomllib
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from app_config.catalog import load_catalog
+from app_config.catalog import CatalogConfig, load_catalog
 from rag.embeddings import EmbeddingService
-from rag.sources.build import build_catalog_source
-from rag.sources.bundles import collect_source_chunks
+from rag.sources.build import build_catalog_source, build_catalog_sources, resolve_catalog_sources
+from rag.sources.bundles import collect_source_bundles, collect_source_chunks
 from rag.sources.chunks import ChunkingConfig
 from rag.sources.materialize import (
     collection_name_for_build,
@@ -29,16 +30,54 @@ def _json_default(value: object) -> str:
     return str(value)
 
 
+def _json_payload(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json", exclude_none=True)
+    if isinstance(value, list):
+        return [_json_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_payload(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_payload(item) for key, item in value.items()}
+    return value
+
+
 def _print_model(model: Any) -> None:
-    if hasattr(model, "model_dump"):
-        payload = model.model_dump(mode="json", exclude_none=True)
-    else:
-        payload = model
+    payload = _json_payload(model)
     print(json.dumps(payload, indent=2, sort_keys=True, default=_json_default))
 
 
 def _document_ids(values: list[str] | None) -> list[str] | None:
     return values or None
+
+
+def _source_ids(values: list[str] | None) -> list[str] | None:
+    if not values:
+        return None
+    source_ids: list[str] = []
+    for value in values:
+        source_ids.extend(item.strip() for item in value.split(",") if item.strip())
+    if not source_ids or any(source_id.lower() == "all" for source_id in source_ids):
+        return None
+    return source_ids
+
+
+def _catalog_source_ids(
+    *,
+    catalog_path: Path | str,
+    kb_id: str,
+    source_ids: list[str] | None,
+) -> list[str]:
+    path = Path(catalog_path)
+    catalog = CatalogConfig(**tomllib.loads(path.read_text(encoding="utf-8")))
+    return [
+        source.id
+        for source in resolve_catalog_sources(
+            catalog,
+            kb_id=kb_id,
+            source_instance_ids=source_ids,
+        )
+    ]
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -48,7 +87,12 @@ def _parser() -> argparse.ArgumentParser:
     def add_common_source_args(command: argparse.ArgumentParser) -> None:
         command.add_argument("--catalog", required=True)
         command.add_argument("--kb", required=True)
-        command.add_argument("--source", required=True)
+        command.add_argument(
+            "--source",
+            action="append",
+            dest="sources",
+            help="Source instance id. Repeat for subsets, use 'all', or omit for all.",
+        )
         command.add_argument("--rag-data-root", required=True)
         command.add_argument("--document-id", action="append", dest="document_ids")
         command.add_argument("--limit", type=int)
@@ -119,7 +163,9 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     build_catalog_source_fn: Callable[..., Any] = build_catalog_source,
+    build_catalog_sources_fn: Callable[..., Any] = build_catalog_sources,
     collect_source_chunks_fn: Callable[..., Any] = collect_source_chunks,
+    collect_source_bundles_fn: Callable[..., Any] = collect_source_bundles,
     materialize_kb_collection_fn: Callable[..., Any] = materialize_kb_collection,
     promote_materialized_alias_fn: Callable[..., Any] = promote_materialized_alias,
 ) -> int:
@@ -127,29 +173,58 @@ def main(
     args = _parser().parse_args(argv)
 
     if args.command == "build-source":
-        result = build_catalog_source_fn(
-            catalog_path=args.catalog,
-            kb_id=args.kb,
-            source_instance_id=args.source,
-            rag_data_root=args.rag_data_root,
-            document_ids=_document_ids(args.document_ids),
-            limit=args.limit,
-            force_fetch=args.force_fetch,
-            force_extract=args.force_extract,
-            force_chunk=args.force_chunk,
-            chunking=_chunking_from_args(args),
-        )
+        source_ids = _source_ids(args.sources)
+        if source_ids is not None and len(source_ids) == 1:
+            result = build_catalog_source_fn(
+                catalog_path=args.catalog,
+                kb_id=args.kb,
+                source_instance_id=source_ids[0],
+                rag_data_root=args.rag_data_root,
+                document_ids=_document_ids(args.document_ids),
+                limit=args.limit,
+                force_fetch=args.force_fetch,
+                force_extract=args.force_extract,
+                force_chunk=args.force_chunk,
+                chunking=_chunking_from_args(args),
+            )
+        else:
+            result = build_catalog_sources_fn(
+                catalog_path=args.catalog,
+                kb_id=args.kb,
+                source_instance_ids=source_ids,
+                rag_data_root=args.rag_data_root,
+                document_ids=_document_ids(args.document_ids),
+                limit=args.limit,
+                force_fetch=args.force_fetch,
+                force_extract=args.force_extract,
+                force_chunk=args.force_chunk,
+                chunking=_chunking_from_args(args),
+            )
         _print_model(result)
         return 0
 
     if args.command == "collect-bundle":
-        result = collect_source_chunks_fn(
-            rag_data_root=args.rag_data_root,
-            kb_id=args.kb,
-            source_instance_id=args.source,
-            document_ids=_document_ids(args.document_ids),
-            limit=args.limit,
-        )
+        source_ids = _source_ids(args.sources)
+        if source_ids is not None and len(source_ids) == 1:
+            result = collect_source_chunks_fn(
+                rag_data_root=args.rag_data_root,
+                kb_id=args.kb,
+                source_instance_id=source_ids[0],
+                document_ids=_document_ids(args.document_ids),
+                limit=args.limit,
+            )
+        else:
+            result = collect_source_bundles_fn(
+                rag_data_root=args.rag_data_root,
+                kb_id=args.kb,
+                source_instance_ids=_catalog_source_ids(
+                    catalog_path=args.catalog,
+                    kb_id=args.kb,
+                    source_ids=source_ids,
+                ),
+                document_ids=_document_ids(args.document_ids),
+                limit=args.limit,
+            )
         _print_model(result)
         return 0
 
@@ -164,17 +239,34 @@ def main(
         collection_name = args.collection or collection_name_for_build(
             kb_id=args.kb,
         )
-        bundle = collect_source_chunks_fn(
-            rag_data_root=args.rag_data_root,
+        source_ids = _source_ids(args.sources)
+        resolved_source_ids = _catalog_source_ids(
+            catalog_path=args.catalog,
             kb_id=args.kb,
-            source_instance_id=args.source,
-            document_ids=_document_ids(args.document_ids),
-            limit=args.limit,
+            source_ids=source_ids,
         )
+        if len(resolved_source_ids) == 1:
+            bundles = [
+                collect_source_chunks_fn(
+                    rag_data_root=args.rag_data_root,
+                    kb_id=args.kb,
+                    source_instance_id=resolved_source_ids[0],
+                    document_ids=_document_ids(args.document_ids),
+                    limit=args.limit,
+                )
+            ]
+        else:
+            bundles = collect_source_bundles_fn(
+                rag_data_root=args.rag_data_root,
+                kb_id=args.kb,
+                source_instance_ids=resolved_source_ids,
+                document_ids=_document_ids(args.document_ids),
+                limit=args.limit,
+            )
         result = materialize_kb_collection_fn(
             kb_id=args.kb,
             collection_name=collection_name,
-            bundles=[bundle],
+            bundles=bundles,
             vector_store=_vector_store(collection_name=collection_name),
             embedding_client=EmbeddingService(),
             embedding_model=settings.rag.embedding_model,

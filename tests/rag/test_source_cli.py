@@ -42,6 +42,14 @@ def _write_catalog(path: Path) -> Path:
             kb = "pytorch_reference"
             id = "docs"
             manifest = "assets/rag_data/pytorch_reference/sources.toml"
+            ingest_adapter = { id = "generic.http_html", version = "1" }
+
+            [[sources]]
+            type = "html_docs"
+            kb = "pytorch_reference"
+            id = "tutorials"
+            manifest = "assets/rag_data/pytorch_reference/tutorials.toml"
+            ingest_adapter = { id = "generic.http_html", version = "1" }
             """
         ).strip()
         + "\n",
@@ -143,6 +151,62 @@ def test_cli_collect_bundle_outputs_bundle_summary(capsys) -> None:
     assert json.loads(capsys.readouterr().out) == {"chunk_count": 3}
 
 
+def test_cli_build_source_without_source_builds_all_catalog_sources(capsys) -> None:
+    calls: list[dict] = []
+
+    def fake_build_all(**kwargs):
+        calls.append(kwargs)
+        return _Model({"source_count": 2})
+
+    exit_code = cli.main(
+        [
+            "build-source",
+            "--catalog",
+            "catalog.toml",
+            "--kb",
+            "pytorch_reference",
+            "--rag-data-root",
+            "assets/rag_data",
+        ],
+        build_catalog_sources_fn=fake_build_all,
+    )
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == {"source_count": 2}
+    assert calls[0]["source_instance_ids"] is None
+
+
+def test_cli_collect_bundle_with_all_uses_catalog_source_set(tmp_path: Path, capsys) -> None:
+    catalog_path = _write_catalog(tmp_path / "catalog.toml")
+    calls: list[dict] = []
+
+    def fake_collect_all(**kwargs):
+        calls.append(kwargs)
+        return [_Model({"source": source_id}) for source_id in kwargs["source_instance_ids"]]
+
+    exit_code = cli.main(
+        [
+            "collect-bundle",
+            "--catalog",
+            catalog_path.as_posix(),
+            "--kb",
+            "pytorch_reference",
+            "--source",
+            "all",
+            "--rag-data-root",
+            "assets/rag_data",
+        ],
+        collect_source_bundles_fn=fake_collect_all,
+    )
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == [
+        {"source": "docs"},
+        {"source": "tutorials"},
+    ]
+    assert calls[0]["source_instance_ids"] == ["docs", "tutorials"]
+
+
 def test_cli_materialize_derives_hybrid_capability_from_catalog(
     tmp_path: Path,
     monkeypatch,
@@ -200,6 +264,61 @@ def test_cli_materialize_derives_hybrid_capability_from_catalog(
     assert calls[0]["sparse_encoder_model"] == "Qdrant/bm25"
     assert isinstance(calls[0]["sparse_encoder_client"], _Sparse)
     assert calls[0]["qdrant_upsert_batch_size"] == 128
+
+
+def test_cli_materialize_all_sources_passes_multiple_bundles(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    catalog_path = _write_catalog(tmp_path / "catalog.toml")
+    calls: list[dict] = []
+
+    class _Embedding:
+        dimension = 3
+
+    class _Sparse:
+        pass
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _Settings())
+    monkeypatch.setattr(cli, "EmbeddingService", _Embedding)
+    monkeypatch.setattr(cli, "SparseEncoderService", _Sparse)
+    monkeypatch.setattr(
+        cli,
+        "_vector_store",
+        lambda collection_name: {"collection": collection_name},
+    )
+
+    def fake_collect_all(**kwargs):
+        return [{"bundle": source_id} for source_id in kwargs["source_instance_ids"]]
+
+    def fake_materialize(**kwargs):
+        calls.append(kwargs)
+        return _Model({"bundle_count": len(kwargs["bundles"])})
+
+    exit_code = cli.main(
+        [
+            "materialize",
+            "--catalog",
+            catalog_path.as_posix(),
+            "--kb",
+            "pytorch_reference",
+            "--source",
+            "all",
+            "--alias-config",
+            "challenger",
+            "--collection",
+            "rag__pytorch_reference__test",
+            "--rag-data-root",
+            "assets/rag_data",
+        ],
+        collect_source_bundles_fn=fake_collect_all,
+        materialize_kb_collection_fn=fake_materialize,
+    )
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == {"bundle_count": 2}
+    assert calls[0]["bundles"] == [{"bundle": "docs"}, {"bundle": "tutorials"}]
 
 
 def test_cli_promote_alias_wires_collection(tmp_path: Path, capsys, monkeypatch) -> None:

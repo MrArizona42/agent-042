@@ -145,6 +145,31 @@ def test_build_source_task_constructs_source_cli(monkeypatch: pytest.MonkeyPatch
     ]
 
 
+def test_build_source_task_accepts_multiple_sources(monkeypatch: pytest.MonkeyPatch) -> None:
+    dag_module = _load_dag(monkeypatch)
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(dag_module, "_run_cli", lambda args: calls.append(args) or {"ok": True})
+
+    dag_module._build_source(**_context(source="docs,tutorials"))
+
+    assert calls == [
+        [
+            "build-source",
+            "--catalog",
+            "catalog.toml",
+            "--kb",
+            "pytorch_reference",
+            "--source",
+            "docs",
+            "--source",
+            "tutorials",
+            "--rag-data-root",
+            "assets/rag_data",
+        ]
+    ]
+
+
 def test_run_cli_prints_subprocess_output_before_failure(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

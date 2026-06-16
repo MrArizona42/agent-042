@@ -11,12 +11,19 @@ from rag.sources.artifacts import (
 )
 from rag.sources.build import (
     CatalogSourceBuildSummary,
+    CatalogSourcesBuildSummary,
     SourceBuildStatus,
     SourceBuildSummary,
     build_catalog_source,
+    build_catalog_sources,
     build_source_instance,
+    resolve_catalog_sources,
 )
-from rag.sources.bundles import SourceChunkBundle, collect_source_chunks
+from rag.sources.bundles import (
+    SourceChunkBundle,
+    collect_source_bundles,
+    collect_source_chunks,
+)
 from rag.sources.chunks import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
@@ -84,6 +91,7 @@ __all__ = [
     "ChunkArtifact",
     "ChunkingConfig",
     "CatalogSourceBuildSummary",
+    "CatalogSourcesBuildSummary",
     "ExtractedDocumentArtifact",
     "ExtractionArtifactMeta",
     "HtmlDocsEntry",
@@ -107,11 +115,13 @@ __all__ = [
     "SourceProcessingFailure",
     "SourceProcessingSummary",
     "SourceType",
+    "build_catalog_sources",
     "build_catalog_source",
     "build_source_instance",
     "chunk_artifact_path",
     "chunk_extracted_artifact",
     "chunk_source_instance",
+    "collect_source_bundles",
     "collect_source_chunks",
     "collection_name_for_build",
     "extracted_artifact_from_result",
@@ -123,6 +133,7 @@ __all__ = [
     "qdrant_alias_name",
     "read_chunk_artifact",
     "read_extracted_artifact",
+    "resolve_catalog_sources",
     "source_manifest_from_raw",
     "source_snapshot_id",
     "retrieval_capability_for_strategy",
