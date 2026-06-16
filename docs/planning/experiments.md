@@ -18,6 +18,9 @@ the serving envelope that RAG experiments must fit inside.
 
 ## Documents
 
+0. [RAG Pipeline Isolation](rag-pipeline-isolation.md)
+   - Splits production platform code, production data pipelines, and
+     exploratory notebooks before RAG experiments multiply.
 1. [Inference Baseline](inference-baseline.md)
    - Defines the model, quantization, context, token budget, and concurrency
      envelope used by later RAG experiments.
@@ -36,12 +39,14 @@ the serving envelope that RAG experiments must fit inside.
 ## Dependency Order
 
 ```text
-Inference baseline
+RAG pipeline isolation
+  -> Inference baseline
   -> RAG evaluation harness
     -> RAG experiment series
       -> RAG promotion rules
 
-Inference baseline
+RAG pipeline isolation
+  -> Inference baseline
   -> LoRA experiment series
     -> LoRA promotion rules
 

@@ -16,6 +16,11 @@ failure sets support promotion of a specific knowledge-base alias; global
 regression checks validate platform behavior across KBs. Not every benchmark is
 meaningful for every knowledge base.
 
+Before the RAG experiments start, complete the
+[RAG Pipeline Isolation Plan](rag-pipeline-isolation.md). The project should
+keep reusable RAG platform code in `src/`, production dataset pipelines in a
+dedicated pipeline layer, and exploratory notebooks/reports in `experiments/`.
+
 ### 1. Source Citations In RAG Answers
 
 Current state: RAG retrieval can provide context to the model, and runtime
