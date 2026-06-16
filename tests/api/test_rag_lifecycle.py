@@ -138,11 +138,9 @@ class TestKnowledgeBaseConfig:
         assert "challenger" in ml_papers_cfg.aliases
         assert pytorch_cfg.label == "PyTorch reference"
 
-    def test_load_missing_file_returns_empty(self, tmp_path: Path):
-        catalog, index = load_catalog(tmp_path / "nonexistent.toml")
-        assert catalog == {}
-        assert index == {}
-        assert index == {}
+    def test_load_missing_file_raises(self, tmp_path: Path):
+        with pytest.raises(FileNotFoundError, match="Catalog config file not found"):
+            load_catalog(tmp_path / "nonexistent.toml")
 
     def test_kb_index_lookup(self, catalog_file: Path):
         """get_kb_config returns correct entries from the flat index."""
@@ -293,8 +291,10 @@ class TestKnowledgeBasesEndpoint:
         assert ml_papers_entry["update_strategy"] == "replace"
         assert "champion" in ml_papers_entry["aliases"]
 
-    def test_list_knowledge_bases_empty(self, tmp_path: Path):
-        _override_loaded_kb_catalog(tmp_path / "nonexistent.toml")
+    def test_list_knowledge_bases_empty(self):
+        if _KB_CATALOG_OVERRIDE_STACK is None:
+            raise RuntimeError("KB catalog override stack is not initialized")
+        _KB_CATALOG_OVERRIDE_STACK.enter_context(catalog_override({}, index={}))
 
         app = _make_test_app()
         client = TestClient(app)

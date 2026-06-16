@@ -481,6 +481,9 @@ class TestLLMJudge:
                 backend="local_vllm",
                 model="judge-model",
                 base_url="http://localhost:8000",
+                api_key=None,
+                timeout=60.0,
+                request_delay_seconds=0.0,
             ),
         )
         assert result["score"] == 4
@@ -505,6 +508,8 @@ class TestLLMJudge:
                 model="judge-model",
                 base_url="https://judge.example",
                 api_key="secret",
+                timeout=60.0,
+                request_delay_seconds=0.0,
             ),
         )
         assert "correctness" in result
@@ -522,6 +527,9 @@ class TestLLMJudge:
                     backend="local_vllm",
                     model="judge-model",
                     base_url="http://localhost:8000",
+                    api_key=None,
+                    timeout=60.0,
+                    request_delay_seconds=0.0,
                 ),
             )
 
