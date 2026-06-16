@@ -76,10 +76,9 @@ def _source_attestation(request: BuildRequest) -> tuple[dict[str, str], dict[str
         if digest is not None:
             manifest_digests[source.id] = digest
 
-        if source.ingest_adapter is not None:
-            adapter_versions[source.id] = (
-                f"{source.ingest_adapter.id}@{source.ingest_adapter.version}"
-            )
+        adapter_versions[source.id] = (
+            f"{source.ingest_adapter.id}@{source.ingest_adapter.version}"
+        )
 
     return manifest_digests, adapter_versions
 
