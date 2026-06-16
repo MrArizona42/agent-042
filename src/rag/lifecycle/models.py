@@ -51,6 +51,14 @@ class BuildRequest(BaseModel):
         cleaned = [item.strip() for item in value if item.strip()]
         return cleaned or None
 
+    @field_validator("alias_config", "collection_name")
+    @classmethod
+    def _blank_optional_strings_are_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
 
 class BuildRun(BaseModel):
     """Persistable status record for one RAG build run."""
@@ -90,4 +98,3 @@ class LifecycleStageResult(BaseModel):
 
     build_run: BuildRun
     result: Any
-

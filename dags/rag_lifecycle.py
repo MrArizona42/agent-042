@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -64,6 +65,31 @@ def _optional_positive_int(value: object) -> int | None:
     return parsed if parsed > 0 else None
 
 
+def _safe_build_run_id(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
+    return re.sub(r"_+", "_", cleaned).strip("._-")
+
+
+def _build_run_id(context: dict[str, Any]) -> str:
+    params = _params(context)
+    configured = str(params.get("build_run_id") or "").strip()
+    if configured:
+        return _safe_build_run_id(configured)
+    airflow_run_id = str(context.get("run_id") or "").strip()
+    if airflow_run_id:
+        return _safe_build_run_id(airflow_run_id)
+    dag_run = context.get("dag_run")
+    dag_run_id = str(getattr(dag_run, "run_id", "") or "").strip()
+    return _safe_build_run_id(dag_run_id) if dag_run_id else ""
+
+
+def _append_build_run_args(cmd: list[str], context: dict[str, Any]) -> None:
+    cmd.append("--persist-build-run")
+    run_id = _build_run_id(context)
+    if run_id:
+        cmd.extend(["--build-run-id", run_id])
+
+
 def _append_common_source_args(cmd: list[str], params: dict[str, Any]) -> None:
     cmd.extend(
         [
@@ -119,10 +145,8 @@ def _run_cli(args: list[str]) -> dict[str, Any]:
 
 def _build_source(**context: Any) -> dict[str, Any]:
     params = _params(context)
-    cmd = ["build-source", "--persist-build-run"]
-    build_run_id = str(params.get("build_run_id") or "").strip()
-    if build_run_id:
-        cmd.extend(["--build-run-id", build_run_id])
+    cmd = ["build-source"]
+    _append_build_run_args(cmd, context)
     _append_common_source_args(cmd, params)
     if params.get("force_fetch"):
         cmd.append("--force-fetch")
@@ -136,6 +160,7 @@ def _build_source(**context: Any) -> dict[str, Any]:
 def _materialize(**context: Any) -> dict[str, Any]:
     params = _params(context)
     cmd = ["materialize"]
+    _append_build_run_args(cmd, context)
     _append_common_source_args(cmd, params)
     cmd.extend(["--alias-config", str(params["alias_config"])])
     collection = str(params.get("collection") or "").strip()
@@ -172,6 +197,7 @@ def _promote_alias(**context: Any) -> dict[str, Any]:
     collection = _materialized_collection(context)
     cmd = [
         "promote-alias",
+        "--persist-build-run",
         "--catalog",
         str(params["catalog"]),
         "--kb",
@@ -180,7 +206,12 @@ def _promote_alias(**context: Any) -> dict[str, Any]:
         promote_alias,
         "--collection",
         collection,
+        "--rag-data-root",
+        str(params["rag_data_root"]),
     ]
+    run_id = _build_run_id(context)
+    if run_id:
+        cmd.extend(["--build-run-id", run_id])
     result = _run_cli(cmd)
     return {"promoted": True, **result}
 

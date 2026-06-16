@@ -309,6 +309,73 @@ def test_cli_materialize_derives_hybrid_capability_from_catalog(
     assert calls[0]["qdrant_upsert_batch_size"] == 128
 
 
+def test_cli_materialize_can_persist_build_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    catalog_path = _write_catalog(tmp_path / "catalog.toml")
+    rag_data_root = tmp_path / "rag_data"
+
+    class _Embedding:
+        dimension = 3
+
+    class _Sparse:
+        pass
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _Settings())
+    monkeypatch.setattr(cli, "EmbeddingService", _Embedding)
+    monkeypatch.setattr(cli, "SparseEncoderService", _Sparse)
+    monkeypatch.setattr(
+        cli,
+        "_vector_store",
+        lambda collection_name: {"collection": collection_name},
+    )
+
+    def fake_collect(**kwargs):
+        return {"bundle": kwargs["source_instance_id"]}
+
+    def fake_materialize(**kwargs):
+        return _Model({"collection": kwargs["collection_name"]})
+
+    exit_code = cli.main(
+        [
+            "materialize",
+            "--catalog",
+            catalog_path.as_posix(),
+            "--kb",
+            "pytorch_reference",
+            "--source",
+            "docs",
+            "--alias-config",
+            "challenger",
+            "--collection",
+            "rag__pytorch_reference__test",
+            "--rag-data-root",
+            rag_data_root.as_posix(),
+            "--build-run-id",
+            "manual-run",
+            "--persist-build-run",
+        ],
+        collect_source_chunks_fn=fake_collect,
+        materialize_kb_collection_fn=fake_materialize,
+    )
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == {"collection": "rag__pytorch_reference__test"}
+    build_run_payload = json.loads(
+        (
+            rag_data_root / "pytorch_reference" / "metadata" / "build_runs" / "manual-run.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert build_run_payload["status"] == "succeeded"
+    assert build_run_payload["alias_config"] == "challenger"
+    assert build_run_payload["collection_name"] == "rag__pytorch_reference__test"
+    assert build_run_payload["stage_results"]["materialize"] == {
+        "collection": "rag__pytorch_reference__test"
+    }
+
+
 def test_cli_materialize_all_sources_passes_multiple_bundles(
     tmp_path: Path,
     monkeypatch,

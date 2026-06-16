@@ -89,6 +89,70 @@ def write_build_run(build_run: BuildRun) -> Path:
     return path
 
 
+def read_build_run(*, rag_data_root: Path | str, kb_id: str, run_id: str) -> BuildRun:
+    """Load a persisted BuildRun JSON artifact."""
+    path = build_run_path(rag_data_root=rag_data_root, kb_id=kb_id, run_id=run_id)
+    return BuildRun(**json.loads(path.read_text(encoding="utf-8")))
+
+
+def _build_run_for_stage(request: BuildRequest, *, run_id: str | None) -> BuildRun:
+    if run_id is None:
+        return create_build_run(request)
+    path = build_run_path(
+        rag_data_root=request.rag_data_root,
+        kb_id=request.kb_id,
+        run_id=run_id,
+    )
+    if path.exists():
+        return BuildRun(**json.loads(path.read_text(encoding="utf-8")))
+    return create_build_run(request, run_id=run_id)
+
+
+def _run_recorded_stage(
+    request: BuildRequest,
+    *,
+    stage_name: str,
+    stage_fn: Callable[[], Any],
+    run_id: str | None = None,
+    persist: bool = True,
+    success_status: str = "succeeded",
+) -> LifecycleStageResult:
+    build_run = _build_run_for_stage(request, run_id=run_id).model_copy(
+        update={
+            "status": "running",
+            "current_stage": stage_name,
+            "finished_at": None,
+            "alias_config": request.alias_config,
+            "collection_name": request.collection_name,
+        }
+    )
+    try:
+        result = stage_fn()
+        stage_results = {**build_run.stage_results, stage_name: _json_payload(result)}
+        build_run = build_run.model_copy(
+            update={
+                "status": success_status,
+                "finished_at": datetime.now(tz=UTC),
+                "stage_results": stage_results,
+                "errors": [],
+            }
+        )
+        if persist:
+            write_build_run(build_run)
+        return LifecycleStageResult(build_run=build_run, result=result)
+    except Exception as exc:
+        build_run = build_run.model_copy(
+            update={
+                "status": "failed",
+                "finished_at": datetime.now(tz=UTC),
+                "errors": [str(exc)],
+            }
+        )
+        if persist:
+            write_build_run(build_run)
+        raise
+
+
 def _default_build_catalog_source_fn() -> Callable[..., Any]:
     from rag.sources.build import build_catalog_source
 
@@ -113,12 +177,10 @@ def run_source_build_stage(
     """Run the source build stage and update a BuildRun."""
     build_catalog_source_fn = build_catalog_source_fn or _default_build_catalog_source_fn()
     build_catalog_sources_fn = build_catalog_sources_fn or _default_build_catalog_sources_fn()
-    build_run = create_build_run(request, run_id=run_id).model_copy(
-        update={"status": "running", "current_stage": "build_source"}
-    )
-    try:
+
+    def _stage() -> Any:
         if request.source_ids is not None and len(request.source_ids) == 1:
-            result = build_catalog_source_fn(
+            return build_catalog_source_fn(
                 catalog_path=request.catalog_path,
                 kb_id=request.kb_id,
                 source_instance_id=request.source_ids[0],
@@ -130,37 +192,58 @@ def run_source_build_stage(
                 force_chunk=request.force_chunk,
                 **build_kwargs,
             )
-        else:
-            result = build_catalog_sources_fn(
-                catalog_path=request.catalog_path,
-                kb_id=request.kb_id,
-                source_instance_ids=request.source_ids,
-                rag_data_root=request.rag_data_root,
-                document_ids=request.document_ids,
-                limit=request.limit,
-                force_fetch=request.force_fetch,
-                force_extract=request.force_extract,
-                force_chunk=request.force_chunk,
-                **build_kwargs,
-            )
-        build_run = build_run.model_copy(
-            update={
-                "status": "succeeded",
-                "finished_at": datetime.now(tz=UTC),
-                "stage_results": {"build_source": _json_payload(result)},
-            }
+        return build_catalog_sources_fn(
+            catalog_path=request.catalog_path,
+            kb_id=request.kb_id,
+            source_instance_ids=request.source_ids,
+            rag_data_root=request.rag_data_root,
+            document_ids=request.document_ids,
+            limit=request.limit,
+            force_fetch=request.force_fetch,
+            force_extract=request.force_extract,
+            force_chunk=request.force_chunk,
+            **build_kwargs,
         )
-        if persist:
-            write_build_run(build_run)
-        return LifecycleStageResult(build_run=build_run, result=result)
-    except Exception as exc:
-        build_run = build_run.model_copy(
-            update={
-                "status": "failed",
-                "finished_at": datetime.now(tz=UTC),
-                "errors": [str(exc)],
-            }
-        )
-        if persist:
-            write_build_run(build_run)
-        raise
+
+    return _run_recorded_stage(
+        request,
+        stage_name="build_source",
+        stage_fn=_stage,
+        run_id=run_id,
+        persist=persist,
+    )
+
+
+def run_materialize_stage(
+    request: BuildRequest,
+    *,
+    stage_fn: Callable[[], Any],
+    run_id: str | None = None,
+    persist: bool = True,
+) -> LifecycleStageResult:
+    """Run materialization and update a BuildRun."""
+    return _run_recorded_stage(
+        request,
+        stage_name="materialize",
+        stage_fn=stage_fn,
+        run_id=run_id,
+        persist=persist,
+    )
+
+
+def run_alias_promotion_stage(
+    request: BuildRequest,
+    *,
+    stage_fn: Callable[[], Any],
+    run_id: str | None = None,
+    persist: bool = True,
+) -> LifecycleStageResult:
+    """Run alias promotion and update a BuildRun."""
+    return _run_recorded_stage(
+        request,
+        stage_name="promote_alias",
+        stage_fn=stage_fn,
+        run_id=run_id,
+        persist=persist,
+        success_status="promoted",
+    )

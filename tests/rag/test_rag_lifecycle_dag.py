@@ -233,6 +233,61 @@ def test_materialize_task_uses_alias_config(monkeypatch: pytest.MonkeyPatch) -> 
     assert "rag__pytorch_reference__test" in calls[0]
 
 
+def test_materialize_task_accepts_build_run_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    dag_module = _load_dag(monkeypatch)
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        dag_module,
+        "_run_cli",
+        lambda args: calls.append(args) or {"summary": {"collection_name": "rag__x"}},
+    )
+
+    dag_module._materialize(**_context(build_run_id="airflow-run-1"))
+
+    assert calls[0][:3] == ["materialize", "--persist-build-run", "--build-run-id"]
+    assert calls[0][3] == "airflow-run-1"
+
+
+def test_lifecycle_tasks_derive_safe_build_run_id_from_airflow_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dag_module = _load_dag(monkeypatch)
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        dag_module,
+        "_run_cli",
+        lambda args: calls.append(args) or {"summary": {"collection_name": "rag__x"}},
+    )
+
+    dag_module._build_source(
+        **{
+            **_context(),
+            "run_id": "manual__2026-06-16T12:00:00+00:00",
+        }
+    )
+    dag_module._materialize(
+        **{
+            **_context(),
+            "run_id": "manual__2026-06-16T12:00:00+00:00",
+        }
+    )
+
+    assert calls[0][:4] == [
+        "build-source",
+        "--persist-build-run",
+        "--build-run-id",
+        "manual_2026-06-16T12_00_00_00_00",
+    ]
+    assert calls[1][:4] == [
+        "materialize",
+        "--persist-build-run",
+        "--build-run-id",
+        "manual_2026-06-16T12_00_00_00_00",
+    ]
+
+
 def test_promote_task_skips_without_promote_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     dag_module = _load_dag(monkeypatch)
     monkeypatch.setattr(dag_module, "_run_cli", lambda args: pytest.fail("should not run CLI"))
@@ -266,6 +321,7 @@ def test_promote_task_uses_materialize_xcom_collection(monkeypatch: pytest.Monke
     assert calls == [
         [
             "promote-alias",
+            "--persist-build-run",
             "--catalog",
             "catalog.toml",
             "--kb",
@@ -274,6 +330,8 @@ def test_promote_task_uses_materialize_xcom_collection(monkeypatch: pytest.Monke
             "challenger",
             "--collection",
             "rag__pytorch_reference__20260605_120000",
+            "--rag-data-root",
+            "assets/rag_data",
         ]
     ]
 

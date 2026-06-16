@@ -11,7 +11,12 @@ from typing import Any
 
 from app_config.catalog import CatalogConfig, load_catalog
 from rag.embeddings import EmbeddingService
-from rag.lifecycle import BuildRequest, run_source_build_stage
+from rag.lifecycle import (
+    BuildRequest,
+    run_alias_promotion_stage,
+    run_materialize_stage,
+    run_source_build_stage,
+)
 from rag.sources.build import build_catalog_source, build_catalog_sources, resolve_catalog_sources
 from rag.sources.bundles import collect_source_bundles, collect_source_chunks
 from rag.sources.chunks import ChunkingConfig
@@ -98,6 +103,10 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--document-id", action="append", dest="document_ids")
         command.add_argument("--limit", type=int)
 
+    def add_build_run_args(command: argparse.ArgumentParser) -> None:
+        command.add_argument("--build-run-id")
+        command.add_argument("--persist-build-run", action="store_true")
+
     build_source = subparsers.add_parser("build-source")
     add_common_source_args(build_source)
     build_source.add_argument("--force-fetch", action="store_true")
@@ -105,8 +114,7 @@ def _parser() -> argparse.ArgumentParser:
     build_source.add_argument("--force-chunk", action="store_true")
     build_source.add_argument("--chunk-size", type=int)
     build_source.add_argument("--chunk-overlap", type=int)
-    build_source.add_argument("--build-run-id")
-    build_source.add_argument("--persist-build-run", action="store_true")
+    add_build_run_args(build_source)
 
     collect_bundle = subparsers.add_parser("collect-bundle")
     add_common_source_args(collect_bundle)
@@ -116,6 +124,7 @@ def _parser() -> argparse.ArgumentParser:
     materialize.add_argument("--alias-config", required=True)
     materialize.add_argument("--collection")
     materialize.add_argument("--force-recreate", action="store_true")
+    add_build_run_args(materialize)
 
     promote = subparsers.add_parser("promote-alias")
     promote.add_argument(
@@ -125,6 +134,8 @@ def _parser() -> argparse.ArgumentParser:
     promote.add_argument("--kb", required=True)
     promote.add_argument("--alias", required=True)
     promote.add_argument("--collection", required=True)
+    promote.add_argument("--rag-data-root")
+    add_build_run_args(promote)
 
     return parser
 
@@ -224,78 +235,119 @@ def main(
         return 0
 
     if args.command == "materialize":
-        settings = get_settings()
-        strategy = _alias_strategy(
-            catalog_path=args.catalog,
-            kb_id=args.kb,
-            alias=args.alias_config,
-        )
-        capability = retrieval_capability_for_strategy(strategy)  # type: ignore[arg-type]
         collection_name = args.collection or collection_name_for_build(
             kb_id=args.kb,
         )
         source_ids = _source_ids(args.sources)
-        resolved_source_ids = _catalog_source_ids(
+        request = BuildRequest(
             catalog_path=args.catalog,
             kb_id=args.kb,
             source_ids=source_ids,
+            rag_data_root=args.rag_data_root,
+            alias_config=args.alias_config,
+            collection_name=collection_name,
+            document_ids=_document_ids(args.document_ids),
+            limit=args.limit,
+            force_recreate=args.force_recreate,
         )
-        if len(resolved_source_ids) == 1:
-            bundles = [
-                collect_source_chunks_fn(
+
+        def _materialize_stage() -> Any:
+            settings = get_settings()
+            strategy = _alias_strategy(
+                catalog_path=args.catalog,
+                kb_id=args.kb,
+                alias=args.alias_config,
+            )
+            capability = retrieval_capability_for_strategy(strategy)  # type: ignore[arg-type]
+            resolved_source_ids = _catalog_source_ids(
+                catalog_path=args.catalog,
+                kb_id=args.kb,
+                source_ids=source_ids,
+            )
+            if len(resolved_source_ids) == 1:
+                bundles = [
+                    collect_source_chunks_fn(
+                        rag_data_root=args.rag_data_root,
+                        kb_id=args.kb,
+                        source_instance_id=resolved_source_ids[0],
+                        document_ids=_document_ids(args.document_ids),
+                        limit=args.limit,
+                    )
+                ]
+            else:
+                bundles = collect_source_bundles_fn(
                     rag_data_root=args.rag_data_root,
                     kb_id=args.kb,
-                    source_instance_id=resolved_source_ids[0],
+                    source_instance_ids=resolved_source_ids,
                     document_ids=_document_ids(args.document_ids),
                     limit=args.limit,
                 )
-            ]
-        else:
-            bundles = collect_source_bundles_fn(
-                rag_data_root=args.rag_data_root,
+            return materialize_kb_collection_fn(
                 kb_id=args.kb,
-                source_instance_ids=resolved_source_ids,
-                document_ids=_document_ids(args.document_ids),
-                limit=args.limit,
+                collection_name=collection_name,
+                bundles=bundles,
+                vector_store=_vector_store(collection_name=collection_name),
+                embedding_client=EmbeddingService(),
+                embedding_model=settings.rag.embedding_model,
+                retrieval_capability=capability,
+                rag_data_root=args.rag_data_root,
+                target_alias=None,
+                sparse_encoder_model=(
+                    settings.rag.sparse_encoder_model if capability == "hybrid" else None
+                ),
+                sparse_encoder_client=SparseEncoderService() if capability == "hybrid" else None,
+                qdrant_upsert_batch_size=settings.rag.build.qdrant_upsert_batch_size,
+                force_recreate=args.force_recreate,
+                build_config_ref=args.catalog,
             )
-        result = materialize_kb_collection_fn(
-            kb_id=args.kb,
-            collection_name=collection_name,
-            bundles=bundles,
-            vector_store=_vector_store(collection_name=collection_name),
-            embedding_client=EmbeddingService(),
-            embedding_model=settings.rag.embedding_model,
-            retrieval_capability=capability,
-            rag_data_root=args.rag_data_root,
-            target_alias=None,
-            sparse_encoder_model=(
-                settings.rag.sparse_encoder_model if capability == "hybrid" else None
-            ),
-            sparse_encoder_client=SparseEncoderService() if capability == "hybrid" else None,
-            qdrant_upsert_batch_size=settings.rag.build.qdrant_upsert_batch_size,
-            force_recreate=args.force_recreate,
-            build_config_ref=args.catalog,
+
+        stage_result = run_materialize_stage(
+            request,
+            stage_fn=_materialize_stage,
+            run_id=args.build_run_id,
+            persist=args.persist_build_run,
         )
-        _print_model(result)
+        _print_model(stage_result.result)
         return 0
 
     if args.command == "promote-alias":
         catalog_path = _catalog_path_from_args(args)
-        strategy = _alias_strategy(catalog_path=catalog_path, kb_id=args.kb, alias=args.alias)
-        vector_store = _vector_store(collection_name=args.collection)
-        payload = vector_store.read_meta()
-        if payload is None:
-            raise RuntimeError(f"Collection '{args.collection}' has no attestation metadata")
-        validate_strategy_supported(
-            retrieval_strategy=strategy,  # type: ignore[arg-type]
-            retrieval_capability=payload.get("retrieval_capability"),  # type: ignore[arg-type]
-        )
-        result = promote_materialized_alias_fn(
-            kb_id=args.kb,
-            alias=args.alias,
-            collection_name=args.collection,
-            vector_store=vector_store,
-        )
+        if args.persist_build_run and not args.rag_data_root:
+            raise ValueError("--rag-data-root is required when --persist-build-run is set")
+
+        def _promote_stage() -> Any:
+            strategy = _alias_strategy(catalog_path=catalog_path, kb_id=args.kb, alias=args.alias)
+            vector_store = _vector_store(collection_name=args.collection)
+            payload = vector_store.read_meta()
+            if payload is None:
+                raise RuntimeError(f"Collection '{args.collection}' has no attestation metadata")
+            validate_strategy_supported(
+                retrieval_strategy=strategy,  # type: ignore[arg-type]
+                retrieval_capability=payload.get("retrieval_capability"),  # type: ignore[arg-type]
+            )
+            return promote_materialized_alias_fn(
+                kb_id=args.kb,
+                alias=args.alias,
+                collection_name=args.collection,
+                vector_store=vector_store,
+            )
+
+        if args.rag_data_root:
+            stage_result = run_alias_promotion_stage(
+                BuildRequest(
+                    catalog_path=str(catalog_path),
+                    kb_id=args.kb,
+                    rag_data_root=args.rag_data_root,
+                    alias_config=args.alias,
+                    collection_name=args.collection,
+                ),
+                stage_fn=_promote_stage,
+                run_id=args.build_run_id,
+                persist=args.persist_build_run,
+            )
+            result = stage_result.result
+        else:
+            result = _promote_stage()
         _print_model(result)
         return 0
 

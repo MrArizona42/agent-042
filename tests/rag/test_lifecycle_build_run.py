@@ -10,6 +10,9 @@ from rag.lifecycle import (
     BuildRequest,
     build_run_path,
     create_build_run,
+    read_build_run,
+    run_alias_promotion_stage,
+    run_materialize_stage,
     run_source_build_stage,
 )
 
@@ -146,3 +149,61 @@ def test_run_source_build_stage_uses_multi_source_function(tmp_path: Path) -> No
     assert result.build_run.status == "succeeded"
     assert result.build_run.stage_results["build_source"] == {"source_count": 2}
     assert calls[0]["source_instance_ids"] == ["docs", "tutorials"]
+
+
+def test_materialize_and_promote_append_existing_build_run(tmp_path: Path) -> None:
+    catalog_path = tmp_path / "catalog.toml"
+    rag_data_root = tmp_path / "rag_data"
+    catalog_path.write_text("schema_version = 2\n", encoding="utf-8")
+    request = BuildRequest(
+        catalog_path=catalog_path.as_posix(),
+        kb_id="pytorch_reference",
+        source_ids=["docs"],
+        rag_data_root=rag_data_root.as_posix(),
+    )
+
+    run_source_build_stage(
+        request,
+        run_id="run-4",
+        build_catalog_source_fn=lambda **kwargs: _Model({"source": kwargs["source_instance_id"]}),
+    )
+    run_materialize_stage(
+        BuildRequest(
+            catalog_path=catalog_path.as_posix(),
+            kb_id="pytorch_reference",
+            source_ids=["docs"],
+            rag_data_root=rag_data_root.as_posix(),
+            alias_config="challenger",
+            collection_name="rag__pytorch_reference__test",
+        ),
+        run_id="run-4",
+        stage_fn=lambda: _Model({"collection": "rag__pytorch_reference__test"}),
+    )
+    result = run_alias_promotion_stage(
+        BuildRequest(
+            catalog_path=catalog_path.as_posix(),
+            kb_id="pytorch_reference",
+            rag_data_root=rag_data_root.as_posix(),
+            alias_config="challenger",
+            collection_name="rag__pytorch_reference__test",
+        ),
+        run_id="run-4",
+        stage_fn=lambda: _Model({"alias": "rag__pytorch_reference__challenger"}),
+    )
+
+    payload = read_build_run(
+        rag_data_root=rag_data_root,
+        kb_id="pytorch_reference",
+        run_id="run-4",
+    )
+
+    assert result.build_run.status == "promoted"
+    assert payload.status == "promoted"
+    assert payload.current_stage == "promote_alias"
+    assert payload.alias_config == "challenger"
+    assert payload.collection_name == "rag__pytorch_reference__test"
+    assert payload.stage_results == {
+        "build_source": {"source": "docs"},
+        "materialize": {"collection": "rag__pytorch_reference__test"},
+        "promote_alias": {"alias": "rag__pytorch_reference__challenger"},
+    }
