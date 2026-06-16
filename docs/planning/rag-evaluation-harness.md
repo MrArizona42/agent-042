@@ -8,9 +8,39 @@ The project can stay domain-free while still using realistic data. The plan is
 to adopt open datasets as product-like knowledge bases instead of inventing a
 made-up private domain.
 
+## Benchmark Scope
+
+Benchmarks are not global by default. Each dataset must declare what it is
+allowed to prove.
+
+- KB-scoped benchmarks evaluate a specific knowledge base. Their corpus and
+  labels correspond to that KB, so they can support KB alias promotion.
+- Config-scoped benchmarks evaluate a RAG configuration across public retrieval
+  tasks. They help choose parser, chunking, embedding, retrieval, fusion, and
+  reranking defaults, but they do not directly prove quality for every
+  production KB.
+- Global regression benchmarks evaluate platform behavior that should hold for
+  every KB, such as no-answer behavior, citation formatting, metadata
+  propagation, prompt-budget overflow, reranker fallback, and timeout handling.
+
+Every knowledge base should declare its related evaluation sets. A benchmark
+result is valid for promotion only when the benchmark is KB-scoped for that
+knowledge base, or when the promotion rule explicitly treats the result as a
+config-scoped sanity check rather than direct product quality evidence.
+
+Example mapping:
+
+| Knowledge base | KB-scoped eval sets | Config/global eval sets |
+| --- | --- | --- |
+| `research_papers` | QASPER, Open RAG Benchmark subset, local failures | BEIR/MS MARCO sanity, global regressions |
+| `general_wikipedia` | HotpotQA, KILT subsets, local failures | BEIR sanity, global regressions |
+| `pytorch_docs` | local PyTorch gold set, local failures | BEIR/MS MARCO sanity, global regressions |
+
 ## Evaluation Tiers
 
 ### Tier A: Public IR Sanity Benchmarks
+
+Scope: config-scoped.
 
 Purpose: compare generic retrieval and reranking behavior.
 
@@ -26,6 +56,9 @@ PyTorch or arXiv knowledge base with BEIR/MS MARCO questions and treat the
 result as product RAG quality.
 
 ### Tier B: Product-Like RAG Gold Sets
+
+Scope: KB-scoped when the benchmark corpus is mounted as a project knowledge
+base with matching labels.
 
 Purpose: evaluate the full RAG system against realistic knowledge bases.
 
@@ -59,6 +92,9 @@ question rows, expected answer properties, and source labels.
 
 ### Tier C: Synthetic Or Weakly Labeled Expansion
 
+Scope: usually KB-scoped when generated from a specific KB and reviewed enough
+to trust for that KB.
+
 Purpose: expand coverage after Tier B is working.
 
 Generate additional questions from selected QASPER papers, Open RAG Benchmark
@@ -69,6 +105,9 @@ Synthetic rows are useful for coverage and regression pressure. They should not
 replace human-labeled or benchmark-provided gold data.
 
 ### Tier D: Failure Regression Set
+
+Scope: KB-scoped for failures tied to one corpus; global when the failure is a
+platform behavior bug.
 
 Purpose: preserve hard cases discovered during development.
 
@@ -114,7 +153,9 @@ Each normalized row should include:
 
 - `dataset_name`;
 - `dataset_version`;
+- `benchmark_scope`: `kb`, `config`, or `global`;
 - `knowledge_base`;
+- `applicable_knowledge_bases`;
 - `corpus_version` or manifest id;
 - `query_id`;
 - `query`;
@@ -185,14 +226,14 @@ chooses to expand in that direction.
 
 Baseline summary:
 
-| Dataset tier | Dataset | Split/subset | Rows | Primary metrics | Status |
-| --- | --- | --- | ---: | --- | --- |
-| A | BEIR SciFact | TBD | TBD | Recall@K, nDCG | planned |
-| A | MS MARCO subset | TBD | TBD | MRR@10 | planned |
-| B | QASPER | TBD | TBD | answer + evidence | planned |
-| B | Open RAG Benchmark | TBD | TBD | answer + source | planned |
-| B | RAGBench | TBD | TBD | end-to-end RAG | optional |
-| D | Failure regression | local | TBD | failure categories | planned |
+| Dataset tier | Dataset | Scope | Applies to | Split/subset | Rows | Primary metrics | Status |
+| --- | --- | --- | --- | --- | ---: | --- | --- |
+| A | BEIR SciFact | config | RAG configs | TBD | TBD | Recall@K, nDCG | planned |
+| A | MS MARCO subset | config | RAG configs | TBD | TBD | MRR@10 | planned |
+| B | QASPER | KB | `research_papers` | TBD | TBD | answer + evidence | planned |
+| B | Open RAG Benchmark | KB | `research_papers` / PDF RAG KB | TBD | TBD | answer + source | planned |
+| B | RAGBench | KB or config | selected imported KBs | TBD | TBD | end-to-end RAG | optional |
+| D | Failure regression | KB or global | local | local | TBD | failure categories | planned |
 
 Baseline RAG result:
 

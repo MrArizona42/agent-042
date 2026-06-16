@@ -9,6 +9,8 @@ The main principle is:
 - establish a stable baseline pipeline;
 - evaluate against fixed datasets and metrics from the start;
 - vary one parameter family at a time;
+- apply only benchmarks whose scope matches the config, knowledge base, or
+  platform behavior under test;
 - record the chosen value, evidence, and tradeoff as a design decision.
 
 RAG is the priority track. Inference work comes first only far enough to define
@@ -57,6 +59,7 @@ Each experiment should include:
 - fixed parameters;
 - grid values;
 - datasets and dataset versions;
+- benchmark scope and applicable knowledge bases;
 - metrics;
 - decision rule;
 - promotion or rollback rule;
