@@ -73,6 +73,7 @@ def _context(**overrides):
         "dvc_artifacts": "",
         "dvc_base_branch": "develop",
         "dvc_bot_branch": "",
+        "build_run_id": "",
         "force_fetch": False,
         "force_extract": False,
         "force_chunk": False,
@@ -97,6 +98,7 @@ def test_rag_lifecycle_dag_exposes_generic_params(monkeypatch: pytest.MonkeyPatc
         "promote_alias",
         "sync_dvc",
         "dvc_artifacts",
+        "build_run_id",
     }
 
 
@@ -124,6 +126,7 @@ def test_build_source_task_constructs_source_cli(monkeypatch: pytest.MonkeyPatch
     assert calls == [
         [
             "build-source",
+            "--persist-build-run",
             "--catalog",
             "catalog.toml",
             "--kb",
@@ -156,6 +159,7 @@ def test_build_source_task_accepts_multiple_sources(monkeypatch: pytest.MonkeyPa
     assert calls == [
         [
             "build-source",
+            "--persist-build-run",
             "--catalog",
             "catalog.toml",
             "--kb",
@@ -168,6 +172,18 @@ def test_build_source_task_accepts_multiple_sources(monkeypatch: pytest.MonkeyPa
             "assets/rag_data",
         ]
     ]
+
+
+def test_build_source_task_accepts_build_run_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    dag_module = _load_dag(monkeypatch)
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(dag_module, "_run_cli", lambda args: calls.append(args) or {"ok": True})
+
+    dag_module._build_source(**_context(build_run_id="airflow-run-1"))
+
+    assert calls[0][:3] == ["build-source", "--persist-build-run", "--build-run-id"]
+    assert calls[0][3] == "airflow-run-1"
 
 
 def test_run_cli_prints_subprocess_output_before_failure(

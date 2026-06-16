@@ -119,7 +119,10 @@ def _run_cli(args: list[str]) -> dict[str, Any]:
 
 def _build_source(**context: Any) -> dict[str, Any]:
     params = _params(context)
-    cmd = ["build-source"]
+    cmd = ["build-source", "--persist-build-run"]
+    build_run_id = str(params.get("build_run_id") or "").strip()
+    if build_run_id:
+        cmd.extend(["--build-run-id", build_run_id])
     _append_common_source_args(cmd, params)
     if params.get("force_fetch"):
         cmd.append("--force-fetch")
@@ -270,6 +273,7 @@ with DAG(
         "dvc_artifacts": Param("", type=["null", "string", "array"]),
         "dvc_base_branch": Param("develop", type="string"),
         "dvc_bot_branch": Param("", type=["null", "string"]),
+        "build_run_id": Param("", type=["null", "string"]),
         "force_fetch": Param(False, type="boolean"),
         "force_extract": Param(False, type="boolean"),
         "force_chunk": Param(False, type="boolean"),

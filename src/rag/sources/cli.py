@@ -11,6 +11,7 @@ from typing import Any
 
 from app_config.catalog import CatalogConfig, load_catalog
 from rag.embeddings import EmbeddingService
+from rag.lifecycle import BuildRequest, run_source_build_stage
 from rag.sources.build import build_catalog_source, build_catalog_sources, resolve_catalog_sources
 from rag.sources.bundles import collect_source_bundles, collect_source_chunks
 from rag.sources.chunks import ChunkingConfig
@@ -104,6 +105,8 @@ def _parser() -> argparse.ArgumentParser:
     build_source.add_argument("--force-chunk", action="store_true")
     build_source.add_argument("--chunk-size", type=int)
     build_source.add_argument("--chunk-overlap", type=int)
+    build_source.add_argument("--build-run-id")
+    build_source.add_argument("--persist-build-run", action="store_true")
 
     collect_bundle = subparsers.add_parser("collect-bundle")
     add_common_source_args(collect_bundle)
@@ -174,33 +177,25 @@ def main(
 
     if args.command == "build-source":
         source_ids = _source_ids(args.sources)
-        if source_ids is not None and len(source_ids) == 1:
-            result = build_catalog_source_fn(
+        stage_result = run_source_build_stage(
+            BuildRequest(
                 catalog_path=args.catalog,
                 kb_id=args.kb,
-                source_instance_id=source_ids[0],
+                source_ids=source_ids,
                 rag_data_root=args.rag_data_root,
                 document_ids=_document_ids(args.document_ids),
                 limit=args.limit,
                 force_fetch=args.force_fetch,
                 force_extract=args.force_extract,
                 force_chunk=args.force_chunk,
-                chunking=_chunking_from_args(args),
-            )
-        else:
-            result = build_catalog_sources_fn(
-                catalog_path=args.catalog,
-                kb_id=args.kb,
-                source_instance_ids=source_ids,
-                rag_data_root=args.rag_data_root,
-                document_ids=_document_ids(args.document_ids),
-                limit=args.limit,
-                force_fetch=args.force_fetch,
-                force_extract=args.force_extract,
-                force_chunk=args.force_chunk,
-                chunking=_chunking_from_args(args),
-            )
-        _print_model(result)
+            ),
+            run_id=args.build_run_id,
+            build_catalog_source_fn=build_catalog_source_fn,
+            build_catalog_sources_fn=build_catalog_sources_fn,
+            persist=args.persist_build_run,
+            chunking=_chunking_from_args(args),
+        )
+        _print_model(stage_result.result)
         return 0
 
     if args.command == "collect-bundle":

@@ -176,6 +176,49 @@ def test_cli_build_source_without_source_builds_all_catalog_sources(capsys) -> N
     assert calls[0]["source_instance_ids"] is None
 
 
+def test_cli_build_source_can_persist_build_run(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    catalog_path = tmp_path / "catalog.toml"
+    rag_data_root = tmp_path / "rag_data"
+    catalog_path.write_text("schema_version = 2\n", encoding="utf-8")
+
+    def fake_build(**kwargs):
+        return _Model({"status": "success", "source": kwargs["source_instance_id"]})
+
+    exit_code = cli.main(
+        [
+            "build-source",
+            "--catalog",
+            catalog_path.as_posix(),
+            "--kb",
+            "pytorch_reference",
+            "--source",
+            "docs",
+            "--rag-data-root",
+            rag_data_root.as_posix(),
+            "--build-run-id",
+            "manual-run",
+            "--persist-build-run",
+        ],
+        build_catalog_source_fn=fake_build,
+    )
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "success", "source": "docs"}
+    build_run_payload = json.loads(
+        (
+            rag_data_root / "pytorch_reference" / "metadata" / "build_runs" / "manual-run.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert build_run_payload["status"] == "succeeded"
+    assert build_run_payload["stage_results"]["build_source"] == {
+        "status": "success",
+        "source": "docs",
+    }
+
+
 def test_cli_collect_bundle_with_all_uses_catalog_source_set(tmp_path: Path, capsys) -> None:
     catalog_path = _write_catalog(tmp_path / "catalog.toml")
     calls: list[dict] = []
