@@ -143,7 +143,7 @@ adapter = { id = "generic.http_html", version = "1" }
 
 # benchmark.contains allowed values:
 # "queries", "qrels", "answers", "scores", "evidence_text",
-# "relevant_doc_ids", "relevant_chunk_ids", "rubrics".
+# "evidence_refs", "rubrics".
 [[source_instances]]
 id = "ml_papers_core.scifact_benchmark"
 description = "SciFact benchmark cases and labels for evaluating ml_papers_core."
@@ -152,7 +152,7 @@ knowledge_base = "ml_papers_core"
 adapter = { id = "benchmark.beir_scifact", version = "1" }
 
 benchmark = {
-  contains = ["queries", "qrels", "relevant_doc_ids"],
+  contains = ["queries", "qrels"],
   metrics = ["recall_at_k", "mrr", "ndcg"]
 }
 
@@ -164,7 +164,7 @@ knowledge_base = "pytorch_reference"
 adapter = { id = "benchmark.pytorch_qa", version = "1" }
 
 benchmark = {
-  contains = ["queries", "answers", "relevant_doc_ids", "evidence_text"],
+  contains = ["queries", "answers", "evidence_text"],
   metrics = ["recall_at_k", "answer_groundedness"]
 }
 ```
@@ -232,17 +232,115 @@ Do not keep arbitrary `manifest = "..."` paths in the final schema.
 
 ## Normalized Contracts
 
-Keep the source lifecycle contract centered on existing RAG objects, then add
-benchmark-specific normalized contracts:
+Keep source lifecycle contracts centered on existing RAG objects. Evaluation
+contracts live in `src/rag/evaluation/models.py`; do not create a second
+benchmark contract module.
 
-- `SourceDocument`: buildable corpus document selected by an adapter.
-- `BenchmarkCase`: query/question/input case, split, optional messages, and
-  metadata.
-- `BenchmarkLabel`: labels for a case, such as qrels, evidence refs, relevant
-  document IDs, relevant chunk IDs, reference answers, scores, or rubrics.
-- `BenchmarkRunObservation`: per-case output of a benchmark run, including KB
-  id, alias, collection name, retrieved hits, optional generated answer, and
-  metric inputs/outputs.
+Current status: `src/rag/evaluation/models.py` exports
+`NormalizedEvalRow`, `Qrel`, `RetrievalEvalObservation`,
+`AnswerEvalObservation`, `EvalResult`, and `PromotionDecision`, but these
+contracts are not currently used by production code, tests, Airflow, or the
+experiment runner. They can be changed directly during this refactor.
+
+Concrete contract changes for Phase 5:
+
+- Rename `NormalizedEvalRow` to `BenchmarkCase`, holding case input only (no
+  expected-output fields).
+- Replace `Qrel` with a `BenchmarkLabel` model. `Qrel` becomes the nested
+  `qrels[]` entry type on `BenchmarkLabel`, extended with `entity_type` so it
+  can express document- or chunk-level relevance.
+- Remove `EvalResult`; it duplicates `eval_runs` + `eval_samples`.
+- Keep `RetrievalEvalObservation` and `AnswerEvalObservation`, but change their
+  fields from minimal proof-of-concept models into the structured per-case
+  observation contracts below.
+- Keep `PromotionDecision` separate and promotion-gate-specific.
+
+Target `BenchmarkCase` fields:
+
+```text
+id                         stable case id; replaces query_id
+benchmark_source_instance_id
+split                      optional dataset split/subset
+query                      user-style query/question
+messages                   optional chat messages for generation cases
+metadata                   adapter-specific provenance
+```
+
+`BenchmarkCase` holds case input only. Expected outputs (reference answers,
+rubrics, relevance judgments) live entirely on `BenchmarkLabel`, so labels can
+be revised without touching `cases.jsonl`.
+
+Target `BenchmarkLabel` fields:
+
+```text
+case_id
+qrels[]:
+  entity_type              "document" or "chunk"; default "document"
+  entity_id                document_id or chunk_id, per entity_type
+  relevance_grade
+  evidence_ref
+evidence_refs[]
+reference_answers[]
+reference_answer_ids
+scores                     dict[str, float] keyed by criterion/metric name
+rubrics
+metadata
+```
+
+`relevant_doc_ids` and `relevant_chunk_ids` are not stored fields. They are
+derived helpers that filter `qrels` by `entity_type` (and optionally
+`relevance_grade > 0` for binary-relevance metrics such as recall@k), so there
+is exactly one stored relevance judgment per case-entity pair instead of a
+flat list that can drift from `qrels`.
+
+Target `RetrievalEvalObservation` fields:
+
+```text
+case_id                    replaces query_id
+knowledge_base
+alias                      mandatory runtime alias
+qdrant_alias
+collection_name            replaces resolved_collection
+manifest_id
+retrieval_strategy
+retrieval_capability
+top_k
+score_threshold
+reranker
+retrieved[]:
+  rank
+  chunk_id
+  document_id
+  source_instance_id
+  score
+  title
+  uri
+  in_prompt
+  prompt_rank
+  text_digest
+diagnostics
+timings_ms
+```
+
+Target `AnswerEvalObservation` fields:
+
+```text
+case_id                    replaces query_id
+answer
+cited_chunk_ids
+generation:
+  prompt_digest
+  prompt_tokens
+  completion_tokens
+  latency_ms
+  finish_reason
+  error
+```
+
+`EvalResult` should not remain as a second persistence contract. Benchmark
+results are persisted through `eval_runs` and `eval_samples`. If a future
+in-memory wrapper is needed, add it as a separate follow-up with a role-specific
+name and explicit DB conversion methods.
 
 Labels should be optional so the same benchmark source instance model can
 support retrieval benchmarks, answer benchmarks, scored datasets, and unlabeled
@@ -360,7 +458,7 @@ eval_samples
   eval_run_id             existing FK to eval_runs.id
   sample_idx              existing column
   sample_id               BenchmarkCase.id
-  input                   BenchmarkCase query/question/messages rendered as text
+  input                   benchmark case query/question/messages rendered as text
   output                  generated answer
   reference               reference answer or rubric summary when available
   detail                  JSONB per-case details
@@ -393,8 +491,8 @@ retrieved[]:
   text_digest
 
 expected:
-  relevant_doc_ids
-  relevant_chunk_ids
+  qrels
+  reference_answers
   reference_answer_ids
   evidence_refs
 
@@ -569,14 +667,20 @@ Acceptance criteria:
 
 ### Phase 5: Benchmark Preparation Contracts
 
-Add benchmark preparation while reusing source instances and adapters.
+Add benchmark preparation while reusing source instances, adapters, and the
+existing `src/rag/evaluation/models.py` module.
 
 Implementation tasks:
 
-- Add normalized models:
-  - `BenchmarkCase`;
-  - `BenchmarkLabel`;
-  - `BenchmarkRunObservation`.
+- Refactor `src/rag/evaluation/models.py` instead of adding a second set of
+  normalized eval contracts:
+  - rename `NormalizedEvalRow` to `BenchmarkCase` with the fields listed above;
+  - replace `Qrel` with `BenchmarkLabel` and nested qrel/evidence entries;
+  - extend `RetrievalEvalObservation` and `AnswerEvalObservation` with the
+    fields listed above;
+  - remove `EvalResult` so it does not duplicate `eval_runs`/`eval_samples`
+    persistence;
+  - keep `PromotionDecision` separate from case/label/observation contracts.
 - Add a `BenchmarkAdapter` capability protocol.
 - Add `prepare-benchmark` stage:
   - input: benchmark source instance id;
@@ -586,8 +690,8 @@ Implementation tasks:
     `assets/rag_data/source_instances/<source_instance_id>/benchmark/`.
 - Preserve optionality:
   - labels may be empty or absent;
-  - answers, qrels, evidence refs, relevant doc ids, relevant chunk ids, scores,
-    and rubrics are optional according to `benchmark.contains`.
+  - answers, qrels, evidence refs, scores, and rubrics are optional according
+    to `benchmark.contains`.
 - Add tests for:
   - adapter output validation;
   - missing benchmark block;
@@ -655,6 +759,8 @@ Implementation tasks:
 - Remove legacy `[[sources]]` support.
 - Remove catalog `manifest` fields from source instances.
 - Remove legacy `source_type` behavior and tests.
+- Remove the legacy `--source <local-id>` CLI flag after `--source-instance`
+  is fully adopted.
 - Remove `DEFAULT_SOURCE_ADAPTERS`.
 - Rename task-level LoRA/model adapter configuration from `adapter` to
   `lora_adapter`.
