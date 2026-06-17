@@ -91,6 +91,17 @@ class BuildRun(BaseModel):
             raise ValueError("value must be non-empty")
         return value.strip()
 
+    def to_summary(self) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "status": self.status,
+            "current_stage": self.current_stage,
+            "started_at": self.started_at.isoformat(),
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "source_ids": self.source_ids,
+            "errors": self.errors,
+        }
+
 
 class LifecycleStageResult(BaseModel):
     """Shared wrapper returned by lifecycle stage functions."""
@@ -99,3 +110,44 @@ class LifecycleStageResult(BaseModel):
 
     build_run: BuildRun
     result: Any
+
+
+class SourcePlanEntry(BaseModel):
+    """Preflight validation result for one catalog source."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str
+    adapter_id: str
+    adapter_version: str
+    manifest_ref: str
+    manifest_reachable: bool
+    adapter_registered: bool
+    source_type_matches: bool
+    errors: list[str] = Field(default_factory=list)
+
+    @property
+    def valid(self) -> bool:
+        return not self.errors
+
+
+class PlanResult(BaseModel):
+    """Output of a preflight plan check for a KB build."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kb_id: str
+    catalog_path: str
+    catalog_reachable: bool
+    kb_found: bool
+    sources: list[SourcePlanEntry] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+    @property
+    def valid(self) -> bool:
+        return (
+            self.catalog_reachable
+            and self.kb_found
+            and not self.errors
+            and all(entry.valid for entry in self.sources)
+        )

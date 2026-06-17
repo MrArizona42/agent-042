@@ -153,14 +153,19 @@ class IndexManifest(BaseModel):
     alias: str | None = None
     source_snapshot_id: str
     source_manifest_ref: str | None = None
+    source_manifest_digests: dict[str, str] = Field(default_factory=dict)
+    source_adapter_versions: dict[str, str] = Field(default_factory=dict)
     document_count: int = Field(ge=0)
     chunk_count: int = Field(ge=0)
     embedding_model: str
+    vector_dimension: int | None = Field(default=None, gt=0)
     sparse_encoder: str | None = None
     retrieval_capability: RetrievalCapability
     chunking_config: dict[str, Any] = Field(default_factory=dict)
     extraction_config: dict[str, Any] = Field(default_factory=dict)
     build_config_ref: str | None = None
+    build_config_digest: str | None = None
+    benchmark_scope: str | None = None
     eval_summary: dict[str, Any] | None = None
     created_at: datetime
 

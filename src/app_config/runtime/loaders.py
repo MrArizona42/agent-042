@@ -132,7 +132,6 @@ def clear_knowledge_base_caches() -> None:
 def clear_settings_caches() -> None:
     """Clear cached settings and derived config state."""
 
-    get_settings.cache_clear()
     clear_knowledge_base_caches()
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -208,6 +208,14 @@ class BudgetSettings(BaseModel):
     )
 
 
+def _normalize_str_tuple(value: object) -> object:
+    if isinstance(value, str):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+    if isinstance(value, (list, tuple, set)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return value
+
+
 class GatewayConfig(BaseModel):
     """Gateway request handling and service behavior settings."""
 
@@ -250,11 +258,7 @@ class GatewayConfig(BaseModel):
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
     def _normalize_cors_allow_origins(cls, value: object) -> object:
-        if isinstance(value, str):
-            return tuple(origin.strip() for origin in value.split(",") if origin.strip())
-        if isinstance(value, (list, tuple, set)):
-            return tuple(str(origin).strip() for origin in value if str(origin).strip())
-        return value
+        return _normalize_str_tuple(value)
 
 
 class RuntimeGatewayConfig(BaseModel):
@@ -292,7 +296,7 @@ class RuntimeGatewayConfig(BaseModel):
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
     def _normalize_cors_allow_origins(cls, value: object) -> object:
-        return GatewayConfig._normalize_cors_allow_origins(value)
+        return _normalize_str_tuple(value)
 
 
 class RagBuildSettings(BaseModel):
@@ -451,11 +455,7 @@ class AdapterRegistryConfig(BaseModel):
     @field_validator("sync_aliases", mode="before")
     @classmethod
     def _normalize_sync_aliases(cls, value: object) -> object:
-        if isinstance(value, str):
-            return tuple(alias.strip() for alias in value.split(",") if alias.strip())
-        if isinstance(value, (list, tuple, set)):
-            return tuple(str(alias).strip() for alias in value if str(alias).strip())
-        return value
+        return _normalize_str_tuple(value)
 
 
 class JudgeSettings(BaseModel):
@@ -523,6 +523,13 @@ class EvalSandboxSettings(BaseModel):
     code_exec_cpus: float = Field(ge=0.1)
 
 
+def _validate_judge_base_url(judge: Any) -> None:
+    if judge.backend == "openai_compatible" and not judge.base_url.strip():
+        raise ValueError(
+            "eval.judge.base_url must be set when eval.judge.backend=openai_compatible"
+        )
+
+
 class EvalConfig(BaseModel):
     """Settings for the evaluation runner."""
 
@@ -538,10 +545,7 @@ class EvalConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_judge_backend_config(self) -> "EvalConfig":
-        if self.judge.backend == "openai_compatible" and not self.judge.base_url.strip():
-            raise ValueError(
-                "eval.judge.base_url must be set when eval.judge.backend=openai_compatible"
-            )
+        _validate_judge_base_url(self.judge)
         return self
 
     def resolve_judge_settings(self, platform: PlatformSettings) -> JudgeSettings:
@@ -595,10 +599,7 @@ class RuntimeEvalConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_judge_backend_config(self) -> "RuntimeEvalConfig":
-        if self.judge.backend == "openai_compatible" and not self.judge.base_url.strip():
-            raise ValueError(
-                "eval.judge.base_url must be set when eval.judge.backend=openai_compatible"
-            )
+        _validate_judge_base_url(self.judge)
         return self
 
 

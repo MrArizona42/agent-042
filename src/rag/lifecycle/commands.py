@@ -9,16 +9,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from app_config.catalog import CatalogConfig
-from rag.lifecycle.models import BuildRequest, BuildRun, LifecycleStageResult
+from app_config.catalog import CatalogConfig, materialize_catalog
+from rag.lifecycle.models import (
+    BuildRequest,
+    BuildRun,
+    LifecycleStageResult,
+    PlanResult,
+    SourcePlanEntry,
+)
+from rag.sources.cache import sha256_bytes
 
 
 def _json_payload(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json", exclude_none=True)
-    if isinstance(value, list):
-        return [_json_payload(item) for item in value]
-    if isinstance(value, tuple):
+    if isinstance(value, (list, tuple)):
         return [_json_payload(item) for item in value]
     if isinstance(value, dict):
         return {key: _json_payload(item) for key, item in value.items()}
@@ -28,7 +33,7 @@ def _json_payload(value: Any) -> Any:
 def _sha256_file(path: Path) -> str | None:
     if not path.exists() or not path.is_file():
         return None
-    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+    return sha256_bytes(path.read_bytes())
 
 
 def _digest_payload(payload: dict[str, Any]) -> str:
@@ -139,7 +144,7 @@ def read_build_run(*, rag_data_root: Path | str, kb_id: str, run_id: str) -> Bui
     return BuildRun(**json.loads(path.read_text(encoding="utf-8")))
 
 
-def _build_run_for_stage(request: BuildRequest, *, run_id: str | None) -> BuildRun:
+def load_or_create_build_run(request: BuildRequest, *, run_id: str | None) -> BuildRun:
     if run_id is None:
         return create_build_run(request)
     path = build_run_path(
@@ -148,7 +153,9 @@ def _build_run_for_stage(request: BuildRequest, *, run_id: str | None) -> BuildR
         run_id=run_id,
     )
     if path.exists():
-        return BuildRun(**json.loads(path.read_text(encoding="utf-8")))
+        return read_build_run(
+            rag_data_root=request.rag_data_root, kb_id=request.kb_id, run_id=run_id
+        )
     return create_build_run(request, run_id=run_id)
 
 
@@ -161,7 +168,7 @@ def _run_recorded_stage(
     persist: bool = True,
     success_status: str = "succeeded",
 ) -> LifecycleStageResult:
-    build_run = _build_run_for_stage(request, run_id=run_id).model_copy(
+    build_run = load_or_create_build_run(request, run_id=run_id).model_copy(
         update={
             "status": "running",
             "current_stage": stage_name,
@@ -213,6 +220,116 @@ def _run_recorded_stage(
         if persist:
             write_build_run(build_run)
         raise
+
+
+def plan_build(
+    request: BuildRequest,
+    *,
+    adapter_registry: Any | None = None,
+) -> PlanResult:
+    """Validate catalog, sources, and adapters for a KB build without executing anything."""
+    catalog_path = Path(request.catalog_path)
+    result = PlanResult(
+        kb_id=request.kb_id,
+        catalog_path=request.catalog_path,
+        catalog_reachable=False,
+        kb_found=False,
+    )
+
+    if not catalog_path.exists() or not catalog_path.is_file():
+        return result.model_copy(update={"errors": [f"Catalog not found: {catalog_path}"]})
+
+    try:
+        catalog = CatalogConfig(**tomllib.loads(catalog_path.read_text(encoding="utf-8")))
+        materialize_catalog(catalog)
+    except Exception as exc:
+        return result.model_copy(
+            update={
+                "catalog_reachable": True,
+                "errors": [f"Catalog parse error: {exc}"],
+            }
+        )
+
+    result = result.model_copy(update={"catalog_reachable": True})
+
+    kb_sources = [s for s in catalog.sources if s.kb == request.kb_id]
+    if not kb_sources:
+        return result.model_copy(update={"errors": [f"No sources found for KB '{request.kb_id}'"]})
+
+    result = result.model_copy(update={"kb_found": True})
+
+    if request.source_ids is not None:
+        selected_ids = set(request.source_ids)
+        missing = sorted(selected_ids - {s.id for s in kb_sources})
+        if missing:
+            return result.model_copy(
+                update={"errors": [f"Source IDs not found in catalog: {missing}"]}
+            )
+        kb_sources = [s for s in kb_sources if s.id in selected_ids]
+
+    if adapter_registry is None:
+        from rag.ingest import DEFAULT_SOURCE_ADAPTERS
+
+        adapter_registry = DEFAULT_SOURCE_ADAPTERS
+
+    entries: list[SourcePlanEntry] = []
+    for source in kb_sources:
+        adapter_id = source.ingest_adapter.id
+        adapter_version = source.ingest_adapter.version
+        manifest_ref = source.manifest
+        manifest_path_resolved = _manifest_path(
+            catalog_path=catalog_path, manifest_ref=manifest_ref
+        )
+        manifest_reachable = manifest_path_resolved.exists() and manifest_path_resolved.is_file()
+
+        adapter_registered = False
+        source_type_matches = False
+        errors: list[str] = []
+
+        try:
+            adapter = adapter_registry.get(adapter_id, version=adapter_version)
+            adapter_registered = True
+            if adapter.source_type != source.type:
+                errors.append(
+                    f"Adapter '{adapter_id}@{adapter_version}' expects source_type "
+                    f"'{adapter.source_type}' but catalog declares '{source.type}'"
+                )
+            else:
+                source_type_matches = True
+        except Exception as exc:
+            errors.append(f"Adapter '{adapter_id}@{adapter_version}' not registered: {exc}")
+
+        if not manifest_reachable:
+            errors.append(f"Source manifest not found: {manifest_path_resolved}")
+
+        entries.append(
+            SourcePlanEntry(
+                source_id=source.id,
+                adapter_id=adapter_id,
+                adapter_version=adapter_version,
+                manifest_ref=manifest_ref,
+                manifest_reachable=manifest_reachable,
+                adapter_registered=adapter_registered,
+                source_type_matches=source_type_matches,
+                errors=errors,
+            )
+        )
+
+    return result.model_copy(update={"sources": entries})
+
+
+def list_build_runs(*, rag_data_root: Path | str, kb_id: str) -> list[BuildRun]:
+    """Return all persisted BuildRun artifacts for a KB, newest first."""
+    runs_dir = Path(rag_data_root) / kb_id / "metadata" / "build_runs"
+    if not runs_dir.is_dir():
+        return []
+    runs: list[BuildRun] = []
+    for path in sorted(runs_dir.glob("*.json"), reverse=True):
+        try:
+            runs.append(BuildRun(**json.loads(path.read_text(encoding="utf-8"))))
+        except Exception:
+            pass
+    return runs
 
 
 def _default_build_catalog_source_fn() -> Callable[..., Any]:

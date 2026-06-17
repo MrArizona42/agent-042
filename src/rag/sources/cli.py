@@ -21,6 +21,10 @@ from rag.indexing.materialize import (
 )
 from rag.lifecycle import (
     BuildRequest,
+    list_build_runs,
+    load_or_create_build_run,
+    plan_build,
+    read_build_run,
     run_alias_promotion_stage,
     run_materialize_stage,
     run_source_build_stage,
@@ -138,6 +142,28 @@ def _parser() -> argparse.ArgumentParser:
     promote.add_argument("--rag-data-root")
     add_build_run_args(promote)
 
+    plan = subparsers.add_parser(
+        "plan", help="Validate catalog/sources/adapters without executing."
+    )
+    plan.add_argument("--catalog", required=True)
+    plan.add_argument("--kb", required=True)
+    plan.add_argument(
+        "--source",
+        action="append",
+        dest="sources",
+        help="Source instance id. Repeat for subsets, use 'all', or omit for all.",
+    )
+    plan.add_argument("--rag-data-root", default=".")
+
+    status = subparsers.add_parser("status", help="List persisted build runs for a KB.")
+    status.add_argument("--kb", required=True)
+    status.add_argument("--rag-data-root", required=True)
+
+    show_run = subparsers.add_parser("show-build-run", help="Print a persisted BuildRun artifact.")
+    show_run.add_argument("--kb", required=True)
+    show_run.add_argument("--rag-data-root", required=True)
+    show_run.add_argument("--build-run-id", required=True)
+
     return parser
 
 
@@ -254,6 +280,10 @@ def main(
             dry_run=args.dry_run,
         )
 
+        build_run_for_materialize = None
+        if args.build_run_id and args.rag_data_root:
+            build_run_for_materialize = load_or_create_build_run(request, run_id=args.build_run_id)
+
         def _materialize_stage() -> Any:
             settings = get_settings()
             strategy = _alias_strategy(
@@ -302,6 +332,21 @@ def main(
                 qdrant_upsert_batch_size=settings.rag.build.qdrant_upsert_batch_size,
                 force_recreate=args.force_recreate,
                 build_config_ref=args.catalog,
+                source_adapter_versions=(
+                    build_run_for_materialize.adapter_versions
+                    if build_run_for_materialize is not None
+                    else None
+                ),
+                source_manifest_digests=(
+                    build_run_for_materialize.manifest_digests
+                    if build_run_for_materialize is not None
+                    else None
+                ),
+                build_config_digest=(
+                    build_run_for_materialize.build_profile_digest
+                    if build_run_for_materialize is not None
+                    else None
+                ),
             )
 
         stage_result = run_materialize_stage(
@@ -353,6 +398,33 @@ def main(
         else:
             result = _promote_stage()
         _print_model(result)
+        return 0
+
+    if args.command == "plan":
+        source_ids = _source_ids(args.sources)
+        result = plan_build(
+            BuildRequest(
+                catalog_path=args.catalog,
+                kb_id=args.kb,
+                source_ids=source_ids,
+                rag_data_root=args.rag_data_root,
+            )
+        )
+        _print_model(result)
+        return 0 if result.valid else 1
+
+    if args.command == "status":
+        runs = list_build_runs(rag_data_root=args.rag_data_root, kb_id=args.kb)
+        print(json.dumps([r.to_summary() for r in runs], indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "show-build-run":
+        run = read_build_run(
+            rag_data_root=args.rag_data_root,
+            kb_id=args.kb,
+            run_id=args.build_run_id,
+        )
+        _print_model(run)
         return 0
 
     raise ValueError(f"Unknown command '{args.command}'")

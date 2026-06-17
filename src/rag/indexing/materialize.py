@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,12 +21,13 @@ from rag.contracts.manifests import (
     write_index_manifest,
 )
 from rag.sources.bundles import SourceChunkBundle
-from rag.sources.chunks import LLAMAINDEX_SENTENCE_SPLITTER
+from rag.sources.chunks import LLAMAINDEX_SENTENCE_SPLITTER, read_chunk_artifact
 
 RetrievalStrategy = Literal["dense", "hybrid"]
 SourceRetrievalCapability = Literal["dense", "hybrid"]
 
 _POINT_ID_NS = uuid.UUID("46fe6fc7-dbd6-4934-9a73-2cc6ccfbef28")
+_logger = logging.getLogger(__name__)
 
 
 class EmbeddingClient(Protocol):
@@ -189,10 +191,23 @@ def _all_chunks(bundles: list[SourceChunkBundle]):
 
 
 def _chunking_config(bundles: list[SourceChunkBundle]) -> dict[str, object]:
-    return {
+    config: dict[str, object] = {
         "strategy": LLAMAINDEX_SENTENCE_SPLITTER,
         "source_instance_ids": [bundle.source_instance_id for bundle in bundles],
     }
+    for bundle in bundles:
+        for artifact_path in bundle.chunk_artifact_paths:
+            path = Path(artifact_path)
+            if path.exists():
+                try:
+                    artifact = read_chunk_artifact(path)
+                    config["chunk_size"] = artifact.chunking.chunk_size
+                    config["chunk_overlap"] = artifact.chunking.chunk_overlap
+                    config["method"] = artifact.chunking.method
+                except Exception as exc:
+                    _logger.debug("Could not read chunking config from %s: %s", path, exc)
+                return config
+    return config
 
 
 def materialize_kb_collection(
@@ -211,6 +226,10 @@ def materialize_kb_collection(
     qdrant_upsert_batch_size: int = 128,
     force_recreate: bool = False,
     build_config_ref: str | None = None,
+    build_config_digest: str | None = None,
+    source_adapter_versions: dict[str, str] | None = None,
+    source_manifest_digests: dict[str, str] | None = None,
+    benchmark_scope: str | None = None,
     created_at: datetime | None = None,
 ) -> MaterializationResult:
     """Materialize chunk bundles into a Qdrant collection and write its manifest."""
@@ -271,14 +290,19 @@ def materialize_kb_collection(
         collection_name=collection_name,
         alias=target_alias,
         source_snapshot_id=source_snapshot_id(bundles),
+        source_manifest_digests=source_manifest_digests or {},
+        source_adapter_versions=source_adapter_versions or {},
         document_count=sum(bundle.document_count for bundle in bundles),
         chunk_count=len(chunks),
         embedding_model=embedding_model,
+        vector_dimension=embedding_client.dimension,
         sparse_encoder=sparse_encoder_model if retrieval_capability == "hybrid" else None,
         retrieval_capability=RetrievalCapability(retrieval_capability),
         chunking_config=_chunking_config(bundles),
         extraction_config={},
         build_config_ref=build_config_ref,
+        build_config_digest=build_config_digest,
+        benchmark_scope=benchmark_scope,
         created_at=created_at,
     )
     path = manifest_path(
