@@ -43,7 +43,8 @@ python -m experiments.training.train_adapter.start_train \
 
 ## RAG operator path
 
-- Production-safe lifecycle код для RAG живёт в `src/rag/sources/` и запускается через
+- Production-safe lifecycle код для RAG разделён между `src/rag/sources/`,
+  `src/rag/indexing/` и `src/rag/lifecycle/`; операторский entrypoint остаётся
   `python -m rag.sources.cli`.
 - На сервере используйте `bash current/scripts/rag_ops.sh ...`, чтобы выполнить команду в
   `rag-ops` контейнере внутри Docker network.
@@ -53,7 +54,7 @@ python -m experiments.training.train_adapter.start_train \
   ручной Qdrant diagnostics/observability: aliases, collection attestations, sample points,
   stale collections, snapshots and danger-zone maintenance cells.
 - Если notebook или helper всё же импортирует catalog-specific schema/loader напрямую, их источник
-  должен быть `src/shared/catalog/`, а не `shared.config`.
+  должен быть `src/app_config/catalog/`, а не `shared.config`.
 - `experiments/rag/sandboxes/` предназначен только для notebook-only experiments. Если sandbox
   эксперимент нужно продвигать в champion, код сначала переносится в `src/rag/`, а уже потом
   пересобирается и промоутится коллекция.

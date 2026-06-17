@@ -1430,6 +1430,62 @@ This refactor makes the unit of experimentation clearer:
   preparation commands.
 - Existing PyTorch and arXiv pipelines still work after the split.
 
+## Current Implementation Status
+
+As of 2026-06-17, the core isolation refactor is mostly implemented, with a few
+remaining phases tracked below.
+
+Completed:
+
+- Catalog schema/loading moved from `shared.catalog` to `app_config.catalog`.
+- RAG contracts moved to `rag.contracts`; stale `rag.domain` compatibility
+  modules were removed.
+- Source manifests are generic; hardcoded source-specific manifest entry
+  classes and closed source-type unions were removed.
+- Source-level `ingest_adapter` is required in catalog source entries and is
+  used to resolve validation, document listing, fetch, and extract behavior.
+- Stale source connector/default fetcher maps were removed from the generic
+  lifecycle; source behavior now flows through `SourceAdapter`.
+- KB builds support all catalog sources or explicit source subsets.
+- CLI and Airflow share `BuildRequest`, `BuildRun`, and lifecycle stage
+  functions.
+- Materialization and alias promotion live under `rag.indexing`.
+- Airflow can persist one build-run audit across build, materialize, DVC sync,
+  and optional promotion.
+- `dry_run` is wired through CLI/Airflow lifecycle stages.
+- `src/rag_data_pipelines/pytorch_docs` exists as the first production-owned
+  dataset pipeline module.
+
+Remaining phases:
+
+1. **Runtime config split.**
+   Move runtime settings schema/loading from `shared.config` into
+   `app_config.runtime`. Keep `shared/` for cross-cutting infrastructure only.
+
+2. **Collection manifest reproducibility.**
+   Extend collection manifests or linked build-profile artifacts with adapter
+   ids/versions, source manifest refs/digests, parser/extractor settings,
+   chunking settings, embedding/sparse settings, vector-store/index settings,
+   retrieval capability, build config digest, and benchmark scope when known.
+
+3. **Lifecycle inspection and preflight.**
+   Add operator commands such as `plan`, `status`, or `show-build-run` that
+   validate catalog/source/adapter/materialization inputs and inspect persisted
+   `BuildRun` artifacts without touching Qdrant.
+
+4. **Dataset pipeline first slices.**
+   Add real production modules under `src/rag_data_pipelines/` for at least one
+   benchmark corpus, then continue with QASPER, Open RAG Benchmark, BEIR, and
+   MS MARCO as needed.
+
+5. **RAG evaluation harness.**
+   Continue with normalized eval rows, qrels/evidence, retrieval observations,
+   metrics, result persistence, and promotion gates.
+
+6. **Documentation parity.**
+   Keep architecture and operations docs aligned with the package split,
+   especially while runtime config is in transition.
+
 ## Follow-Up
 
 After this refactor, continue with:

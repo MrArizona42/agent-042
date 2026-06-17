@@ -228,12 +228,15 @@ RAG в проекте разделён на несколько независи�
 
 - **KB id** — логическая база знаний из `catalog.toml`, например
   `ml_papers_core` или `pytorch_reference`.
-- **Source type** — тип connector/extractor, например `arxiv_paper` или
-  `html_docs`.
+- **Source type** — catalog metadata for the source family, for example
+  `arxiv_paper` or `html_docs`. It is no longer a closed Python enum.
 - **Source instance** — KB-local источник данных: пара `(kb, source_id)`,
   например `(ml_papers_core, papers)` или `(pytorch_reference, docs)`.
-- **Source manifest** — curated список документов для source instance:
-  `assets/rag_data/<kb>/sources.toml`.
+- **Ingest adapter** — source-level adapter selected from `catalog.toml`;
+  it validates the generic manifest, lists `SourceDocument`s, and selects
+  fetch/extract behavior.
+- **Source manifest** — generic curated document list or adapter-specific
+  config for a source instance: `assets/rag_data/<kb>/sources.toml`.
 - **Artifact manifest** — JSON provenance конкретной сборки под
   `assets/rag_data/<kb>/manifests/`.
 - **Physical collection** — реальная Qdrant collection вида
@@ -249,8 +252,7 @@ RAG в проекте разделён на несколько независи�
 ```text
 Task 1-to-many KB
 KB 1-to-many SourceInstance
-SourceInstance many-to-1 SourceType
-KB many-to-many SourceType through SourceInstance
+SourceInstance -> IngestAdapter
 KB 1-to-many AliasConfig
 AliasConfig -> Qdrant alias -> Physical collection
 Physical collection -> Qdrant attestation -> Artifact manifest
@@ -321,8 +323,17 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 
 ### 5.4 Source/build pipeline
 
-Source pipeline живёт в `src/rag/sources/` и разделяет получение данных,
-извлечение текста, chunking, materialization и promotion:
+Source/build lifecycle is split across production modules:
+
+- `src/rag/ingest/` — adapter contracts and adapter registry;
+- `src/rag/sources/` — generic source manifests, fetch/extract/chunk artifacts,
+  source builds, and source bundle collection;
+- `src/rag/indexing/` — Qdrant materialization, collection manifests, and alias
+  promotion;
+- `src/rag/lifecycle/` — shared `BuildRequest` / `BuildRun` stage wrappers used
+  by CLI and Airflow.
+
+The data flow is:
 
 ```text
 sources.toml
@@ -342,8 +353,10 @@ sources.toml
   DVC-tracked; force flags нужны для повторного fetch/extract/chunk.
 - Generated `extracted`, `chunks`, `manifests` и optional `metadata` могут
   синхронизироваться через DVC.
-- Для `arxiv_paper` основная истина — paper id; URL/PDF endpoint строится
-  fetcher'ом. Для `html_docs` URL указан в source manifest.
+- Source manifests are generic. Adapter-specific validation, document listing,
+  fetcher selection, and extractor selection live behind the source adapter.
+  Ordinary new datasets should not require editing generic manifest unions or
+  source-type enums.
 
 ### 5.5 Alias-based управление коллекциями (паттерн champion / challenger)
 
@@ -525,8 +538,8 @@ registry.promote("lora-summarize", version=2, alias="champion")
 | Конфиг | Назначение |
 |---|---|
 | `.env` | Операторский env-файл. Runtime settings используют nested имена вида `SECTION__FIELD`; инфраструктурные bootstrap/env-переменные Compose могут оставаться flat |
-| `src/shared/config.py` | Root runtime settings loader: `Settings(BaseSettings)`, cache helpers и safe startup logging для Python-сервисов |
-| `src/shared/catalog/` + `catalog.toml` | Catalog schema, loader и operator catalog для задач, баз знаний и источников |
+| `src/shared/config.py` | Current root runtime settings loader: `Settings(BaseSettings)`, cache helpers и safe startup logging для Python-сервисов. This is transitional; the target home is `src/app_config/runtime/` |
+| `src/app_config/catalog/` + `catalog.toml` | Catalog schema, loader и operator catalog для задач, баз знаний и источников |
 | `infra/compose/docker-compose.yaml` | Topology всей системы: сети, port bindings, volumes, health checks, зависимости между сервисами |
 | `infra/docker/**/Dockerfile` | Определения образов: базовые образы, установка зависимостей, process defaults |
 | `infra/nginx/*.conf` | TLS termination, reverse proxy rules и маршрутизация между UI и Gateway |
@@ -543,18 +556,25 @@ registry.promote("lora-summarize", version=2, alias="champion")
 - LoRA-адаптера для каждой задачи (name, alias, enabled).
 - Source metadata для build/update пайплайнов.
 
-Файл загружается через `src/shared/catalog/` и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте. Канонический TOML использует list sections `[[tasks]]`, `[[knowledge_bases]]`, `[[sources]]` с явными `id`; legacy mapping sections не поддерживаются.
+Файл загружается через `src/app_config/catalog/` и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте. Канонический TOML использует list sections `[[tasks]]`, `[[knowledge_bases]]`, `[[sources]]` с явными `id`; legacy mapping sections не поддерживаются. Source entries declare `type`, `kb`, `id`, `manifest`, and a required `ingest_adapter = { id = "...", version = "..." }`.
 
-### 7.3 Pydantic Settings (`src/shared/config.py`)
+### 7.3 Runtime Settings (`src/shared/config.py`, transitional)
 
-Python-конфигурация реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/shared/config.py`.
+Python-конфигурация сейчас реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/shared/config.py`.
+
+This is an intentional transitional state after the catalog split. New imports
+can use the `src/app_config/runtime/` facade, but the schema and loader still
+live in `shared.config`. The remaining config-refactor step is to move runtime
+schema/loading into `app_config.runtime` and leave `shared/` for cross-cutting
+infrastructure such as database, events, logging, telemetry, and service
+helpers.
 
 Ключевые свойства текущей схемы:
 
 - env читает только root `Settings`, а nested sections являются plain `BaseModel`
 - canonical runtime env names используют nested contract с delimiter `__`
 - flat compatibility aliases для runtime env names больше не поддерживаются
-- catalog models/loaders больше не реэкспортируются через `shared.config`; они живут в `shared.catalog`
+- catalog models/loaders больше не реэкспортируются через `shared.config`; они живут в `app_config.catalog`
 
 Основные секции runtime settings:
 
@@ -579,7 +599,7 @@ Python-конфигурация реализована через `pydantic-sett
 - `EVAL__JUDGE__MODEL`
 - `WORKER__CONCURRENCY`
 
-Функция `get_settings()` кэширует root settings через `@lru_cache`. Для settings-driven тестов и локальных override-сценариев используется `load_settings({...})`; для catalog override используется `catalog_override(...)` из `shared.catalog`.
+Функция `get_settings()` кэширует root settings через `@lru_cache`. Для settings-driven тестов и локальных override-сценариев используется `load_settings({...})`; для catalog override используется `catalog_override(...)` из `app_config.catalog`.
 
 Финальное решение по naming convention: текущий mix class names `*Settings` / `*Config` сохраняется, чтобы не делать churn-only rename pass. Канонизирована именно field/env surface, а не имена всех классов.
 
@@ -594,7 +614,7 @@ Python-конфигурация реализована через `pydantic-sett
 
 При добавлении нового catalog field:
 
-1. меняйте schema/models в `src/shared/catalog/`
+1. меняйте schema/models в `src/app_config/catalog/`
 2. обновляйте `catalog.toml` и sample/contract tests
 3. используйте `catalog_override(...)` в тестах вместо manual global mutation
 4. не добавляйте catalog helper re-exports обратно в `shared.config`
@@ -616,10 +636,13 @@ Python-конфигурация реализована через `pydantic-sett
 **`rag_lifecycle.py`** — generic RAG lifecycle DAG.
 - Запускает те же CLI entrypoints, что и `rag-ops`: `build-source`, `materialize`,
   optional `promote-alias`.
-- Параметризуется через `kb`, `source`, `alias_config`, optional `promote_alias`.
+- Параметризуется через `kb`, `source`, `alias_config`, optional `promote_alias`,
+  `build_run_id`, `dry_run`, and DVC sync settings.
 - Может выполнить optional `sync_dvc` между materialization и promotion для
   generated RAG artifacts.
-- Airflow остаётся orchestration layer; RAG lifecycle logic живёт в `src/rag/sources/`.
+- Airflow остаётся orchestration layer; shared lifecycle state lives in
+  `src/rag/lifecycle/`, source build code in `src/rag/sources/`, and
+  materialization/promotion code in `src/rag/indexing/`.
 
 **`eval_dags.py`** — оценка качества (подробнее в разделе 9).
 

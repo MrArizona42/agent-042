@@ -12,10 +12,12 @@ commands and server workflow.
 
 - KB id: logical knowledge base id from `catalog.toml`, for example
   `ml_papers_core` or `pytorch_reference`.
-- Source type: connector/extractor family, for example `arxiv_paper` or
-  `html_docs`.
+- Source type: catalog metadata for the source family, for example
+  `arxiv_paper` or `html_docs`. Adapter behavior comes from the source-level
+  `ingest_adapter`.
 - Source instance id: KB-local source id, for example `papers` or `docs`.
-- Source manifest: curated input list under `assets/rag_data/<kb>/sources.toml`.
+- Source manifest: generic curated input list or adapter-specific config under
+  `assets/rag_data/<kb>/sources.toml`.
 - Alias config: per-KB retrieval profile in the catalog, for example
   `champion` or `challenger`; it controls `top_k`, threshold, strategy, and
   reranker settings.
