@@ -18,6 +18,7 @@ from rag.lifecycle.models import (
     SourcePlanEntry,
 )
 from rag.sources.cache import sha256_bytes
+from rag.sources.manifests import load_source_manifest
 
 
 def _json_payload(value: Any) -> Any:
@@ -281,10 +282,12 @@ def plan_build(
             catalog_path=catalog_path, manifest_ref=manifest_ref
         )
         manifest_reachable = manifest_path_resolved.exists() and manifest_path_resolved.is_file()
+        manifest_valid = False
 
         adapter_registered = False
         source_type_matches = False
         errors: list[str] = []
+        adapter: Any | None = None
 
         try:
             adapter = adapter_registry.get(adapter_id, version=adapter_version)
@@ -301,6 +304,14 @@ def plan_build(
 
         if not manifest_reachable:
             errors.append(f"Source manifest not found: {manifest_path_resolved}")
+        elif adapter is not None:
+            try:
+                adapter.validate_manifest(load_source_manifest(manifest_path_resolved))
+                manifest_valid = True
+            except Exception as exc:
+                errors.append(
+                    f"Source manifest invalid for adapter '{adapter_id}@{adapter_version}': {exc}"
+                )
 
         entries.append(
             SourcePlanEntry(
@@ -309,6 +320,7 @@ def plan_build(
                 adapter_version=adapter_version,
                 manifest_ref=manifest_ref,
                 manifest_reachable=manifest_reachable,
+                manifest_valid=manifest_valid,
                 adapter_registered=adapter_registered,
                 source_type_matches=source_type_matches,
                 errors=errors,

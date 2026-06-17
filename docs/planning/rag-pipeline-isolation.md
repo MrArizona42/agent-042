@@ -1461,7 +1461,8 @@ Completed:
   telemetry).
 - Architecture and operations docs updated to reflect the completed package split.
 - `IndexManifest` extended with `source_adapter_versions`, `source_manifest_digests`,
-  `vector_dimension`, `build_config_digest`, and `benchmark_scope`; `_chunking_config`
+  `vector_dimension`, `build_config_digest`, `build_profile_digest`, and
+  `benchmark_scope`; `_chunking_config`
   reads chunking settings from the first reachable chunk artifact; all new fields are
   wired through `materialize_kb_collection` and threaded from the CLI via the
   persisted `BuildRun`.

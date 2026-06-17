@@ -147,6 +147,8 @@ def test_materialize_dense_collection_writes_manifest_and_attestation(tmp_path: 
         target_alias="challenger",
         qdrant_upsert_batch_size=64,
         build_config_ref="catalog.toml",
+        build_config_digest="sha256:catalog",
+        build_profile_digest="sha256:profile",
     )
     manifest = read_index_manifest(result.manifest_path)
     attestation = attestation_from_payload(store.meta or {})
@@ -161,6 +163,8 @@ def test_materialize_dense_collection_writes_manifest_and_attestation(tmp_path: 
     assert manifest.embedding_model == "test-embedding"
     assert manifest.retrieval_capability == RetrievalCapability.DENSE
     assert manifest.chunk_count == 2
+    assert manifest.build_config_digest == "sha256:catalog"
+    assert manifest.build_profile_digest == "sha256:profile"
     assert manifest.manifest_id == attestation.manifest_id
     assert result.summary.sparse_enabled is False
 

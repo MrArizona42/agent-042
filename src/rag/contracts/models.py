@@ -165,6 +165,7 @@ class IndexManifest(BaseModel):
     extraction_config: dict[str, Any] = Field(default_factory=dict)
     build_config_ref: str | None = None
     build_config_digest: str | None = None
+    build_profile_digest: str | None = None
     benchmark_scope: str | None = None
     eval_summary: dict[str, Any] | None = None
     created_at: datetime

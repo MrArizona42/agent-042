@@ -11,6 +11,7 @@ from rag.lifecycle import (
     BuildRequest,
     build_run_path,
     create_build_run,
+    plan_build,
     read_build_run,
     run_alias_promotion_stage,
     run_materialize_stage,
@@ -67,6 +68,20 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
             """
             schema_version = 2
 
+            [[knowledge_bases]]
+            id = "pytorch_reference"
+            enabled = true
+            label = "PyTorch reference"
+            description = "PyTorch docs"
+            selection_description = "PyTorch docs"
+            update_strategy = "replace"
+            default_alias = "challenger"
+            aliases.challenger.top_k = 5
+            aliases.challenger.score_threshold = 0.01
+            aliases.challenger.retrieval_strategy = "hybrid"
+            aliases.challenger.reranker = "reranker"
+            aliases.challenger.reranker_multiplier = 4
+
             [[sources]]
             type = "html_docs"
             kb = "pytorch_reference"
@@ -99,6 +114,130 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
     assert set(build_run.manifest_digests) == {"docs"}
     assert build_run.manifest_digests["docs"].startswith("sha256:")
     assert build_run.adapter_versions == {"docs": "generic.http_html@1"}
+
+
+def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "docs.sources.toml"
+    manifest_path.write_text(
+        dedent(
+            """
+            source_type = "html_docs"
+
+            [[documents]]
+            id = "intro"
+            title = "Introduction"
+            url = "https://example.test/intro"
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    catalog_path = tmp_path / "catalog.toml"
+    catalog_path.write_text(
+        dedent(
+            """
+            schema_version = 2
+
+            [[knowledge_bases]]
+            id = "pytorch_reference"
+            enabled = true
+            label = "PyTorch reference"
+            description = "PyTorch docs"
+            selection_description = "PyTorch docs"
+            update_strategy = "replace"
+            default_alias = "challenger"
+            aliases.challenger.top_k = 5
+            aliases.challenger.score_threshold = 0.01
+            aliases.challenger.retrieval_strategy = "hybrid"
+            aliases.challenger.reranker = "reranker"
+            aliases.challenger.reranker_multiplier = 4
+
+            [[sources]]
+            type = "html_docs"
+            kb = "pytorch_reference"
+            id = "docs"
+            manifest = "docs.sources.toml"
+            ingest_adapter = { id = "generic.http_html", version = "1" }
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = plan_build(
+        BuildRequest(
+            catalog_path=catalog_path.as_posix(),
+            kb_id="pytorch_reference",
+            rag_data_root=(tmp_path / "rag_data").as_posix(),
+        )
+    )
+
+    assert result.valid is True
+    assert result.sources[0].manifest_reachable is True
+    assert result.sources[0].manifest_valid is True
+
+
+def test_plan_build_rejects_manifest_that_adapter_would_reject(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "docs.sources.toml"
+    manifest_path.write_text(
+        dedent(
+            """
+            source_type = "arxiv_paper"
+
+            [[documents]]
+            id = "intro"
+            title = "Introduction"
+            url = "https://example.test/intro"
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    catalog_path = tmp_path / "catalog.toml"
+    catalog_path.write_text(
+        dedent(
+            """
+            schema_version = 2
+
+            [[knowledge_bases]]
+            id = "pytorch_reference"
+            enabled = true
+            label = "PyTorch reference"
+            description = "PyTorch docs"
+            selection_description = "PyTorch docs"
+            update_strategy = "replace"
+            default_alias = "challenger"
+            aliases.challenger.top_k = 5
+            aliases.challenger.score_threshold = 0.01
+            aliases.challenger.retrieval_strategy = "hybrid"
+            aliases.challenger.reranker = "reranker"
+            aliases.challenger.reranker_multiplier = 4
+
+            [[sources]]
+            type = "html_docs"
+            kb = "pytorch_reference"
+            id = "docs"
+            manifest = "docs.sources.toml"
+            ingest_adapter = { id = "generic.http_html", version = "1" }
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = plan_build(
+        BuildRequest(
+            catalog_path=catalog_path.as_posix(),
+            kb_id="pytorch_reference",
+            rag_data_root=(tmp_path / "rag_data").as_posix(),
+        )
+    )
+
+    assert result.valid is False
+    assert result.sources[0].manifest_valid is False
+    assert (
+        "Source manifest invalid for adapter 'generic.http_html@1'" in result.sources[0].errors[0]
+    )
 
 
 def test_run_source_build_stage_persists_successful_build_run(tmp_path: Path) -> None:

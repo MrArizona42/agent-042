@@ -538,7 +538,7 @@ registry.promote("lora-summarize", version=2, alias="champion")
 | Конфиг | Назначение |
 |---|---|
 | `.env` | Операторский env-файл. Runtime settings используют nested имена вида `SECTION__FIELD`; инфраструктурные bootstrap/env-переменные Compose могут оставаться flat |
-| `src/app_config/runtime/` | Root runtime settings: `Settings(BaseSettings)`, cache helpers, и safe startup logging для Python-сервисов. `src/shared/config.py` — backward-compat re-export shim only |
+| `src/app_config/runtime/` | Root runtime settings: `Settings(BaseSettings)`, cache helpers, и safe startup logging для Python-сервисов.|
 | `src/app_config/catalog/` + `catalog.toml` | Catalog schema, loader и operator catalog для задач, баз знаний и источников |
 | `infra/compose/docker-compose.yaml` | Topology всей системы: сети, port bindings, volumes, health checks, зависимости между сервисами |
 | `infra/docker/**/Dockerfile` | Определения образов: базовые образы, установка зависимостей, process defaults |
@@ -563,7 +563,6 @@ registry.promote("lora-summarize", version=2, alias="champion")
 Python-конфигурация реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/app_config/runtime/`.
 
 Все модели и load-функции живут в `app_config.runtime.models` и `app_config.runtime.loaders`;
-`src/shared/config.py` остался как backward-compat re-export shim и не должен использоваться в новом коде.
 `src/shared/` теперь ограничен cross-cutting infrastructure: database, events, logging, telemetry, service helpers.
 
 Ключевые свойства текущей схемы:

@@ -343,6 +343,7 @@ def test_cli_materialize_can_persist_build_run(
 ) -> None:
     catalog_path = _write_catalog(tmp_path / "catalog.toml")
     rag_data_root = tmp_path / "rag_data"
+    calls: list[dict] = []
 
     class _Embedding:
         dimension = 3
@@ -363,6 +364,7 @@ def test_cli_materialize_can_persist_build_run(
         return {"bundle": kwargs["source_instance_id"]}
 
     def fake_materialize(**kwargs):
+        calls.append(kwargs)
         return _Model({"collection": kwargs["collection_name"]})
 
     exit_code = cli.main(
@@ -401,6 +403,8 @@ def test_cli_materialize_can_persist_build_run(
     assert build_run_payload["stage_results"]["materialize"] == {
         "collection": "rag__pytorch_reference__test"
     }
+    assert calls[0]["build_config_digest"] == build_run_payload["catalog_digest"]
+    assert calls[0]["build_profile_digest"] == build_run_payload["build_profile_digest"]
 
 
 def test_cli_materialize_all_sources_passes_multiple_bundles(

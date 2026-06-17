@@ -227,6 +227,7 @@ def materialize_kb_collection(
     force_recreate: bool = False,
     build_config_ref: str | None = None,
     build_config_digest: str | None = None,
+    build_profile_digest: str | None = None,
     source_adapter_versions: dict[str, str] | None = None,
     source_manifest_digests: dict[str, str] | None = None,
     benchmark_scope: str | None = None,
@@ -302,6 +303,7 @@ def materialize_kb_collection(
         extraction_config={},
         build_config_ref=build_config_ref,
         build_config_digest=build_config_digest,
+        build_profile_digest=build_profile_digest,
         benchmark_scope=benchmark_scope,
         created_at=created_at,
     )

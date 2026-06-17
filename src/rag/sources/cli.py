@@ -343,6 +343,11 @@ def main(
                     else None
                 ),
                 build_config_digest=(
+                    build_run_for_materialize.catalog_digest
+                    if build_run_for_materialize is not None
+                    else None
+                ),
+                build_profile_digest=(
                     build_run_for_materialize.build_profile_digest
                     if build_run_for_materialize is not None
                     else None
