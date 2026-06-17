@@ -13,6 +13,10 @@ from app_config.catalog.schema import (
     CatalogTaskConfig,
     SourceConfig,
 )
+from app_config.catalog.source_instances import (
+    SourceInstanceIndex,
+    build_source_instance_index,
+)
 
 _CatalogItem = TypeVar("_CatalogItem", CatalogTaskConfig, CatalogKBConfig, SourceConfig)
 
@@ -48,6 +52,11 @@ def materialize_catalog(
         if source_key in source_keys:
             raise ValueError(f"Duplicate source id '{source_id}' for KB '{source_kb}'")
         source_keys.add(source_key)
+
+    # Validates legacy/declared source-instance merging as a side effect (duplicate ids,
+    # unknown KB/adapter references); the resulting index is available via
+    # load_catalog_with_source_index() for callers that need it.
+    build_source_instance_index(catalog_cfg)
 
     kb_index: dict[str, KBConfig] = {}
     for kb_name, kb_cfg in catalog_kbs.items():
@@ -99,8 +108,7 @@ def materialize_catalog(
     return task_catalog, kb_index
 
 
-def load_catalog(path: Path | str) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
-    """Load the catalog from a TOML file."""
+def _read_catalog_config(path: Path | str) -> CatalogConfig:
     path = Path(path)
 
     if not path.exists():
@@ -113,4 +121,19 @@ def load_catalog(path: Path | str) -> tuple[dict[str, TaskConfig], dict[str, KBC
 
     with path.open("rb") as fh:
         raw = tomllib.load(fh)
-    return materialize_catalog(CatalogConfig(**raw))
+    return CatalogConfig(**raw)
+
+
+def load_catalog(path: Path | str) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
+    """Load the catalog from a TOML file."""
+    return materialize_catalog(_read_catalog_config(path))
+
+
+def load_catalog_with_source_index(
+    path: Path | str,
+) -> tuple[dict[str, TaskConfig], dict[str, KBConfig], SourceInstanceIndex]:
+    """Load the catalog along with its merged source-instance index."""
+    catalog_cfg = _read_catalog_config(path)
+    task_catalog, kb_index = materialize_catalog(catalog_cfg)
+    source_index = build_source_instance_index(catalog_cfg)
+    return task_catalog, kb_index, source_index

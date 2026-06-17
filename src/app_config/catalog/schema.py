@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app_config.catalog.models import AdapterConfig, AliasConfig
 
@@ -63,6 +63,115 @@ class SourceConfig(BaseModel):
     settings: dict[str, object] = Field(default_factory=dict)
 
 
+SourceInstanceRole = Literal["corpus", "benchmark"]
+
+BENCHMARK_CONTAINS_VALUES = frozenset(
+    {
+        "queries",
+        "qrels",
+        "answers",
+        "scores",
+        "evidence_text",
+        "evidence_refs",
+        "rubrics",
+    }
+)
+
+
+class SourceAdapterConfig(BaseModel):
+    """Declarative `[[source_adapters]]` entry: a factory for a source-capable adapter."""
+
+    id: str
+    version: str = "1"
+    description: str
+    factory: str
+
+    @field_validator("id", "version", "description", "factory")
+    @classmethod
+    def _required_strings_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value must be non-empty")
+        return value.strip()
+
+
+class BenchmarkAdapterConfig(BaseModel):
+    """Declarative `[[benchmark_adapters]]` entry: a factory for a benchmark-capable adapter."""
+
+    id: str
+    version: str = "1"
+    description: str
+    factory: str
+
+    @field_validator("id", "version", "description", "factory")
+    @classmethod
+    def _required_strings_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value must be non-empty")
+        return value.strip()
+
+
+class BenchmarkSourceConfig(BaseModel):
+    """The `benchmark = { ... }` block on a `role = "benchmark"` source instance."""
+
+    contains: list[str]
+    metrics: list[str] = Field(default_factory=list)
+
+    @field_validator("contains")
+    @classmethod
+    def _contains_values_must_be_known(cls, value: list[str]) -> list[str]:
+        unknown = sorted(set(value) - BENCHMARK_CONTAINS_VALUES)
+        if unknown:
+            raise ValueError(
+                f"benchmark.contains has unknown values {unknown}; "
+                f"allowed values are {sorted(BENCHMARK_CONTAINS_VALUES)}"
+            )
+        return value
+
+
+class SourceInstanceAdapterRef(BaseModel):
+    """Reference from a source instance to a declared source or benchmark adapter."""
+
+    id: str
+    version: str = "1"
+
+    @field_validator("id", "version")
+    @classmethod
+    def _required_strings_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value must be non-empty")
+        return value.strip()
+
+
+class SourceInstanceConfig(BaseModel):
+    """Declarative `[[source_instances]]` entry: a globally addressable source or benchmark."""
+
+    id: str
+    description: str
+    role: SourceInstanceRole = "corpus"
+    knowledge_base: str
+    adapter: SourceInstanceAdapterRef
+    benchmark: BenchmarkSourceConfig | None = None
+
+    @field_validator("id", "description", "knowledge_base")
+    @classmethod
+    def _required_strings_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value must be non-empty")
+        return value.strip()
+
+    @model_validator(mode="after")
+    def _benchmark_block_matches_role(self) -> "SourceInstanceConfig":
+        if self.role == "benchmark" and self.benchmark is None:
+            raise ValueError(
+                f"source instance '{self.id}' has role 'benchmark' but no benchmark block"
+            )
+        if self.role == "corpus" and self.benchmark is not None:
+            raise ValueError(
+                f"source instance '{self.id}' has role 'corpus' and must not have a benchmark block"
+            )
+        return self
+
+
 class CatalogConfig(BaseModel):
     """Root schema for the TOML-backed application catalog."""
 
@@ -70,3 +179,6 @@ class CatalogConfig(BaseModel):
     tasks: list[CatalogTaskConfig] = Field(default_factory=list)
     knowledge_bases: list[CatalogKBConfig] = Field(default_factory=list)
     sources: list[SourceConfig] = Field(default_factory=list)
+    source_adapters: list[SourceAdapterConfig] = Field(default_factory=list)
+    benchmark_adapters: list[BenchmarkAdapterConfig] = Field(default_factory=list)
+    source_instances: list[SourceInstanceConfig] = Field(default_factory=list)
