@@ -27,6 +27,9 @@ in the repository root: [README.md](../README.md).
   complete and Phase 2 RAG quality work is next.
 - [Experiment Planning](planning/experiments.md): inference, RAG, LoRA, and
   operating-limit experiment plans.
+- [RAG Catalog Refactor Proposal](planning/rag-catalog-refactor.md): proposed
+  next catalog shape for source adapters, benchmark-capable source instances,
+  and benchmark artifact flow.
 
 ## Documentation Ownership
 
