@@ -1456,30 +1456,27 @@ Completed:
 - `src/rag_data_pipelines/pytorch_docs` exists as the first production-owned
   dataset pipeline module.
 - Runtime settings schema/loading moved from `shared.config` into
-  `app_config.runtime` (`models.py` + `loaders.py`); `shared/config.py` is now
-  a backward-compat re-export shim. `src/shared/` is limited to cross-cutting
-  infrastructure (db, events, logging, telemetry).
+  `app_config.runtime` (`models.py` + `loaders.py`); `shared/config.py` deleted.
+  `src/shared/` is limited to cross-cutting infrastructure (db, events, logging,
+  telemetry).
 - Architecture and operations docs updated to reflect the completed package split.
+- `IndexManifest` extended with `source_adapter_versions`, `source_manifest_digests`,
+  `vector_dimension`, `build_config_digest`, and `benchmark_scope`; `_chunking_config`
+  reads chunking settings from the first reachable chunk artifact; all new fields are
+  wired through `materialize_kb_collection` and threaded from the CLI via the
+  persisted `BuildRun`.
+- `plan_build`, `list_build_runs`, and `read_build_run` added to the lifecycle layer;
+  `plan`, `status`, and `show-build-run` subcommands wired in the CLI; `PlanResult`
+  and `SourcePlanEntry` added to `rag.lifecycle` contracts.
 
 Remaining phases:
 
-1. **Collection manifest reproducibility.**
-   Extend collection manifests or linked build-profile artifacts with adapter
-   ids/versions, source manifest refs/digests, parser/extractor settings,
-   chunking settings, embedding/sparse settings, vector-store/index settings,
-   retrieval capability, build config digest, and benchmark scope when known.
-
-2. **Lifecycle inspection and preflight.**
-   Add operator commands such as `plan`, `status`, or `show-build-run` that
-   validate catalog/source/adapter/materialization inputs and inspect persisted
-   `BuildRun` artifacts without touching Qdrant.
-
-3. **Dataset pipeline first slices.**
+1. **Dataset pipeline first slices.**
    Add real production modules under `src/rag_data_pipelines/` for at least one
    benchmark corpus, then continue with QASPER, Open RAG Benchmark, BEIR, and
    MS MARCO as needed.
 
-4. **RAG evaluation harness.**
+2. **RAG evaluation harness.**
    Continue with normalized eval rows, qrels/evidence, retrieval observations,
    metrics, result persistence, and promotion gates.
 
