@@ -181,7 +181,7 @@ cp .env.example .env
 
 Замечание:
 - Канонический шаблон `.env.example` не содержит полные внутренние endpoint'ы.
-  Python derives project-owned URLs from `NETWORK__...` via `shared.config`.
+  Python derives project-owned URLs from `NETWORK__...` via `app_config.runtime`.
 - Compose derives code/config mounts from `PROJECT_ROOT`, durable data mounts from `SHARED_ROOT`;
   `IMAGE_TAG` controls image tags for deploy/local runs.
 - Workflow для logs/traces/metrics описан в `docs/analytics/observability.md`; durable inference events описаны в `docs/analytics/inference-events.md`; ClickHouse analytics описана в `docs/analytics/clickhouse-analytics.md`.
@@ -199,7 +199,7 @@ cp .env.example .env
 - если ключ имеет upstream/native имя, сохраняйте native имя
 - если ключ описывает project-owned endpoint topology, используйте `NETWORK__...`
 - новые runtime settings добавляйте в `runtime.toml`, а не в env
-- catalog-specific helpers и schema не должны документироваться как часть `shared.config`; их владелец — `src/shared/catalog/`
+- catalog-specific helpers и schema не должны документироваться как часть `app_config.runtime`; их владелец — `src/app_config/catalog/`
 
 Типичные operator-facing nested keys из текущего контракта:
 

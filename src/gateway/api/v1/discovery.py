@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from shared.config import get_settings
+from app_config.runtime import get_settings
 
 router = APIRouter()
 

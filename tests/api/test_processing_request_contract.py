@@ -5,12 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import shared.config as cfg
+import app_config.runtime as cfg
+from app_config.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
+from app_config.runtime import Settings, load_settings
 from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
 from gateway.services.processing import _ProcessChat
 from gateway.services.task_router import RouteDecision
-from app_config.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
-from shared.config import Settings, load_settings
 
 
 def _alias_config() -> dict[str, object]:

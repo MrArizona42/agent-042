@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from shared.config import (
+from app_config.runtime import (
     AdapterRegistryConfig,
     CatalogConfig,
     Settings,

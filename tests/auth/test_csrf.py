@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+from app_config.runtime import get_settings
 from gateway.auth.router import _session_cookie_secure
 from gateway.auth.router import router as auth_router
-from shared.config import get_settings
 
 
 def _make_app(session_mgr=None, oidc_client=None):

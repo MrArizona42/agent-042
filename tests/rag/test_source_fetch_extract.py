@@ -61,7 +61,9 @@ def test_html_fetcher_writes_raw_html_and_metadata_immutably(tmp_path) -> None:
         force=True,
     )
 
-    assert first.raw_path.as_posix().endswith("pytorch_reference/raw/docs/html_docs_tensors/page.html")
+    assert first.raw_path.as_posix().endswith(
+        "pytorch_reference/raw/docs/html_docs_tensors/page.html"
+    )
     assert first.metadata_path.exists()
     assert second.from_cache is True
     assert forced.from_cache is False

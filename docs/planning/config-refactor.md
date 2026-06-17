@@ -516,7 +516,7 @@ a project-wide pre-Compose renderer.
 
 ## No Defaults
 
-No operator-setting defaults remain in Compose or `src/shared/config.py`.
+No operator-setting defaults remain in Compose or `src/app_config/runtime/`.
 
 Rules:
 
@@ -648,7 +648,7 @@ removed list: they are canonical `.env` values in the revised design.
    network settings.
 10. Remove catalog repo-root discovery and require explicit
     `CONFIG__CATALOG_PATH` / explicit CLI catalog paths.
-11. Remove hidden defaults from `src/shared/config.py`.
+11. ~~Remove hidden defaults from `src/shared/config.py`.~~ Done — runtime settings moved to `src/app_config/runtime/`; `shared/config.py` is a backward-compat shim.
 12. Split host-side wrappers from container entrypoints and remove `.env`
    loading from shared/runtime code.
 

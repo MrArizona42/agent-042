@@ -12,8 +12,8 @@ from authlib.jose.errors import ExpiredTokenError, InvalidClaimError
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from app_config.runtime import Settings, load_settings
 from gateway.auth.oidc import OIDCClient
-from shared.config import Settings, load_settings
 
 # ---------------------------------------------------------------------------
 # Helpers

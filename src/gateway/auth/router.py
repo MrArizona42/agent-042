@@ -10,7 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 
-from shared.config import get_settings
+from app_config.runtime import get_settings
 from shared.db.engine import get_session_factory
 from shared.db.models import User
 

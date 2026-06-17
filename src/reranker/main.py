@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
-from shared.config import get_settings
+from app_config.runtime import get_settings
 from shared.logging import configure_logging
 from shared.telemetry import instrument_fastapi_app
 

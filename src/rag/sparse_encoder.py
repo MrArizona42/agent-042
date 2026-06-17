@@ -12,7 +12,7 @@ import logging
 import httpx
 from qdrant_client.models import SparseVector
 
-from shared.config import get_settings
+from app_config.runtime import get_settings
 
 logger = logging.getLogger(__name__)
 

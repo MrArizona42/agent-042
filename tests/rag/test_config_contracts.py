@@ -19,7 +19,7 @@ from tests.catalog_samples import (
 
 @pytest.fixture(autouse=True)
 def _reset_kb_catalog():
-    import shared.config as cfg
+    import app_config.runtime as cfg
 
     cfg.clear_knowledge_base_caches()
     yield
@@ -313,7 +313,7 @@ class TestRegistryReferenceValidation:
 
 class TestKnowledgeBaseRegistryResolution:
     def test_gateway_settings_expose_grouped_sections(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.setenv("PLATFORM__VLLM_BASE_URL", "http://platform-vllm:8000")
 
@@ -332,7 +332,7 @@ class TestKnowledgeBaseRegistryResolution:
             _ = settings.rag.knowledge_bases_path
 
     def test_load_settings_merges_runtime_toml_with_explicit_overrides(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.setenv("GATEWAY__URL", "http://gateway-from-env:9001")
         monkeypatch.setenv("GATEWAY__BUDGET__MODEL_MAX_TOKENS", "4096")
@@ -352,7 +352,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.gateway.budget.min_response_budget == 1024
 
     def test_runtime_env_names_do_not_override_toml_values(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.setenv("GATEWAY__CORS_ALLOW_ORIGINS", "https://a.example, https://b.example")
         monkeypatch.setenv("ADAPTER_REGISTRY__SYNC_ALIASES", "champion,shadow")
@@ -363,7 +363,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.adapter_registry.sync_aliases == ("champion", "challenger")
 
     def test_runtime_path_is_required(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.delenv("CONFIG__RUNTIME_PATH", raising=False)
 
@@ -373,7 +373,7 @@ class TestKnowledgeBaseRegistryResolution:
     def test_missing_runtime_toml_field_is_validation_error(self, tmp_path: Path):
         from pydantic import ValidationError
 
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         path = tmp_path / "runtime.toml"
         path.write_text("schema_version = 1\n", encoding="utf-8")
@@ -384,7 +384,7 @@ class TestKnowledgeBaseRegistryResolution:
     def test_runtime_toml_rejects_vllm_launch_settings(self, tmp_path: Path):
         from pydantic import ValidationError
 
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         path = tmp_path / "runtime.toml"
         path.write_text(
@@ -399,7 +399,7 @@ class TestKnowledgeBaseRegistryResolution:
     def test_runtime_toml_rejects_derived_or_env_only_keys(self, tmp_path: Path):
         from pydantic import ValidationError
 
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         path = tmp_path / "runtime.toml"
         runtime_toml = Path("runtime.toml").read_text(encoding="utf-8")
@@ -414,7 +414,7 @@ class TestKnowledgeBaseRegistryResolution:
             load_settings(runtime_path=path)
 
     def test_config_catalog_path_env_sets_catalog_settings(self, tmp_path: Path, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         catalog_path = tmp_path / "catalog.toml"
         monkeypatch.setenv("CONFIG__CATALOG_PATH", str(catalog_path))
@@ -424,7 +424,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.catalog.path == catalog_path
 
     def test_config_catalog_path_env_is_required(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.delenv("CONFIG__CATALOG_PATH", raising=False)
 
@@ -432,7 +432,7 @@ class TestKnowledgeBaseRegistryResolution:
             load_settings()
 
     def test_legacy_flat_env_names_are_ignored(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.delenv("PLATFORM__VLLM_BASE_URL", raising=False)
         monkeypatch.setenv("VLLM_BASE_URL", "http://legacy-vllm:8000")
@@ -443,7 +443,7 @@ class TestKnowledgeBaseRegistryResolution:
 
     def test_catalog_settings_own_catalog_path(self):
         from app_config.catalog import resolve_catalog_path
-        from shared.config import CatalogConfig
+        from app_config.runtime import CatalogConfig
 
         settings = CatalogConfig(path="configs/catalog.toml")
 
@@ -451,7 +451,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert resolve_catalog_path(settings) == Path.cwd() / "configs/catalog.toml"
 
     def test_get_catalog_prefers_catalog_settings_path(self, tmp_path: Path, monkeypatch):
-        import shared.config as cfg
+        import app_config.runtime as cfg
         from app_config.catalog import get_catalog, get_kb_names
 
         path = write_code_only_catalog(tmp_path / "catalog.toml")
@@ -467,7 +467,7 @@ class TestKnowledgeBaseRegistryResolution:
     def test_clear_knowledge_base_caches_refreshes_registry_settings_path(
         self, tmp_path: Path, monkeypatch
     ):
-        import shared.config as cfg
+        import app_config.runtime as cfg
         from app_config.catalog import get_kb_names
 
         first = write_chat_only_catalog(tmp_path / "catalog-first.toml")
@@ -482,7 +482,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert get_kb_names() == ["pytorch_reference"]
 
     def test_legacy_catalog_env_names_are_ignored(self, tmp_path: Path, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         path = write_chat_only_catalog(tmp_path / "catalog.toml")
 
@@ -533,7 +533,7 @@ class TestKnowledgeBaseRegistryResolution:
 
     def test_get_catalog_reloads_when_settings_path_changes(self, tmp_path: Path):
         from app_config.catalog import get_catalog, get_kb_names
-        from shared.config import CatalogConfig
+        from app_config.runtime import CatalogConfig
 
         first = write_chat_only_catalog(tmp_path / "kb-first.toml")
 

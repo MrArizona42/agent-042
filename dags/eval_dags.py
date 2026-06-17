@@ -88,7 +88,7 @@ def _list_knowledge_base_aliases() -> list[str]:
 
 def _list_adapter_sync_aliases() -> list[str]:
     """Load LoRA alias options from the runtime adapter-registry policy."""
-    from shared.config import get_settings
+    from app_config.runtime import get_settings
 
     return list(get_settings().adapter_registry.sync_aliases)
 

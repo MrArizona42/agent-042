@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from gateway.services.task_router import EmbeddingTaskRouter
 from app_config.catalog import TaskConfig
+from gateway.services.task_router import EmbeddingTaskRouter
 
 
 def _catalog() -> dict[str, TaskConfig]:

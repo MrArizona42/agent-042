@@ -190,7 +190,7 @@ class ArxivPaperFetcher(HttpSourceFetcher):
             uri = source_document.uri
             for prefix in ("arxiv_paper:", "arxiv:"):
                 if uri.startswith(prefix):
-                    arxiv_id = uri[len(prefix):]
+                    arxiv_id = uri[len(prefix) :]
                     break
         if not arxiv_id:
             raise ValueError(f"ArXiv source document '{source_document.id}' is missing arxiv_id")

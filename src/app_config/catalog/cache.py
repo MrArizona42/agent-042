@@ -85,7 +85,7 @@ def get_loaded_catalog_state(
         return _CATALOG_OVERRIDE, _CATALOG_INDEX_OVERRIDE
 
     if settings is None:
-        from shared.config import get_settings
+        from app_config.runtime import get_settings
 
         settings = get_settings().catalog
 

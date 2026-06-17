@@ -58,6 +58,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 from app_config.catalog import get_kb_config
+from app_config.runtime import (
+    JudgeSettings,
+    get_settings,
+    secret_value,
+)
 
 # Add src to path so shared/rag modules are importable
 # Canonical directory for pre-downloaded datasets (HF Arrow format).
@@ -85,11 +90,6 @@ from rag.reranker import get_reranker
 from rag.retriever import Retriever
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
-from shared.config import (
-    JudgeSettings,
-    get_settings,
-    secret_value,
-)
 from shared.model_registry import AdapterRegistry
 
 logger = logging.getLogger(__name__)

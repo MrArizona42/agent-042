@@ -538,7 +538,7 @@ registry.promote("lora-summarize", version=2, alias="champion")
 | Конфиг | Назначение |
 |---|---|
 | `.env` | Операторский env-файл. Runtime settings используют nested имена вида `SECTION__FIELD`; инфраструктурные bootstrap/env-переменные Compose могут оставаться flat |
-| `src/shared/config.py` | Current root runtime settings loader: `Settings(BaseSettings)`, cache helpers и safe startup logging для Python-сервисов. This is transitional; the target home is `src/app_config/runtime/` |
+| `src/app_config/runtime/` | Root runtime settings: `Settings(BaseSettings)`, cache helpers, и safe startup logging для Python-сервисов. `src/shared/config.py` — backward-compat re-export shim only |
 | `src/app_config/catalog/` + `catalog.toml` | Catalog schema, loader и operator catalog для задач, баз знаний и источников |
 | `infra/compose/docker-compose.yaml` | Topology всей системы: сети, port bindings, volumes, health checks, зависимости между сервисами |
 | `infra/docker/**/Dockerfile` | Определения образов: базовые образы, установка зависимостей, process defaults |
@@ -558,23 +558,20 @@ registry.promote("lora-summarize", version=2, alias="champion")
 
 Файл загружается через `src/app_config/catalog/` и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте. Канонический TOML использует list sections `[[tasks]]`, `[[knowledge_bases]]`, `[[sources]]` с явными `id`; legacy mapping sections не поддерживаются. Source entries declare `type`, `kb`, `id`, `manifest`, and a required `ingest_adapter = { id = "...", version = "..." }`.
 
-### 7.3 Runtime Settings (`src/shared/config.py`, transitional)
+### 7.3 Runtime Settings (`src/app_config/runtime/`)
 
-Python-конфигурация сейчас реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/shared/config.py`.
+Python-конфигурация реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/app_config/runtime/`.
 
-This is an intentional transitional state after the catalog split. New imports
-can use the `src/app_config/runtime/` facade, but the schema and loader still
-live in `shared.config`. The remaining config-refactor step is to move runtime
-schema/loading into `app_config.runtime` and leave `shared/` for cross-cutting
-infrastructure such as database, events, logging, telemetry, and service
-helpers.
+Все модели и load-функции живут в `app_config.runtime.models` и `app_config.runtime.loaders`;
+`src/shared/config.py` остался как backward-compat re-export shim и не должен использоваться в новом коде.
+`src/shared/` теперь ограничен cross-cutting infrastructure: database, events, logging, telemetry, service helpers.
 
 Ключевые свойства текущей схемы:
 
 - env читает только root `Settings`, а nested sections являются plain `BaseModel`
 - canonical runtime env names используют nested contract с delimiter `__`
 - flat compatibility aliases для runtime env names больше не поддерживаются
-- catalog models/loaders больше не реэкспортируются через `shared.config`; они живут в `app_config.catalog`
+- catalog models/loaders живут в `app_config.catalog`; не реэкспортируются ни через `shared.config`, ни через `app_config.runtime`
 
 Основные секции runtime settings:
 
@@ -617,7 +614,7 @@ helpers.
 1. меняйте schema/models в `src/app_config/catalog/`
 2. обновляйте `catalog.toml` и sample/contract tests
 3. используйте `catalog_override(...)` в тестах вместо manual global mutation
-4. не добавляйте catalog helper re-exports обратно в `shared.config`
+4. не добавляйте catalog helper re-exports в `shared.config` или `app_config.runtime`
 
 ---
 

@@ -1455,36 +1455,33 @@ Completed:
 - `dry_run` is wired through CLI/Airflow lifecycle stages.
 - `src/rag_data_pipelines/pytorch_docs` exists as the first production-owned
   dataset pipeline module.
+- Runtime settings schema/loading moved from `shared.config` into
+  `app_config.runtime` (`models.py` + `loaders.py`); `shared/config.py` is now
+  a backward-compat re-export shim. `src/shared/` is limited to cross-cutting
+  infrastructure (db, events, logging, telemetry).
+- Architecture and operations docs updated to reflect the completed package split.
 
 Remaining phases:
 
-1. **Runtime config split.**
-   Move runtime settings schema/loading from `shared.config` into
-   `app_config.runtime`. Keep `shared/` for cross-cutting infrastructure only.
-
-2. **Collection manifest reproducibility.**
+1. **Collection manifest reproducibility.**
    Extend collection manifests or linked build-profile artifacts with adapter
    ids/versions, source manifest refs/digests, parser/extractor settings,
    chunking settings, embedding/sparse settings, vector-store/index settings,
    retrieval capability, build config digest, and benchmark scope when known.
 
-3. **Lifecycle inspection and preflight.**
+2. **Lifecycle inspection and preflight.**
    Add operator commands such as `plan`, `status`, or `show-build-run` that
    validate catalog/source/adapter/materialization inputs and inspect persisted
    `BuildRun` artifacts without touching Qdrant.
 
-4. **Dataset pipeline first slices.**
+3. **Dataset pipeline first slices.**
    Add real production modules under `src/rag_data_pipelines/` for at least one
    benchmark corpus, then continue with QASPER, Open RAG Benchmark, BEIR, and
    MS MARCO as needed.
 
-5. **RAG evaluation harness.**
+4. **RAG evaluation harness.**
    Continue with normalized eval rows, qrels/evidence, retrieval observations,
    metrics, result persistence, and promotion gates.
-
-6. **Documentation parity.**
-   Keep architecture and operations docs aligned with the package split,
-   especially while runtime config is in transition.
 
 ## Follow-Up
 

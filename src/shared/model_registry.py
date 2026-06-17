@@ -262,7 +262,7 @@ class AdapterRegistry:
                 production adapters).
         """
         if alias is None:
-            from shared.config import get_settings
+            from app_config.runtime import get_settings
 
             alias = get_settings().adapter_registry.production_alias
         if not alias:
@@ -348,7 +348,7 @@ class AdapterSyncer:
         sync_aliases: list[str] | None = None,
         vllm_base_url: str | None = None,
     ):
-        from shared.config import get_settings
+        from app_config.runtime import get_settings
 
         settings = get_settings()
         adapter_registry = settings.adapter_registry
@@ -536,7 +536,7 @@ class AdapterSyncer:
 
 def _resolve_aliases(aliases: str | list | tuple | None):
     """Parse comma-separated aliases or fall back to config default."""
-    from shared.config import get_settings
+    from app_config.runtime import get_settings
 
     adapter_registry = get_settings().adapter_registry
     if aliases:
@@ -552,7 +552,7 @@ def _cmd_sync(
     aliases: str | None = None,
 ) -> None:
     """Download and hot-load aliased adapters."""
-    from shared.config import get_settings
+    from app_config.runtime import get_settings
 
     settings = get_settings()
     adapter_registry = settings.adapter_registry
@@ -576,7 +576,7 @@ def _cmd_list(
     aliases: str | None = None,
 ) -> None:
     """List aliased adapters in MLflow (no download)."""
-    from shared.config import get_settings
+    from app_config.runtime import get_settings
 
     settings = get_settings()
     adapter_registry = settings.adapter_registry

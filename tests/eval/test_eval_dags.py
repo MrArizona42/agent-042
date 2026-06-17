@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture(autouse=True)
 def _reset_kb_catalog():
-    import shared.config as cfg
+    import app_config.runtime as cfg
 
     cfg.clear_knowledge_base_caches()
     yield

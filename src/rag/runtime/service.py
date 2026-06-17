@@ -8,6 +8,7 @@ from time import perf_counter
 from typing import Callable
 
 from app_config.catalog import KBConfig, get_catalog, get_kb_config
+from app_config.runtime import get_settings
 from rag.contracts import CollectionAttestation, RetrievalHit, attestation_from_payload
 from rag.embeddings import EmbeddingService
 from rag.indexing.materialize import qdrant_alias_name, validate_strategy_supported
@@ -16,7 +17,6 @@ from rag.retriever import Retriever
 from rag.runtime.models import RagRuntimeResult, RagRuntimeSource, RuntimeSkippedSource
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import Document, QdrantVectorStore
-from shared.config import get_settings
 
 logger = logging.getLogger(__name__)
 

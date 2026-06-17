@@ -30,7 +30,7 @@ _bootstrap_project_imports()
 
 
 def _configured_catalog_path() -> str:
-    from shared.config import get_settings
+    from app_config.runtime import get_settings
 
     return str(get_settings().catalog.path)
 

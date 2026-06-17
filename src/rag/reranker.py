@@ -9,8 +9,8 @@ import logging
 
 import httpx
 
+from app_config.runtime import get_settings
 from rag.vector_store import Document
-from shared.config import get_settings
 
 logger = logging.getLogger(__name__)
 

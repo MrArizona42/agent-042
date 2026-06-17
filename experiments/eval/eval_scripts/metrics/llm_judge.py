@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from shared.config import JudgeSettings
+from app_config.runtime import JudgeSettings
 
 logger = logging.getLogger(__name__)
 

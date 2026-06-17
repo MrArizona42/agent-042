@@ -13,7 +13,7 @@ import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.jose import JsonWebKey, JsonWebToken
 
-from shared.config import Settings, secret_value
+from app_config.runtime import Settings, secret_value
 
 logger = logging.getLogger(__name__)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping, Sequence
 
-from shared.config import BudgetSettings
+from app_config.runtime import BudgetSettings
 
 
 class BudgetValidationError(ValueError):

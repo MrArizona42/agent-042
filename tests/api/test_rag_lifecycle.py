@@ -21,7 +21,7 @@ from app_config.catalog import (
     get_kb_config,
     load_catalog,
 )
-from shared.config import Settings, load_settings
+from app_config.runtime import Settings, load_settings
 from tests.catalog_samples import (
     write_chat_and_code_catalog,
 )
@@ -36,7 +36,7 @@ _KB_CATALOG_OVERRIDE_STACK: ExitStack | None = None
 @pytest.fixture(autouse=True)
 def _reset_kb_catalog():
     """Reset the KB catalog singleton between tests."""
-    import shared.config as cfg
+    import app_config.runtime as cfg
 
     global _KB_CATALOG_OVERRIDE_STACK
 

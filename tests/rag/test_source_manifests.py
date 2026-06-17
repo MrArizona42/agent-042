@@ -7,7 +7,6 @@ import pytest
 
 from rag.sources import (
     GenericSourceEntry,
-    SourceManifest,
     load_source_manifest,
 )
 

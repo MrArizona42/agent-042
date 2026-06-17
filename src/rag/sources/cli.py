@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from app_config.catalog import CatalogConfig, load_catalog
+from app_config.runtime import get_settings
 from rag.embeddings import EmbeddingService
 from rag.indexing.materialize import (
     collection_name_for_build,
@@ -29,7 +30,6 @@ from rag.sources.bundles import collect_source_bundles, collect_source_chunks
 from rag.sources.chunks import ChunkingConfig
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
-from shared.config import get_settings
 
 
 def _json_default(value: object) -> str:

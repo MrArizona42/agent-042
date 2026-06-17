@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from app_config.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
+from app_config.runtime import load_settings
 from rag.contracts import CollectionAttestation, RetrievalCapability, attestation_payload
 from rag.runtime import RagRuntime, RagRuntimeSource
 from rag.vector_store import Document
-from app_config.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
-from shared.config import load_settings
 
 
 class _Embedding:

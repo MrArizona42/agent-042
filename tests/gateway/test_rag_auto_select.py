@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from gateway.services.rag_service import RAGService
 from app_config.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
-from shared.config import Settings, load_settings
+from app_config.runtime import Settings, load_settings
+from gateway.services.rag_service import RAGService
 
 
 def _alias_config() -> dict[str, object]:

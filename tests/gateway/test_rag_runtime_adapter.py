@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from app_config.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
+from app_config.runtime import Settings, load_settings
 from gateway.services.rag_service import RAGService
 from rag.contracts import RetrievalHit
 from rag.runtime import RagRuntimeResult
-from app_config.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
-from shared.config import Settings, load_settings
 
 
 class _Embedding:

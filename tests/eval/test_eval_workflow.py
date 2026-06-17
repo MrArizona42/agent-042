@@ -24,7 +24,7 @@ from rag.vector_store import Document
 @pytest.fixture(autouse=True)
 def _reset_settings_caches():
     """Clear lru_cache on settings between tests."""
-    import shared.config as cfg
+    import app_config.runtime as cfg
 
     cfg.get_settings.cache_clear()
     cfg.clear_knowledge_base_caches()
@@ -120,7 +120,7 @@ class TestEvalSettings:
     """Tests for the EvalSettings configuration."""
 
     def test_defaults(self):
-        from shared.config import get_settings
+        from app_config.runtime import get_settings
 
         settings = get_settings()
         s = settings.eval
@@ -141,7 +141,7 @@ class TestEvalSettings:
         assert s.sandbox.code_exec_timeout == 30
 
     def test_explicit_override_and_secret_env(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.setenv("EVAL__JUDGE__API_KEY", "secret")
         settings = load_settings(
@@ -467,8 +467,8 @@ class TestLLMJudge:
 
     @patch("experiments.eval.eval_scripts.metrics.llm_judge._call_judge_model")
     def test_judge_single_relevance(self, mock_judge_model):
+        from app_config.runtime import JudgeSettings
         from experiments.eval.eval_scripts.metrics.llm_judge import judge_single
-        from shared.config import JudgeSettings
 
         mock_judge_model.return_value = {"score": 4, "reason": "mostly relevant"}
 
@@ -492,8 +492,8 @@ class TestLLMJudge:
 
     @patch("experiments.eval.eval_scripts.metrics.llm_judge._call_judge_model")
     def test_judge_batch(self, mock_judge_model):
+        from app_config.runtime import JudgeSettings
         from experiments.eval.eval_scripts.metrics.llm_judge import judge_batch
-        from shared.config import JudgeSettings
 
         mock_judge_model.return_value = {"score": 3, "reason": "ok"}
 
@@ -516,8 +516,8 @@ class TestLLMJudge:
         assert result["correctness"] == 3.0
 
     def test_judge_unknown_metric(self):
+        from app_config.runtime import JudgeSettings
         from experiments.eval.eval_scripts.metrics.llm_judge import judge_single
-        from shared.config import JudgeSettings
 
         with pytest.raises(ValueError, match="Unknown judge metric"):
             judge_single(

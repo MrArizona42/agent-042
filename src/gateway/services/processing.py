@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Literal, Sequence
 
 from app_config.catalog import get_catalog, get_kb_config
+from app_config.runtime import get_settings, secret_value
 from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
 from gateway.services.budget import build_budget_meta
 from gateway.services.celery_client import CeleryClient
@@ -16,7 +17,6 @@ from gateway.services.rag_service import RAGService
 from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
-from shared.config import get_settings, secret_value
 from shared.events import InferenceEventProducer, InferenceEventType
 from shared.logging import bind_log_context, reset_log_context
 from shared.telemetry import get_tracer
