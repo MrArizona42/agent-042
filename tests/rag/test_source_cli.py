@@ -129,7 +129,7 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
 def test_cli_collect_bundle_outputs_bundle_summary(capsys) -> None:
     def fake_collect(**kwargs):
         assert kwargs["kb_id"] == "pytorch_reference"
-        assert kwargs["source_instance_id"] == "docs"
+        assert kwargs["source_instance_id"] == "pytorch_reference.docs"
         return _Model({"chunk_count": 3})
 
     exit_code = cli.main(
@@ -209,7 +209,12 @@ def test_cli_build_source_can_persist_build_run(
     assert json.loads(capsys.readouterr().out) == {"status": "success", "source": "docs"}
     build_run_payload = json.loads(
         (
-            rag_data_root / "pytorch_reference" / "metadata" / "build_runs" / "manual-run.json"
+            rag_data_root
+            / "knowledge_bases"
+            / "pytorch_reference"
+            / "metadata"
+            / "build_runs"
+            / "manual-run.json"
         ).read_text(encoding="utf-8")
     )
     assert build_run_payload["status"] == "succeeded"
@@ -271,10 +276,13 @@ def test_cli_collect_bundle_with_all_uses_catalog_source_set(tmp_path: Path, cap
 
     assert exit_code == 0
     assert json.loads(capsys.readouterr().out) == [
-        {"source": "docs"},
-        {"source": "tutorials"},
+        {"source": "pytorch_reference.docs"},
+        {"source": "pytorch_reference.tutorials"},
     ]
-    assert calls[0]["source_instance_ids"] == ["docs", "tutorials"]
+    assert calls[0]["source_instance_ids"] == [
+        "pytorch_reference.docs",
+        "pytorch_reference.tutorials",
+    ]
 
 
 def test_cli_materialize_derives_hybrid_capability_from_catalog(
@@ -394,7 +402,12 @@ def test_cli_materialize_can_persist_build_run(
     assert json.loads(capsys.readouterr().out) == {"collection": "rag__pytorch_reference__test"}
     build_run_payload = json.loads(
         (
-            rag_data_root / "pytorch_reference" / "metadata" / "build_runs" / "manual-run.json"
+            rag_data_root
+            / "knowledge_bases"
+            / "pytorch_reference"
+            / "metadata"
+            / "build_runs"
+            / "manual-run.json"
         ).read_text(encoding="utf-8")
     )
     assert build_run_payload["status"] == "succeeded"
@@ -459,7 +472,10 @@ def test_cli_materialize_all_sources_passes_multiple_bundles(
 
     assert exit_code == 0
     assert json.loads(capsys.readouterr().out) == {"bundle_count": 2}
-    assert calls[0]["bundles"] == [{"bundle": "docs"}, {"bundle": "tutorials"}]
+    assert calls[0]["bundles"] == [
+        {"bundle": "pytorch_reference.docs"},
+        {"bundle": "pytorch_reference.tutorials"},
+    ]
 
 
 def test_cli_promote_alias_wires_collection(tmp_path: Path, capsys, monkeypatch) -> None:

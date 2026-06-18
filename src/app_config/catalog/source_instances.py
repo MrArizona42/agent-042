@@ -14,10 +14,15 @@ from app_config.catalog.schema import (
 )
 
 
+def legacy_source_instance_id(*, kb_id: str, local_source_id: str) -> str:
+    """Return the global source instance id derived from a legacy `(kb, id)` pair."""
+    return f"{kb_id}.{local_source_id}"
+
+
 def _normalize_legacy_source(source: SourceConfig) -> SourceInstanceConfig:
     """Project a legacy `[[sources]]` entry into the new source-instance shape."""
     return SourceInstanceConfig(
-        id=f"{source.kb}.{source.id}",
+        id=legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id),
         description=f"Legacy source '{source.id}' for KB '{source.kb}' (type '{source.type}')",
         role="corpus",
         knowledge_base=source.kb,
@@ -137,3 +142,33 @@ def load_source_instance_index(path: Path | str) -> SourceInstanceIndex:
     with path.open("rb") as fh:
         raw = tomllib.load(fh)
     return build_source_instance_index(CatalogConfig(**raw))
+
+
+def migrate_legacy_source_manifest(
+    *,
+    source: SourceConfig,
+    catalog_path: Path | str,
+    rag_data_root: Path | str,
+    force: bool = False,
+) -> Path:
+    """Copy a legacy `[[sources]].manifest` file to its conventional source-instance path.
+
+    One-time migration helper for moving checked-in manifests ahead of the
+    Phase 7 schema flip. Does not mutate the catalog or remove the original
+    file; returns the destination path.
+    """
+    catalog_path = Path(catalog_path)
+    manifest_ref = Path(source.manifest)
+    source_path = manifest_ref if manifest_ref.is_absolute() else catalog_path.parent / manifest_ref
+    if not source_path.is_file():
+        raise FileNotFoundError(f"Legacy manifest not found: {source_path}")
+
+    destination = conventional_manifest_path(
+        rag_data_root,
+        legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id),
+    )
+    if destination.exists() and not force:
+        return destination
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(source_path.read_bytes())
+    return destination

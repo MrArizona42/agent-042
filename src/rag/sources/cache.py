@@ -37,13 +37,17 @@ def source_cache_paths(
     source_document: SourceDocument,
     raw_filename: str,
 ) -> SourceCachePaths:
-    """Return conventional cache paths for a source document."""
+    """Return conventional cache paths for a source document.
+
+    Cache paths are keyed by the globally unique source instance id, not by
+    `kb_id`; `kb_id` is accepted for caller symmetry with sibling functions.
+    """
     document_dir_name = safe_document_id(source_document.id)
-    root_dir = Path(rag_data_root) / kb_id
+    root_dir = Path(rag_data_root) / "source_instances" / source_instance_id
     return SourceCachePaths(
         root_dir=root_dir,
-        raw_path=root_dir / "raw" / source_instance_id / document_dir_name / raw_filename,
-        metadata_path=root_dir / "metadata" / source_instance_id / f"{document_dir_name}.json",
+        raw_path=root_dir / "raw" / document_dir_name / raw_filename,
+        metadata_path=root_dir / "metadata" / f"{document_dir_name}.json",
     )
 
 

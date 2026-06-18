@@ -120,7 +120,14 @@ def create_build_run(
 
 def build_run_path(*, rag_data_root: Path | str, kb_id: str, run_id: str) -> Path:
     """Return the conventional BuildRun artifact path."""
-    return Path(rag_data_root) / kb_id / "metadata" / "build_runs" / f"{run_id}.json"
+    return (
+        Path(rag_data_root)
+        / "knowledge_bases"
+        / kb_id
+        / "metadata"
+        / "build_runs"
+        / f"{run_id}.json"
+    )
 
 
 def write_build_run(build_run: BuildRun) -> Path:
@@ -332,7 +339,7 @@ def plan_build(
 
 def list_build_runs(*, rag_data_root: Path | str, kb_id: str) -> list[BuildRun]:
     """Return all persisted BuildRun artifacts for a KB, newest first."""
-    runs_dir = Path(rag_data_root) / kb_id / "metadata" / "build_runs"
+    runs_dir = Path(rag_data_root) / "knowledge_bases" / kb_id / "metadata" / "build_runs"
     if not runs_dir.is_dir():
         return []
     runs: list[BuildRun] = []

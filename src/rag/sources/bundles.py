@@ -34,7 +34,7 @@ def _chunk_artifact_paths(
     document_ids: list[str] | None,
     limit: int | None,
 ) -> list[Path]:
-    chunk_dir = Path(rag_data_root) / kb_id / "chunks" / source_instance_id
+    chunk_dir = Path(rag_data_root) / "source_instances" / source_instance_id / "chunks"
     paths = sorted(chunk_dir.glob("*.json"))
     if document_ids is not None:
         selected_ids = {safe_document_id(document_id) for document_id in document_ids}

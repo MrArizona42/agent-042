@@ -62,7 +62,7 @@ def test_html_fetcher_writes_raw_html_and_metadata_immutably(tmp_path) -> None:
     )
 
     assert first.raw_path.as_posix().endswith(
-        "pytorch_reference/raw/docs/html_docs_tensors/page.html"
+        "source_instances/docs/raw/html_docs_tensors/page.html"
     )
     assert first.metadata_path.exists()
     assert second.from_cache is True
@@ -87,7 +87,7 @@ def test_arxiv_fetcher_stores_pdf_bytes(tmp_path) -> None:
     )
 
     assert result.raw_path.as_posix().endswith(
-        "ml_papers_core/raw/papers/arxiv_paper_1706.03762/paper.pdf"
+        "source_instances/papers/raw/arxiv_paper_1706.03762/paper.pdf"
     )
     assert result.raw_path.read_bytes() == b"%PDF fake"
     assert result.source_document.uri == "https://arxiv.org/pdf/1706.03762"
@@ -205,7 +205,7 @@ def test_extracted_artifact_round_trips_immutably(tmp_path) -> None:
     write_extracted_artifact(path, artifact, force=True)
     restored = read_extracted_artifact(path)
 
-    assert path.as_posix().endswith("pytorch_reference/extracted/docs/html_docs_tensors.json")
+    assert path.as_posix().endswith("source_instances/docs/extracted/html_docs_tensors.json")
     assert restored.kb_id == "pytorch_reference"
     assert restored.source_instance_id == "docs"
     assert restored.raw.path == fetch_result.raw_path.as_posix()

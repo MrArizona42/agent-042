@@ -8,7 +8,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from app_config.catalog import CatalogConfig, SourceConfig, materialize_catalog
+from app_config.catalog import (
+    CatalogConfig,
+    SourceConfig,
+    legacy_source_instance_id,
+    materialize_catalog,
+)
 from rag.ingest import (
     DEFAULT_SOURCE_ADAPTERS,
     SourceAdapter,
@@ -230,7 +235,7 @@ def build_catalog_source(
     )
     build = build_source_instance(
         kb_id=source.kb,
-        source_instance_id=source.id,
+        source_instance_id=legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id),
         manifest_path=_catalog_manifest_path(
             catalog_path=catalog_path,
             manifest_ref=source.manifest,

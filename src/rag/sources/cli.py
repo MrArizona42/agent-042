@@ -9,7 +9,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from app_config.catalog import CatalogConfig, load_catalog
+from app_config.catalog import CatalogConfig, legacy_source_instance_id, load_catalog
 from app_config.runtime import get_settings
 from rag.embeddings import EmbeddingService
 from rag.indexing.materialize import (
@@ -81,7 +81,7 @@ def _catalog_source_ids(
     path = Path(catalog_path)
     catalog = CatalogConfig(**tomllib.loads(path.read_text(encoding="utf-8")))
     return [
-        source.id
+        legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id)
         for source in resolve_catalog_sources(
             catalog,
             kb_id=kb_id,
@@ -243,7 +243,9 @@ def main(
             result = collect_source_chunks_fn(
                 rag_data_root=args.rag_data_root,
                 kb_id=args.kb,
-                source_instance_id=source_ids[0],
+                source_instance_id=legacy_source_instance_id(
+                    kb_id=args.kb, local_source_id=source_ids[0]
+                ),
                 document_ids=_document_ids(args.document_ids),
                 limit=args.limit,
             )

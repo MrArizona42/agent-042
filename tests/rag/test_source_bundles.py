@@ -104,7 +104,7 @@ def test_collect_source_chunks_filters_document_ids_and_limit(tmp_path: Path) ->
 
 
 def test_collect_source_chunks_is_strict_for_corrupt_artifacts(tmp_path: Path) -> None:
-    chunk_dir = tmp_path / "pytorch_reference" / "chunks" / "docs"
+    chunk_dir = tmp_path / "source_instances" / "docs" / "chunks"
     chunk_dir.mkdir(parents=True)
     (chunk_dir / "broken.json").write_text('{"broken": true}\n', encoding="utf-8")
 

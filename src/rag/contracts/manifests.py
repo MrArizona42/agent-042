@@ -43,7 +43,7 @@ def manifest_path(
     collection_name: str,
 ) -> Path:
     """Return the conventional artifact path for a collection manifest."""
-    return Path(rag_data_root) / kb_id / "manifests" / f"{collection_name}.json"
+    return Path(rag_data_root) / "knowledge_bases" / kb_id / "manifests" / f"{collection_name}.json"
 
 
 def write_index_manifest(path: Path | str, manifest: IndexManifest) -> IndexManifest:

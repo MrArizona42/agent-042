@@ -299,7 +299,7 @@ def test_build_catalog_source_uses_kb_and_source_instance_pair(tmp_path: Path) -
     assert summary.source.ingest_adapter.id == "generic.http_html"
     assert summary.build.status == "success"
     assert summary.build.kb_id == "pytorch_reference"
-    assert summary.build.source_instance_id == "docs"
+    assert summary.build.source_instance_id == "pytorch_reference.docs"
 
 
 def test_build_catalog_source_resolves_manifest_relative_to_catalog(

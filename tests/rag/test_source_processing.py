@@ -81,7 +81,7 @@ def test_process_source_instance_writes_extracted_artifact(tmp_path: Path) -> No
     assert summary.extracted_from_cache == 0
     assert summary.failed == []
     assert artifact.document.text == "tensors body text."
-    assert artifact.raw.path.endswith("pytorch_reference/raw/docs/html_docs_tensors/page.html")
+    assert artifact.raw.path.endswith("source_instances/docs/raw/html_docs_tensors/page.html")
 
 
 def test_process_source_instance_reuses_extracted_artifact(tmp_path: Path) -> None:

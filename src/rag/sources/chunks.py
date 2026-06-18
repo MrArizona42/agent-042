@@ -71,12 +71,16 @@ def chunk_artifact_path(
     source_instance_id: str,
     source_document_id: str,
 ) -> Path:
-    """Return the conventional chunk artifact path for one source document."""
+    """Return the conventional chunk artifact path for one source document.
+
+    Keyed by the globally unique source instance id, not by `kb_id`; `kb_id`
+    is accepted for caller symmetry with sibling functions.
+    """
     return (
         Path(rag_data_root)
-        / kb_id
-        / "chunks"
+        / "source_instances"
         / source_instance_id
+        / "chunks"
         / f"{safe_document_id(source_document_id)}.json"
     )
 
@@ -215,7 +219,7 @@ def chunk_source_instance(
 ) -> SourceInstanceChunkingSummary:
     """Chunk extracted artifacts for one source instance."""
     root = Path(rag_data_root)
-    extracted_dir = root / kb_id / "extracted" / source_instance_id
+    extracted_dir = root / "source_instances" / source_instance_id / "extracted"
     extracted_paths = sorted(extracted_dir.glob("*.json"))
     if document_ids is not None:
         selected_ids = {safe_document_id(document_id) for document_id in document_ids}

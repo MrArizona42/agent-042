@@ -53,12 +53,16 @@ def extracted_artifact_path(
     source_instance_id: str,
     source_document_id: str,
 ) -> Path:
-    """Return the conventional extracted artifact path for one source document."""
+    """Return the conventional extracted artifact path for one source document.
+
+    Keyed by the globally unique source instance id, not by `kb_id`; `kb_id`
+    is accepted for caller symmetry with sibling functions.
+    """
     return (
         Path(rag_data_root)
-        / kb_id
-        / "extracted"
+        / "source_instances"
         / source_instance_id
+        / "extracted"
         / f"{safe_document_id(source_document_id)}.json"
     )
 

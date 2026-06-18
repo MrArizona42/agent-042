@@ -35,7 +35,9 @@ from app_config.catalog.source_instances import (
     SourceInstanceIndex,
     build_source_instance_index,
     conventional_manifest_path,
+    legacy_source_instance_id,
     load_source_instance_index,
+    migrate_legacy_source_manifest,
     validate_source_instance_manifests_exist,
 )
 from app_config.catalog.validation import validate_kb_alias
@@ -68,10 +70,12 @@ __all__ = [
     "get_catalog",
     "get_kb_config",
     "get_kb_names",
+    "legacy_source_instance_id",
     "load_catalog",
     "load_catalog_with_source_index",
     "load_source_instance_index",
     "materialize_catalog",
+    "migrate_legacy_source_manifest",
     "resolve_catalog_path",
     "set_catalog_override",
     "validate_kb_alias",

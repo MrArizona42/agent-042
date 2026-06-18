@@ -88,7 +88,9 @@ def test_manifest_round_trip_sets_and_validates_deterministic_manifest_id(tmp_pa
     written = write_index_manifest(path, _manifest())
     loaded = read_index_manifest(path)
 
-    assert path.as_posix().endswith("ml_papers_core/manifests/ml_papers_core_20260603_120000.json")
+    assert path.as_posix().endswith(
+        "knowledge_bases/ml_papers_core/manifests/ml_papers_core_20260603_120000.json"
+    )
     assert written.manifest_id is not None
     assert loaded == written
 

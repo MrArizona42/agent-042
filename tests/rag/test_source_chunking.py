@@ -85,7 +85,7 @@ def test_chunk_extracted_artifact_writes_project_chunks(tmp_path: Path) -> None:
     )
     restored = read_chunk_artifact(path)
 
-    assert path.as_posix().endswith("pytorch_reference/chunks/docs/html_tensors.json")
+    assert path.as_posix().endswith("source_instances/docs/chunks/html_tensors.json")
     assert artifact.chunking.method == "llamaindex_sentence_splitter"
     assert restored.source_document_id == "html:tensors"
     assert restored.extracted_artifact_path == extracted_path.as_posix()
@@ -167,7 +167,7 @@ def test_chunk_source_instance_summarizes_cache_and_filters(tmp_path: Path) -> N
 
 
 def test_chunk_source_instance_records_failures(tmp_path: Path) -> None:
-    extracted_dir = tmp_path / "pytorch_reference" / "extracted" / "docs"
+    extracted_dir = tmp_path / "source_instances" / "docs" / "extracted"
     extracted_dir.mkdir(parents=True)
     (extracted_dir / "broken.json").write_text('{"broken": true}\n', encoding="utf-8")
 
