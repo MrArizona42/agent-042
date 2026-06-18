@@ -34,11 +34,15 @@ instances without hiding behavior in central Python registries.
   qrels, evidence refs, reference answers, and rubrics.
 - `materialize` builds Qdrant collections from corpus source instances only by
   default.
-- Benchmark runs must receive an explicit alias at execution time. They must
-  not silently inherit `default_alias`.
-- Benchmark generation settings should reuse the project-wide generation
-  benchmark contracts. RAG-specific benchmark outputs should add retrieval
-  provenance, KB id, alias, collection name, and grounding data.
+- Benchmark runs must receive an explicit alias at execution time. They use that
+  alias to read fresh retrieval/build parameters from the attached KB, then
+  build and delete a temporary benchmark collection for the run. They must not
+  silently inherit `default_alias`.
+- Benchmark generation settings should reuse the existing generation-eval
+  runner semantics while moving shared DB persistence into
+  `src/shared/db/eval_writer.py`. RAG-specific benchmark outputs should add
+  retrieval provenance, KB id, alias, temporary benchmark collection name, and
+  grounding data.
 
 ## Current `tasks.adapter` Question
 
@@ -65,13 +69,13 @@ schema_version = 3
 id = "generic.http_html"
 version = "1"
 description = "Fetches HTTP HTML pages and extracts readable text sections."
-factory = "rag.adapters:make_http_html_adapter"
+factory = "rag.ingest.adapters:make_http_html_adapter"
 
 [[source_adapters]]
-id = "generic.arxiv_pdf"
+id = "generic.arxiv_paper"
 version = "1"
 description = "Resolves arXiv paper ids to PDFs, fetches them, and extracts text."
-factory = "rag.adapters:make_arxiv_pdf_adapter"
+factory = "rag.ingest.adapters:make_arxiv_paper_adapter"
 
 # Benchmark adapters extend the source lifecycle contract with benchmark
 # preparation. Their code can live in the same adapters package as source
@@ -80,13 +84,13 @@ factory = "rag.adapters:make_arxiv_pdf_adapter"
 id = "benchmark.pytorch_qa"
 version = "1"
 description = "Loads QA examples, reference answers, and expected evidence for PyTorch docs."
-factory = "rag.adapters:make_pytorch_qa_benchmark_adapter"
+factory = "rag.evaluation.adapters:make_pytorch_qa_benchmark_adapter"
 
 [[benchmark_adapters]]
 id = "benchmark.beir_scifact"
 version = "1"
 description = "Loads BEIR SciFact corpus records, queries, and qrels."
-factory = "rag.adapters:make_beir_scifact_benchmark_adapter"
+factory = "rag.evaluation.adapters:make_beir_scifact_benchmark_adapter"
 
 
 [[tasks]]
@@ -131,7 +135,7 @@ id = "ml_papers_core.papers"
 description = "Curated arXiv ML/AI papers."
 role = "corpus"
 knowledge_base = "ml_papers_core"
-adapter = { id = "generic.arxiv_pdf", version = "1" }
+adapter = { id = "generic.arxiv_paper", version = "1" }
 
 [[source_instances]]
 id = "pytorch_reference.docs"
@@ -221,6 +225,11 @@ should require:
   `prepare-benchmark`.
 
 The evaluated KB is `source_instance.knowledge_base`.
+
+One benchmark source instance attaches to exactly one KB. If the same benchmark
+dataset should be checked against multiple KBs, declare one benchmark source
+instance per KB so each run derives parameters from exactly one attached KB
+alias.
 
 The manifest path is always derived from source instance id:
 
@@ -398,8 +407,10 @@ loader should validate protocols and capabilities instead.
 
 ## RAG Generation Observation Extension
 
-RAG generation benchmarks should reuse the project-wide generation benchmark
-result model. They should not create a parallel RAG-only generation report.
+RAG generation benchmarks should reuse the existing generation-eval result
+shape from `experiments/eval/eval_scripts/runner.py` after its DB persistence is
+centralized in `src/shared/db/eval_writer.py`. They should not create a
+parallel RAG-only generation report.
 
 The extension point is the existing `eval_runs.extra` and
 `eval_samples.detail` JSONB fields. Do not add a separate RAG generation result
@@ -422,9 +433,9 @@ eval_runs
   rag_enabled             true for RAG generation benchmarks
   rag_alias               mandatory alias used for this benchmark run
   knowledge_base          source_instance.knowledge_base
-  qdrant_alias            resolved runtime alias
-  qdrant_collection       resolved physical collection
-  rag_manifest_id         resolved collection manifest id
+  qdrant_alias            attached KB runtime alias used as parameter source
+  qdrant_collection       attached KB physical collection used as parameter source
+  rag_manifest_id         attached KB collection manifest id
   retrieval_top_k         alias profile top_k
   score_threshold         alias profile score_threshold
   reranking_strategy      alias profile reranker or "none"
@@ -446,6 +457,11 @@ extra.rag.retrieval_strategy
 extra.rag.retrieval_capability
 extra.rag.source_instance_ids
 extra.rag.score_summary
+extra.rag.benchmark_collection_name
+extra.rag.benchmark_collection_lifecycle = "temporary"
+extra.rag.parameter_source_qdrant_alias
+extra.rag.parameter_source_collection
+extra.rag.parameter_source_manifest_id
 extra.generation.prompt_template
 extra.generation.prompt_template_digest
 extra.generation.judge_profile
@@ -584,8 +600,11 @@ Implementation tasks:
 - Load `[[source_adapters]]` and `[[benchmark_adapters]]` from catalog into an
   adapter registry keyed by `(id, version)`.
 - Make built-in adapters available through factory functions, for example:
-  - `rag.adapters:make_http_html_adapter`;
-  - `rag.adapters:make_arxiv_pdf_adapter`.
+  - `rag.ingest.adapters:make_http_html_adapter`;
+  - `rag.ingest.adapters:make_arxiv_paper_adapter`.
+- Add benchmark adapter factories under `rag.evaluation.adapters` or the
+  dataset-specific `rag_data_pipelines.<dataset>` package when the adapter is
+  corpus-specific.
 - Update source build planning to use the catalog-loaded registry.
 - Keep `DEFAULT_SOURCE_ADAPTERS` only as a transitional fallback for legacy
   schema tests, then remove it in a later cleanup phase.
@@ -706,7 +725,10 @@ Acceptance criteria:
 
 ### Phase 6: Benchmark Run Pipeline
 
-Implement benchmark execution against an explicit live KB alias.
+Implement benchmark execution against an explicit attached-KB alias. The alias
+is the parameter source. The benchmark source instance is materialized into a
+temporary benchmark collection for the run, queried, persisted to Postgres, and
+then deleted.
 
 Implementation tasks:
 
@@ -717,12 +739,30 @@ Implementation tasks:
   - rejects aliases not declared on that KB;
   - rejects missing prepared benchmark artifacts with a clear
     `prepare-benchmark` instruction.
-- Use `rag.runtime.RagRuntime` for retrieval so benchmark runs validate the
-  same Qdrant alias, attestation, embedding dimension, and retrieval capability
-  as production runtime.
+- Read the attached KB alias state before the run:
+  - resolve `rag__<kb>__<alias>`;
+  - read Qdrant attestation;
+  - validate embedding model, vector dimension, retrieval capability, sparse
+    encoder, top-k, score threshold, reranker, and chunking settings needed to
+    mirror the attached KB profile.
+- Reuse and productionize the existing temp-collection retrieval benchmark
+  approach from `experiments/eval/eval_scripts/retrieval_bench.py`:
+  - build a temporary benchmark collection from the benchmark source instance
+    corpus;
+  - use the attached KB alias parameters as the build/retrieval profile;
+  - run retrieval against the temporary benchmark collection;
+  - delete the temporary collection after the run.
 - For retrieval benchmarks, compute metrics from retrieved hits and labels.
-- For generation benchmarks, call the project-wide generation benchmark
-  machinery and add RAG retrieval provenance to observations.
+- For generation benchmarks, reuse the existing generation-eval request/metric
+  flow from `experiments/eval/eval_scripts/runner.py` with
+  benchmark-retrieved context and add RAG retrieval provenance to observations.
+- Centralize eval DB persistence in `src/shared/db/eval_writer.py` before
+  adding new benchmark persistence:
+  - replace `experiments/eval/eval_scripts/runner.py`'s hand-rolled
+    `_log_to_db` table definitions with a call into this shared writer;
+  - make the writer use `EvalRun.__table__` and `EvalSample.__table__` from
+    `src/shared/db/models.py`;
+  - make benchmark runs fail early when database persistence is not configured.
 - Require configured database persistence before executing benchmark cases.
 - Persist aggregate metric rows to `eval_runs`.
 - Persist per-case observations to `eval_samples.detail`.
@@ -730,22 +770,24 @@ Implementation tasks:
   - benchmark source instance id;
   - KB id;
   - mandatory alias;
-  - resolved Qdrant alias;
-  - physical collection name;
-  - collection manifest id;
+  - attached KB parameter-source Qdrant alias;
+  - attached KB parameter-source physical collection name;
+  - attached KB parameter-source manifest id;
+  - temporary benchmark collection name;
   - adapter id/version;
   - benchmark artifact digests;
   - generation settings when applicable.
 - Add tests for mandatory alias, unknown alias, missing prepared artifacts,
-  retrieval observations, and metric output.
+  temp collection build/delete, DB writer usage, retrieval observations, and
+  metric output.
 
 Acceptance criteria:
 
 - Benchmark results are always tied to an explicit alias and resolved
-  collection.
+  attached-KB parameter source.
 - No benchmark run silently uses `default_alias`.
 - Database rows are reproducible from catalog, benchmark artifacts, and live
-  collection provenance.
+  parameter-source collection provenance.
 
 ### Phase 7: Cleanup And Schema Flip
 
