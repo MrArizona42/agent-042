@@ -49,7 +49,9 @@ appdirs==1.4.4
     #   iterative-telemetry
     #   pydrive2
 arxiv==2.4.0
-    # via agent-042 (pyproject.toml)
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-readers-papers
 asttokens==3.0.1
     # via stack-data
 asyncssh==2.22.0
@@ -69,7 +71,9 @@ banks==2.4.2
 bcrypt==5.0.0
     # via asyncssh
 beautifulsoup4==4.14.3
-    # via agent-042 (pyproject.toml)
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-readers-file
 bert-score==0.3.13
     # via agent-042 (pyproject.toml)
 billiard==4.2.4
@@ -163,6 +167,10 @@ debugpy==1.8.20
     # via ipykernel
 decorator==5.2.1
     # via ipython
+defusedxml==0.7.1
+    # via
+    #   llama-index-readers-file
+    #   llama-index-readers-papers
 deprecated==1.3.1
     # via
     #   banks
@@ -323,7 +331,9 @@ griffelib==2.0.2
     #   griffe
     #   griffecli
 grpcio==1.78.0
-    # via qdrant-client
+    # via
+    #   llama-index-vector-stores-qdrant
+    #   qdrant-client
 gto==1.9.0
     # via dvc
 gunicorn==25.1.0
@@ -447,8 +457,17 @@ llama-index-core==0.14.22
     # via
     #   agent-042 (pyproject.toml)
     #   agent-042 (pyproject.toml:dev)
+    #   llama-index-readers-file
+    #   llama-index-readers-papers
+    #   llama-index-vector-stores-qdrant
 llama-index-instrumentation==0.5.0
     # via llama-index-workflows
+llama-index-readers-file==0.6.0
+    # via agent-042 (pyproject.toml)
+llama-index-readers-papers==0.5.0
+    # via agent-042 (pyproject.toml)
+llama-index-vector-stores-qdrant==0.10.1
+    # via agent-042 (pyproject.toml)
 llama-index-workflows==2.20.0
     # via llama-index-core
 lxml==6.0.2
@@ -624,6 +643,7 @@ pandas==2.3.3
     #   agent-042 (pyproject.toml)
     #   bert-score
     #   datasets
+    #   llama-index-readers-file
     #   mlflow
 parso==0.8.6
     # via jedi
@@ -752,7 +772,9 @@ pyparsing==3.3.2
     #   matplotlib
     #   pydot
 pypdf==6.7.4
-    # via agent-042 (pyproject.toml)
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-readers-file
 pytest==9.0.2
     # via agent-042 (pyproject.toml:dev)
 python-dateutil==2.9.0.post0
@@ -794,7 +816,9 @@ pyzmq==27.1.0
     #   ipykernel
     #   jupyter-client
 qdrant-client==1.17.0
-    # via agent-042 (pyproject.toml)
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-vector-stores-qdrant
 regex==2026.2.28
     # via
     #   nltk
@@ -905,6 +929,8 @@ stack-data==0.6.3
     # via ipython
 starlette==0.52.1
     # via fastapi
+striprtf==0.0.26
+    # via llama-index-readers-file
 sympy==1.14.0
     # via torch
 tabulate==0.9.0
