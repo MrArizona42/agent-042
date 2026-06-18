@@ -75,8 +75,7 @@ knowledge_base = "pytorch_reference"
 adapter = { id = "benchmark.pytorch_qa", version = "1" }
 
 [source_instances.benchmark]
-contains = ["queries", "answers", "evidence_refs"]
-metrics = ["recall_at_k", "answer_groundedness"]
+suites = ["context_quality", "generation_quality"]
 """
 
 
@@ -237,13 +236,27 @@ class TestSchemaVersion3SourceInstances:
                 role="corpus",
                 knowledge_base="kb",
                 adapter=SourceInstanceAdapterRef(id="generic.x", version="1"),
-                benchmark=BenchmarkSourceConfig(contains=["queries"]),
+                benchmark=BenchmarkSourceConfig(
+                    suites=["retrieval_quality"],
+                ),
             )
 
-    def test_benchmark_contains_rejects_unknown_vocabulary(self):
+    def test_benchmark_suites_rejects_unknown_vocabulary(self):
         from pydantic import ValidationError
 
         from app_config.catalog import BenchmarkSourceConfig
 
-        with pytest.raises(ValidationError, match="unknown values"):
-            BenchmarkSourceConfig(contains=["queries", "not_a_real_field"])
+        with pytest.raises(ValidationError, match="Input should be"):
+            BenchmarkSourceConfig(
+                suites=["retrieval_quality", "not_a_real_suite"],
+            )
+
+    def test_benchmark_suites_rejects_duplicates(self):
+        from pydantic import ValidationError
+
+        from app_config.catalog import BenchmarkSourceConfig
+
+        with pytest.raises(ValidationError, match="must not contain duplicate"):
+            BenchmarkSourceConfig(
+                suites=["retrieval_quality", "retrieval_quality"],
+            )

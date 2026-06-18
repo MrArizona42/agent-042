@@ -155,20 +155,15 @@ def resolve_corpus_source_instance_ids(
                 matches_by_selector[selector].append(instance.id)
 
     ambiguous = {
-        selector: matches
-        for selector, matches in matches_by_selector.items()
-        if len(matches) > 1
+        selector: matches for selector, matches in matches_by_selector.items() if len(matches) > 1
     }
     if ambiguous:
         raise ValueError(f"Ambiguous source selectors for KB '{kb_id}': {ambiguous}")
 
-    missing = sorted(
-        selector for selector, matches in matches_by_selector.items() if not matches
-    )
+    missing = sorted(selector for selector, matches in matches_by_selector.items() if not matches)
     if missing:
         raise ValueError(
-            f"Corpus source instances not found for kb_id='{kb_id}' "
-            f"and source_ids={missing}"
+            f"Corpus source instances not found for kb_id='{kb_id}' and source_ids={missing}"
         )
 
     return matched_ids

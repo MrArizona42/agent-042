@@ -113,7 +113,7 @@ def _write_v3_catalog(path: Path) -> Path:
             adapter = { id = "benchmark.fake", version = "1" }
 
             [source_instances.benchmark]
-            contains = ["queries", "answers"]
+            suites = ["generation_quality"]
             """
         ).strip()
         + "\n",

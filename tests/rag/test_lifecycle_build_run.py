@@ -309,7 +309,7 @@ def test_plan_build_supports_v3_source_instances_without_loading_benchmark_adapt
             adapter = { id = "benchmark.not_loaded", version = "1" }
 
             [source_instances.benchmark]
-            contains = ["queries", "answers"]
+            suites = ["generation_quality"]
             """
         ).strip()
         + "\n",

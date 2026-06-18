@@ -79,35 +79,6 @@ def _read_jsonl(path: Path, model_cls: type[BaseModel]) -> list[Any]:
     return [model_cls.model_validate_json(line) for line in text.splitlines()]
 
 
-_PRODUCED_CONTAINS_CHECKS = {
-    "qrels": lambda label: bool(label.qrels),
-    "answers": lambda label: bool(label.reference_answers or label.reference_answer_ids),
-    "scores": lambda label: bool(label.scores),
-    "evidence_refs": lambda label: bool(label.evidence_refs),
-    "rubrics": lambda label: bool(label.rubrics),
-}
-
-
-def _validate_contains(
-    artifacts: BenchmarkPreparedArtifacts,
-    *,
-    contains: list[str],
-    source_instance_id: str,
-) -> None:
-    """Raise if produced labels carry fields not declared in `benchmark.contains`."""
-    declared = set(contains)
-    undeclared = sorted(
-        name
-        for name, produced in _PRODUCED_CONTAINS_CHECKS.items()
-        if name not in declared and any(produced(label) for label in artifacts.labels)
-    )
-    if undeclared:
-        raise ValueError(
-            f"Benchmark source instance '{source_instance_id}' produced label fields "
-            f"{undeclared} not declared in benchmark.contains {sorted(declared)}"
-        )
-
-
 def prepare_benchmark_source_instance(
     *,
     catalog_path: Path | str,
@@ -145,12 +116,6 @@ def prepare_benchmark_source_instance(
     manifest_path = conventional_manifest_path(rag_data_root, source_instance_id)
     manifest = adapter.validate_manifest(load_source_manifest(manifest_path))
     artifacts = adapter.prepare_benchmark(manifest)
-
-    _validate_contains(
-        artifacts,
-        contains=instance.benchmark.contains,
-        source_instance_id=source_instance_id,
-    )
 
     _write_jsonl(cases_artifact_path(rag_data_root, source_instance_id), artifacts.cases)
     _write_jsonl(labels_artifact_path(rag_data_root, source_instance_id), artifacts.labels)

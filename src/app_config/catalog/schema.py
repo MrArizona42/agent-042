@@ -64,17 +64,7 @@ class SourceConfig(BaseModel):
 
 
 SourceInstanceRole = Literal["corpus", "benchmark"]
-
-BENCHMARK_CONTAINS_VALUES = frozenset(
-    {
-        "queries",
-        "qrels",
-        "answers",
-        "scores",
-        "evidence_refs",
-        "rubrics",
-    }
-)
+BenchmarkSuite = Literal["retrieval_quality", "context_quality", "generation_quality"]
 
 
 class SourceAdapterConfig(BaseModel):
@@ -112,18 +102,13 @@ class BenchmarkAdapterConfig(BaseModel):
 class BenchmarkSourceConfig(BaseModel):
     """The `benchmark = { ... }` block on a `role = "benchmark"` source instance."""
 
-    contains: list[str]
-    metrics: list[str] = Field(default_factory=list)
+    suites: list[BenchmarkSuite] = Field(min_length=1)
 
-    @field_validator("contains")
+    @field_validator("suites")
     @classmethod
-    def _contains_values_must_be_known(cls, value: list[str]) -> list[str]:
-        unknown = sorted(set(value) - BENCHMARK_CONTAINS_VALUES)
-        if unknown:
-            raise ValueError(
-                f"benchmark.contains has unknown values {unknown}; "
-                f"allowed values are {sorted(BENCHMARK_CONTAINS_VALUES)}"
-            )
+    def _suites_must_not_have_duplicates(cls, value: list[BenchmarkSuite]) -> list[BenchmarkSuite]:
+        if len(set(value)) != len(value):
+            raise ValueError("benchmark.suites must not contain duplicate values")
         return value
 
 

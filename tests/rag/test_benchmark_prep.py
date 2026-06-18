@@ -108,7 +108,7 @@ def _catalog(tmp_path: Path, *, factory: str) -> Path:
         adapter = {{ id = "benchmark.fake_qa", version = "1" }}
 
         [source_instances.benchmark]
-        contains = ["queries", "answers"]
+        suites = ["generation_quality"]
         """,
     )
 
@@ -157,7 +157,7 @@ def test_prepare_benchmark_rejects_non_benchmark_role_target(tmp_path: Path) -> 
         tmp_path, factory="tests.rag.test_benchmark_prep:_fake_qa_benchmark_adapter_factory"
     ).read_text(encoding="utf-8")
     content = content.replace('role = "benchmark"', 'role = "corpus"').replace(
-        "\n        [source_instances.benchmark]\n        contains = [\"queries\", \"answers\"]\n",
+        '\n        [source_instances.benchmark]\n        suites = ["generation_quality"]\n',
         "\n",
     )
     catalog_path = _write(tmp_path / "catalog.toml", content)
@@ -170,19 +170,22 @@ def test_prepare_benchmark_rejects_non_benchmark_role_target(tmp_path: Path) -> 
         )
 
 
-def test_prepare_benchmark_rejects_contains_mismatch(tmp_path: Path) -> None:
+def test_prepare_benchmark_allows_adapter_to_emit_any_normalized_label_channels(
+    tmp_path: Path,
+) -> None:
     _manifest(tmp_path, "pytorch_reference.qa_benchmark")
     catalog_path = _catalog(
         tmp_path,
         factory="tests.rag.test_benchmark_prep:_fake_qa_benchmark_adapter_with_qrels_factory",
     )
 
-    with pytest.raises(ValueError, match="not declared in benchmark.contains"):
-        prepare_benchmark_source_instance(
-            catalog_path=catalog_path,
-            source_instance_id="pytorch_reference.qa_benchmark",
-            rag_data_root=tmp_path,
-        )
+    summary = prepare_benchmark_source_instance(
+        catalog_path=catalog_path,
+        source_instance_id="pytorch_reference.qa_benchmark",
+        rag_data_root=tmp_path,
+    )
+
+    assert summary.label_count == 1
 
 
 def test_read_prepared_benchmark_artifacts_returns_empty_when_not_prepared(

@@ -144,9 +144,6 @@ role = "corpus"
 knowledge_base = "pytorch_reference"
 adapter = { id = "generic.http_html", version = "1" }
 
-
-# benchmark.contains allowed values:
-# "queries", "qrels", "answers", "scores", "evidence_refs", "rubrics".
 [[source_instances]]
 id = "ml_papers_core.scifact_benchmark"
 description = "SciFact benchmark cases and labels for evaluating ml_papers_core."
@@ -155,8 +152,7 @@ knowledge_base = "ml_papers_core"
 adapter = { id = "benchmark.beir_scifact", version = "1" }
 
 benchmark = {
-  contains = ["queries", "qrels"],
-  metrics = ["recall_at_k", "mrr", "ndcg"]
+  suites = ["retrieval_quality"]
 }
 
 [[source_instances]]
@@ -167,10 +163,41 @@ knowledge_base = "pytorch_reference"
 adapter = { id = "benchmark.pytorch_qa", version = "1" }
 
 benchmark = {
-  contains = ["queries", "answers", "evidence_refs"],
-  metrics = ["recall_at_k", "answer_groundedness"]
+  suites = ["context_quality", "generation_quality"]
 }
 ```
+
+## Benchmark Suite Types
+
+`benchmark.suites` declares which benchmark dimensions are meaningful for the
+benchmark source instance. It does not declare artifact channels or metric
+lists. Artifact requirements and metrics belong to the benchmark runner/provider
+implementation and documentation, not to `catalog.toml`.
+
+Current suite config models in `src/app_config/catalog/schema.py`:
+
+```text
+retrieval_quality
+  Retrieval ranking quality. The runner/provider decides which qrel-style
+  labels and retrieval metrics are required.
+
+context_quality
+  Final-context relevance, sufficiency, and evidence coverage. The provider
+  decides whether it needs qrels, evidence refs, reference answers, or judge
+  prompts.
+
+generation_quality
+  Answer quality, correctness, citation quality, and groundedness/faithfulness.
+  The provider decides which reference answers, evidence refs, rubrics, or
+  judge settings are required.
+```
+
+The split matters:
+
+- `catalog.toml` says which evaluation dimensions are enabled.
+- Benchmark providers define concrete metric sets and required artifacts.
+- Dataset-specific fields that are not a normalized channel should stay in
+  `BenchmarkCase.metadata` or `BenchmarkLabel.metadata`.
 
 ## Artifact Layout
 
@@ -555,7 +582,8 @@ Implementation tasks:
     path `assets/rag_data/source_instances/<source_instance_id>/manifest.toml`;
   - `role = "benchmark"` requires a `benchmark` block;
   - `role = "corpus"` must not contain a `benchmark` block;
-  - `benchmark.contains` values must come from the documented vocabulary;
+  - `benchmark.suites` values must come from the documented benchmark
+    dimensions;
   - task `knowledge_bases` entries reference existing KBs.
 - Keep legacy `[[sources]]` parsing temporarily and normalize it into
   `SourceInstanceConfig` in memory:
@@ -708,12 +736,12 @@ Implementation tasks:
     `assets/rag_data/source_instances/<source_instance_id>/benchmark/`.
 - Preserve optionality:
   - labels may be empty or absent;
-  - answers, qrels, evidence refs, scores, and rubrics are optional according
-    to `benchmark.contains`.
+  - answers, qrels, evidence refs, scores, and rubrics are adapter/provider
+    concerns, not catalog parameters.
 - Add tests for:
   - adapter output validation;
   - missing benchmark block;
-  - `benchmark.contains` mismatch;
+  - invalid benchmark suite declarations;
   - artifact writing and reading.
 
 Acceptance criteria:

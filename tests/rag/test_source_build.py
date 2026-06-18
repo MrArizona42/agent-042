@@ -425,7 +425,7 @@ def test_resolve_catalog_sources_excludes_declared_benchmark_instances(tmp_path:
         adapter = { id = "benchmark.fake", version = "1" }
 
         [source_instances.benchmark]
-        contains = ["queries", "answers"]
+        suites = ["generation_quality"]
         """
     )
     catalog_path = _write_manifest(tmp_path / "catalog.toml", content)
@@ -519,7 +519,7 @@ def _catalog_with_corpus_and_benchmark_instances(tmp_path: Path, manifest_path: 
         adapter = { id = "benchmark.fake", version = "1" }
 
         [source_instances.benchmark]
-        contains = ["queries", "answers"]
+        suites = ["generation_quality"]
         """,
     )
 
@@ -625,9 +625,7 @@ def test_build_catalog_sources_builds_declared_v3_corpus_instances_only(
         adapter_registry=_mock_registry(),
     )
 
-    assert [source.source_instance_id for source in summary.sources] == [
-        "pytorch_reference.docs"
-    ]
+    assert [source.source_instance_id for source in summary.sources] == ["pytorch_reference.docs"]
     assert summary.sources[0].source is None
     assert summary.sources[0].build.status == "success"
 
