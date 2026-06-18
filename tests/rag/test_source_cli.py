@@ -13,7 +13,7 @@ def _write_catalog(path: Path) -> Path:
     path.write_text(
         dedent(
             """
-            schema_version = 2
+            schema_version = 3
 
             [[tasks]]
             id = "code"
@@ -21,7 +21,13 @@ def _write_catalog(path: Path) -> Path:
             label = "Code"
             routing_description = "Coding help"
             kb_refs = ["pytorch_reference"]
-            adapter = { enabled = false }
+            lora_adapter = { enabled = false }
+
+            [[source_adapters]]
+            id = "generic.http_html"
+            version = "1"
+            description = "Fetches HTML pages."
+            factory = "rag.ingest.adapters:make_http_html_adapter"
 
             [[knowledge_bases]]
             id = "pytorch_reference"
@@ -37,19 +43,19 @@ def _write_catalog(path: Path) -> Path:
             aliases.challenger.reranker = "reranker"
             aliases.challenger.reranker_multiplier = 4
 
-            [[sources]]
-            type = "html_docs"
-            kb = "pytorch_reference"
-            id = "docs"
-            manifest = "assets/rag_data/pytorch_reference/sources.toml"
-            ingest_adapter = { id = "generic.http_html", version = "1" }
+            [[source_instances]]
+            id = "pytorch_reference.docs"
+            description = "Official docs."
+            role = "corpus"
+            knowledge_base = "pytorch_reference"
+            adapter = { id = "generic.http_html", version = "1" }
 
-            [[sources]]
-            type = "html_docs"
-            kb = "pytorch_reference"
-            id = "tutorials"
-            manifest = "assets/rag_data/pytorch_reference/tutorials.toml"
-            ingest_adapter = { id = "generic.http_html", version = "1" }
+            [[source_instances]]
+            id = "pytorch_reference.tutorials"
+            description = "Tutorials."
+            role = "corpus"
+            knowledge_base = "pytorch_reference"
+            adapter = { id = "generic.http_html", version = "1" }
             """
         ).strip()
         + "\n",
@@ -157,8 +163,8 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
             "catalog.toml",
             "--kb",
             "pytorch_reference",
-            "--source",
-            "docs",
+            "--source-instance",
+            "pytorch_reference.docs",
             "--rag-data-root",
             "assets/rag_data",
             "--document-id",
@@ -178,9 +184,9 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
-    assert payload == {"status": "success", "sources": ["docs"]}
+    assert payload == {"status": "success", "sources": ["pytorch_reference.docs"]}
     assert calls[0]["kb_id"] == "pytorch_reference"
-    assert calls[0]["source_instance_ids"] == ["docs"]
+    assert calls[0]["source_instance_ids"] == ["pytorch_reference.docs"]
     assert calls[0]["document_ids"] == ["html_docs:tensors"]
     assert calls[0]["limit"] == 1
     assert calls[0]["force_fetch"] is True
@@ -188,33 +194,6 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
     assert calls[0]["force_chunk"] is True
     assert calls[0]["chunking"].chunk_size == 128
     assert calls[0]["chunking"].chunk_overlap == 16
-
-
-def test_cli_build_source_with_single_source_instance_bypasses_kb(capsys) -> None:
-    calls: list[dict] = []
-
-    def fake_build_one(**kwargs):
-        calls.append(kwargs)
-        return _Model({"status": "success"})
-
-    exit_code = cli.main(
-        [
-            "build-source",
-            "--catalog",
-            "catalog.toml",
-            "--source-instance",
-            "pytorch_reference.docs",
-            "--rag-data-root",
-            "assets/rag_data",
-        ],
-        build_source_instance_by_global_id_fn=fake_build_one,
-    )
-    payload = json.loads(capsys.readouterr().out)
-
-    assert exit_code == 0
-    assert payload == {"status": "success"}
-    assert calls[0]["source_instance_id"] == "pytorch_reference.docs"
-    assert "kb_id" not in calls[0]
 
 
 def test_cli_build_source_with_multiple_source_instances(capsys) -> None:
@@ -229,29 +208,51 @@ def test_cli_build_source_with_multiple_source_instances(capsys) -> None:
             "build-source",
             "--catalog",
             "catalog.toml",
+            "--kb",
+            "pytorch_reference",
             "--source-instance",
             "pytorch_reference.docs",
             "--source-instance",
-            "ml_papers_core.papers",
+            "pytorch_reference.tutorials",
             "--rag-data-root",
             "assets/rag_data",
         ],
-        build_source_instances_by_global_id_fn=fake_build_many,
+        build_catalog_sources_fn=fake_build_many,
     )
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
     assert payload == {"status": "success", "count": 2}
-    assert calls[0]["source_instance_ids"] == ["pytorch_reference.docs", "ml_papers_core.papers"]
+    assert calls[0]["source_instance_ids"] == [
+        "pytorch_reference.docs",
+        "pytorch_reference.tutorials",
+    ]
 
 
-def test_cli_build_source_requires_kb_when_no_source_instance_given() -> None:
-    with pytest.raises(SystemExit, match="--kb is required"):
+def test_cli_build_source_requires_kb() -> None:
+    with pytest.raises(SystemExit):
         cli.main(
             [
                 "build-source",
                 "--catalog",
                 "catalog.toml",
+                "--source-instance",
+                "pytorch_reference.docs",
+                "--rag-data-root",
+                "assets/rag_data",
+            ]
+        )
+
+
+def test_cli_build_source_requires_source_instance() -> None:
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "build-source",
+                "--catalog",
+                "catalog.toml",
+                "--kb",
+                "pytorch_reference",
                 "--rag-data-root",
                 "assets/rag_data",
             ]
@@ -311,38 +312,13 @@ def test_cli_collect_bundle_outputs_bundle_summary(capsys) -> None:
     assert json.loads(capsys.readouterr().out) == {"chunk_count": 3}
 
 
-def test_cli_build_source_without_source_builds_all_catalog_sources(capsys) -> None:
-    calls: list[dict] = []
-
-    def fake_build_all(**kwargs):
-        calls.append(kwargs)
-        return _Model({"source_count": 2})
-
-    exit_code = cli.main(
-        [
-            "build-source",
-            "--catalog",
-            "catalog.toml",
-            "--kb",
-            "pytorch_reference",
-            "--rag-data-root",
-            "assets/rag_data",
-        ],
-        build_catalog_sources_fn=fake_build_all,
-    )
-
-    assert exit_code == 0
-    assert json.loads(capsys.readouterr().out) == {"source_count": 2}
-    assert calls[0]["source_instance_ids"] is None
-
-
 def test_cli_build_source_can_persist_build_run(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     catalog_path = tmp_path / "catalog.toml"
     rag_data_root = tmp_path / "rag_data"
-    catalog_path.write_text("schema_version = 2\n", encoding="utf-8")
+    catalog_path.write_text("schema_version = 3\n", encoding="utf-8")
 
     def fake_build(**kwargs):
         return _Model({"status": "success", "sources": kwargs["source_instance_ids"]})
@@ -354,8 +330,8 @@ def test_cli_build_source_can_persist_build_run(
             catalog_path.as_posix(),
             "--kb",
             "pytorch_reference",
-            "--source",
-            "docs",
+            "--source-instance",
+            "pytorch_reference.docs",
             "--rag-data-root",
             rag_data_root.as_posix(),
             "--build-run-id",
@@ -366,7 +342,10 @@ def test_cli_build_source_can_persist_build_run(
     )
 
     assert exit_code == 0
-    assert json.loads(capsys.readouterr().out) == {"status": "success", "sources": ["docs"]}
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "success",
+        "sources": ["pytorch_reference.docs"],
+    }
     build_run_payload = json.loads(
         (
             rag_data_root
@@ -380,7 +359,7 @@ def test_cli_build_source_can_persist_build_run(
     assert build_run_payload["status"] == "succeeded"
     assert build_run_payload["stage_results"]["build_source"] == {
         "status": "success",
-        "sources": ["docs"],
+        "sources": ["pytorch_reference.docs"],
     }
 
 
@@ -395,13 +374,13 @@ def test_cli_build_source_dry_run_does_not_execute_build(capsys) -> None:
             "catalog.toml",
             "--kb",
             "pytorch_reference",
-            "--source",
-            "docs",
+            "--source-instance",
+            "pytorch_reference.docs",
             "--rag-data-root",
             "assets/rag_data",
             "--dry-run",
         ],
-        build_catalog_source_fn=fake_build,
+        build_catalog_sources_fn=fake_build,
     )
 
     payload = json.loads(capsys.readouterr().out)

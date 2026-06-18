@@ -15,21 +15,21 @@ def write_chat_and_code_catalog(path: Path) -> Path:
     return _write_catalog(
         path,
         """
-        schema_version = 2
+        schema_version = 3
 
         [[tasks]]
         id = "chat"
         label = "General knowledge"
         routing_description = "General ML research discussion."
         kb_refs = ["ml_papers_core"]
-        adapter = { enabled = false }
+        lora_adapter = { enabled = false }
 
         [[tasks]]
         id = "code"
         label = "Coding assistance"
         routing_description = "Programming help for ML systems."
         kb_refs = ["pytorch_reference"]
-        adapter = { enabled = false }
+        lora_adapter = { enabled = false }
 
         [[knowledge_bases]]
         id = "ml_papers_core"
@@ -66,19 +66,31 @@ def write_chat_and_code_catalog(path: Path) -> Path:
         retrieval_strategy = "dense"
         reranker_multiplier = 1
 
-        [[sources]]
-        type = "arxiv_paper"
-        kb = "ml_papers_core"
-        id = "papers"
-        manifest = "assets/rag_data/ml_papers_core/sources.toml"
-        ingest_adapter = { id = "generic.arxiv_paper", version = "1" }
+        [[source_adapters]]
+        id = "generic.arxiv_paper"
+        version = "1"
+        description = "Fetches arXiv papers."
+        factory = "rag.ingest.adapters:make_arxiv_paper_adapter"
 
-        [[sources]]
-        type = "html_docs"
-        kb = "pytorch_reference"
-        id = "docs"
-        manifest = "assets/rag_data/pytorch_reference/sources.toml"
-        ingest_adapter = { id = "generic.http_html", version = "1" }
+        [[source_adapters]]
+        id = "generic.http_html"
+        version = "1"
+        description = "Fetches HTTP HTML pages."
+        factory = "rag.ingest.adapters:make_http_html_adapter"
+
+        [[source_instances]]
+        id = "ml_papers_core.papers"
+        description = "Curated full-text ML/AI papers."
+        role = "corpus"
+        knowledge_base = "ml_papers_core"
+        adapter = { id = "generic.arxiv_paper", version = "1" }
+
+        [[source_instances]]
+        id = "pytorch_reference.docs"
+        description = "Official PyTorch documentation pages."
+        role = "corpus"
+        knowledge_base = "pytorch_reference"
+        adapter = { id = "generic.http_html", version = "1" }
         """,
     )
 
@@ -91,14 +103,14 @@ def write_chat_only_catalog(
     return _write_catalog(
         path,
         f"""
-        schema_version = 2
+        schema_version = 3
 
         [[tasks]]
         id = "chat"
         label = "General knowledge"
         routing_description = "General ML research discussion."
         kb_refs = ["ml_papers_core"]
-        adapter = {{ enabled = false }}
+        lora_adapter = {{ enabled = false }}
 
         [[knowledge_bases]]
         id = "ml_papers_core"
@@ -114,12 +126,18 @@ def write_chat_only_catalog(
         retrieval_strategy = "{retrieval_strategy}"
         reranker_multiplier = 1
 
-        [[sources]]
-        type = "arxiv_paper"
-        kb = "ml_papers_core"
-        id = "papers"
-        manifest = "assets/rag_data/ml_papers_core/sources.toml"
-        ingest_adapter = {{ id = "generic.arxiv_paper", version = "1" }}
+        [[source_adapters]]
+        id = "generic.arxiv_paper"
+        version = "1"
+        description = "Fetches arXiv papers."
+        factory = "rag.ingest.adapters:make_arxiv_paper_adapter"
+
+        [[source_instances]]
+        id = "ml_papers_core.papers"
+        description = "Curated full-text ML/AI papers."
+        role = "corpus"
+        knowledge_base = "ml_papers_core"
+        adapter = {{ id = "generic.arxiv_paper", version = "1" }}
         """,
     )
 
@@ -128,13 +146,13 @@ def write_code_only_catalog(path: Path) -> Path:
     return _write_catalog(
         path,
         """
-        schema_version = 2
+        schema_version = 3
 
         [[tasks]]
         id = "code"
         routing_description = "Programming help for ML systems."
         kb_refs = ["pytorch_reference"]
-        adapter = { enabled = false }
+        lora_adapter = { enabled = false }
 
         [[knowledge_bases]]
         id = "pytorch_reference"
@@ -147,11 +165,17 @@ def write_code_only_catalog(path: Path) -> Path:
         retrieval_strategy = "dense"
         reranker_multiplier = 1
 
-        [[sources]]
-        type = "html_docs"
-        kb = "pytorch_reference"
-        id = "docs"
-        manifest = "assets/rag_data/pytorch_reference/sources.toml"
-        ingest_adapter = { id = "generic.http_html", version = "1" }
+        [[source_adapters]]
+        id = "generic.http_html"
+        version = "1"
+        description = "Fetches HTTP HTML pages."
+        factory = "rag.ingest.adapters:make_http_html_adapter"
+
+        [[source_instances]]
+        id = "pytorch_reference.docs"
+        description = "Official PyTorch documentation pages."
+        role = "corpus"
+        knowledge_base = "pytorch_reference"
+        adapter = { id = "generic.http_html", version = "1" }
         """,
     )

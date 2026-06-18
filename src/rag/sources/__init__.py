@@ -24,12 +24,10 @@ from rag.sources.build import (
     GlobalSourceBuildSummary,
     SourceBuildStatus,
     SourceBuildSummary,
-    build_catalog_source,
     build_catalog_sources,
     build_source_instance,
     build_source_instance_by_global_id,
     build_source_instances_by_global_id,
-    resolve_catalog_sources,
 )
 from rag.sources.bundles import (
     SourceChunkBundle,
@@ -100,7 +98,6 @@ __all__ = [
     "SourceType",
     "benchmark_artifact_dir",
     "build_catalog_sources",
-    "build_catalog_source",
     "build_source_instance",
     "build_source_instance_by_global_id",
     "build_source_instances_by_global_id",
@@ -120,7 +117,6 @@ __all__ = [
     "read_chunk_artifact",
     "read_extracted_artifact",
     "read_prepared_benchmark_artifacts",
-    "resolve_catalog_sources",
     "source_manifest_from_raw",
     "write_extracted_artifact",
     "write_chunk_artifact",

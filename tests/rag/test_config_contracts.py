@@ -230,13 +230,13 @@ class TestRegistryReferenceValidation:
         path.write_text(
             "\n".join(
                 [
-                    "schema_version = 2",
+                    "schema_version = 3",
                     "",
                     "[[tasks]]",
                     'id = "chat"',
                     'routing_description = "General chat about ML research."',
                     'kb_refs = ["missing_kb"]',
-                    "adapter = { enabled = false }",
+                    "lora_adapter = { enabled = false }",
                     "",
                 ]
             ),
@@ -253,14 +253,20 @@ class TestRegistryReferenceValidation:
         path.write_text(
             "\n".join(
                 [
-                    "schema_version = 2",
+                    "schema_version = 3",
                     "",
-                    "[[sources]]",
-                    'type = "html_docs"',
-                    'kb = "missing_kb"',
-                    'id = "docs"',
-                    'manifest = "assets/rag_data/missing/sources.toml"',
-                    'ingest_adapter = { id = "generic.http_html", version = "1" }',
+                    "[[source_adapters]]",
+                    'id = "generic.http_html"',
+                    'version = "1"',
+                    'description = "d"',
+                    'factory = "rag.ingest.adapters:make_http_html_adapter"',
+                    "",
+                    "[[source_instances]]",
+                    'id = "missing_kb.docs"',
+                    'description = "d"',
+                    'role = "corpus"',
+                    'knowledge_base = "missing_kb"',
+                    'adapter = { id = "generic.http_html", version = "1" }',
                 ]
             ),
             encoding="utf-8",
@@ -276,7 +282,7 @@ class TestRegistryReferenceValidation:
         path.write_text(
             "\n".join(
                 [
-                    "schema_version = 2",
+                    "schema_version = 3",
                     "",
                     "[[knowledge_bases]]",
                     'id = "pytorch_reference"',
@@ -289,25 +295,33 @@ class TestRegistryReferenceValidation:
                     'retrieval_strategy = "dense"',
                     "reranker_multiplier = 1",
                     "",
-                    "[[sources]]",
-                    'type = "html_docs"',
-                    'kb = "pytorch_reference"',
-                    'id = "docs"',
-                    'manifest = "assets/rag_data/pytorch_reference/docs.sources.toml"',
-                    'ingest_adapter = { id = "generic.http_html", version = "1" }',
+                    "[[source_adapters]]",
+                    'id = "generic.http_html"',
+                    'version = "1"',
+                    'description = "d"',
+                    'factory = "rag.ingest.adapters:make_http_html_adapter"',
                     "",
-                    "[[sources]]",
-                    'type = "html_docs"',
-                    'kb = "pytorch_reference"',
-                    'id = "docs"',
-                    'manifest = "assets/rag_data/pytorch_reference/tutorials.sources.toml"',
-                    'ingest_adapter = { id = "generic.http_html", version = "1" }',
+                    "[[source_instances]]",
+                    'id = "pytorch_reference.docs"',
+                    'description = "d"',
+                    'role = "corpus"',
+                    'knowledge_base = "pytorch_reference"',
+                    'adapter = { id = "generic.http_html", version = "1" }',
+                    "",
+                    "[[source_instances]]",
+                    'id = "pytorch_reference.docs"',
+                    'description = "d"',
+                    'role = "corpus"',
+                    'knowledge_base = "pytorch_reference"',
+                    'adapter = { id = "generic.http_html", version = "1" }',
                 ]
             ),
             encoding="utf-8",
         )
 
-        with pytest.raises(ValueError, match="Duplicate source id 'docs' for KB"):
+        with pytest.raises(
+            ValueError, match="Duplicate source instance id 'pytorch_reference.docs'"
+        ):
             load_catalog(path)
 
 
@@ -553,20 +567,20 @@ class TestKnowledgeBaseRegistryResolution:
         path.write_text(
             "\n".join(
                 [
-                    "schema_version = 2",
+                    "schema_version = 3",
                     "",
                     "[[tasks]]",
                     'id = "chat"',
                     'label = "General knowledge"',
                     'routing_description = "General chat about ML research."',
                     'kb_refs = ["ml_papers_core"]',
-                    "adapter = { enabled = false }",
+                    "lora_adapter = { enabled = false }",
                     "",
                     "[[tasks]]",
                     'id = "code"',
                     'routing_description = "Programming help for ML systems."',
                     'kb_refs = ["ml_papers_core"]',
-                    "adapter = { enabled = false }",
+                    "lora_adapter = { enabled = false }",
                     "",
                     "[[knowledge_bases]]",
                     'id = "ml_papers_core"',
@@ -586,12 +600,18 @@ class TestKnowledgeBaseRegistryResolution:
                     'reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2"',
                     "reranker_multiplier = 4",
                     "",
-                    "[[sources]]",
-                    'type = "arxiv_paper"',
-                    'kb = "ml_papers_core"',
-                    'id = "papers"',
-                    'manifest = "assets/rag_data/ml_papers_core/sources.toml"',
-                    'ingest_adapter = { id = "generic.arxiv_paper", version = "1" }',
+                    "[[source_adapters]]",
+                    'id = "generic.arxiv_paper"',
+                    'version = "1"',
+                    'description = "d"',
+                    'factory = "rag.ingest.adapters:make_arxiv_paper_adapter"',
+                    "",
+                    "[[source_instances]]",
+                    'id = "ml_papers_core.papers"',
+                    'description = "d"',
+                    'role = "corpus"',
+                    'knowledge_base = "ml_papers_core"',
+                    'adapter = { id = "generic.arxiv_paper", version = "1" }',
                 ]
             ),
             encoding="utf-8",

@@ -58,15 +58,20 @@ def test_create_build_run_records_request_and_catalog_digest(tmp_path: Path) -> 
 def test_create_build_run_records_source_manifest_and_adapter_attestation(
     tmp_path: Path,
 ) -> None:
-    docs_manifest = tmp_path / "docs.sources.toml"
-    tutorials_manifest = tmp_path / "tutorials.sources.toml"
+    rag_data_root = tmp_path / "rag_data"
+    docs_manifest = rag_data_root / "source_instances" / "pytorch_reference.docs" / "manifest.toml"
+    tutorials_manifest = (
+        rag_data_root / "source_instances" / "pytorch_reference.tutorials" / "manifest.toml"
+    )
+    docs_manifest.parent.mkdir(parents=True)
+    tutorials_manifest.parent.mkdir(parents=True)
     docs_manifest.write_text('[[documents]]\nid = "docs:intro"\n', encoding="utf-8")
     tutorials_manifest.write_text('[[documents]]\nid = "tutorials:intro"\n', encoding="utf-8")
     catalog_path = tmp_path / "catalog.toml"
     catalog_path.write_text(
         dedent(
             """
-            schema_version = 2
+            schema_version = 3
 
             [[knowledge_bases]]
             id = "pytorch_reference"
@@ -82,19 +87,31 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
             aliases.challenger.reranker = "reranker"
             aliases.challenger.reranker_multiplier = 4
 
-            [[sources]]
-            type = "html_docs"
-            kb = "pytorch_reference"
-            id = "docs"
-            manifest = "docs.sources.toml"
-            ingest_adapter = { id = "generic.http_html", version = "1" }
+            [[source_adapters]]
+            id = "generic.http_html"
+            version = "1"
+            description = "d"
+            factory = "rag.ingest.adapters:make_http_html_adapter"
 
-            [[sources]]
-            type = "html_docs"
-            kb = "pytorch_reference"
-            id = "tutorials"
-            manifest = "tutorials.sources.toml"
-            ingest_adapter = { id = "generic.http_html", version = "2" }
+            [[source_adapters]]
+            id = "generic.http_html"
+            version = "2"
+            description = "d"
+            factory = "rag.ingest.adapters:make_http_html_adapter"
+
+            [[source_instances]]
+            id = "pytorch_reference.docs"
+            description = "Official docs."
+            role = "corpus"
+            knowledge_base = "pytorch_reference"
+            adapter = { id = "generic.http_html", version = "1" }
+
+            [[source_instances]]
+            id = "pytorch_reference.tutorials"
+            description = "Tutorials."
+            role = "corpus"
+            knowledge_base = "pytorch_reference"
+            adapter = { id = "generic.http_html", version = "2" }
             """
         ).strip()
         + "\n",
@@ -106,7 +123,7 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
             catalog_path=catalog_path.as_posix(),
             kb_id="pytorch_reference",
             source_ids=["docs"],
-            rag_data_root=(tmp_path / "rag_data").as_posix(),
+            rag_data_root=rag_data_root.as_posix(),
         ),
         run_id="manual-run",
     )
@@ -118,7 +135,9 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
 
 
 def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> None:
-    manifest_path = tmp_path / "docs.sources.toml"
+    rag_data_root = tmp_path / "rag_data"
+    manifest_path = rag_data_root / "source_instances" / "pytorch_reference.docs" / "manifest.toml"
+    manifest_path.parent.mkdir(parents=True)
     manifest_path.write_text(
         dedent(
             """
@@ -137,7 +156,7 @@ def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> No
     catalog_path.write_text(
         dedent(
             """
-            schema_version = 2
+            schema_version = 3
 
             [[knowledge_bases]]
             id = "pytorch_reference"
@@ -153,12 +172,18 @@ def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> No
             aliases.challenger.reranker = "reranker"
             aliases.challenger.reranker_multiplier = 4
 
-            [[sources]]
-            type = "html_docs"
-            kb = "pytorch_reference"
-            id = "docs"
-            manifest = "docs.sources.toml"
-            ingest_adapter = { id = "generic.http_html", version = "1" }
+            [[source_adapters]]
+            id = "generic.http_html"
+            version = "1"
+            description = "d"
+            factory = "rag.ingest.adapters:make_http_html_adapter"
+
+            [[source_instances]]
+            id = "pytorch_reference.docs"
+            description = "Official docs."
+            role = "corpus"
+            knowledge_base = "pytorch_reference"
+            adapter = { id = "generic.http_html", version = "1" }
             """
         ).strip()
         + "\n",
@@ -169,7 +194,7 @@ def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> No
         BuildRequest(
             catalog_path=catalog_path.as_posix(),
             kb_id="pytorch_reference",
-            rag_data_root=(tmp_path / "rag_data").as_posix(),
+            rag_data_root=rag_data_root.as_posix(),
         )
     )
 
@@ -179,7 +204,9 @@ def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> No
 
 
 def test_plan_build_rejects_manifest_that_adapter_would_reject(tmp_path: Path) -> None:
-    manifest_path = tmp_path / "docs.sources.toml"
+    rag_data_root = tmp_path / "rag_data"
+    manifest_path = rag_data_root / "source_instances" / "pytorch_reference.docs" / "manifest.toml"
+    manifest_path.parent.mkdir(parents=True)
     manifest_path.write_text(
         dedent(
             """
@@ -198,7 +225,7 @@ def test_plan_build_rejects_manifest_that_adapter_would_reject(tmp_path: Path) -
     catalog_path.write_text(
         dedent(
             """
-            schema_version = 2
+            schema_version = 3
 
             [[knowledge_bases]]
             id = "pytorch_reference"
@@ -214,12 +241,18 @@ def test_plan_build_rejects_manifest_that_adapter_would_reject(tmp_path: Path) -
             aliases.challenger.reranker = "reranker"
             aliases.challenger.reranker_multiplier = 4
 
-            [[sources]]
-            type = "html_docs"
-            kb = "pytorch_reference"
-            id = "docs"
-            manifest = "docs.sources.toml"
-            ingest_adapter = { id = "generic.http_html", version = "1" }
+            [[source_adapters]]
+            id = "generic.http_html"
+            version = "1"
+            description = "d"
+            factory = "rag.ingest.adapters:make_http_html_adapter"
+
+            [[source_instances]]
+            id = "pytorch_reference.docs"
+            description = "Official docs."
+            role = "corpus"
+            knowledge_base = "pytorch_reference"
+            adapter = { id = "generic.http_html", version = "1" }
             """
         ).strip()
         + "\n",

@@ -5,16 +5,13 @@ from textwrap import dedent
 
 import httpx
 
-from app_config.catalog.schema import CatalogConfig
 from rag.ingest.adapters import ManifestSourceAdapter, SourceAdapterRegistry
 from rag.sources import (
     ChunkingConfig,
-    build_catalog_source,
     build_catalog_sources,
     build_source_instance,
     build_source_instance_by_global_id,
     build_source_instances_by_global_id,
-    resolve_catalog_sources,
 )
 from rag.sources.chunks import chunk_artifact_path, read_chunk_artifact
 from rag.sources.extractors import HtmlDocsExtractor
@@ -62,7 +59,7 @@ def _html_adapter() -> ManifestSourceAdapter:
 
 
 def _catalog_declared_html_adapter() -> ManifestSourceAdapter:
-    """Factory referenced by `[[source_adapters]]` in `_catalog_with_declared_adapters`."""
+    """Factory referenced by `[[source_adapters]]` in catalog fixtures below."""
     return _html_adapter()
 
 
@@ -86,19 +83,18 @@ def _manifest(tmp_path: Path) -> Path:
     )
 
 
-def _catalog(tmp_path: Path, manifest_path: Path) -> Path:
+def _catalog_with_corpus_instance(tmp_path: Path) -> Path:
+    """A v3 catalog with a single declared corpus source instance per KB."""
     return _write_manifest(
         tmp_path / "catalog.toml",
-        f"""
-        schema_version = 2
+        """
+        schema_version = 3
 
-        [[tasks]]
-        id = "code"
-        enabled = true
-        label = "Code"
-        routing_description = "Coding help"
-        kb_refs = ["pytorch_reference"]
-        adapter = {{ enabled = false }}
+        [[source_adapters]]
+        id = "generic.http_html"
+        version = "1"
+        description = "Fetches HTTP HTML pages."
+        factory = "tests.rag.test_source_build:_catalog_declared_html_adapter"
 
         [[knowledge_bases]]
         id = "pytorch_reference"
@@ -126,27 +122,27 @@ def _catalog(tmp_path: Path, manifest_path: Path) -> Path:
         aliases.champion.retrieval_strategy = "dense"
         aliases.champion.reranker_multiplier = 1
 
-        [[sources]]
-        type = "html_docs"
-        kb = "pytorch_reference"
-        id = "docs"
-        manifest = "{manifest_path.as_posix()}"
-        ingest_adapter = {{ id = "generic.http_html", version = "1" }}
+        [[source_instances]]
+        id = "pytorch_reference.docs"
+        description = "Official docs."
+        role = "corpus"
+        knowledge_base = "pytorch_reference"
+        adapter = { id = "generic.http_html", version = "1" }
 
-        [[sources]]
-        type = "html_docs"
-        kb = "other_reference"
-        id = "docs"
-        manifest = "{manifest_path.as_posix()}"
-        ingest_adapter = {{ id = "generic.http_html", version = "1" }}
+        [[source_instances]]
+        id = "other_reference.docs"
+        description = "Other docs."
+        role = "corpus"
+        knowledge_base = "other_reference"
+        adapter = { id = "generic.http_html", version = "1" }
         """,
     )
 
 
-def _catalog_with_declared_adapters(tmp_path: Path, manifest_path: Path) -> Path:
+def _catalog_with_corpus_and_benchmark_instances(tmp_path: Path) -> Path:
     return _write_manifest(
         tmp_path / "catalog.toml",
-        f"""
+        """
         schema_version = 3
 
         [[source_adapters]]
@@ -154,6 +150,12 @@ def _catalog_with_declared_adapters(tmp_path: Path, manifest_path: Path) -> Path
         version = "1"
         description = "Fetches HTTP HTML pages."
         factory = "tests.rag.test_source_build:_catalog_declared_html_adapter"
+
+        [[benchmark_adapters]]
+        id = "benchmark.fake"
+        version = "1"
+        description = "Fake benchmark adapter; never loaded by build-source."
+        factory = "rag.ingest.adapters:make_http_html_adapter"
 
         [[knowledge_bases]]
         id = "pytorch_reference"
@@ -168,12 +170,44 @@ def _catalog_with_declared_adapters(tmp_path: Path, manifest_path: Path) -> Path
         aliases.champion.retrieval_strategy = "dense"
         aliases.champion.reranker_multiplier = 1
 
-        [[sources]]
-        type = "html_docs"
-        kb = "pytorch_reference"
-        id = "docs"
-        manifest = "{manifest_path.as_posix()}"
-        ingest_adapter = {{ id = "generic.http_html", version = "1" }}
+        [[source_instances]]
+        id = "pytorch_reference.docs"
+        description = "Official PyTorch documentation pages."
+        role = "corpus"
+        knowledge_base = "pytorch_reference"
+        adapter = { id = "generic.http_html", version = "1" }
+
+        [[source_instances]]
+        id = "pytorch_reference.qa_benchmark"
+        description = "QA benchmark cases for PyTorch documentation."
+        role = "benchmark"
+        knowledge_base = "pytorch_reference"
+        adapter = { id = "benchmark.fake", version = "1" }
+
+        [source_instances.benchmark]
+        suites = ["generation_quality"]
+        """,
+    )
+
+
+def _write_conventional_manifest(rag_data_root: Path, source_instance_id: str) -> Path:
+    manifest_path = rag_data_root / "source_instances" / source_instance_id / "manifest.toml"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    return _write_manifest(
+        manifest_path,
+        """
+        schema_version = 1
+        source_type = "html_docs"
+
+        [[documents]]
+        id = "tensors"
+        title = "Tensors"
+        url = "https://docs.test/tensors.html"
+
+        [[documents]]
+        id = "broken"
+        title = "Broken"
+        url = "https://docs.test/broken.html"
         """,
     )
 
@@ -281,257 +315,16 @@ def test_build_source_instance_reports_empty_selection(tmp_path: Path) -> None:
     assert summary.chunking.total_selected == 0
 
 
-def test_build_catalog_source_uses_kb_and_source_instance_pair(tmp_path: Path) -> None:
-    manifest_path = _manifest(tmp_path)
-    catalog_path = _catalog(tmp_path, manifest_path)
-
-    summary = build_catalog_source(
-        catalog_path=catalog_path,
-        kb_id="pytorch_reference",
-        source_instance_id="docs",
-        rag_data_root=tmp_path,
-        document_ids=["html_docs:tensors"],
-        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        adapter_registry=_mock_registry(),
-    )
-
-    assert summary.catalog_path == catalog_path.as_posix()
-    assert summary.source.kb == "pytorch_reference"
-    assert summary.source.id == "docs"
-    assert summary.source.ingest_adapter.id == "generic.http_html"
-    assert summary.build.status == "success"
-    assert summary.build.kb_id == "pytorch_reference"
-    assert summary.build.source_instance_id == "pytorch_reference.docs"
-
-
-def test_build_catalog_source_resolves_manifest_relative_to_catalog(
+def test_build_source_instance_by_global_id_builds_declared_corpus_instance(
     tmp_path: Path,
 ) -> None:
-    manifest_path = _manifest(tmp_path)
-    catalog_path = _write_manifest(
-        tmp_path / "catalog.toml",
-        """
-        schema_version = 2
-
-        [[tasks]]
-        id = "code"
-        enabled = true
-        label = "Code"
-        routing_description = "Coding help"
-        kb_refs = ["pytorch_reference"]
-        adapter = { enabled = false }
-
-        [[knowledge_bases]]
-        id = "pytorch_reference"
-        enabled = true
-        label = "PyTorch reference"
-        description = "PyTorch documentation"
-        selection_description = "PyTorch docs"
-        update_strategy = "replace"
-        default_alias = "champion"
-        aliases.champion.top_k = 5
-        aliases.champion.score_threshold = 0.35
-        aliases.champion.retrieval_strategy = "dense"
-        aliases.champion.reranker_multiplier = 1
-
-        [[sources]]
-        type = "html_docs"
-        kb = "pytorch_reference"
-        id = "docs"
-        manifest = "sources.toml"
-        ingest_adapter = { id = "generic.http_html", version = "1" }
-        """,
-    )
-
-    summary = build_catalog_source(
-        catalog_path=catalog_path,
-        kb_id="pytorch_reference",
-        source_instance_id="docs",
-        rag_data_root=tmp_path,
-        document_ids=["html_docs:tensors"],
-        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        adapter_registry=_mock_registry(),
-    )
-
-    assert manifest_path.exists()
-    assert summary.build.status == "success"
-
-
-def test_build_catalog_source_rejects_missing_kb_source_pair(tmp_path: Path) -> None:
-    manifest_path = _manifest(tmp_path)
-    catalog_path = _catalog(tmp_path, manifest_path)
-
-    try:
-        build_catalog_source(
-            catalog_path=catalog_path,
-            kb_id="missing_reference",
-            source_instance_id="docs",
-            rag_data_root=tmp_path,
-        )
-    except ValueError as exc:
-        assert "kb_id='missing_reference'" in str(exc)
-        assert "source_instance_id='docs'" in str(exc)
-    else:
-        raise AssertionError("expected missing catalog source pair to fail")
-
-
-def test_resolve_catalog_sources_supports_all_and_subset(tmp_path: Path) -> None:
-    manifest_path = _manifest(tmp_path)
-    catalog_path = _catalog(tmp_path, manifest_path)
-    catalog = CatalogConfig.model_validate(
-        __import__("tomllib").loads(catalog_path.read_text(encoding="utf-8"))
-    )
-
-    resolved_all = resolve_catalog_sources(catalog, kb_id="pytorch_reference")
-    assert [source.id for source in resolved_all] == ["docs"]
-    assert [
-        source.id
-        for source in resolve_catalog_sources(
-            catalog,
-            kb_id="pytorch_reference",
-            source_instance_ids=["docs"],
-        )
-    ] == ["docs"]
-
-    try:
-        resolve_catalog_sources(
-            catalog,
-            kb_id="pytorch_reference",
-            source_instance_ids=["missing"],
-        )
-    except ValueError as exc:
-        assert "source_instance_ids=['missing']" in str(exc)
-    else:
-        raise AssertionError("expected missing source subset to fail")
-
-
-def test_resolve_catalog_sources_excludes_declared_benchmark_instances(tmp_path: Path) -> None:
-    """A normal 'build all for kb' must never pick up a role='benchmark' source instance."""
-    manifest_path = _manifest(tmp_path)
-    content = _catalog(tmp_path, manifest_path).read_text(encoding="utf-8") + dedent(
-        """
-
-        [[benchmark_adapters]]
-        id = "benchmark.fake"
-        version = "1"
-        description = "Fake benchmark adapter."
-        factory = "rag.ingest.adapters:make_http_html_adapter"
-
-        [[source_instances]]
-        id = "pytorch_reference.qa_benchmark"
-        description = "QA benchmark cases."
-        role = "benchmark"
-        knowledge_base = "pytorch_reference"
-        adapter = { id = "benchmark.fake", version = "1" }
-
-        [source_instances.benchmark]
-        suites = ["generation_quality"]
-        """
-    )
-    catalog_path = _write_manifest(tmp_path / "catalog.toml", content)
-    catalog = CatalogConfig.model_validate(
-        __import__("tomllib").loads(catalog_path.read_text(encoding="utf-8"))
-    )
-
-    resolved_all = resolve_catalog_sources(catalog, kb_id="pytorch_reference")
-
-    assert [source.id for source in resolved_all] == ["docs"]
-
-
-def test_build_catalog_sources_builds_selected_sources(tmp_path: Path) -> None:
-    manifest_path = _manifest(tmp_path)
-    catalog_path = _catalog(tmp_path, manifest_path)
-
-    summary = build_catalog_sources(
-        catalog_path=catalog_path,
-        kb_id="pytorch_reference",
-        source_instance_ids=["docs"],
-        rag_data_root=tmp_path,
-        document_ids=["html_docs:tensors"],
-        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        adapter_registry=_mock_registry(),
-    )
-
-    assert summary.kb_id == "pytorch_reference"
-    assert [source_summary.source.id for source_summary in summary.sources] == ["docs"]
-    assert summary.sources[0].build.status == "success"
-
-
-def test_build_catalog_source_uses_catalog_declared_adapter_by_default(tmp_path: Path) -> None:
-    manifest_path = _manifest(tmp_path)
-    catalog_path = _catalog_with_declared_adapters(tmp_path, manifest_path)
-
-    summary = build_catalog_source(
-        catalog_path=catalog_path,
-        kb_id="pytorch_reference",
-        source_instance_id="docs",
-        rag_data_root=tmp_path,
-        document_ids=["html_docs:tensors"],
-        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-    )
-
-    assert summary.build.status == "success"
-
-
-def _catalog_with_corpus_and_benchmark_instances(tmp_path: Path, manifest_path: Path) -> Path:
-    return _write_manifest(
-        tmp_path / "catalog.toml",
-        """
-        schema_version = 3
-
-        [[source_adapters]]
-        id = "generic.http_html"
-        version = "1"
-        description = "Fetches HTTP HTML pages."
-        factory = "tests.rag.test_source_build:_catalog_declared_html_adapter"
-
-        [[benchmark_adapters]]
-        id = "benchmark.fake"
-        version = "1"
-        description = "Fake benchmark adapter; never loaded by build-source."
-        factory = "rag.ingest.adapters:make_http_html_adapter"
-
-        [[knowledge_bases]]
-        id = "pytorch_reference"
-        enabled = true
-        label = "PyTorch reference"
-        description = "PyTorch documentation"
-        selection_description = "PyTorch docs"
-        update_strategy = "replace"
-        default_alias = "champion"
-        aliases.champion.top_k = 5
-        aliases.champion.score_threshold = 0.35
-        aliases.champion.retrieval_strategy = "dense"
-        aliases.champion.reranker_multiplier = 1
-
-        [[source_instances]]
-        id = "pytorch_reference.docs"
-        description = "Official PyTorch documentation pages."
-        role = "corpus"
-        knowledge_base = "pytorch_reference"
-        adapter = { id = "generic.http_html", version = "1" }
-
-        [[source_instances]]
-        id = "pytorch_reference.qa_benchmark"
-        description = "QA benchmark cases for PyTorch documentation."
-        role = "benchmark"
-        knowledge_base = "pytorch_reference"
-        adapter = { id = "benchmark.fake", version = "1" }
-
-        [source_instances.benchmark]
-        suites = ["generation_quality"]
-        """,
-    )
-
-
-def test_build_source_instance_by_global_id_delegates_to_legacy_source(tmp_path: Path) -> None:
-    manifest_path = _manifest(tmp_path)
-    catalog_path = _catalog(tmp_path, manifest_path)
+    catalog_path = _catalog_with_corpus_instance(tmp_path)
+    _write_conventional_manifest(tmp_path / "rag_data", "pytorch_reference.docs")
 
     summary = build_source_instance_by_global_id(
         catalog_path=catalog_path,
         source_instance_id="pytorch_reference.docs",
-        rag_data_root=tmp_path,
+        rag_data_root=tmp_path / "rag_data",
         document_ids=["html_docs:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
         adapter_registry=_mock_registry(),
@@ -544,14 +337,13 @@ def test_build_source_instance_by_global_id_delegates_to_legacy_source(tmp_path:
 
 
 def test_build_source_instance_by_global_id_rejects_benchmark_role(tmp_path: Path) -> None:
-    manifest_path = _manifest(tmp_path)
-    catalog_path = _catalog_with_corpus_and_benchmark_instances(tmp_path, manifest_path)
+    catalog_path = _catalog_with_corpus_and_benchmark_instances(tmp_path)
 
     try:
         build_source_instance_by_global_id(
             catalog_path=catalog_path,
             source_instance_id="pytorch_reference.qa_benchmark",
-            rag_data_root=tmp_path,
+            rag_data_root=tmp_path / "rag_data",
         )
     except ValueError as exc:
         assert "role 'benchmark'" in str(exc)
@@ -560,60 +352,53 @@ def test_build_source_instance_by_global_id_rejects_benchmark_role(tmp_path: Pat
         raise AssertionError("expected benchmark-role target to be rejected")
 
 
-def test_build_source_instance_by_global_id_builds_declared_corpus_instance(
-    tmp_path: Path,
-) -> None:
-    catalog_path = _catalog_with_corpus_and_benchmark_instances(tmp_path, tmp_path / "unused.toml")
-    conventional_manifest = (
-        tmp_path / "rag_data" / "source_instances" / "pytorch_reference.docs" / "manifest.toml"
-    )
-    conventional_manifest.parent.mkdir(parents=True)
-    _write_manifest(
-        conventional_manifest,
-        """
-        schema_version = 1
-        source_type = "html_docs"
+def test_build_source_instances_by_global_id_builds_multiple(tmp_path: Path) -> None:
+    catalog_path = _catalog_with_corpus_instance(tmp_path)
+    _write_conventional_manifest(tmp_path / "rag_data", "pytorch_reference.docs")
+    _write_conventional_manifest(tmp_path / "rag_data", "other_reference.docs")
 
-        [[documents]]
-        id = "tensors"
-        title = "Tensors"
-        url = "https://docs.test/tensors.html"
-        """,
-    )
-
-    summary = build_source_instance_by_global_id(
+    summaries = build_source_instances_by_global_id(
         catalog_path=catalog_path,
-        source_instance_id="pytorch_reference.docs",
+        source_instance_ids=["pytorch_reference.docs", "other_reference.docs"],
         rag_data_root=tmp_path / "rag_data",
         document_ids=["html_docs:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
         adapter_registry=_mock_registry(),
     )
 
-    assert summary.role == "corpus"
-    assert summary.build.status == "success"
+    assert [summary.source_instance_id for summary in summaries] == [
+        "pytorch_reference.docs",
+        "other_reference.docs",
+    ]
+    assert all(summary.build.status == "success" for summary in summaries)
+
+
+def test_build_catalog_sources_builds_selected_sources(tmp_path: Path) -> None:
+    catalog_path = _catalog_with_corpus_instance(tmp_path)
+    _write_conventional_manifest(tmp_path / "rag_data", "pytorch_reference.docs")
+
+    summary = build_catalog_sources(
+        catalog_path=catalog_path,
+        kb_id="pytorch_reference",
+        source_instance_ids=["docs"],
+        rag_data_root=tmp_path / "rag_data",
+        document_ids=["html_docs:tensors"],
+        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
+        adapter_registry=_mock_registry(),
+    )
+
+    assert summary.kb_id == "pytorch_reference"
+    assert [source_summary.source_instance_id for source_summary in summary.sources] == [
+        "pytorch_reference.docs"
+    ]
+    assert summary.sources[0].build.status == "success"
 
 
 def test_build_catalog_sources_builds_declared_v3_corpus_instances_only(
     tmp_path: Path,
 ) -> None:
-    catalog_path = _catalog_with_corpus_and_benchmark_instances(tmp_path, tmp_path / "unused.toml")
-    conventional_manifest = (
-        tmp_path / "rag_data" / "source_instances" / "pytorch_reference.docs" / "manifest.toml"
-    )
-    conventional_manifest.parent.mkdir(parents=True)
-    _write_manifest(
-        conventional_manifest,
-        """
-        schema_version = 1
-        source_type = "html_docs"
-
-        [[documents]]
-        id = "tensors"
-        title = "Tensors"
-        url = "https://docs.test/tensors.html"
-        """,
-    )
+    catalog_path = _catalog_with_corpus_and_benchmark_instances(tmp_path)
+    _write_conventional_manifest(tmp_path / "rag_data", "pytorch_reference.docs")
 
     summary = build_catalog_sources(
         catalog_path=catalog_path,
@@ -626,25 +411,4 @@ def test_build_catalog_sources_builds_declared_v3_corpus_instances_only(
     )
 
     assert [source.source_instance_id for source in summary.sources] == ["pytorch_reference.docs"]
-    assert summary.sources[0].source is None
     assert summary.sources[0].build.status == "success"
-
-
-def test_build_source_instances_by_global_id_builds_multiple(tmp_path: Path) -> None:
-    manifest_path = _manifest(tmp_path)
-    catalog_path = _catalog(tmp_path, manifest_path)
-
-    summaries = build_source_instances_by_global_id(
-        catalog_path=catalog_path,
-        source_instance_ids=["pytorch_reference.docs", "other_reference.docs"],
-        rag_data_root=tmp_path,
-        document_ids=["html_docs:tensors"],
-        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
-        adapter_registry=_mock_registry(),
-    )
-
-    assert [summary.source_instance_id for summary in summaries] == [
-        "pytorch_reference.docs",
-        "other_reference.docs",
-    ]
-    assert all(summary.build.status == "success" for summary in summaries)

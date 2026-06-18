@@ -7,18 +7,13 @@ from pathlib import Path
 from typing import TypeVar
 
 from app_config.catalog.models import AliasConfig, KBConfig, TaskConfig
-from app_config.catalog.schema import (
-    CatalogConfig,
-    CatalogKBConfig,
-    CatalogTaskConfig,
-    SourceConfig,
-)
+from app_config.catalog.schema import CatalogConfig, CatalogKBConfig, CatalogTaskConfig
 from app_config.catalog.source_instances import (
     SourceInstanceIndex,
     build_source_instance_index,
 )
 
-_CatalogItem = TypeVar("_CatalogItem", CatalogTaskConfig, CatalogKBConfig, SourceConfig)
+_CatalogItem = TypeVar("_CatalogItem", CatalogTaskConfig, CatalogKBConfig)
 
 
 def _index_by_id(items: list[_CatalogItem], section: str) -> dict[str, _CatalogItem]:
@@ -40,20 +35,8 @@ def materialize_catalog(
     """Build the runtime task catalog and flat KB index from TOML schema."""
     catalog_kbs = _index_by_id(catalog_cfg.knowledge_bases, "knowledge_bases")
     catalog_tasks = _index_by_id(catalog_cfg.tasks, "tasks")
-    source_keys: set[tuple[str, str]] = set()
-    for source_cfg in catalog_cfg.sources:
-        source_kb = source_cfg.kb.strip()
-        source_id = source_cfg.id.strip()
-        if not source_kb or not source_id:
-            raise ValueError("sources entries require non-empty kb and id")
-        if source_kb not in catalog_kbs:
-            raise ValueError(f"Source '{source_id}' references unknown KB '{source_kb}'")
-        source_key = (source_kb, source_id)
-        if source_key in source_keys:
-            raise ValueError(f"Duplicate source id '{source_id}' for KB '{source_kb}'")
-        source_keys.add(source_key)
 
-    # Validates legacy/declared source-instance merging as a side effect (duplicate ids,
+    # Validates declared source-instance references as a side effect (duplicate ids,
     # unknown KB/adapter references); the resulting index is available via
     # load_catalog_with_source_index() for callers that need it.
     build_source_instance_index(catalog_cfg)
@@ -101,7 +84,7 @@ def materialize_catalog(
             task=task_name,
             label=task_cfg.label,
             routing_description=task_cfg.routing_description,
-            adapter=task_cfg.adapter.model_copy(deep=True),
+            adapter=task_cfg.lora_adapter.model_copy(deep=True),
             knowledge_bases=task_knowledge_bases,
         )
 

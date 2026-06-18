@@ -22,10 +22,10 @@ class _Manifest:
         ]
 
 
-def test_default_source_adapter_lists_manifest_documents():
-    from rag.ingest import DEFAULT_SOURCE_ADAPTERS
+def test_http_html_adapter_lists_manifest_documents():
+    from rag.ingest.adapters import make_http_html_adapter
 
-    adapter = DEFAULT_SOURCE_ADAPTERS.get("generic.http_html", version="1")
+    adapter = make_http_html_adapter()
 
     assert adapter.adapter_id == "generic.http_html"
     assert adapter.version == "1"
@@ -35,10 +35,10 @@ def test_default_source_adapter_lists_manifest_documents():
     ]
 
 
-def test_default_source_adapter_rejects_wrong_manifest_type():
-    from rag.ingest import DEFAULT_SOURCE_ADAPTERS
+def test_http_html_adapter_rejects_wrong_manifest_type():
+    from rag.ingest.adapters import make_http_html_adapter
 
-    adapter = DEFAULT_SOURCE_ADAPTERS.get("generic.http_html", version="1")
+    adapter = make_http_html_adapter()
 
     with pytest.raises(ValueError, match="expects source_type 'html_docs'"):
         adapter.validate_manifest(_Manifest("arxiv_paper"))

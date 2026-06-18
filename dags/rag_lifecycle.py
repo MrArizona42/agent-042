@@ -149,11 +149,46 @@ def _run_cli(args: list[str]) -> dict[str, Any]:
     return json.loads(completed.stdout) if completed.stdout.strip() else {}
 
 
+def _resolve_build_source_instance_ids(params: dict[str, Any]) -> list[str]:
+    """Resolve the operator-facing 'source'/'source_instance' params to global ids.
+
+    `source_instance` (explicit global ids) takes precedence when given;
+    otherwise `source` (local names, or empty for all) is resolved against
+    the KB's declared corpus source instances.
+    """
+    explicit_ids = _csv_values(params.get("source_instance"))
+    if explicit_ids:
+        return explicit_ids
+
+    import tomllib
+
+    from app_config.catalog.schema import CatalogConfig
+    from app_config.catalog.source_instances import resolve_corpus_source_instance_ids
+
+    catalog_path = Path(str(params["catalog"]))
+    if not catalog_path.is_absolute():
+        catalog_path = PROJECT_ROOT / catalog_path
+    catalog = CatalogConfig(**tomllib.loads(catalog_path.read_text(encoding="utf-8")))
+    return resolve_corpus_source_instance_ids(
+        catalog,
+        kb_id=str(params["kb"]),
+        source_ids=_csv_values(params.get("source")) or None,
+    )
+
+
 def _build_source(**context: Any) -> dict[str, Any]:
     params = _params(context)
     cmd = ["build-source"]
     _append_build_run_args(cmd, context)
-    _append_common_source_args(cmd, params)
+    cmd.extend(["--catalog", str(params["catalog"]), "--kb", str(params["kb"])])
+    for source_instance_id in _resolve_build_source_instance_ids(params):
+        cmd.extend(["--source-instance", source_instance_id])
+    cmd.extend(["--rag-data-root", str(params["rag_data_root"])])
+    for document_id in _csv_values(params.get("document_ids")):
+        cmd.extend(["--document-id", document_id])
+    limit = _optional_positive_int(params.get("limit"))
+    if limit is not None:
+        cmd.extend(["--limit", str(limit)])
     if params.get("force_fetch"):
         cmd.append("--force-fetch")
     if params.get("force_extract"):
@@ -226,11 +261,11 @@ _KB_SCOPED_ARTIFACTS = {"manifests", "metadata"}
 
 
 def _catalog_kb_source_instance_ids(params: dict[str, Any]) -> list[str]:
-    """Resolve global source instance ids declared for this kb in the catalog."""
+    """Resolve global corpus source instance ids declared for this kb in the catalog."""
     import tomllib
 
-    from app_config.catalog import legacy_source_instance_id
     from app_config.catalog.schema import CatalogConfig
+    from app_config.catalog.source_instances import build_source_instance_index
 
     catalog_path = Path(str(params["catalog"]))
     if not catalog_path.is_absolute():
@@ -239,11 +274,8 @@ def _catalog_kb_source_instance_ids(params: dict[str, Any]) -> list[str]:
         return []
     catalog = CatalogConfig(**tomllib.loads(catalog_path.read_text(encoding="utf-8")))
     kb_id = str(params["kb"])
-    return [
-        legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id)
-        for source in catalog.sources
-        if source.kb == kb_id
-    ]
+    index = build_source_instance_index(catalog)
+    return [instance.id for instance in index.corpus_for_kb(kb_id)]
 
 
 def _dvc_artifact_rel_paths(params: dict[str, Any]) -> list[str]:

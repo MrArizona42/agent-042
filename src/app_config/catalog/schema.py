@@ -21,7 +21,7 @@ class CatalogTaskConfig(BaseModel):
     label: str = ""
     routing_description: str
     kb_refs: list[str] = Field(default_factory=list)
-    adapter: AdapterConfig = Field(default_factory=AdapterConfig)
+    lora_adapter: AdapterConfig = Field(default_factory=AdapterConfig)
 
 
 class CatalogKBConfig(BaseModel):
@@ -35,32 +35,6 @@ class CatalogKBConfig(BaseModel):
     label: str = ""
     description: str = ""
     selection_description: str
-
-
-class SourceIngestAdapterConfig(BaseModel):
-    """Source-level adapter contract for ingest lifecycle behavior."""
-
-    id: str
-    version: str = "1"
-    settings: dict[str, object] = Field(default_factory=dict)
-
-    @field_validator("id", "version")
-    @classmethod
-    def _required_strings_must_not_be_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("value must be non-empty")
-        return value.strip()
-
-
-class SourceConfig(BaseModel):
-    """Source instance metadata for a knowledge-base build pipeline."""
-
-    type: str
-    kb: str
-    id: str
-    manifest: str
-    ingest_adapter: SourceIngestAdapterConfig
-    settings: dict[str, object] = Field(default_factory=dict)
 
 
 SourceInstanceRole = Literal["corpus", "benchmark"]
@@ -159,10 +133,9 @@ class SourceInstanceConfig(BaseModel):
 class CatalogConfig(BaseModel):
     """Root schema for the TOML-backed application catalog."""
 
-    schema_version: int = 1
+    schema_version: int = 3
     tasks: list[CatalogTaskConfig] = Field(default_factory=list)
     knowledge_bases: list[CatalogKBConfig] = Field(default_factory=list)
-    sources: list[SourceConfig] = Field(default_factory=list)
     source_adapters: list[SourceAdapterConfig] = Field(default_factory=list)
     benchmark_adapters: list[BenchmarkAdapterConfig] = Field(default_factory=list)
     source_instances: list[SourceInstanceConfig] = Field(default_factory=list)

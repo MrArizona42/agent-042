@@ -138,13 +138,6 @@ class SourceAdapterRegistry:
             raise ValueError(f"Unknown source adapter '{adapter_id}@{version}'")
         return adapter
 
-    @classmethod
-    def with_defaults(cls) -> "SourceAdapterRegistry":
-        registry = cls()
-        registry.register(make_http_html_adapter())
-        registry.register(make_arxiv_paper_adapter())
-        return registry
-
 
 def make_http_html_adapter() -> ManifestSourceAdapter:
     """Factory for the built-in generic HTTP/HTML source adapter.
@@ -174,6 +167,3 @@ def make_arxiv_paper_adapter() -> ManifestSourceAdapter:
         _fetcher_factory=_arxiv_paper_fetcher,
         _extractor_factory=_arxiv_paper_extractor,
     )
-
-
-DEFAULT_SOURCE_ADAPTERS = SourceAdapterRegistry.with_defaults()

@@ -2,7 +2,6 @@
 
 from rag.ingest.adapter_loading import build_catalog_adapter_registry, import_factory, load_adapter
 from rag.ingest.adapters import (
-    DEFAULT_SOURCE_ADAPTERS,
     AdapterCapability,
     BenchmarkAdapter,
     ManifestSourceAdapter,
@@ -13,7 +12,6 @@ from rag.ingest.adapters import (
 )
 
 __all__ = [
-    "DEFAULT_SOURCE_ADAPTERS",
     "AdapterCapability",
     "BenchmarkAdapter",
     "ManifestSourceAdapter",

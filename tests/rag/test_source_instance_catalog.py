@@ -1,8 +1,8 @@
 """Tests for the schema-version-3 source-instance catalog model.
 
 Covers `[[source_adapters]]` / `[[benchmark_adapters]]` / `[[source_instances]]`
-schema validation, legacy `[[sources]]` normalization, and the merged
-SourceInstanceIndex used to query source instances by role and KB.
+schema validation and the SourceInstanceIndex used to query source instances
+by role and KB.
 """
 
 from __future__ import annotations
@@ -11,28 +11,6 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
-
-LEGACY_BASE = """
-schema_version = 2
-
-[[knowledge_bases]]
-id = "ml_papers_core"
-default_alias = "champion"
-selection_description = "Research papers and theory."
-
-[knowledge_bases.aliases.champion]
-top_k = 5
-score_threshold = 0.35
-retrieval_strategy = "dense"
-reranker_multiplier = 1
-
-[[sources]]
-type = "arxiv_paper"
-kb = "ml_papers_core"
-id = "papers"
-manifest = "assets/rag_data/ml_papers_core/sources.toml"
-ingest_adapter = { id = "generic.arxiv_paper", version = "1" }
-"""
 
 V3_BASE = """
 schema_version = 3
@@ -84,46 +62,12 @@ def _write(path: Path, content: str) -> Path:
     return path
 
 
-class TestLegacySourceNormalization:
+class TestSchemaVersion3SourceInstances:
     def test_current_catalog_toml_still_loads(self):
         from app_config.catalog import load_catalog
 
         load_catalog(Path("catalog.toml"))
 
-    def test_legacy_source_is_normalized_into_index(self, tmp_path: Path):
-        import tomllib
-
-        from app_config.catalog import build_source_instance_index
-        from app_config.catalog.schema import CatalogConfig
-
-        path = _write(tmp_path / "catalog.toml", LEGACY_BASE)
-        with path.open("rb") as fh:
-            raw = tomllib.load(fh)
-        index = build_source_instance_index(CatalogConfig(**raw))
-
-        instance = index.get("ml_papers_core.papers")
-        assert instance.role == "corpus"
-        assert instance.knowledge_base == "ml_papers_core"
-        assert instance.adapter.id == "generic.arxiv_paper"
-        assert index.is_legacy("ml_papers_core.papers")
-
-    def test_legacy_corpus_source_is_queryable_by_kb(self, tmp_path: Path):
-        import tomllib
-
-        from app_config.catalog import build_source_instance_index
-        from app_config.catalog.schema import CatalogConfig
-
-        path = _write(tmp_path / "catalog.toml", LEGACY_BASE)
-        with path.open("rb") as fh:
-            raw = tomllib.load(fh)
-        index = build_source_instance_index(CatalogConfig(**raw))
-
-        corpus = index.corpus_for_kb("ml_papers_core")
-        assert [s.id for s in corpus] == ["ml_papers_core.papers"]
-        assert index.benchmark_for_kb("ml_papers_core") == []
-
-
-class TestSchemaVersion3SourceInstances:
     def test_v3_sample_loads(self, tmp_path: Path):
         from app_config.catalog import load_catalog
 
@@ -140,7 +84,6 @@ class TestSchemaVersion3SourceInstances:
         benchmark = index.benchmark_for_kb("pytorch_reference")
         assert [s.id for s in corpus] == ["pytorch_reference.docs"]
         assert [s.id for s in benchmark] == ["pytorch_reference.qa_benchmark"]
-        assert not index.is_legacy("pytorch_reference.docs")
 
     def test_manifest_path_is_derived_from_source_instance_id(self):
         from app_config.catalog import conventional_manifest_path

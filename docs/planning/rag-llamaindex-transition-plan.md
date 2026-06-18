@@ -131,7 +131,130 @@ Retire during transition:
 - project `SourceDocument`, `ExtractedDocument`, `DocumentSection`, and `Chunk`
   as primary lifecycle contracts;
 - custom `QdrantVectorStore` and custom `Retriever` as the main runtime path;
+- top-level `src/rag_data_pipelines/`; useful dataset-specific helpers move
+  under `rag.adapters.*` or small LlamaIndex reader wrappers;
 - `collection_meta` sentinel points.
+
+## Target Project Structure
+
+The target structure should make one boundary obvious: project code owns
+catalog, identity, policy, adapters, persistence, and orchestration; LlamaIndex
+owns document/node/query/index mechanics wherever it can.
+
+Target source tree:
+
+```text
+src/
+  app_config/
+    catalog/
+      schema.py              # tasks, KBs, aliases, adapters, source instances
+      source_instances.py    # source-instance resolution and manifest paths
+      loader.py              # catalog loading/materialization
+    runtime/                 # operator/runtime settings only
+
+  rag/
+    adapters/
+      sources.py             # built-in source adapter factories
+      benchmarks.py          # built-in benchmark adapter factories
+      capabilities.py        # source/benchmark capability metadata
+
+    contracts/
+      metadata.py            # project metadata keys for LI Document/TextNode
+      attestation.py         # CollectionAttestation
+      prompts.py             # PromptIdentity and prompt version references
+
+    sources/
+      manifests.py           # source-instance manifest loading/validation
+      build.py               # source build orchestration
+      benchmark_prep.py      # benchmark artifact preparation
+      readers.py             # small wrappers around LlamaIndex readers
+      nodes.py               # metadata enrichment and node id policy
+
+    indexing/
+      collections.py         # physical collection names and alias validation
+      llamaindex_qdrant.py   # LlamaIndex Qdrant index creation/loading wrapper
+      materialize.py         # build nodes into Qdrant + collection metadata
+      promotion.py           # Qdrant alias promotion
+
+    runtime/
+      resolver.py            # task/KB/alias resolution
+      engines.py             # LlamaIndex query-engine construction
+      prompts.py             # prompt-template registry wrapper
+      service.py             # RagRuntime public facade
+
+    evaluation/
+      models.py              # BenchmarkCase, Qrel, BenchmarkLabel, observations
+      adapters.py            # benchmark adapter protocol/factories
+      evaluator.py           # ProjectRetrieverEvaluator + generation evaluators
+      runner.py              # benchmark execution orchestration
+
+  shared/
+    db/
+      eval_writer.py         # single DB writer for eval_runs/eval_samples
+```
+
+Important placement rules:
+
+- Adapter implementations may live together under `rag/adapters/`, but adapter
+  contracts must still advertise capabilities explicitly. A source-only adapter
+  exposes source capability; a benchmark-capable adapter exposes both source and
+  benchmark capability.
+- `src/rag/sources/` remains orchestration around source instances and
+  manifests. It should not re-grow project-owned `Document` / `Chunk` lifecycle
+  types after LlamaIndex `Document` / `TextNode` become primary.
+- `src/rag/indexing/` owns collection naming, Qdrant aliases, collection
+  metadata attestation, and the project wrapper around LlamaIndex Qdrant
+  storage. It should not contain dataset-specific adapter logic.
+- `src/rag/runtime/` owns runtime resolution and query-engine construction. It
+  should not know source manifest formats or benchmark dataset schemas.
+- `src/rag/evaluation/` owns normalized benchmark contracts and execution.
+  It should evolve the existing `models.py` contracts rather than introduce a
+  parallel benchmark contract package.
+- `src/shared/db/eval_writer.py` is the only place that writes RAG benchmark
+  results to `eval_runs` / `eval_samples`; benchmark runners should not define
+  private SQL table shapes.
+
+Target artifact tree:
+
+```text
+assets/rag_data/
+  source_instances/
+    <source_instance_id>/
+      manifest.toml          # curated, Git-tracked
+      raw/                   # server-local cache by default
+      extracted/             # transitional; removed when native LI artifacts replace it
+      chunks/                # transitional; removed when native LI nodes replace it
+      benchmark/
+        cases.jsonl          # input cases
+        labels.jsonl         # expected outputs/qrels/evidence
+        metadata.json        # preparation provenance
+
+  knowledge_bases/
+    <kb_id>/
+      manifests/             # build/index provenance
+      metadata/
+        build_runs/          # lifecycle audit records
+```
+
+Target docs:
+
+```text
+docs/
+  architecture/system-design.md       # durable RAG model and boundaries
+  operations/rag-operations.md        # operator commands and lifecycle
+  analytics/evaluation-results.md     # DB result contract
+  planning/rag-llamaindex-transition-plan.md
+```
+
+Patterns to avoid:
+
+- no dataset-specific code in `src/rag/runtime/` or `src/rag/indexing/`;
+- no separate top-level `src/rag_data_pipelines/` package after migration;
+- no new hardcoded default adapter registry replacing catalog declarations;
+- no benchmark reports under `reports/<run_id>` as a second result store;
+- no arbitrary catalog manifest paths after the migration;
+- no new project-native document/chunk hierarchy that competes with
+  LlamaIndex objects.
 
 ## Target Catalog Contract
 
@@ -147,13 +270,13 @@ schema_version = 3
 id = "generic.http_html"
 version = "1"
 description = "Fetches HTTP HTML pages and extracts readable text sections."
-factory = "rag.ingest.adapters:make_http_html_adapter"
+factory = "rag.adapters.sources:make_http_html_adapter"
 
 [[benchmark_adapters]]
 id = "benchmark.pytorch_qa"
 version = "1"
 description = "Loads QA examples, reference answers, and expected evidence for PyTorch docs."
-factory = "rag.evaluation.adapters:make_pytorch_qa_benchmark_adapter"
+factory = "rag.adapters.benchmarks:make_pytorch_qa_benchmark_adapter"
 
 [[tasks]]
 id = "code"
@@ -561,8 +684,9 @@ assets/rag_data/
 ```
 
 Move document/node/index artifacts to native LlamaIndex persistence where
-needed. Do not preserve project `raw/`, `extracted/`, and `chunks/` JSON as a
-permanent API unless a concrete operational need appears.
+needed. Keep `raw/` only as a source cache; do not preserve project
+`extracted/` and `chunks/` JSON as a permanent API unless a concrete
+operational need appears.
 
 Suggested LlamaIndex artifact area:
 
@@ -643,6 +767,11 @@ Tasks:
 
 - Replace project `SourceDocument`, `ExtractedDocument`, `DocumentSection`, and
   `Chunk` usage in new source pipeline with LlamaIndex objects.
+- Move built-in adapter factories toward `rag.adapters.sources` and
+  `rag.adapters.benchmarks`; keep adapter protocols/capabilities explicit.
+- Move or delete the current `rag_data_pipelines.pytorch_docs` scraper. If its
+  redirect/placeholder handling remains useful, keep it as private helper code
+  behind the PyTorch docs source adapter or LlamaIndex reader wrapper.
 - Update source adapters to emit `Document[]`.
 - Add metadata enrichment helpers for required project keys.
 - Add deterministic UUID node id helper:
@@ -756,11 +885,6 @@ Acceptance:
 
 ## Residual Risks
 
-- Qdrant collection metadata round-trip is verified on deployed Qdrant, but
-  local in-memory Qdrant does not expose the same field. Tests need a server
-  integration test or a dedicated fake.
-- Reader quality may differ from current extraction quality. Source adapters
-  should choose LlamaIndex readers case by case.
 - Native LlamaIndex persistence may not preserve every historical artifact
   detail. This is acceptable unless an operational use case proves otherwise.
 - Chat engine adoption remains deliberately out of scope.

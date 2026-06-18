@@ -113,6 +113,11 @@ def test_build_source_task_constructs_source_cli(monkeypatch: pytest.MonkeyPatch
         return {"ok": True}
 
     monkeypatch.setattr(dag_module, "_run_cli", fake_run_cli)
+    monkeypatch.setattr(
+        dag_module,
+        "_resolve_build_source_instance_ids",
+        lambda params: ["pytorch_reference.docs"],
+    )
 
     result = dag_module._build_source(
         **_context(
@@ -133,8 +138,8 @@ def test_build_source_task_constructs_source_cli(monkeypatch: pytest.MonkeyPatch
             "catalog.toml",
             "--kb",
             "pytorch_reference",
-            "--source",
-            "docs",
+            "--source-instance",
+            "pytorch_reference.docs",
             "--rag-data-root",
             "assets/rag_data",
             "--document-id",
@@ -155,6 +160,11 @@ def test_build_source_task_accepts_multiple_sources(monkeypatch: pytest.MonkeyPa
     calls: list[list[str]] = []
 
     monkeypatch.setattr(dag_module, "_run_cli", lambda args: calls.append(args) or {"ok": True})
+    monkeypatch.setattr(
+        dag_module,
+        "_resolve_build_source_instance_ids",
+        lambda params: ["pytorch_reference.docs", "pytorch_reference.tutorials"],
+    )
 
     dag_module._build_source(**_context(source="docs,tutorials"))
 
@@ -166,10 +176,10 @@ def test_build_source_task_accepts_multiple_sources(monkeypatch: pytest.MonkeyPa
             "catalog.toml",
             "--kb",
             "pytorch_reference",
-            "--source",
-            "docs",
-            "--source",
-            "tutorials",
+            "--source-instance",
+            "pytorch_reference.docs",
+            "--source-instance",
+            "pytorch_reference.tutorials",
             "--rag-data-root",
             "assets/rag_data",
         ]
@@ -364,13 +374,31 @@ def test_sync_dvc_syncs_generated_artifact_paths(
     (tmp_path / "catalog.toml").write_text(
         "\n".join(
             [
-                "schema_version = 2",
-                "[[sources]]",
-                'type = "html_docs"',
-                'kb = "pytorch_reference"',
-                'id = "docs"',
-                'manifest = "assets/rag_data/pytorch_reference/sources.toml"',
-                'ingest_adapter = { id = "generic.http_html", version = "1" }',
+                "schema_version = 3",
+                "",
+                "[[knowledge_bases]]",
+                'id = "pytorch_reference"',
+                'default_alias = "champion"',
+                'selection_description = "PyTorch docs"',
+                "",
+                "[knowledge_bases.aliases.champion]",
+                "top_k = 5",
+                "score_threshold = 0.35",
+                'retrieval_strategy = "dense"',
+                "reranker_multiplier = 1",
+                "",
+                "[[source_adapters]]",
+                'id = "generic.http_html"',
+                'version = "1"',
+                'description = "d"',
+                'factory = "rag.ingest.adapters:make_http_html_adapter"',
+                "",
+                "[[source_instances]]",
+                'id = "pytorch_reference.docs"',
+                'description = "Official docs."',
+                'role = "corpus"',
+                'knowledge_base = "pytorch_reference"',
+                'adapter = { id = "generic.http_html", version = "1" }',
                 "",
             ]
         ),
