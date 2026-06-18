@@ -19,25 +19,21 @@ def write_chat_and_code_catalog(path: Path) -> Path:
 
         [[tasks]]
         id = "chat"
-        label = "General knowledge"
-        routing_description = "General ML research discussion."
-        kb_refs = ["ml_papers_core"]
+        description = "General ML research discussion."
+        knowledge_bases = ["ml_papers_core"]
         lora_adapter = { enabled = false }
 
         [[tasks]]
         id = "code"
-        label = "Coding assistance"
-        routing_description = "Programming help for ML systems."
-        kb_refs = ["pytorch_reference"]
+        description = "Programming help for ML systems."
+        knowledge_bases = ["pytorch_reference"]
         lora_adapter = { enabled = false }
 
         [[knowledge_bases]]
         id = "ml_papers_core"
         default_alias = "champion"
         update_strategy = "replace"
-        label = "Core ML papers"
-        description = "ML papers"
-        selection_description = "Research papers and literature-grounded answers."
+        description = "Research papers and literature-grounded answers."
 
         [knowledge_bases.aliases.champion]
         top_k = 5
@@ -56,9 +52,7 @@ def write_chat_and_code_catalog(path: Path) -> Path:
         id = "pytorch_reference"
         default_alias = "champion"
         update_strategy = "replace"
-        label = "PyTorch reference"
-        description = "Coding docs"
-        selection_description = "PyTorch API reference and implementation guidance."
+        description = "PyTorch API reference and implementation guidance."
 
         [knowledge_bases.aliases.champion]
         top_k = 5
@@ -107,18 +101,15 @@ def write_chat_only_catalog(
 
         [[tasks]]
         id = "chat"
-        label = "General knowledge"
-        routing_description = "General ML research discussion."
-        kb_refs = ["ml_papers_core"]
+        description = "General ML research discussion."
+        knowledge_bases = ["ml_papers_core"]
         lora_adapter = {{ enabled = false }}
 
         [[knowledge_bases]]
         id = "ml_papers_core"
         default_alias = "champion"
         update_strategy = "replace"
-        label = "Core ML papers"
-        description = "ML papers"
-        selection_description = "Research papers and literature-grounded answers."
+        description = "Research papers and literature-grounded answers."
 
         [knowledge_bases.aliases.champion]
         top_k = 5
@@ -150,14 +141,14 @@ def write_code_only_catalog(path: Path) -> Path:
 
         [[tasks]]
         id = "code"
-        routing_description = "Programming help for ML systems."
-        kb_refs = ["pytorch_reference"]
+        description = "Programming help for ML systems."
+        knowledge_bases = ["pytorch_reference"]
         lora_adapter = { enabled = false }
 
         [[knowledge_bases]]
         id = "pytorch_reference"
         default_alias = "champion"
-        selection_description = "PyTorch API reference."
+        description = "PyTorch API reference."
 
         [knowledge_bases.aliases.champion]
         top_k = 5

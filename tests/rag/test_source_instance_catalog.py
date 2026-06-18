@@ -17,8 +17,8 @@ schema_version = 3
 
 [[knowledge_bases]]
 id = "pytorch_reference"
+description = "PyTorch API reference."
 default_alias = "champion"
-selection_description = "PyTorch API reference."
 
 [knowledge_bases.aliases.champion]
 top_k = 5

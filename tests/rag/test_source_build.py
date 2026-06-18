@@ -98,10 +98,7 @@ def _catalog_with_corpus_instance(tmp_path: Path) -> Path:
 
         [[knowledge_bases]]
         id = "pytorch_reference"
-        enabled = true
-        label = "PyTorch reference"
         description = "PyTorch documentation"
-        selection_description = "PyTorch docs"
         update_strategy = "replace"
         default_alias = "champion"
         aliases.champion.top_k = 5
@@ -111,10 +108,7 @@ def _catalog_with_corpus_instance(tmp_path: Path) -> Path:
 
         [[knowledge_bases]]
         id = "other_reference"
-        enabled = true
-        label = "Other reference"
         description = "Other documentation"
-        selection_description = "Other docs"
         update_strategy = "replace"
         default_alias = "champion"
         aliases.champion.top_k = 5
@@ -159,10 +153,7 @@ def _catalog_with_corpus_and_benchmark_instances(tmp_path: Path) -> Path:
 
         [[knowledge_bases]]
         id = "pytorch_reference"
-        enabled = true
-        label = "PyTorch reference"
         description = "PyTorch documentation"
-        selection_description = "PyTorch docs"
         update_strategy = "replace"
         default_alias = "champion"
         aliases.champion.top_k = 5
@@ -380,7 +371,7 @@ def test_build_catalog_sources_builds_selected_sources(tmp_path: Path) -> None:
     summary = build_catalog_sources(
         catalog_path=catalog_path,
         kb_id="pytorch_reference",
-        source_instance_ids=["docs"],
+        source_instance_ids=["pytorch_reference.docs"],
         rag_data_root=tmp_path / "rag_data",
         document_ids=["html_docs:tensors"],
         chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),

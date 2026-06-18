@@ -76,21 +76,13 @@ def build_source_instance_index(catalog_cfg: CatalogConfig) -> SourceInstanceInd
     return SourceInstanceIndex(by_id=by_id)
 
 
-def _selector_aliases(instance: SourceInstanceConfig) -> set[str]:
-    aliases = {instance.id}
-    kb_prefix = f"{instance.knowledge_base}."
-    if instance.id.startswith(kb_prefix):
-        aliases.add(instance.id.removeprefix(kb_prefix))
-    return aliases
-
-
 def resolve_corpus_source_instance_ids(
     catalog_cfg: CatalogConfig,
     *,
     kb_id: str,
     source_ids: list[str] | None = None,
 ) -> list[str]:
-    """Resolve corpus source-instance ids for a KB, accepting global ids or local suffixes."""
+    """Resolve corpus source-instance ids for a KB, accepting only global ids."""
     kb_ids = {kb.id for kb in catalog_cfg.knowledge_bases}
     if kb_id not in kb_ids:
         raise ValueError(f"Unknown KB '{kb_id}'")
@@ -104,30 +96,14 @@ def resolve_corpus_source_instance_ids(
         return [instance.id for instance in corpus_instances]
 
     selected = {source_id.strip() for source_id in source_ids if source_id.strip()}
-    matched_ids: list[str] = []
-    matches_by_selector: dict[str, list[str]] = {selector: [] for selector in selected}
-
-    for instance in corpus_instances:
-        aliases = _selector_aliases(instance)
-        matching_selectors = selected & aliases
-        if matching_selectors:
-            matched_ids.append(instance.id)
-            for selector in matching_selectors:
-                matches_by_selector[selector].append(instance.id)
-
-    ambiguous = {
-        selector: matches for selector, matches in matches_by_selector.items() if len(matches) > 1
-    }
-    if ambiguous:
-        raise ValueError(f"Ambiguous source selectors for KB '{kb_id}': {ambiguous}")
-
-    missing = sorted(selector for selector, matches in matches_by_selector.items() if not matches)
+    corpus_ids = {instance.id for instance in corpus_instances}
+    missing = sorted(selected - corpus_ids)
     if missing:
         raise ValueError(
             f"Corpus source instances not found for kb_id='{kb_id}' and source_ids={missing}"
         )
 
-    return matched_ids
+    return [instance.id for instance in corpus_instances if instance.id in selected]
 
 
 def conventional_manifest_path(rag_data_root: Path | str, source_instance_id: str) -> Path:

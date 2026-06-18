@@ -43,9 +43,6 @@ def materialize_catalog(
 
     kb_index: dict[str, KBConfig] = {}
     for kb_name, kb_cfg in catalog_kbs.items():
-        if not kb_cfg.enabled:
-            continue
-
         aliases = {
             alias_name: AliasConfig(
                 top_k=alias_cfg.top_k,
@@ -62,28 +59,20 @@ def materialize_catalog(
             default_alias=kb_cfg.default_alias,
             aliases=aliases,
             update_strategy=kb_cfg.update_strategy,
-            label=kb_cfg.label,
             description=kb_cfg.description,
-            selection_description=kb_cfg.selection_description,
         )
 
     task_catalog: dict[str, TaskConfig] = {}
     for task_name, task_cfg in catalog_tasks.items():
-        if not task_cfg.enabled:
-            continue
-
         task_knowledge_bases: list[KBConfig] = []
-        for kb_name in task_cfg.kb_refs:
+        for kb_name in task_cfg.knowledge_bases:
             if kb_name not in catalog_kbs:
                 raise ValueError(f"Task '{task_name}' references unknown KB '{kb_name}'")
-            kb_runtime_cfg = kb_index.get(kb_name)
-            if kb_runtime_cfg is not None:
-                task_knowledge_bases.append(kb_runtime_cfg)
+            task_knowledge_bases.append(kb_index[kb_name])
 
         task_catalog[task_name] = TaskConfig(
             task=task_name,
-            label=task_cfg.label,
-            routing_description=task_cfg.routing_description,
+            description=task_cfg.description,
             adapter=task_cfg.lora_adapter.model_copy(deep=True),
             knowledge_bases=task_knowledge_bases,
         )

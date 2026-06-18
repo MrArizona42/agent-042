@@ -144,7 +144,7 @@ class TestKBConfigDefaultAlias:
                     },
                 },
                 update_strategy="replace",
-                selection_description="Selection text",
+                description="Selection text",
             )
 
     def test_valid_default_alias_ok(self):
@@ -163,16 +163,18 @@ class TestKBConfigDefaultAlias:
                 },
             },
             update_strategy="replace",
-            selection_description="Selection text",
+            description="Selection text",
         )
         assert cfg.default_alias == "champion"
+        assert cfg.selection_description == "Selection text"
+        assert cfg.label == "Selection text"
 
-    def test_selection_description_is_required(self):
+    def test_description_is_required(self):
         from pydantic import ValidationError
 
         from app_config.catalog import KBConfig
 
-        with pytest.raises(ValidationError, match="selection_description"):
+        with pytest.raises(ValidationError, match="description"):
             KBConfig(
                 name="test_kb",
                 default_alias="champion",
@@ -195,24 +197,24 @@ class TestTaskConfigValidation:
 
         cfg = TaskConfig(
             task="summarize",
-            label="Summarization",
-            routing_description="Summarize user-provided content.",
+            description="Summarize user-provided content.",
             adapter={"name": "", "alias": "", "enabled": False},
             knowledge_bases=[],
         )
 
         assert cfg.task == "summarize"
         assert cfg.knowledge_bases == []
+        assert cfg.routing_description == "Summarize user-provided content."
+        assert cfg.label == "Summarize user-provided content."
 
-    def test_task_config_requires_routing_description(self):
+    def test_task_config_requires_description(self):
         from pydantic import ValidationError
 
         from app_config.catalog import TaskConfig
 
-        with pytest.raises(ValidationError, match="routing_description"):
+        with pytest.raises(ValidationError, match="description"):
             TaskConfig(
                 task="chat",
-                label="General knowledge",
                 knowledge_bases=[],
             )
 
@@ -234,8 +236,8 @@ class TestRegistryReferenceValidation:
                     "",
                     "[[tasks]]",
                     'id = "chat"',
-                    'routing_description = "General chat about ML research."',
-                    'kb_refs = ["missing_kb"]',
+                    'description = "General chat about ML research."',
+                    'knowledge_bases = ["missing_kb"]',
                     "lora_adapter = { enabled = false }",
                     "",
                 ]
@@ -286,8 +288,8 @@ class TestRegistryReferenceValidation:
                     "",
                     "[[knowledge_bases]]",
                     'id = "pytorch_reference"',
+                    'description = "PyTorch API reference."',
                     'default_alias = "champion"',
-                    'selection_description = "PyTorch API reference."',
                     "",
                     "[knowledge_bases.aliases.champion]",
                     "top_k = 5",
@@ -528,12 +530,12 @@ class TestKnowledgeBaseRegistryResolution:
                     "reranker_multiplier": 4,
                 }
             },
-            selection_description="Research papers and theory.",
+            description="Research papers and theory.",
         )
         catalog = {
             "chat": TaskConfig(
                 task="chat",
-                routing_description="General chat about ML research.",
+                description="General chat about ML research.",
                 adapter=AdapterConfig(name="", alias="", enabled=False),
                 knowledge_bases=[ml_papers_core],
             )
@@ -571,21 +573,20 @@ class TestKnowledgeBaseRegistryResolution:
                     "",
                     "[[tasks]]",
                     'id = "chat"',
-                    'label = "General knowledge"',
-                    'routing_description = "General chat about ML research."',
-                    'kb_refs = ["ml_papers_core"]',
+                    'description = "General chat about ML research."',
+                    'knowledge_bases = ["ml_papers_core"]',
                     "lora_adapter = { enabled = false }",
                     "",
                     "[[tasks]]",
                     'id = "code"',
-                    'routing_description = "Programming help for ML systems."',
-                    'kb_refs = ["ml_papers_core"]',
+                    'description = "Programming help for ML systems."',
+                    'knowledge_bases = ["ml_papers_core"]',
                     "lora_adapter = { enabled = false }",
                     "",
                     "[[knowledge_bases]]",
                     'id = "ml_papers_core"',
+                    'description = "Research papers and theory."',
                     'default_alias = "champion"',
-                    'selection_description = "Research papers and theory."',
                     "",
                     "[knowledge_bases.aliases.champion]",
                     "top_k = 5",

@@ -39,9 +39,8 @@ commands and server workflow.
   `metadata.json` under
   `assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/`.
 
-The code still accepts legacy `[[sources]]` and `--source <local-id>` while the
-catalog migration is in progress. Prefer `[[source_instances]]` and
-`--source-instance <global-id>` for new work.
+The catalog no longer supports legacy `[[sources]]` entries or KB-local source
+selectors. Operator commands use global `--source-instance <id>` values.
 
 ## Server CLI
 
@@ -60,7 +59,7 @@ Build a collection from existing chunk artifacts:
 bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize \
   --catalog catalog.toml \
   --kb pytorch_reference \
-  --source pytorch_reference.docs \
+  --source-instance pytorch_reference.docs \
   --alias-config challenger \
   --rag-data-root assets/rag_data
 ```
@@ -87,6 +86,9 @@ bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias \
 
 - `build-source` fetches/extracts/chunks source documents. Cache artifacts are
   immutable unless force flags are passed.
+- `build-source` takes one or more global `--source-instance` values and derives
+  the KB from those source instances. All selected source instances must belong
+  to the same KB.
 - `build-source --source-instance <id>` rejects `role = "benchmark"` targets.
   Use `prepare-benchmark` for benchmark source instances.
 - `materialize --alias-config <alias>` uses that alias profile as build input.
@@ -107,7 +109,7 @@ Use `rag_lifecycle` for the same lifecycle:
 
 - `kb`: KB id, for example `ml_papers_core`.
 - `source_instance`: source instance id, for example `ml_papers_core.papers`.
-  Legacy `source` values such as `papers` are still accepted temporarily.
+  Leave empty to build all corpus source instances for the selected KB.
 - `alias_config`: build profile, usually `challenger` for test builds.
 - `promote_alias`: optional runtime alias to repoint after materialization.
   Leave empty for build-only runs.

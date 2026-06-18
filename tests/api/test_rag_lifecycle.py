@@ -136,7 +136,7 @@ class TestKnowledgeBaseConfig:
         assert pytorch_cfg.update_strategy == "replace"
         assert "champion" in ml_papers_cfg.aliases
         assert "challenger" in ml_papers_cfg.aliases
-        assert pytorch_cfg.label == "PyTorch reference"
+        assert pytorch_cfg.description == "PyTorch API reference and implementation guidance."
 
     def test_load_missing_file_raises(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError, match="Catalog config file not found"):
@@ -149,7 +149,7 @@ class TestKnowledgeBaseConfig:
         with catalog_override(catalog, index=index):
             ml_papers_cfg = get_kb_config("ml_papers_core")
             assert ml_papers_cfg is not None
-            assert ml_papers_cfg.label == "Core ML papers"
+            assert ml_papers_cfg.description == "Research papers and literature-grounded answers."
             assert "champion" in ml_papers_cfg.aliases
             assert get_kb_config("nonexistent") is None
 
@@ -283,7 +283,7 @@ class TestKnowledgeBasesEndpoint:
         assert tasks == {"chat", "code"}
 
         chat_entry = next(entry for entry in data if entry["task"] == "chat")
-        assert chat_entry["label"] == "General knowledge"
+        assert chat_entry["label"] == "General ML research discussion."
         assert len(chat_entry["knowledge_bases"]) == 1
 
         ml_papers_entry = chat_entry["knowledge_bases"][0]
@@ -402,7 +402,7 @@ class TestRAGServiceResolution:
         assert "ml_papers_core" in result
         assert "pytorch_reference" in result
         assert result["ml_papers_core"]["task"] == "chat"
-        assert result["pytorch_reference"]["task_label"] == "Coding assistance"
+        assert result["pytorch_reference"]["task_label"] == "Programming help for ML systems."
         assert result["ml_papers_core"]["update_strategy"] == "replace"
 
     def test_available_knowledge_bases_by_task(self, catalog_file: Path):

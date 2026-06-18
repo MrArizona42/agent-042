@@ -17,10 +17,8 @@ def _write_catalog(path: Path) -> Path:
 
             [[tasks]]
             id = "code"
-            enabled = true
-            label = "Code"
-            routing_description = "Coding help"
-            kb_refs = ["pytorch_reference"]
+            description = "Coding help"
+            knowledge_bases = ["pytorch_reference"]
             lora_adapter = { enabled = false }
 
             [[source_adapters]]
@@ -31,10 +29,7 @@ def _write_catalog(path: Path) -> Path:
 
             [[knowledge_bases]]
             id = "pytorch_reference"
-            enabled = true
-            label = "PyTorch reference"
             description = "PyTorch docs"
-            selection_description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
             aliases.challenger.top_k = 5
@@ -72,11 +67,9 @@ def _write_v3_catalog(path: Path) -> Path:
 
             [[tasks]]
             id = "code"
-            enabled = true
-            label = "Code"
-            routing_description = "Coding help"
-            kb_refs = ["pytorch_reference"]
-            adapter = { enabled = false }
+            description = "Coding help"
+            knowledge_bases = ["pytorch_reference"]
+            lora_adapter = { enabled = false }
 
             [[source_adapters]]
             id = "generic.http_html"
@@ -92,10 +85,7 @@ def _write_v3_catalog(path: Path) -> Path:
 
             [[knowledge_bases]]
             id = "pytorch_reference"
-            enabled = true
-            label = "PyTorch reference"
             description = "PyTorch docs"
-            selection_description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
             aliases.challenger.top_k = 5
@@ -161,8 +151,6 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
             "build-source",
             "--catalog",
             "catalog.toml",
-            "--kb",
-            "pytorch_reference",
             "--source-instance",
             "pytorch_reference.docs",
             "--rag-data-root",
@@ -196,7 +184,8 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
     assert calls[0]["chunking"].chunk_overlap == 16
 
 
-def test_cli_build_source_with_multiple_source_instances(capsys) -> None:
+def test_cli_build_source_with_multiple_source_instances(tmp_path: Path, capsys) -> None:
+    catalog_path = _write_catalog(tmp_path / "catalog.toml")
     calls: list[dict] = []
 
     def fake_build_many(**kwargs):
@@ -207,9 +196,7 @@ def test_cli_build_source_with_multiple_source_instances(capsys) -> None:
         [
             "build-source",
             "--catalog",
-            "catalog.toml",
-            "--kb",
-            "pytorch_reference",
+            catalog_path.as_posix(),
             "--source-instance",
             "pytorch_reference.docs",
             "--source-instance",
@@ -229,21 +216,6 @@ def test_cli_build_source_with_multiple_source_instances(capsys) -> None:
     ]
 
 
-def test_cli_build_source_requires_kb() -> None:
-    with pytest.raises(SystemExit):
-        cli.main(
-            [
-                "build-source",
-                "--catalog",
-                "catalog.toml",
-                "--source-instance",
-                "pytorch_reference.docs",
-                "--rag-data-root",
-                "assets/rag_data",
-            ]
-        )
-
-
 def test_cli_build_source_requires_source_instance() -> None:
     with pytest.raises(SystemExit):
         cli.main(
@@ -251,8 +223,6 @@ def test_cli_build_source_requires_source_instance() -> None:
                 "build-source",
                 "--catalog",
                 "catalog.toml",
-                "--kb",
-                "pytorch_reference",
                 "--rag-data-root",
                 "assets/rag_data",
             ]
@@ -300,8 +270,8 @@ def test_cli_collect_bundle_outputs_bundle_summary(capsys) -> None:
             "catalog.toml",
             "--kb",
             "pytorch_reference",
-            "--source",
-            "docs",
+            "--source-instance",
+            "pytorch_reference.docs",
             "--rag-data-root",
             "assets/rag_data",
         ],
@@ -318,7 +288,7 @@ def test_cli_build_source_can_persist_build_run(
 ) -> None:
     catalog_path = tmp_path / "catalog.toml"
     rag_data_root = tmp_path / "rag_data"
-    catalog_path.write_text("schema_version = 3\n", encoding="utf-8")
+    _write_catalog(catalog_path)
 
     def fake_build(**kwargs):
         return _Model({"status": "success", "sources": kwargs["source_instance_ids"]})
@@ -328,8 +298,6 @@ def test_cli_build_source_can_persist_build_run(
             "build-source",
             "--catalog",
             catalog_path.as_posix(),
-            "--kb",
-            "pytorch_reference",
             "--source-instance",
             "pytorch_reference.docs",
             "--rag-data-root",
@@ -372,8 +340,6 @@ def test_cli_build_source_dry_run_does_not_execute_build(capsys) -> None:
             "build-source",
             "--catalog",
             "catalog.toml",
-            "--kb",
-            "pytorch_reference",
             "--source-instance",
             "pytorch_reference.docs",
             "--rag-data-root",
@@ -405,7 +371,7 @@ def test_cli_collect_bundle_with_all_uses_catalog_source_set(tmp_path: Path, cap
             catalog_path.as_posix(),
             "--kb",
             "pytorch_reference",
-            "--source",
+            "--source-instance",
             "all",
             "--rag-data-root",
             "assets/rag_data",
@@ -442,7 +408,7 @@ def test_cli_collect_bundle_with_v3_catalog_excludes_benchmark_sources(
             catalog_path.as_posix(),
             "--kb",
             "pytorch_reference",
-            "--source",
+            "--source-instance",
             "all",
             "--rag-data-root",
             "assets/rag_data",
@@ -492,8 +458,8 @@ def test_cli_materialize_derives_hybrid_capability_from_catalog(
             catalog_path.as_posix(),
             "--kb",
             "pytorch_reference",
-            "--source",
-            "docs",
+            "--source-instance",
+            "pytorch_reference.docs",
             "--alias-config",
             "challenger",
             "--collection",
@@ -553,8 +519,8 @@ def test_cli_materialize_with_v3_catalog_uses_corpus_source_instance(
             catalog_path.as_posix(),
             "--kb",
             "pytorch_reference",
-            "--source",
-            "docs",
+            "--source-instance",
+            "pytorch_reference.docs",
             "--alias-config",
             "challenger",
             "--collection",
@@ -610,8 +576,8 @@ def test_cli_materialize_can_persist_build_run(
             catalog_path.as_posix(),
             "--kb",
             "pytorch_reference",
-            "--source",
-            "docs",
+            "--source-instance",
+            "pytorch_reference.docs",
             "--alias-config",
             "challenger",
             "--collection",
@@ -685,7 +651,7 @@ def test_cli_materialize_all_sources_passes_multiple_bundles(
             catalog_path.as_posix(),
             "--kb",
             "pytorch_reference",
-            "--source",
+            "--source-instance",
             "all",
             "--alias-config",
             "challenger",

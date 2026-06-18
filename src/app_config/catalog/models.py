@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -38,9 +38,27 @@ class KBConfig(BaseModel):
     default_alias: str
     aliases: dict[str, AliasConfig]
     update_strategy: Literal["incremental", "replace"] = "replace"
-    label: str = ""
-    description: str = ""
-    selection_description: str
+    description: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compat_description_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict) and not data.get("description"):
+            for key in ("selection_description", "label"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return {**data, "description": value}
+        return data
+
+    @property
+    def label(self) -> str:
+        """Compatibility display text derived from the canonical description."""
+        return self.description
+
+    @property
+    def selection_description(self) -> str:
+        """Compatibility selection text derived from the canonical description."""
+        return self.description
 
     @model_validator(mode="after")
     def _default_alias_must_exist(self) -> "KBConfig":
@@ -56,7 +74,26 @@ class TaskConfig(BaseModel):
     """Materialized task entry used at runtime."""
 
     task: str
-    label: str = ""
-    routing_description: str
+    description: str
     adapter: AdapterConfig = Field(default_factory=AdapterConfig)
     knowledge_bases: list[KBConfig] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compat_description_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict) and not data.get("description"):
+            for key in ("routing_description", "label"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return {**data, "description": value}
+        return data
+
+    @property
+    def label(self) -> str:
+        """Compatibility display text derived from the canonical description."""
+        return self.description
+
+    @property
+    def routing_description(self) -> str:
+        """Compatibility routing text derived from the canonical description."""
+        return self.description

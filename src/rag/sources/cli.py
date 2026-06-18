@@ -11,6 +11,7 @@ from typing import Any
 
 from app_config.catalog import (
     CatalogConfig,
+    build_source_instance_index,
     load_catalog,
     materialize_catalog,
     resolve_corpus_source_instance_ids,
@@ -67,15 +68,24 @@ def _document_ids(values: list[str] | None) -> list[str] | None:
     return values or None
 
 
-def _source_ids(values: list[str] | None) -> list[str] | None:
+def _source_instance_ids(values: list[str] | None) -> list[str] | None:
     if not values:
         return None
-    source_ids: list[str] = []
+    source_instance_ids: list[str] = []
     for value in values:
-        source_ids.extend(item.strip() for item in value.split(",") if item.strip())
-    if not source_ids or any(source_id.lower() == "all" for source_id in source_ids):
+        source_instance_ids.extend(item.strip() for item in value.split(",") if item.strip())
+    if not source_instance_ids or any(
+        source_instance_id.lower() == "all" for source_instance_id in source_instance_ids
+    ):
         return None
-    return source_ids
+    return source_instance_ids
+
+
+def _load_catalog_config(catalog_path: Path | str) -> CatalogConfig:
+    path = Path(catalog_path)
+    catalog = CatalogConfig(**tomllib.loads(path.read_text(encoding="utf-8")))
+    materialize_catalog(catalog)
+    return catalog
 
 
 def _catalog_source_ids(
@@ -84,9 +94,7 @@ def _catalog_source_ids(
     kb_id: str,
     source_ids: list[str] | None,
 ) -> list[str]:
-    path = Path(catalog_path)
-    catalog = CatalogConfig(**tomllib.loads(path.read_text(encoding="utf-8")))
-    materialize_catalog(catalog)
+    catalog = _load_catalog_config(catalog_path)
     return resolve_corpus_source_instance_ids(
         catalog,
         kb_id=kb_id,
@@ -94,20 +102,45 @@ def _catalog_source_ids(
     )
 
 
+def _kb_for_source_instances(
+    *,
+    catalog_path: Path | str,
+    source_instance_ids: list[str],
+) -> str:
+    catalog = _load_catalog_config(catalog_path)
+    index = build_source_instance_index(catalog)
+    kb_ids: set[str] = set()
+    for source_instance_id in source_instance_ids:
+        instance = index.get(source_instance_id)
+        if instance.role != "corpus":
+            raise ValueError(
+                f"Source instance '{source_instance_id}' has role '{instance.role}'; "
+                "build-source only accepts role 'corpus' instances."
+            )
+        kb_ids.add(instance.knowledge_base)
+    if len(kb_ids) != 1:
+        raise ValueError(
+            "build-source requires source instances from exactly one KB; "
+            f"got {sorted(kb_ids)}"
+        )
+    return next(iter(kb_ids))
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m rag.sources.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    def add_common_source_args(
-        command: argparse.ArgumentParser, *, kb_required: bool = True
-    ) -> None:
+    def add_common_source_args(command: argparse.ArgumentParser) -> None:
         command.add_argument("--catalog", required=True)
-        command.add_argument("--kb", required=kb_required)
+        command.add_argument("--kb", required=True)
         command.add_argument(
-            "--source",
+            "--source-instance",
             action="append",
-            dest="sources",
-            help="Source instance id. Repeat for subsets, use 'all', or omit for all.",
+            dest="source_instance_ids",
+            help=(
+                "Global source instance id. Repeat for subsets, use 'all', "
+                "or omit for all corpus sources in the KB."
+            ),
         )
         command.add_argument("--rag-data-root", required=True)
         command.add_argument("--document-id", action="append", dest="document_ids")
@@ -120,7 +153,6 @@ def _parser() -> argparse.ArgumentParser:
 
     build_source = subparsers.add_parser("build-source")
     build_source.add_argument("--catalog", required=True)
-    build_source.add_argument("--kb", required=True)
     build_source.add_argument(
         "--source-instance",
         action="append",
@@ -165,10 +197,10 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--catalog", required=True)
     plan.add_argument("--kb", required=True)
     plan.add_argument(
-        "--source",
+        "--source-instance",
         action="append",
-        dest="sources",
-        help="Source instance id. Repeat for subsets, use 'all', or omit for all.",
+        dest="source_instance_ids",
+        help="Global source instance id. Repeat for subsets, use 'all', or omit for all.",
     )
     plan.add_argument("--rag-data-root", default=".")
 
@@ -247,10 +279,14 @@ def main(
         return 0
 
     if args.command == "build-source":
+        kb_id = _kb_for_source_instances(
+            catalog_path=args.catalog,
+            source_instance_ids=args.source_instance_ids,
+        )
         stage_result = run_source_build_stage(
             BuildRequest(
                 catalog_path=args.catalog,
-                kb_id=args.kb,
+                kb_id=kb_id,
                 source_ids=args.source_instance_ids,
                 rag_data_root=args.rag_data_root,
                 document_ids=_document_ids(args.document_ids),
@@ -269,7 +305,7 @@ def main(
         return 0
 
     if args.command == "collect-bundle":
-        source_ids = _source_ids(args.sources)
+        source_ids = _source_instance_ids(args.source_instance_ids)
         resolved_source_ids = _catalog_source_ids(
             catalog_path=args.catalog,
             kb_id=args.kb,
@@ -298,7 +334,7 @@ def main(
         collection_name = args.collection or collection_name_for_build(
             kb_id=args.kb,
         )
-        source_ids = _source_ids(args.sources)
+        source_ids = _source_instance_ids(args.source_instance_ids)
         request = BuildRequest(
             catalog_path=args.catalog,
             kb_id=args.kb,
@@ -438,7 +474,7 @@ def main(
         return 0
 
     if args.command == "plan":
-        source_ids = _source_ids(args.sources)
+        source_ids = _source_instance_ids(args.source_instance_ids)
         result = plan_build(
             BuildRequest(
                 catalog_path=args.catalog,

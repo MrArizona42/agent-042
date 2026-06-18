@@ -81,38 +81,31 @@ def _build_registry() -> dict[str, TaskConfig]:
         name="arxiv",
         default_alias="champion",
         aliases={"champion": _alias_config()},
-        label="ArXiv",
-        description="Research papers",
-        selection_description="Research papers and literature-grounded answers.",
+        description="Research papers and literature-grounded answers.",
     )
     pytorch_docs = KBConfig(
         name="pytorch_docs",
         default_alias="champion",
         aliases={"champion": _alias_config()},
-        label="PyTorch docs",
-        description="API docs",
-        selection_description="PyTorch API reference and implementation guidance.",
+        description="PyTorch API reference and implementation guidance.",
     )
 
     return {
         "chat": TaskConfig(
             task="chat",
-            label="General knowledge",
-            routing_description="General ML research discussion.",
+            description="General ML research discussion.",
             adapter=AdapterConfig(name="", alias="", enabled=False),
             knowledge_bases=[arxiv],
         ),
         "code": TaskConfig(
             task="code",
-            label="Coding assistance",
-            routing_description="Programming help for ML systems.",
+            description="Programming help for ML systems.",
             adapter=AdapterConfig(name="", alias="", enabled=False),
             knowledge_bases=[pytorch_docs],
         ),
         "summarize": TaskConfig(
             task="summarize",
-            label="Summarization",
-            routing_description="Summarize user-provided content.",
+            description="Summarize user-provided content.",
             adapter=AdapterConfig(name="", alias="", enabled=False),
             knowledge_bases=[],
         ),

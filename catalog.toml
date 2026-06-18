@@ -3,7 +3,7 @@
 #
 # Conventions:
 # - ids are canonical task / knowledge-base ids
-# - each task owns an ordered list of KB refs
+# - each task owns an ordered knowledge_bases list
 # - each KB owns explicit per-alias retrieval settings
 # - source instance manifests live at
 #   assets/rag_data/source_instances/<source_instance_id>/manifest.toml
@@ -15,34 +15,25 @@ schema_version = 3
 
 [[tasks]]
 id = "chat"
-enabled = true
-label = "General knowledge"
-routing_description = "Open-ended ML/DL/AI/LLM research discussion, conceptual explanation, comparison, brainstorming, planning, and general Q&A that is not mainly code debugging and not a request to summarize provided text."
-kb_refs = ["ml_papers_core"]
+description = "Open-ended ML/DL/AI/LLM research discussion, conceptual explanation, comparison, brainstorming, planning, and general Q&A that is not mainly code debugging and not a request to summarize provided text."
+knowledge_bases = ["ml_papers_core"]
 lora_adapter = { enabled = false }
 
 [[tasks]]
 id = "code"
-enabled = true
-label = "Coding assistance"
-routing_description = "Programming help for ML systems: writing code, debugging tracebacks, refactoring, explaining APIs, fixing integration issues, and reasoning about implementation details."
-kb_refs = ["pytorch_reference"]
+description = "Programming help for ML systems: writing code, debugging tracebacks, refactoring, explaining APIs, fixing integration issues, and reasoning about implementation details."
+knowledge_bases = ["pytorch_reference"]
 lora_adapter = { enabled = false }
 
 [[tasks]]
 id = "summarize"
-enabled = true
-label = "Summarization"
-routing_description = "Summarize or condense user-provided content into a shorter form such as TL;DR, bullets, outline, recap, or structured summary without relying on external knowledge retrieval."
-kb_refs = []
+description = "Summarize or condense user-provided content into a shorter form such as TL;DR, bullets, outline, recap, or structured summary without relying on external knowledge retrieval."
+knowledge_bases = []
 lora_adapter = { enabled = false }
 
 [[knowledge_bases]]
 id = "ml_papers_core"
-enabled = true
-label = "Core ML papers"
-description = "Curated full-text ML/AI papers for literature-grounded discussion"
-selection_description = "Research papers, recent ML/AI methods, architectures, experiments, benchmarks, theory, and literature-grounded answers."
+description = "Curated full-text ML/AI papers for literature-grounded discussion, including methods, architectures, experiments, benchmarks, theory, and literature-grounded answers."
 update_strategy = "replace"
 default_alias = "champion"
 aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
@@ -50,10 +41,7 @@ aliases.challenger = { top_k = 5, score_threshold = 0.01, retrieval_strategy = "
 
 [[knowledge_bases]]
 id = "pytorch_reference"
-enabled = true
-label = "PyTorch reference"
-description = "PyTorch documentation for coding assistance"
-selection_description = "PyTorch API reference, tutorials, tensors, autograd, modules, distributed training, and library usage guidance for implementation questions."
+description = "PyTorch documentation for coding assistance, including API reference, tutorials, tensors, autograd, modules, distributed training, and implementation guidance."
 update_strategy = "replace"
 default_alias = "champion"
 aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }

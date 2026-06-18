@@ -261,9 +261,9 @@ AliasConfig -> Qdrant alias -> Physical collection
 Physical collection -> Qdrant attestation -> Artifact manifest
 ```
 
-New source instance ids are global. Legacy `[[sources]]` and KB-local
-`--source` selectors still exist temporarily during migration, but new work
-should use `[[source_instances]]` and `--source-instance`.
+Source instance ids are global. Legacy `[[sources]]` and KB-local `--source`
+selectors are removed; operator workflows use `[[source_instances]]` and global
+`--source-instance` values.
 
 ### 5.2 Архитектура retrieval
 
@@ -566,8 +566,10 @@ registry.promote("lora-summarize", version=2, alias="champion")
 
 ### 7.2 `catalog.toml` — catalog задач, баз знаний и источников
 
-- Списка задач и их descriptions для task router'а.
-- Списка баз знаний и их metadata.
+- Списка задач: `id`, `description`, `knowledge_bases`, and optional
+  `lora_adapter`.
+- Списка баз знаний: `id`, `description`, update strategy, default alias, and
+  alias retrieval profiles.
 - Связей `task -> knowledge_bases`.
 - Per-KB alias retrieval profiles (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`).
 - Task-level LoRA/model adapter config (`lora_adapter`).
@@ -600,6 +602,10 @@ adapter               { id = "...", version = "..." }
 benchmark.suites      only for role = "benchmark"
 ```
 
+Tasks and knowledge bases use only `id` and `description` for descriptive
+strings. Do not add catalog `label`, `routing_description`, or
+`selection_description` fields.
+
 `benchmark.suites` allowed values are:
 
 ```text
@@ -608,8 +614,7 @@ context_quality
 generation_quality
 ```
 
-Legacy `[[sources]]` is still supported in code as a migration bridge, but is
-not the target canonical catalog.
+Legacy `[[sources]]` is no longer supported.
 
 ### 7.3 Runtime Settings (`src/app_config/runtime/`)
 

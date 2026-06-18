@@ -10,26 +10,27 @@ migration phases.
 
 ## Current Project State
 
-The catalog refactor is partially implemented. The current code supports both
-legacy and new source-instance concepts:
+The catalog refactor baseline is implemented. The current code uses the
+source-instance-only catalog:
 
-- legacy `[[sources]]` still exists in `CatalogConfig.sources`;
-- new `[[source_adapters]]`, `[[benchmark_adapters]]`, and
-  `[[source_instances]]` exist in schema;
+- `[[source_adapters]]`, `[[benchmark_adapters]]`, and `[[source_instances]]`
+  exist in schema;
 - `SourceInstanceConfig` has `id`, `description`, `role`, `knowledge_base`,
   `adapter`, and optional `benchmark`;
+- tasks and knowledge bases use `id` and `description` as their descriptive
+  strings;
 - `role` is `"corpus"` or `"benchmark"`;
 - benchmark source config currently declares only `suites`, with allowed values
   `"retrieval_quality"`, `"context_quality"`, and `"generation_quality"`;
-- `SourceInstanceIndex` merges legacy `[[sources]]` and new
-  `[[source_instances]]`;
-- legacy local source selectors still work through compatibility logic.
+- `SourceInstanceIndex` indexes declared `[[source_instances]]`;
+- legacy `[[sources]]`, local `--source <id>` selectors, arbitrary manifest
+  paths, and `DEFAULT_SOURCE_ADAPTERS` are removed.
 
 Current source lifecycle is project-owned:
 
 ```text
-catalog source/source_instance
-  -> source adapter registry / DEFAULT_SOURCE_ADAPTERS
+catalog source_instance
+  -> catalog-declared adapter factory
   -> source manifest TOML
   -> SourceDocument
   -> fetch raw artifact

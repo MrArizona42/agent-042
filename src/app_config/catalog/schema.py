@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app_config.catalog.models import AdapterConfig, AliasConfig
 
@@ -16,25 +16,24 @@ class CatalogAliasConfig(AliasConfig):
 class CatalogTaskConfig(BaseModel):
     """Task entry in the catalog TOML file."""
 
+    model_config = ConfigDict(extra="forbid")
+
     id: str
-    enabled: bool = True
-    label: str = ""
-    routing_description: str
-    kb_refs: list[str] = Field(default_factory=list)
+    description: str
+    knowledge_bases: list[str] = Field(default_factory=list)
     lora_adapter: AdapterConfig = Field(default_factory=AdapterConfig)
 
 
 class CatalogKBConfig(BaseModel):
     """Knowledge-base entry in the catalog TOML file."""
 
+    model_config = ConfigDict(extra="forbid")
+
     id: str
-    enabled: bool = True
+    description: str
     default_alias: str
     aliases: dict[str, CatalogAliasConfig]
     update_strategy: Literal["incremental", "replace"] = "replace"
-    label: str = ""
-    description: str = ""
-    selection_description: str
 
 
 SourceInstanceRole = Literal["corpus", "benchmark"]
@@ -43,6 +42,8 @@ BenchmarkSuite = Literal["retrieval_quality", "context_quality", "generation_qua
 
 class SourceAdapterConfig(BaseModel):
     """Declarative `[[source_adapters]]` entry: a factory for a source-capable adapter."""
+
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     version: str = "1"
@@ -60,6 +61,8 @@ class SourceAdapterConfig(BaseModel):
 class BenchmarkAdapterConfig(BaseModel):
     """Declarative `[[benchmark_adapters]]` entry: a factory for a benchmark-capable adapter."""
 
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     version: str = "1"
     description: str
@@ -76,6 +79,8 @@ class BenchmarkAdapterConfig(BaseModel):
 class BenchmarkSourceConfig(BaseModel):
     """The `benchmark = { ... }` block on a `role = "benchmark"` source instance."""
 
+    model_config = ConfigDict(extra="forbid")
+
     suites: list[BenchmarkSuite] = Field(min_length=1)
 
     @field_validator("suites")
@@ -88,6 +93,8 @@ class BenchmarkSourceConfig(BaseModel):
 
 class SourceInstanceAdapterRef(BaseModel):
     """Reference from a source instance to a declared source or benchmark adapter."""
+
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     version: str = "1"
@@ -102,6 +109,8 @@ class SourceInstanceAdapterRef(BaseModel):
 
 class SourceInstanceConfig(BaseModel):
     """Declarative `[[source_instances]]` entry: a globally addressable source or benchmark."""
+
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     description: str
@@ -132,6 +141,8 @@ class SourceInstanceConfig(BaseModel):
 
 class CatalogConfig(BaseModel):
     """Root schema for the TOML-backed application catalog."""
+
+    model_config = ConfigDict(extra="forbid")
 
     schema_version: int = 3
     tasks: list[CatalogTaskConfig] = Field(default_factory=list)

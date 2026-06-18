@@ -35,7 +35,7 @@ def test_create_build_run_records_request_and_catalog_digest(tmp_path: Path) -> 
         BuildRequest(
             catalog_path=catalog_path.as_posix(),
             kb_id="pytorch_reference",
-            source_ids=["docs"],
+            source_ids=["pytorch_reference.docs"],
             rag_data_root=(tmp_path / "rag_data").as_posix(),
             document_ids=[" torch.Tensor ", ""],
             limit=3,
@@ -48,7 +48,7 @@ def test_create_build_run_records_request_and_catalog_digest(tmp_path: Path) -> 
     assert build_run.run_id == "manual-run"
     assert build_run.status == "planned"
     assert build_run.kb_id == "pytorch_reference"
-    assert build_run.source_ids == ["docs"]
+    assert build_run.source_ids == ["pytorch_reference.docs"]
     assert build_run.catalog_digest is not None
     assert build_run.catalog_digest.startswith("sha256:")
     assert build_run.build_profile_digest is not None
@@ -75,10 +75,7 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
 
             [[knowledge_bases]]
             id = "pytorch_reference"
-            enabled = true
-            label = "PyTorch reference"
             description = "PyTorch docs"
-            selection_description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
             aliases.challenger.top_k = 5
@@ -122,7 +119,7 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
         BuildRequest(
             catalog_path=catalog_path.as_posix(),
             kb_id="pytorch_reference",
-            source_ids=["docs"],
+            source_ids=["pytorch_reference.docs"],
             rag_data_root=rag_data_root.as_posix(),
         ),
         run_id="manual-run",
@@ -160,10 +157,7 @@ def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> No
 
             [[knowledge_bases]]
             id = "pytorch_reference"
-            enabled = true
-            label = "PyTorch reference"
             description = "PyTorch docs"
-            selection_description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
             aliases.challenger.top_k = 5
@@ -229,10 +223,7 @@ def test_plan_build_rejects_manifest_that_adapter_would_reject(tmp_path: Path) -
 
             [[knowledge_bases]]
             id = "pytorch_reference"
-            enabled = true
-            label = "PyTorch reference"
             description = "PyTorch docs"
-            selection_description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
             aliases.challenger.top_k = 5
@@ -315,10 +306,7 @@ def test_plan_build_supports_v3_source_instances_without_loading_benchmark_adapt
 
             [[knowledge_bases]]
             id = "pytorch_reference"
-            enabled = true
-            label = "PyTorch reference"
             description = "PyTorch docs"
-            selection_description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
             aliases.challenger.top_k = 5
@@ -353,7 +341,7 @@ def test_plan_build_supports_v3_source_instances_without_loading_benchmark_adapt
         BuildRequest(
             catalog_path=catalog_path.as_posix(),
             kb_id="pytorch_reference",
-            source_ids=["docs"],
+            source_ids=["pytorch_reference.docs"],
             rag_data_root=(tmp_path / "rag_data").as_posix(),
         )
     )
@@ -376,7 +364,7 @@ def test_run_source_build_stage_persists_successful_build_run(tmp_path: Path) ->
         BuildRequest(
             catalog_path=catalog_path.as_posix(),
             kb_id="pytorch_reference",
-            source_ids=["docs"],
+            source_ids=["pytorch_reference.docs"],
             rag_data_root=rag_data_root.as_posix(),
             document_ids=["html_docs:tensors"],
             limit=1,
@@ -393,14 +381,17 @@ def test_run_source_build_stage_persists_successful_build_run(tmp_path: Path) ->
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
 
-    assert result.result.model_dump() == {"status": "success", "sources": ["docs"]}
+    assert result.result.model_dump() == {
+        "status": "success",
+        "sources": ["pytorch_reference.docs"],
+    }
     assert payload["status"] == "succeeded"
     assert payload["current_stage"] == "build_source"
     assert payload["stage_results"]["build_source"] == {
         "status": "success",
-        "sources": ["docs"],
+        "sources": ["pytorch_reference.docs"],
     }
-    assert calls[0]["source_instance_ids"] == ["docs"]
+    assert calls[0]["source_instance_ids"] == ["pytorch_reference.docs"]
     assert calls[0]["document_ids"] == ["html_docs:tensors"]
     assert calls[0]["force_chunk"] is True
 
@@ -418,7 +409,7 @@ def test_run_source_build_stage_persists_failed_build_run(tmp_path: Path) -> Non
             BuildRequest(
                 catalog_path=catalog_path.as_posix(),
                 kb_id="pytorch_reference",
-                source_ids=["docs"],
+                source_ids=["pytorch_reference.docs"],
                 rag_data_root=rag_data_root.as_posix(),
             ),
             run_id="run-2",
@@ -449,7 +440,7 @@ def test_run_source_build_stage_dry_run_does_not_call_stage(tmp_path: Path) -> N
         BuildRequest(
             catalog_path=catalog_path.as_posix(),
             kb_id="pytorch_reference",
-            source_ids=["docs"],
+            source_ids=["pytorch_reference.docs"],
             rag_data_root=rag_data_root.as_posix(),
             dry_run=True,
         ),
@@ -484,7 +475,7 @@ def test_run_source_build_stage_uses_multi_source_function(tmp_path: Path) -> No
         BuildRequest(
             catalog_path=catalog_path.as_posix(),
             kb_id="pytorch_reference",
-            source_ids=["docs", "tutorials"],
+            source_ids=["pytorch_reference.docs", "pytorch_reference.tutorials"],
             rag_data_root=(tmp_path / "rag_data").as_posix(),
         ),
         run_id="run-3",
@@ -494,7 +485,10 @@ def test_run_source_build_stage_uses_multi_source_function(tmp_path: Path) -> No
 
     assert result.build_run.status == "succeeded"
     assert result.build_run.stage_results["build_source"] == {"source_count": 2}
-    assert calls[0]["source_instance_ids"] == ["docs", "tutorials"]
+    assert calls[0]["source_instance_ids"] == [
+        "pytorch_reference.docs",
+        "pytorch_reference.tutorials",
+    ]
 
 
 def test_materialize_and_promote_append_existing_build_run(tmp_path: Path) -> None:
@@ -504,7 +498,7 @@ def test_materialize_and_promote_append_existing_build_run(tmp_path: Path) -> No
     request = BuildRequest(
         catalog_path=catalog_path.as_posix(),
         kb_id="pytorch_reference",
-        source_ids=["docs"],
+        source_ids=["pytorch_reference.docs"],
         rag_data_root=rag_data_root.as_posix(),
     )
 
@@ -519,7 +513,7 @@ def test_materialize_and_promote_append_existing_build_run(tmp_path: Path) -> No
         BuildRequest(
             catalog_path=catalog_path.as_posix(),
             kb_id="pytorch_reference",
-            source_ids=["docs"],
+            source_ids=["pytorch_reference.docs"],
             rag_data_root=rag_data_root.as_posix(),
             alias_config="challenger",
             collection_name="rag__pytorch_reference__test",
@@ -551,7 +545,7 @@ def test_materialize_and_promote_append_existing_build_run(tmp_path: Path) -> No
     assert payload.alias_config == "challenger"
     assert payload.collection_name == "rag__pytorch_reference__test"
     assert payload.stage_results == {
-        "build_source": {"sources": ["docs"]},
+            "build_source": {"sources": ["pytorch_reference.docs"]},
         "materialize": {"collection": "rag__pytorch_reference__test"},
         "promote_alias": {"alias": "rag__pytorch_reference__challenger"},
     }

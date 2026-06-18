@@ -103,9 +103,6 @@ def _append_common_source_args(cmd: list[str], params: dict[str, Any]) -> None:
         ]
     )
 
-    for source in _csv_values(params.get("source")):
-        cmd.extend(["--source", source])
-
     for source_instance in _csv_values(params.get("source_instance")):
         cmd.extend(["--source-instance", source_instance])
 
@@ -150,12 +147,7 @@ def _run_cli(args: list[str]) -> dict[str, Any]:
 
 
 def _resolve_build_source_instance_ids(params: dict[str, Any]) -> list[str]:
-    """Resolve the operator-facing 'source'/'source_instance' params to global ids.
-
-    `source_instance` (explicit global ids) takes precedence when given;
-    otherwise `source` (local names, or empty for all) is resolved against
-    the KB's declared corpus source instances.
-    """
+    """Resolve the operator-facing `source_instance` param to global ids."""
     explicit_ids = _csv_values(params.get("source_instance"))
     if explicit_ids:
         return explicit_ids
@@ -163,24 +155,21 @@ def _resolve_build_source_instance_ids(params: dict[str, Any]) -> list[str]:
     import tomllib
 
     from app_config.catalog.schema import CatalogConfig
-    from app_config.catalog.source_instances import resolve_corpus_source_instance_ids
+    from app_config.catalog.source_instances import build_source_instance_index
 
     catalog_path = Path(str(params["catalog"]))
     if not catalog_path.is_absolute():
         catalog_path = PROJECT_ROOT / catalog_path
     catalog = CatalogConfig(**tomllib.loads(catalog_path.read_text(encoding="utf-8")))
-    return resolve_corpus_source_instance_ids(
-        catalog,
-        kb_id=str(params["kb"]),
-        source_ids=_csv_values(params.get("source")) or None,
-    )
+    index = build_source_instance_index(catalog)
+    return [instance.id for instance in index.corpus_for_kb(str(params["kb"]))]
 
 
 def _build_source(**context: Any) -> dict[str, Any]:
     params = _params(context)
     cmd = ["build-source"]
     _append_build_run_args(cmd, context)
-    cmd.extend(["--catalog", str(params["catalog"]), "--kb", str(params["kb"])])
+    cmd.extend(["--catalog", str(params["catalog"])])
     for source_instance_id in _resolve_build_source_instance_ids(params):
         cmd.extend(["--source-instance", source_instance_id])
     cmd.extend(["--rag-data-root", str(params["rag_data_root"])])
@@ -374,7 +363,6 @@ with DAG(
     params={
         "catalog": Param(_configured_catalog_path(), type="string"),
         "kb": Param("", type="string"),
-        "source": Param("", type=["null", "string", "array"]),
         "source_instance": Param("", type=["null", "string", "array"]),
         "alias_config": Param("challenger", type="string"),
         "rag_data_root": Param("assets/rag_data", type="string"),
