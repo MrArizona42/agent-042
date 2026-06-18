@@ -27,9 +27,10 @@ in the repository root: [README.md](../README.md).
   complete and Phase 2 RAG quality work is next.
 - [Experiment Planning](planning/experiments.md): inference, RAG, LoRA, and
   operating-limit experiment plans.
-- [RAG Catalog Refactor Proposal](planning/rag-catalog-refactor.md): proposed
-  next catalog shape for source adapters, benchmark-capable source instances,
-  and benchmark artifact flow.
+- [RAG LlamaIndex Transition Implementation Plan](planning/rag-llamaindex-transition-plan.md):
+  concrete migration plan for replacing custom RAG mechanics with LlamaIndex
+  after the source-instance catalog, benchmark, and DB boundaries documented in
+  the main architecture, operations, and evaluation docs.
 
 ## Documentation Ownership
 

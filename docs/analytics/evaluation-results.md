@@ -52,6 +52,41 @@ Common `detail` shapes:
 - generation/chat: may include `rag_context`;
 - code: includes `passed`, `exit_code`, and `stderr`;
 - retrieval: includes `retrieved_ids` and `relevance`.
+- RAG benchmark: includes retrieved chunk/document provenance, expected qrels,
+  reference answers, evidence refs, generation facts, prompt identity, and
+  timing diagnostics.
+
+## RAG Benchmark Persistence
+
+RAG benchmark inputs are prepared as source-instance artifacts, not as result
+reports:
+
+```text
+assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/
+  cases.jsonl
+  labels.jsonl
+  metadata.json
+```
+
+Benchmark results live only in Postgres:
+
+- aggregate metrics go to `eval_runs`;
+- per-case observations go to `eval_samples.detail`;
+- runs must record the benchmark source instance id, KB id, explicit alias,
+  resolved Qdrant alias/collection, manifest id, adapter id/version, artifact
+  digests, and prompt identity when generation is involved.
+
+RAG benchmark suite names:
+
+```text
+retrieval_quality
+context_quality
+generation_quality
+```
+
+Retrieval labels are normalized as `qrels[]` with `entity_type` set to
+`document` or `chunk`. Flat relevant id lists are derived from qrels rather than
+stored as a second source of truth.
 
 ## Metric Families
 

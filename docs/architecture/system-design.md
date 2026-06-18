@@ -228,17 +228,20 @@ RAG в проекте разделён на несколько независи�
 
 - **KB id** — логическая база знаний из `catalog.toml`, например
   `ml_papers_core` или `pytorch_reference`.
-- **Source type** — catalog metadata for the source family, for example
-  `arxiv_paper` or `html_docs`. It is no longer a closed Python enum.
-- **Source instance** — KB-local источник данных: пара `(kb, source_id)`,
-  например `(ml_papers_core, papers)` или `(pytorch_reference, docs)`.
-- **Ingest adapter** — source-level adapter selected from `catalog.toml`;
-  it validates the generic manifest, lists `SourceDocument`s, and selects
-  fetch/extract behavior.
-- **Source manifest** — generic curated document list or adapter-specific
-  config for a source instance: `assets/rag_data/<kb>/sources.toml`.
+- **Source adapter** — catalog-declared source lifecycle behavior from
+  `[[source_adapters]]`. Adapter identity is the behavior selector; `source_type`
+  is being retired as a behavior concept.
+- **Benchmark adapter** — catalog-declared adapter from `[[benchmark_adapters]]`
+  that implements the normal source lifecycle plus benchmark preparation.
+- **Source instance** — globally meaningful source id, for example
+  `ml_papers_core.papers` or `pytorch_reference.docs`.
+- **Source role** — `role = "corpus"` participates in normal KB builds;
+  `role = "benchmark"` produces benchmark cases/labels and is excluded from
+  normal materialization.
+- **Source manifest** — curated document list or adapter-specific config at
+  `assets/rag_data/source_instances/<source_instance_id>/manifest.toml`.
 - **Artifact manifest** — JSON provenance конкретной сборки под
-  `assets/rag_data/<kb>/manifests/`.
+  `assets/rag_data/knowledge_bases/<kb>/manifests/`.
 - **Physical collection** — реальная Qdrant collection вида
   `rag__<kb_id>__<timestamp>`. Имя физической коллекции не содержит alias.
 - **Qdrant alias** — runtime pointer вида `rag__<kb_id>__<alias>`, например
@@ -252,14 +255,15 @@ RAG в проекте разделён на несколько независи�
 ```text
 Task 1-to-many KB
 KB 1-to-many SourceInstance
-SourceInstance -> IngestAdapter
+SourceInstance -> SourceAdapter | BenchmarkAdapter
 KB 1-to-many AliasConfig
 AliasConfig -> Qdrant alias -> Physical collection
 Physical collection -> Qdrant attestation -> Artifact manifest
 ```
 
-Source ids не считаются глобально уникальными: для операций build/update всегда
-используется пара `(kb, source_id)`.
+New source instance ids are global. Legacy `[[sources]]` and KB-local
+`--source` selectors still exist temporarily during migration, but new work
+should use `[[source_instances]]` and `--source-instance`.
 
 ### 5.2 Архитектура retrieval
 
@@ -294,9 +298,10 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 При включённом reranker'е первый этап извлекает `top_k × reranker_multiplier` кандидатов (с расширенным порогом), второй этап пересортировывает их cross-encoder'ом (`cross-encoder/ms-marco-MiniLM-L-6-v2`), после чего применяется финальный score threshold.
 
 **Chunking:**
-Документы перед индексацией разбиваются на чанки:
-- `FixedTokenChunker` (основан на `RecursiveCharacterTextSplitter`) — для текстовых документов (arxiv-статьи, документация).
-- `CodeChunker` — для кода, сохраняет границы функций и классов.
+Current chunking uses LlamaIndex `SentenceSplitter` through
+`src/rag/sources/chunks.py`. The LlamaIndex transition plan makes
+`Document` / `TextNode` primary and retires project `Document` / `Chunk`
+contracts from the active source/build path.
 
 ### 5.3 Базы знаний и источники
 
@@ -304,8 +309,8 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 
 **`ml_papers_core`** (задача `chat`)
 - Содержимое: curated full-text ML/AI papers.
-- Source instance: `(kb=ml_papers_core, source_id=papers, type=arxiv_paper)`.
-- Manifest: `assets/rag_data/ml_papers_core/sources.toml`.
+- Source instance: `ml_papers_core.papers`.
+- Manifest: `assets/rag_data/source_instances/ml_papers_core.papers/manifest.toml`.
 - Стратегия обновления: **replace** — новая physical collection собирается
   целиком и затем может быть продвинута через alias.
 - Активный champion: dense retrieval, `top_k=5`, `score_threshold=0.35`.
@@ -313,8 +318,8 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 
 **`pytorch_reference`** (задача `code`)
 - Содержимое: официальная документация PyTorch.
-- Source instance: `(kb=pytorch_reference, source_id=docs, type=html_docs)`.
-- Manifest: `assets/rag_data/pytorch_reference/sources.toml`.
+- Source instance: `pytorch_reference.docs`.
+- Manifest: `assets/rag_data/source_instances/pytorch_reference.docs/manifest.toml`.
 - Стратегия обновления: **replace** — при каждом обновлении коллекция
   пересоздаётся полностью (документация версионируется целиком).
 - Идентичная схема champion/challenger.
@@ -327,7 +332,7 @@ Source/build lifecycle is split across production modules:
 
 - `src/rag/ingest/` — adapter contracts and adapter registry;
 - `src/rag/sources/` — generic source manifests, fetch/extract/chunk artifacts,
-  source builds, and source bundle collection;
+  source builds, benchmark preparation, and source bundle collection;
 - `src/rag/indexing/` — Qdrant materialization, collection manifests, and alias
   promotion;
 - `src/rag/lifecycle/` — shared `BuildRequest` / `BuildRun` stage wrappers used
@@ -336,7 +341,7 @@ Source/build lifecycle is split across production modules:
 The data flow is:
 
 ```text
-sources.toml
+source instance manifest
   -> fetch raw artifacts
   -> extract normalized text artifacts
   -> process/chunk documents
@@ -348,15 +353,28 @@ sources.toml
 
 Политика артефактов:
 
-- `sources.toml` хранится в Git как curated operator input.
-- Raw cache (`assets/rag_data/<kb>/raw/`) immutable по умолчанию и не
+- Source instance `manifest.toml` files stay in Git as curated operator input.
+- Raw cache (`assets/rag_data/source_instances/<source_instance_id>/raw/`) immutable по умолчанию и не
   DVC-tracked; force flags нужны для повторного fetch/extract/chunk.
-- Generated `extracted`, `chunks`, `manifests` и optional `metadata` могут
-  синхронизироваться через DVC.
+- Generated source-instance artifacts and knowledge-base manifests/metadata can
+  be synchronized through DVC when needed.
 - Source manifests are generic. Adapter-specific validation, document listing,
   fetcher selection, and extractor selection live behind the source adapter.
   Ordinary new datasets should not require editing generic manifest unions or
   source-type enums.
+
+Benchmark source instances use the same source-instance identity model but
+`role = "benchmark"`. `prepare-benchmark` writes normalized benchmark artifacts:
+
+```text
+assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/
+  cases.jsonl
+  labels.jsonl
+  metadata.json
+```
+
+Benchmark results are not stored as report files; Postgres `eval_runs` and
+`eval_samples.detail` are the source of truth.
 
 ### 5.5 Alias-based управление коллекциями (паттерн champion / challenger)
 
@@ -387,7 +405,7 @@ A/B тестов.
 
 **Lifecycle коллекции:**
 
-1. **Source build** (`python -m rag.sources.cli build-source`) — fetch/extract/chunk для configured KB/source.
+1. **Source build** (`python -m rag.sources.cli build-source`) — fetch/extract/chunk для corpus source instances.
 2. **Materialize** (`python -m rag.sources.cli materialize --alias-config ...`) — индексация bundle в новую Qdrant collection и запись manifest + attestation.
 3. **Inspection** — direct Qdrant notebook или CLI summary проверяют aliases, collection metadata, sample points.
 4. **Alias promotion** (`python -m rag.sources.cli promote-alias`) — переключение `rag__<kb>__<alias>` на attested collection.
@@ -548,15 +566,50 @@ registry.promote("lora-summarize", version=2, alias="champion")
 
 ### 7.2 `catalog.toml` — catalog задач, баз знаний и источников
 
-Этот catalog-layer является единственным источником истины для:
-- Списка задач и их `routing_description` (используется task router'ом).
+- Списка задач и их descriptions для task router'а.
 - Списка баз знаний и их metadata.
-- Связей `task -> kb_refs`.
+- Связей `task -> knowledge_bases`.
 - Per-KB alias retrieval profiles (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`).
-- LoRA-адаптера для каждой задачи (name, alias, enabled).
-- Source metadata для build/update пайплайнов.
+- Task-level LoRA/model adapter config (`lora_adapter`).
+- Source and benchmark adapter declarations.
+- Source instances for corpus builds and benchmark preparation.
 
-Файл загружается через `src/app_config/catalog/` и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте. Канонический TOML использует list sections `[[tasks]]`, `[[knowledge_bases]]`, `[[sources]]` с явными `id`; legacy mapping sections не поддерживаются. Source entries declare `type`, `kb`, `id`, `manifest`, and a required `ingest_adapter = { id = "...", version = "..." }`.
+Файл загружается через `src/app_config/catalog/` и валидируется через
+Pydantic-модели. Нарушения схемы (например, отсутствующий `default_alias` или
+source instance, ссылающийся на неизвестный KB/adapter) приводят к отказу при
+старте.
+
+Canonical catalog v3 uses list sections:
+
+```text
+[[tasks]]
+[[knowledge_bases]]
+[[source_adapters]]
+[[benchmark_adapters]]
+[[source_instances]]
+```
+
+Source instances declare:
+
+```text
+id
+description
+role                  "corpus" or "benchmark"
+knowledge_base
+adapter               { id = "...", version = "..." }
+benchmark.suites      only for role = "benchmark"
+```
+
+`benchmark.suites` allowed values are:
+
+```text
+retrieval_quality
+context_quality
+generation_quality
+```
+
+Legacy `[[sources]]` is still supported in code as a migration bridge, but is
+not the target canonical catalog.
 
 ### 7.3 Runtime Settings (`src/app_config/runtime/`)
 
@@ -614,6 +667,8 @@ Python-конфигурация реализована через `pydantic-sett
 2. обновляйте `catalog.toml` и sample/contract tests
 3. используйте `catalog_override(...)` в тестах вместо manual global mutation
 4. не добавляйте catalog helper re-exports в `shared.config` или `app_config.runtime`
+5. do not reintroduce behavior selection through `source_type`; use adapter ids
+   and adapter capability checks.
 
 ---
 
@@ -670,13 +725,14 @@ surface и не является entrypoint для build/materialize.
 - **Для RAG benchmark'ов:** `beir-nfcorpus`, `beir-scifact`, `hotpotqa`, `msmarco`, `natural-questions`.
 - **Для code evaluation:** `humaneval`.
 - **Для RAG коллекций:** generated artifacts under
-  `assets/rag_data/ml_papers_core/` and `assets/rag_data/pytorch_reference/`.
+  `assets/rag_data/source_instances/` and
+  `assets/rag_data/knowledge_bases/`.
 
 Для RAG коллекций policy отличается от eval/training datasets:
 
-- curated `sources.toml` остаётся в Git;
-- generated `extracted`, `chunks`, `manifests`, optional `metadata` могут быть
-  DVC-tracked;
+- curated source instance `manifest.toml` files stay in Git;
+- generated source-instance artifacts, KB manifests, build metadata, and
+  benchmark normalized artifacts can be DVC-tracked;
 - raw cache (`raw/`, включая PDF/HTML downloads) остаётся server-local по
   умолчанию, чтобы не раздувать DVC без явного требования offline rebuild.
 

@@ -12,12 +12,17 @@ commands and server workflow.
 
 - KB id: logical knowledge base id from `catalog.toml`, for example
   `ml_papers_core` or `pytorch_reference`.
-- Source type: catalog metadata for the source family, for example
-  `arxiv_paper` or `html_docs`. Adapter behavior comes from the source-level
-  `ingest_adapter`.
-- Source instance id: KB-local source id, for example `papers` or `docs`.
-- Source manifest: generic curated input list or adapter-specific config under
-  `assets/rag_data/<kb>/sources.toml`.
+- Source adapter: catalog-declared behavior for loading a source instance.
+  Source adapters live in `[[source_adapters]]`; benchmark-capable adapters
+  live in `[[benchmark_adapters]]`.
+- Source instance id: globally meaningful source id, for example
+  `ml_papers_core.papers` or `pytorch_reference.docs`.
+- Source role: `role = "corpus"` participates in normal KB builds;
+  `role = "benchmark"` is prepared with `prepare-benchmark` and is excluded
+  from normal materialization.
+- Source manifest: curated input list or adapter-specific config at the
+  conventional path
+  `assets/rag_data/source_instances/<source_instance_id>/manifest.toml`.
 - Alias config: per-KB retrieval profile in the catalog, for example
   `champion` or `challenger`; it controls `top_k`, threshold, strategy, and
   reranker settings.
@@ -25,9 +30,18 @@ commands and server workflow.
   `rag__<kb_id>__<timestamp>`. It intentionally does not include alias names.
 - Qdrant alias: runtime pointer named `rag__<kb_id>__<alias>`.
 - Artifact manifest: full build provenance JSON under
-  `assets/rag_data/<kb>/manifests/`.
-- Qdrant attestation: compact metadata stored in the collection `_meta` point
-  so runtime can validate alias targets.
+  `assets/rag_data/knowledge_bases/<kb>/manifests/`.
+- Qdrant attestation: compact collection metadata used so runtime can validate
+  alias targets. Existing legacy collections may still expose this through a
+  `collection_meta` sentinel point until the LlamaIndex transition removes that
+  storage path.
+- Benchmark artifacts: normalized `cases.jsonl`, `labels.jsonl`, and
+  `metadata.json` under
+  `assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/`.
+
+The code still accepts legacy `[[sources]]` and `--source <local-id>` while the
+catalog migration is in progress. Prefer `[[source_instances]]` and
+`--source-instance <global-id>` for new work.
 
 ## Server CLI
 
@@ -36,8 +50,7 @@ Run commands from the deployment root on the server:
 ```bash
 bash current/scripts/rag_ops.sh python -m rag.sources.cli build-source \
   --catalog catalog.toml \
-  --kb pytorch_reference \
-  --source docs \
+  --source-instance pytorch_reference.docs \
   --rag-data-root assets/rag_data
 ```
 
@@ -47,8 +60,17 @@ Build a collection from existing chunk artifacts:
 bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize \
   --catalog catalog.toml \
   --kb pytorch_reference \
-  --source docs \
+  --source pytorch_reference.docs \
   --alias-config challenger \
+  --rag-data-root assets/rag_data
+```
+
+Prepare a benchmark source instance:
+
+```bash
+bash current/scripts/rag_ops.sh python -m rag.sources.cli prepare-benchmark \
+  --catalog catalog.toml \
+  --source-instance pytorch_reference.qa_benchmark \
   --rag-data-root assets/rag_data
 ```
 
@@ -65,6 +87,8 @@ bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias \
 
 - `build-source` fetches/extracts/chunks source documents. Cache artifacts are
   immutable unless force flags are passed.
+- `build-source --source-instance <id>` rejects `role = "benchmark"` targets.
+  Use `prepare-benchmark` for benchmark source instances.
 - `materialize --alias-config <alias>` uses that alias profile as build input.
   It does not assign or move a Qdrant alias.
 - `promote-alias --alias <alias>` points `rag__<kb>__<alias>` at an attested
@@ -73,13 +97,17 @@ bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias \
 - Hybrid alias configs require hybrid collections.
 - Challenger collections should normally be built and inspected before
   champion promotion.
+- Benchmark execution must receive an explicit alias. A benchmark source
+  instance is attached to exactly one KB through `source_instance.knowledge_base`;
+  the alias supplies the KB runtime/build profile for that run.
 
 ## Airflow
 
 Use `rag_lifecycle` for the same lifecycle:
 
 - `kb`: KB id, for example `ml_papers_core`.
-- `source`: source instance id, for example `papers`.
+- `source_instance`: source instance id, for example `ml_papers_core.papers`.
+  Legacy `source` values such as `papers` are still accepted temporarily.
 - `alias_config`: build profile, usually `challenger` for test builds.
 - `promote_alias`: optional runtime alias to repoint after materialization.
   Leave empty for build-only runs.
@@ -88,7 +116,10 @@ Use `rag_lifecycle` for the same lifecycle:
   cache/collection invalidation controls.
 - `sync_dvc`: when true, DVC-sync generated artifacts before promotion.
 - `dvc_artifacts`: optional comma-separated artifact directories to sync. The
-  default is `extracted,chunks,manifests,metadata` when those paths exist.
+  DAG resolves source-instance artifact names such as `extracted`, `chunks`,
+  and `benchmark` under `source_instances/<source_instance_id>/`; KB-scoped
+  names such as `manifests` and `metadata` resolve under
+  `knowledge_bases/<kb>/`.
 - `dvc_base_branch`, `dvc_bot_branch`: Git branch controls for the temp-clone
   DVC sync PR.
 - `build_run_id`: optional stable audit id. When omitted, Airflow derives one
@@ -98,7 +129,7 @@ Use `rag_lifecycle` for the same lifecycle:
   alias.
 
 Each persisted build run is written under
-`<rag_data_root>/<kb>/metadata/build_runs/<build_run_id>.json`. The record
+`<rag_data_root>/knowledge_bases/<kb>/metadata/build_runs/<build_run_id>.json`. The record
 captures the catalog digest, selected source manifest digests, source adapter
 versions, build profile digest, per-stage results, final collection name, and
 promotion status. Use it as the first restore/debug handle before touching DVC
@@ -106,9 +137,10 @@ or Qdrant aliases.
 
 DVC policy:
 
-- `sources.toml` stays in Git because it is curated operator input.
-- Generated `extracted`, `chunks`, `manifests`, and optional `metadata`
-  directories are DVC candidates.
+- Source instance `manifest.toml` files stay in Git because they are curated
+  operator input.
+- Generated source-instance artifacts, benchmark normalized artifacts, KB
+  manifests, and KB metadata directories are DVC candidates.
 - Raw cache (`raw/`) is server-local by default. This avoids DVC-tracking raw
   PDFs unless fully offline rebuilds become a requirement.
 - When `sync_dvc=true`, `rag_lifecycle` runs DVC sync after materialization and
@@ -120,7 +152,7 @@ Use `experiments/rag/rag_ops.ipynb` for direct Qdrant observability:
 
 - list collections and aliases;
 - compare expected catalog aliases with live Qdrant aliases;
-- inspect attestation metadata and sample points;
+- inspect collection attestation metadata and sample points;
 - identify old physical collections not behind any alias;
 - create snapshots or run danger-zone cleanup cells deliberately.
 
