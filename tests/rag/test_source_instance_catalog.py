@@ -52,13 +52,13 @@ reranker_multiplier = 1
 id = "generic.http_html"
 version = "1"
 description = "Fetches HTTP HTML pages."
-factory = "rag.adapters:make_http_html_adapter"
+factory = "rag.ingest.adapters:make_http_html_adapter"
 
 [[benchmark_adapters]]
 id = "benchmark.pytorch_qa"
 version = "1"
 description = "Loads QA examples for PyTorch docs."
-factory = "rag.adapters:make_pytorch_qa_benchmark_adapter"
+factory = "tests.rag.test_adapter_loading:_benchmark_adapter"
 
 [[source_instances]]
 id = "pytorch_reference.docs"
@@ -75,7 +75,7 @@ knowledge_base = "pytorch_reference"
 adapter = { id = "benchmark.pytorch_qa", version = "1" }
 
 [source_instances.benchmark]
-contains = ["queries", "answers", "evidence_text"]
+contains = ["queries", "answers", "evidence_refs"]
 metrics = ["recall_at_k", "answer_groundedness"]
 """
 

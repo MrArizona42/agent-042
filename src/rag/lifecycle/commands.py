@@ -9,7 +9,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from app_config.catalog import CatalogConfig, legacy_source_instance_id, materialize_catalog
+from app_config.catalog import (
+    CatalogConfig,
+    build_source_instance_index,
+    conventional_manifest_path,
+    materialize_catalog,
+    resolve_corpus_source_instance_ids,
+)
+from app_config.catalog.schema import SourceConfig, SourceInstanceConfig
 from rag.lifecycle.models import (
     BuildRequest,
     BuildRun,
@@ -65,32 +72,169 @@ def _source_attestation(
 
     try:
         catalog = CatalogConfig(**tomllib.loads(catalog_path.read_text(encoding="utf-8")))
+        materialize_catalog(catalog)
     except (OSError, tomllib.TOMLDecodeError, ValueError):
         return {}, {}, []
 
-    selected = set(request.source_ids) if request.source_ids is not None else None
     manifest_digests: dict[str, str] = {}
     adapter_versions: dict[str, str] = {}
-    source_instance_ids: list[str] = []
-
-    for source in catalog.sources:
-        if source.kb != request.kb_id:
-            continue
-        if selected is not None and source.id not in selected:
-            continue
-
-        digest = _sha256_file(
-            _manifest_path(catalog_path=catalog_path, manifest_ref=source.manifest)
+    try:
+        source_instance_ids = resolve_corpus_source_instance_ids(
+            catalog,
+            kb_id=request.kb_id,
+            source_ids=request.source_ids,
         )
+    except ValueError:
+        return {}, {}, []
+
+    index = build_source_instance_index(catalog)
+    for source_instance_id in source_instance_ids:
+        instance = index.get(source_instance_id)
+        legacy_source = _legacy_source_for_instance(catalog, source_instance_id)
+        if legacy_source is None:
+            manifest_path = conventional_manifest_path(request.rag_data_root, source_instance_id)
+            adapter_versions[source_instance_id] = (
+                f"{instance.adapter.id}@{instance.adapter.version}"
+            )
+        else:
+            manifest_path = _manifest_path(
+                catalog_path=catalog_path,
+                manifest_ref=legacy_source.manifest,
+            )
+            adapter_versions[source_instance_id] = (
+                f"{legacy_source.ingest_adapter.id}@{legacy_source.ingest_adapter.version}"
+            )
+
+        digest = _sha256_file(manifest_path)
         if digest is not None:
-            manifest_digests[source.id] = digest
-
-        adapter_versions[source.id] = f"{source.ingest_adapter.id}@{source.ingest_adapter.version}"
-        source_instance_ids.append(
-            legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id)
-        )
+            manifest_digests[source_instance_id] = digest
 
     return manifest_digests, adapter_versions, source_instance_ids
+
+
+def _legacy_source_for_instance(
+    catalog: CatalogConfig,
+    source_instance_id: str,
+) -> SourceConfig | None:
+    for source in catalog.sources:
+        if f"{source.kb}.{source.id}" == source_instance_id:
+            return source
+    return None
+
+
+def _declared_adapter_config(
+    catalog: CatalogConfig,
+    *,
+    adapter_id: str,
+    version: str,
+):
+    for config in (*catalog.source_adapters, *catalog.benchmark_adapters):
+        if config.id == adapter_id and config.version == version:
+            return config
+    return None
+
+
+def _resolve_plan_adapter(
+    catalog: CatalogConfig,
+    *,
+    adapter_id: str,
+    adapter_version: str,
+    adapter_registry: Any | None,
+) -> Any:
+    if adapter_registry is not None:
+        return adapter_registry.get(adapter_id, version=adapter_version)
+    if catalog.source_adapters or catalog.benchmark_adapters:
+        from rag.ingest import load_adapter
+
+        config = _declared_adapter_config(
+            catalog,
+            adapter_id=adapter_id,
+            version=adapter_version,
+        )
+        if config is None:
+            raise ValueError(
+                f"Catalog references undeclared adapter '{adapter_id}@{adapter_version}'"
+            )
+        return load_adapter(config, required_capabilities=frozenset({"source"}))
+
+    from rag.ingest import DEFAULT_SOURCE_ADAPTERS
+
+    return DEFAULT_SOURCE_ADAPTERS.get(adapter_id, version=adapter_version)
+
+
+def _plan_entry_for_instance(
+    *,
+    catalog_path: Path,
+    rag_data_root: Path | str,
+    catalog: CatalogConfig,
+    instance: SourceInstanceConfig,
+    adapter_registry: Any,
+) -> SourcePlanEntry:
+    legacy_source = _legacy_source_for_instance(catalog, instance.id)
+    if legacy_source is None:
+        adapter_id = instance.adapter.id
+        adapter_version = instance.adapter.version
+        manifest_ref = conventional_manifest_path(rag_data_root, instance.id).as_posix()
+        manifest_path_resolved = Path(manifest_ref)
+        expected_source_type: str | None = None
+    else:
+        adapter_id = legacy_source.ingest_adapter.id
+        adapter_version = legacy_source.ingest_adapter.version
+        manifest_ref = legacy_source.manifest
+        manifest_path_resolved = _manifest_path(
+            catalog_path=catalog_path,
+            manifest_ref=manifest_ref,
+        )
+        expected_source_type = legacy_source.type
+
+    manifest_reachable = manifest_path_resolved.exists() and manifest_path_resolved.is_file()
+    manifest_valid = False
+    adapter_registered = False
+    source_type_matches = False
+    errors: list[str] = []
+    adapter: Any | None = None
+
+    try:
+        adapter = _resolve_plan_adapter(
+            catalog,
+            adapter_id=adapter_id,
+            adapter_version=adapter_version,
+            adapter_registry=adapter_registry,
+        )
+        adapter_registered = True
+        if expected_source_type is not None and adapter.source_type != expected_source_type:
+            errors.append(
+                f"Adapter '{adapter_id}@{adapter_version}' expects source_type "
+                f"'{adapter.source_type}' but catalog declares '{expected_source_type}'"
+            )
+        else:
+            source_type_matches = True
+    except Exception as exc:
+        errors.append(f"Adapter '{adapter_id}@{adapter_version}' not registered: {exc}")
+
+    if not manifest_reachable:
+        errors.append(f"Source manifest not found: {manifest_path_resolved}")
+    elif adapter is not None:
+        try:
+            adapter.validate_manifest(load_source_manifest(manifest_path_resolved))
+            manifest_valid = True
+            source_type_matches = True
+        except Exception as exc:
+            errors.append(
+                f"Source manifest invalid for adapter '{adapter_id}@{adapter_version}': {exc}"
+            )
+
+    return SourcePlanEntry(
+        source_id=instance.id,
+        adapter_id=adapter_id,
+        adapter_version=adapter_version,
+        manifest_ref=manifest_ref,
+        manifest_reachable=manifest_reachable,
+        manifest_valid=manifest_valid,
+        adapter_registered=adapter_registered,
+        source_type_matches=source_type_matches,
+        errors=errors,
+    )
 
 
 def create_build_run(
@@ -267,77 +411,27 @@ def plan_build(
 
     result = result.model_copy(update={"catalog_reachable": True})
 
-    kb_sources = [s for s in catalog.sources if s.kb == request.kb_id]
-    if not kb_sources:
-        return result.model_copy(update={"errors": [f"No sources found for KB '{request.kb_id}'"]})
+    try:
+        source_instance_ids = resolve_corpus_source_instance_ids(
+            catalog,
+            kb_id=request.kb_id,
+            source_ids=request.source_ids,
+        )
+    except ValueError as exc:
+        return result.model_copy(update={"errors": [str(exc)]})
 
     result = result.model_copy(update={"kb_found": True})
 
-    if request.source_ids is not None:
-        selected_ids = set(request.source_ids)
-        missing = sorted(selected_ids - {s.id for s in kb_sources})
-        if missing:
-            return result.model_copy(
-                update={"errors": [f"Source IDs not found in catalog: {missing}"]}
-            )
-        kb_sources = [s for s in kb_sources if s.id in selected_ids]
-
-    if adapter_registry is None:
-        from rag.ingest import DEFAULT_SOURCE_ADAPTERS
-
-        adapter_registry = DEFAULT_SOURCE_ADAPTERS
-
+    index = build_source_instance_index(catalog)
     entries: list[SourcePlanEntry] = []
-    for source in kb_sources:
-        adapter_id = source.ingest_adapter.id
-        adapter_version = source.ingest_adapter.version
-        manifest_ref = source.manifest
-        manifest_path_resolved = _manifest_path(
-            catalog_path=catalog_path, manifest_ref=manifest_ref
-        )
-        manifest_reachable = manifest_path_resolved.exists() and manifest_path_resolved.is_file()
-        manifest_valid = False
-
-        adapter_registered = False
-        source_type_matches = False
-        errors: list[str] = []
-        adapter: Any | None = None
-
-        try:
-            adapter = adapter_registry.get(adapter_id, version=adapter_version)
-            adapter_registered = True
-            if adapter.source_type != source.type:
-                errors.append(
-                    f"Adapter '{adapter_id}@{adapter_version}' expects source_type "
-                    f"'{adapter.source_type}' but catalog declares '{source.type}'"
-                )
-            else:
-                source_type_matches = True
-        except Exception as exc:
-            errors.append(f"Adapter '{adapter_id}@{adapter_version}' not registered: {exc}")
-
-        if not manifest_reachable:
-            errors.append(f"Source manifest not found: {manifest_path_resolved}")
-        elif adapter is not None:
-            try:
-                adapter.validate_manifest(load_source_manifest(manifest_path_resolved))
-                manifest_valid = True
-            except Exception as exc:
-                errors.append(
-                    f"Source manifest invalid for adapter '{adapter_id}@{adapter_version}': {exc}"
-                )
-
+    for source_instance_id in source_instance_ids:
         entries.append(
-            SourcePlanEntry(
-                source_id=source.id,
-                adapter_id=adapter_id,
-                adapter_version=adapter_version,
-                manifest_ref=manifest_ref,
-                manifest_reachable=manifest_reachable,
-                manifest_valid=manifest_valid,
-                adapter_registered=adapter_registered,
-                source_type_matches=source_type_matches,
-                errors=errors,
+            _plan_entry_for_instance(
+                catalog_path=catalog_path,
+                rag_data_root=request.rag_data_root,
+                catalog=catalog,
+                instance=index.get(source_instance_id),
+                adapter_registry=adapter_registry,
             )
         )
 
@@ -380,23 +474,9 @@ def run_source_build_stage(
     **build_kwargs: Any,
 ) -> LifecycleStageResult:
     """Run the source build stage and update a BuildRun."""
-    build_catalog_source_fn = build_catalog_source_fn or _default_build_catalog_source_fn()
     build_catalog_sources_fn = build_catalog_sources_fn or _default_build_catalog_sources_fn()
 
     def _stage() -> Any:
-        if request.source_ids is not None and len(request.source_ids) == 1:
-            return build_catalog_source_fn(
-                catalog_path=request.catalog_path,
-                kb_id=request.kb_id,
-                source_instance_id=request.source_ids[0],
-                rag_data_root=request.rag_data_root,
-                document_ids=request.document_ids,
-                limit=request.limit,
-                force_fetch=request.force_fetch,
-                force_extract=request.force_extract,
-                force_chunk=request.force_chunk,
-                **build_kwargs,
-            )
         return build_catalog_sources_fn(
             catalog_path=request.catalog_path,
             kb_id=request.kb_id,

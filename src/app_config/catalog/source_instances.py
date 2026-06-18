@@ -115,6 +115,65 @@ def build_source_instance_index(catalog_cfg: CatalogConfig) -> SourceInstanceInd
     return SourceInstanceIndex(by_id=by_id, legacy_ids=frozenset(legacy_ids))
 
 
+def _selector_aliases(instance: SourceInstanceConfig) -> set[str]:
+    aliases = {instance.id}
+    kb_prefix = f"{instance.knowledge_base}."
+    if instance.id.startswith(kb_prefix):
+        aliases.add(instance.id.removeprefix(kb_prefix))
+    return aliases
+
+
+def resolve_corpus_source_instance_ids(
+    catalog_cfg: CatalogConfig,
+    *,
+    kb_id: str,
+    source_ids: list[str] | None = None,
+) -> list[str]:
+    """Resolve corpus source-instance ids for a KB, with legacy local-id support."""
+    kb_ids = {kb.id for kb in catalog_cfg.knowledge_bases}
+    if kb_id not in kb_ids:
+        raise ValueError(f"Unknown KB '{kb_id}'")
+
+    index = build_source_instance_index(catalog_cfg)
+    corpus_instances = index.corpus_for_kb(kb_id)
+    if not corpus_instances:
+        raise ValueError(f"Catalog has no corpus source instances for KB '{kb_id}'")
+
+    if source_ids is None:
+        return [instance.id for instance in corpus_instances]
+
+    selected = {source_id.strip() for source_id in source_ids if source_id.strip()}
+    matched_ids: list[str] = []
+    matches_by_selector: dict[str, list[str]] = {selector: [] for selector in selected}
+
+    for instance in corpus_instances:
+        aliases = _selector_aliases(instance)
+        matching_selectors = selected & aliases
+        if matching_selectors:
+            matched_ids.append(instance.id)
+            for selector in matching_selectors:
+                matches_by_selector[selector].append(instance.id)
+
+    ambiguous = {
+        selector: matches
+        for selector, matches in matches_by_selector.items()
+        if len(matches) > 1
+    }
+    if ambiguous:
+        raise ValueError(f"Ambiguous source selectors for KB '{kb_id}': {ambiguous}")
+
+    missing = sorted(
+        selector for selector, matches in matches_by_selector.items() if not matches
+    )
+    if missing:
+        raise ValueError(
+            f"Corpus source instances not found for kb_id='{kb_id}' "
+            f"and source_ids={missing}"
+        )
+
+    return matched_ids
+
+
 def conventional_manifest_path(rag_data_root: Path | str, source_instance_id: str) -> Path:
     """Derive the conventional manifest path for a source instance id."""
     return Path(rag_data_root) / "source_instances" / source_instance_id / "manifest.toml"

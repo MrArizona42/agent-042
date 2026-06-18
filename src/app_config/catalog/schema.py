@@ -71,7 +71,6 @@ BENCHMARK_CONTAINS_VALUES = frozenset(
         "qrels",
         "answers",
         "scores",
-        "evidence_text",
         "evidence_refs",
         "rubrics",
     }

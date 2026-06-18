@@ -111,9 +111,9 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
         run_id="manual-run",
     )
 
-    assert set(build_run.manifest_digests) == {"docs"}
-    assert build_run.manifest_digests["docs"].startswith("sha256:")
-    assert build_run.adapter_versions == {"docs": "generic.http_html@1"}
+    assert set(build_run.manifest_digests) == {"pytorch_reference.docs"}
+    assert build_run.manifest_digests["pytorch_reference.docs"].startswith("sha256:")
+    assert build_run.adapter_versions == {"pytorch_reference.docs": "generic.http_html@1"}
     assert build_run.source_instance_ids == ["pytorch_reference.docs"]
 
 
@@ -241,6 +241,94 @@ def test_plan_build_rejects_manifest_that_adapter_would_reject(tmp_path: Path) -
     )
 
 
+def test_plan_build_supports_v3_source_instances_without_loading_benchmark_adapter(
+    tmp_path: Path,
+) -> None:
+    manifest_path = (
+        tmp_path / "rag_data" / "source_instances" / "pytorch_reference.docs" / "manifest.toml"
+    )
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        dedent(
+            """
+            source_type = "html_docs"
+
+            [[documents]]
+            id = "intro"
+            title = "Introduction"
+            url = "https://example.test/intro"
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    catalog_path = tmp_path / "catalog.toml"
+    catalog_path.write_text(
+        dedent(
+            """
+            schema_version = 3
+
+            [[source_adapters]]
+            id = "generic.http_html"
+            version = "1"
+            description = "Fetches HTML pages."
+            factory = "rag.ingest.adapters:make_http_html_adapter"
+
+            [[benchmark_adapters]]
+            id = "benchmark.not_loaded"
+            version = "1"
+            description = "Intentionally broken for corpus-only planning."
+            factory = "rag.ingest.no_such_module:make_benchmark"
+
+            [[knowledge_bases]]
+            id = "pytorch_reference"
+            enabled = true
+            label = "PyTorch reference"
+            description = "PyTorch docs"
+            selection_description = "PyTorch docs"
+            update_strategy = "replace"
+            default_alias = "challenger"
+            aliases.challenger.top_k = 5
+            aliases.challenger.score_threshold = 0.01
+            aliases.challenger.retrieval_strategy = "hybrid"
+            aliases.challenger.reranker = "reranker"
+            aliases.challenger.reranker_multiplier = 4
+
+            [[source_instances]]
+            id = "pytorch_reference.docs"
+            description = "Official docs."
+            role = "corpus"
+            knowledge_base = "pytorch_reference"
+            adapter = { id = "generic.http_html", version = "1" }
+
+            [[source_instances]]
+            id = "pytorch_reference.qa_benchmark"
+            description = "QA benchmark cases."
+            role = "benchmark"
+            knowledge_base = "pytorch_reference"
+            adapter = { id = "benchmark.not_loaded", version = "1" }
+
+            [source_instances.benchmark]
+            contains = ["queries", "answers"]
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = plan_build(
+        BuildRequest(
+            catalog_path=catalog_path.as_posix(),
+            kb_id="pytorch_reference",
+            source_ids=["docs"],
+            rag_data_root=(tmp_path / "rag_data").as_posix(),
+        )
+    )
+
+    assert result.valid is True
+    assert [source.source_id for source in result.sources] == ["pytorch_reference.docs"]
+
+
 def test_run_source_build_stage_persists_successful_build_run(tmp_path: Path) -> None:
     catalog_path = tmp_path / "catalog.toml"
     rag_data_root = tmp_path / "rag_data"
@@ -249,7 +337,7 @@ def test_run_source_build_stage_persists_successful_build_run(tmp_path: Path) ->
 
     def fake_build(**kwargs):
         calls.append(kwargs)
-        return _Model({"status": "success", "source": kwargs["source_instance_id"]})
+        return _Model({"status": "success", "sources": kwargs["source_instance_ids"]})
 
     result = run_source_build_stage(
         BuildRequest(
@@ -262,7 +350,7 @@ def test_run_source_build_stage_persists_successful_build_run(tmp_path: Path) ->
             force_chunk=True,
         ),
         run_id="run-1",
-        build_catalog_source_fn=fake_build,
+        build_catalog_sources_fn=fake_build,
     )
 
     path = build_run_path(
@@ -272,11 +360,14 @@ def test_run_source_build_stage_persists_successful_build_run(tmp_path: Path) ->
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
 
-    assert result.result.model_dump() == {"status": "success", "source": "docs"}
+    assert result.result.model_dump() == {"status": "success", "sources": ["docs"]}
     assert payload["status"] == "succeeded"
     assert payload["current_stage"] == "build_source"
-    assert payload["stage_results"]["build_source"] == {"status": "success", "source": "docs"}
-    assert calls[0]["source_instance_id"] == "docs"
+    assert payload["stage_results"]["build_source"] == {
+        "status": "success",
+        "sources": ["docs"],
+    }
+    assert calls[0]["source_instance_ids"] == ["docs"]
     assert calls[0]["document_ids"] == ["html_docs:tensors"]
     assert calls[0]["force_chunk"] is True
 
@@ -298,7 +389,7 @@ def test_run_source_build_stage_persists_failed_build_run(tmp_path: Path) -> Non
                 rag_data_root=rag_data_root.as_posix(),
             ),
             run_id="run-2",
-            build_catalog_source_fn=fake_build,
+            build_catalog_sources_fn=fake_build,
         )
 
     payload = json.loads(
@@ -330,7 +421,7 @@ def test_run_source_build_stage_dry_run_does_not_call_stage(tmp_path: Path) -> N
             dry_run=True,
         ),
         run_id="dry-run-1",
-        build_catalog_source_fn=fake_build,
+        build_catalog_sources_fn=fake_build,
     )
 
     payload = json.loads(
@@ -387,7 +478,9 @@ def test_materialize_and_promote_append_existing_build_run(tmp_path: Path) -> No
     run_source_build_stage(
         request,
         run_id="run-4",
-        build_catalog_source_fn=lambda **kwargs: _Model({"source": kwargs["source_instance_id"]}),
+        build_catalog_sources_fn=lambda **kwargs: _Model(
+            {"sources": kwargs["source_instance_ids"]}
+        ),
     )
     run_materialize_stage(
         BuildRequest(
@@ -425,7 +518,7 @@ def test_materialize_and_promote_append_existing_build_run(tmp_path: Path) -> No
     assert payload.alias_config == "challenger"
     assert payload.collection_name == "rag__pytorch_reference__test"
     assert payload.stage_results == {
-        "build_source": {"source": "docs"},
+        "build_source": {"sources": ["docs"]},
         "materialize": {"collection": "rag__pytorch_reference__test"},
         "promote_alias": {"alias": "rag__pytorch_reference__challenger"},
     }

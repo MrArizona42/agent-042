@@ -146,8 +146,7 @@ adapter = { id = "generic.http_html", version = "1" }
 
 
 # benchmark.contains allowed values:
-# "queries", "qrels", "answers", "scores", "evidence_text",
-# "evidence_refs", "rubrics".
+# "queries", "qrels", "answers", "scores", "evidence_refs", "rubrics".
 [[source_instances]]
 id = "ml_papers_core.scifact_benchmark"
 description = "SciFact benchmark cases and labels for evaluating ml_papers_core."
@@ -168,7 +167,7 @@ knowledge_base = "pytorch_reference"
 adapter = { id = "benchmark.pytorch_qa", version = "1" }
 
 benchmark = {
-  contains = ["queries", "answers", "evidence_text"],
+  contains = ["queries", "answers", "evidence_refs"],
   metrics = ["recall_at_k", "answer_groundedness"]
 }
 ```

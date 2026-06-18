@@ -58,6 +58,70 @@ def _write_catalog(path: Path) -> Path:
     return path
 
 
+def _write_v3_catalog(path: Path) -> Path:
+    path.write_text(
+        dedent(
+            """
+            schema_version = 3
+
+            [[tasks]]
+            id = "code"
+            enabled = true
+            label = "Code"
+            routing_description = "Coding help"
+            kb_refs = ["pytorch_reference"]
+            adapter = { enabled = false }
+
+            [[source_adapters]]
+            id = "generic.http_html"
+            version = "1"
+            description = "Fetches HTML pages."
+            factory = "rag.ingest.adapters:make_http_html_adapter"
+
+            [[benchmark_adapters]]
+            id = "benchmark.fake"
+            version = "1"
+            description = "Fake benchmark adapter."
+            factory = "rag.ingest.adapters:make_http_html_adapter"
+
+            [[knowledge_bases]]
+            id = "pytorch_reference"
+            enabled = true
+            label = "PyTorch reference"
+            description = "PyTorch docs"
+            selection_description = "PyTorch docs"
+            update_strategy = "replace"
+            default_alias = "challenger"
+            aliases.challenger.top_k = 5
+            aliases.challenger.score_threshold = 0.01
+            aliases.challenger.retrieval_strategy = "hybrid"
+            aliases.challenger.reranker = "reranker"
+            aliases.challenger.reranker_multiplier = 4
+
+            [[source_instances]]
+            id = "pytorch_reference.docs"
+            description = "Official docs."
+            role = "corpus"
+            knowledge_base = "pytorch_reference"
+            adapter = { id = "generic.http_html", version = "1" }
+
+            [[source_instances]]
+            id = "pytorch_reference.qa_benchmark"
+            description = "QA benchmark cases."
+            role = "benchmark"
+            knowledge_base = "pytorch_reference"
+            adapter = { id = "benchmark.fake", version = "1" }
+
+            [source_instances.benchmark]
+            contains = ["queries", "answers"]
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 class _Model:
     def __init__(self, payload: dict):
         self._payload = payload
@@ -84,7 +148,7 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
 
     def fake_build(**kwargs):
         calls.append(kwargs)
-        return _Model({"status": "success"})
+        return _Model({"status": "success", "sources": kwargs["source_instance_ids"]})
 
     exit_code = cli.main(
         [
@@ -109,14 +173,14 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
             "--chunk-overlap",
             "16",
         ],
-        build_catalog_source_fn=fake_build,
+        build_catalog_sources_fn=fake_build,
     )
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
-    assert payload == {"status": "success"}
+    assert payload == {"status": "success", "sources": ["docs"]}
     assert calls[0]["kb_id"] == "pytorch_reference"
-    assert calls[0]["source_instance_id"] == "docs"
+    assert calls[0]["source_instance_ids"] == ["docs"]
     assert calls[0]["document_ids"] == ["html_docs:tensors"]
     assert calls[0]["limit"] == 1
     assert calls[0]["force_fetch"] is True
@@ -281,7 +345,7 @@ def test_cli_build_source_can_persist_build_run(
     catalog_path.write_text("schema_version = 2\n", encoding="utf-8")
 
     def fake_build(**kwargs):
-        return _Model({"status": "success", "source": kwargs["source_instance_id"]})
+        return _Model({"status": "success", "sources": kwargs["source_instance_ids"]})
 
     exit_code = cli.main(
         [
@@ -298,11 +362,11 @@ def test_cli_build_source_can_persist_build_run(
             "manual-run",
             "--persist-build-run",
         ],
-        build_catalog_source_fn=fake_build,
+        build_catalog_sources_fn=fake_build,
     )
 
     assert exit_code == 0
-    assert json.loads(capsys.readouterr().out) == {"status": "success", "source": "docs"}
+    assert json.loads(capsys.readouterr().out) == {"status": "success", "sources": ["docs"]}
     build_run_payload = json.loads(
         (
             rag_data_root
@@ -316,7 +380,7 @@ def test_cli_build_source_can_persist_build_run(
     assert build_run_payload["status"] == "succeeded"
     assert build_run_payload["stage_results"]["build_source"] == {
         "status": "success",
-        "source": "docs",
+        "sources": ["docs"],
     }
 
 
@@ -381,6 +445,37 @@ def test_cli_collect_bundle_with_all_uses_catalog_source_set(tmp_path: Path, cap
     ]
 
 
+def test_cli_collect_bundle_with_v3_catalog_excludes_benchmark_sources(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    catalog_path = _write_v3_catalog(tmp_path / "catalog.toml")
+    calls: list[dict] = []
+
+    def fake_collect(**kwargs):
+        calls.append(kwargs)
+        return {"source": kwargs["source_instance_id"]}
+
+    exit_code = cli.main(
+        [
+            "collect-bundle",
+            "--catalog",
+            catalog_path.as_posix(),
+            "--kb",
+            "pytorch_reference",
+            "--source",
+            "all",
+            "--rag-data-root",
+            "assets/rag_data",
+        ],
+        collect_source_chunks_fn=fake_collect,
+    )
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == {"source": "pytorch_reference.docs"}
+    assert calls[0]["source_instance_id"] == "pytorch_reference.docs"
+
+
 def test_cli_materialize_derives_hybrid_capability_from_catalog(
     tmp_path: Path,
     monkeypatch,
@@ -438,6 +533,64 @@ def test_cli_materialize_derives_hybrid_capability_from_catalog(
     assert calls[0]["sparse_encoder_model"] == "Qdrant/bm25"
     assert isinstance(calls[0]["sparse_encoder_client"], _Sparse)
     assert calls[0]["qdrant_upsert_batch_size"] == 128
+
+
+def test_cli_materialize_with_v3_catalog_uses_corpus_source_instance(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    catalog_path = _write_v3_catalog(tmp_path / "catalog.toml")
+    calls: list[dict] = []
+    collected: list[dict] = []
+
+    class _Embedding:
+        dimension = 3
+
+    class _Sparse:
+        pass
+
+    monkeypatch.setattr(cli, "get_settings", lambda: _Settings())
+    monkeypatch.setattr(cli, "EmbeddingService", _Embedding)
+    monkeypatch.setattr(cli, "SparseEncoderService", _Sparse)
+    monkeypatch.setattr(
+        cli,
+        "_vector_store",
+        lambda collection_name: {"collection": collection_name},
+    )
+
+    def fake_collect(**kwargs):
+        collected.append(kwargs)
+        return {"bundle": kwargs["source_instance_id"]}
+
+    def fake_materialize(**kwargs):
+        calls.append(kwargs)
+        return _Model({"collection": kwargs["collection_name"]})
+
+    exit_code = cli.main(
+        [
+            "materialize",
+            "--catalog",
+            catalog_path.as_posix(),
+            "--kb",
+            "pytorch_reference",
+            "--source",
+            "docs",
+            "--alias-config",
+            "challenger",
+            "--collection",
+            "rag__pytorch_reference__test",
+            "--rag-data-root",
+            "assets/rag_data",
+        ],
+        collect_source_chunks_fn=fake_collect,
+        materialize_kb_collection_fn=fake_materialize,
+    )
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == {"collection": "rag__pytorch_reference__test"}
+    assert collected[0]["source_instance_id"] == "pytorch_reference.docs"
+    assert calls[0]["bundles"] == [{"bundle": "pytorch_reference.docs"}]
 
 
 def test_cli_materialize_can_persist_build_run(

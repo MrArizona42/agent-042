@@ -16,12 +16,13 @@ from app_config.catalog import (
     conventional_manifest_path,
     legacy_source_instance_id,
     materialize_catalog,
+    resolve_corpus_source_instance_ids,
 )
 from rag.ingest import (
     DEFAULT_SOURCE_ADAPTERS,
     SourceAdapter,
     SourceAdapterRegistry,
-    build_catalog_adapter_registry,
+    load_adapter,
 )
 from rag.sources.chunks import (
     ChunkingConfig,
@@ -52,7 +53,9 @@ class CatalogSourceBuildSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     catalog_path: str
-    source: SourceConfig
+    source_instance_id: str
+    role: SourceInstanceRole
+    source: SourceConfig | None = None
     build: SourceBuildSummary
 
 
@@ -105,11 +108,33 @@ def _load_catalog_config(catalog_path: Path | str) -> CatalogConfig:
     return catalog
 
 
-def _resolve_default_adapter_registry(catalog: CatalogConfig) -> SourceAdapterRegistry:
-    """Prefer catalog-declared adapters; fall back to defaults for legacy catalogs."""
+def _declared_adapter_config(
+    catalog: CatalogConfig,
+    *,
+    adapter_id: str,
+    version: str,
+):
+    for config in (*catalog.source_adapters, *catalog.benchmark_adapters):
+        if config.id == adapter_id and config.version == version:
+            return config
+    return None
+
+
+def _resolve_adapter_ref(
+    catalog: CatalogConfig,
+    *,
+    adapter_id: str,
+    version: str,
+    adapter_registry: SourceAdapterRegistry | None,
+) -> SourceAdapter:
+    if adapter_registry is not None:
+        return adapter_registry.get(adapter_id, version=version)
     if catalog.source_adapters or catalog.benchmark_adapters:
-        return build_catalog_adapter_registry(catalog)
-    return DEFAULT_SOURCE_ADAPTERS
+        config = _declared_adapter_config(catalog, adapter_id=adapter_id, version=version)
+        if config is None:
+            raise ValueError(f"Catalog references undeclared adapter '{adapter_id}@{version}'")
+        return load_adapter(config, required_capabilities=frozenset({"source"}))
+    return DEFAULT_SOURCE_ADAPTERS.get(adapter_id, version=version)
 
 
 def _catalog_manifest_path(*, catalog_path: Path, manifest_ref: str) -> Path:
@@ -133,6 +158,17 @@ def _find_source_config(
         f"Catalog source not found for kb_id='{kb_id}' "
         f"and source_instance_id='{source_instance_id}'"
     )
+
+
+def _legacy_source_for_instance_id(
+    catalog: CatalogConfig,
+    source_instance_id: str,
+) -> SourceConfig | None:
+    for source in catalog.sources:
+        legacy_id = legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id)
+        if legacy_id == source_instance_id:
+            return source
+    return None
 
 
 def resolve_catalog_sources(
@@ -209,9 +245,15 @@ def build_source_instance(
 def _resolve_source_adapter(
     source: SourceConfig,
     *,
-    adapter_registry: SourceAdapterRegistry,
+    catalog: CatalogConfig,
+    adapter_registry: SourceAdapterRegistry | None,
 ) -> SourceAdapter:
-    adapter = adapter_registry.get(source.ingest_adapter.id, version=source.ingest_adapter.version)
+    adapter = _resolve_adapter_ref(
+        catalog,
+        adapter_id=source.ingest_adapter.id,
+        version=source.ingest_adapter.version,
+        adapter_registry=adapter_registry,
+    )
     if adapter.source_type != source.type:
         raise ValueError(
             f"Catalog source '{source.kb}/{source.id}' has type '{source.type}' but "
@@ -245,7 +287,8 @@ def build_catalog_source(
     )
     source_adapter = _resolve_source_adapter(
         source,
-        adapter_registry=adapter_registry or _resolve_default_adapter_registry(catalog),
+        catalog=catalog,
+        adapter_registry=adapter_registry,
     )
     build = build_source_instance(
         kb_id=source.kb,
@@ -265,6 +308,8 @@ def build_catalog_source(
     )
     return CatalogSourceBuildSummary(
         catalog_path=catalog_path.as_posix(),
+        source_instance_id=legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id),
+        role="corpus",
         source=source,
         build=build,
     )
@@ -287,26 +332,35 @@ def build_catalog_sources(
     """Build all or selected source instances for a KB."""
     catalog_path = Path(catalog_path)
     catalog = _load_catalog_config(catalog_path)
-    sources = resolve_catalog_sources(
+    resolved_ids = resolve_corpus_source_instance_ids(
         catalog,
         kb_id=kb_id,
-        source_instance_ids=source_instance_ids,
+        source_ids=source_instance_ids,
     )
+    built = build_source_instances_by_global_id(
+        catalog_path=catalog_path,
+        source_instance_ids=resolved_ids,
+        rag_data_root=rag_data_root,
+        document_ids=document_ids,
+        limit=limit,
+        force_fetch=force_fetch,
+        force_extract=force_extract,
+        force_chunk=force_chunk,
+        chunking=chunking,
+        adapter_registry=adapter_registry,
+    )
+    index = build_source_instance_index(catalog)
     summaries = [
-        build_catalog_source(
-            catalog_path=catalog_path,
-            kb_id=kb_id,
-            source_instance_id=source.id,
-            rag_data_root=rag_data_root,
-            document_ids=document_ids,
-            limit=limit,
-            force_fetch=force_fetch,
-            force_extract=force_extract,
-            force_chunk=force_chunk,
-            chunking=chunking,
-            adapter_registry=adapter_registry,
+        CatalogSourceBuildSummary(
+            catalog_path=catalog_path.as_posix(),
+            source_instance_id=summary.source_instance_id,
+            role=summary.role,
+            source=_legacy_source_for_instance_id(catalog, summary.source_instance_id)
+            if index.is_legacy(summary.source_instance_id)
+            else None,
+            build=summary.build,
         )
-        for source in sources
+        for summary in built
     ]
     return CatalogSourcesBuildSummary(
         catalog_path=catalog_path.as_posix(),
@@ -347,8 +401,6 @@ def build_source_instance_by_global_id(
     instance = index.get(source_instance_id)
     _reject_benchmark_target(source_instance_id=source_instance_id, role=instance.role)
 
-    registry = adapter_registry or _resolve_default_adapter_registry(catalog)
-
     if index.is_legacy(source_instance_id):
         legacy_source = next(
             source
@@ -360,10 +412,19 @@ def build_source_instance_by_global_id(
             catalog_path=catalog_path,
             manifest_ref=legacy_source.manifest,
         )
-        source_adapter = _resolve_source_adapter(legacy_source, adapter_registry=registry)
+        source_adapter = _resolve_source_adapter(
+            legacy_source,
+            catalog=catalog,
+            adapter_registry=adapter_registry,
+        )
     else:
         manifest_path = conventional_manifest_path(rag_data_root, instance.id)
-        source_adapter = registry.get(instance.adapter.id, version=instance.adapter.version)
+        source_adapter = _resolve_adapter_ref(
+            catalog,
+            adapter_id=instance.adapter.id,
+            version=instance.adapter.version,
+            adapter_registry=adapter_registry,
+        )
 
     build = build_source_instance(
         kb_id=instance.knowledge_base,

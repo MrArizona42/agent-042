@@ -594,6 +594,44 @@ def test_build_source_instance_by_global_id_builds_declared_corpus_instance(
     assert summary.build.status == "success"
 
 
+def test_build_catalog_sources_builds_declared_v3_corpus_instances_only(
+    tmp_path: Path,
+) -> None:
+    catalog_path = _catalog_with_corpus_and_benchmark_instances(tmp_path, tmp_path / "unused.toml")
+    conventional_manifest = (
+        tmp_path / "rag_data" / "source_instances" / "pytorch_reference.docs" / "manifest.toml"
+    )
+    conventional_manifest.parent.mkdir(parents=True)
+    _write_manifest(
+        conventional_manifest,
+        """
+        schema_version = 1
+        source_type = "html_docs"
+
+        [[documents]]
+        id = "tensors"
+        title = "Tensors"
+        url = "https://docs.test/tensors.html"
+        """,
+    )
+
+    summary = build_catalog_sources(
+        catalog_path=catalog_path,
+        kb_id="pytorch_reference",
+        source_instance_ids=None,
+        rag_data_root=tmp_path / "rag_data",
+        document_ids=["html_docs:tensors"],
+        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
+        adapter_registry=_mock_registry(),
+    )
+
+    assert [source.source_instance_id for source in summary.sources] == [
+        "pytorch_reference.docs"
+    ]
+    assert summary.sources[0].source is None
+    assert summary.sources[0].build.status == "success"
+
+
 def test_build_source_instances_by_global_id_builds_multiple(tmp_path: Path) -> None:
     manifest_path = _manifest(tmp_path)
     catalog_path = _catalog(tmp_path, manifest_path)
