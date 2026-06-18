@@ -361,9 +361,24 @@ def test_sync_dvc_syncs_generated_artifact_paths(
 ) -> None:
     dag_module = _load_dag(monkeypatch)
     monkeypatch.setattr(dag_module, "PROJECT_ROOT", tmp_path)
+    (tmp_path / "catalog.toml").write_text(
+        "\n".join(
+            [
+                "schema_version = 2",
+                "[[sources]]",
+                'type = "html_docs"',
+                'kb = "pytorch_reference"',
+                'id = "docs"',
+                'manifest = "assets/rag_data/pytorch_reference/sources.toml"',
+                'ingest_adapter = { id = "generic.http_html", version = "1" }',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     root = tmp_path / "rag_data"
-    (root / "pytorch_reference" / "extracted").mkdir(parents=True)
-    (root / "pytorch_reference" / "chunks").mkdir(parents=True)
+    (root / "source_instances" / "pytorch_reference.docs" / "extracted").mkdir(parents=True)
+    (root / "source_instances" / "pytorch_reference.docs" / "chunks").mkdir(parents=True)
     calls: list[dict[str, object]] = []
 
     def fake_sync(**kwargs):
@@ -385,8 +400,40 @@ def test_sync_dvc_syncs_generated_artifact_paths(
 
     assert result["synced"] is True
     assert result["paths"] == [
-        "rag_data/pytorch_reference/extracted",
-        "rag_data/pytorch_reference/chunks",
+        "rag_data/source_instances/pytorch_reference.docs/extracted",
+        "rag_data/source_instances/pytorch_reference.docs/chunks",
     ]
     assert [call["dataset_rel_path"] for call in calls] == result["paths"]
     assert {call["bot_branch"] for call in calls} == {"data-sync/rag-test"}
+
+
+def test_sync_dvc_syncs_kb_scoped_artifacts_separately(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dag_module = _load_dag(monkeypatch)
+    monkeypatch.setattr(dag_module, "PROJECT_ROOT", tmp_path)
+    (tmp_path / "catalog.toml").write_text("schema_version = 2\n", encoding="utf-8")
+    root = tmp_path / "rag_data"
+    (root / "knowledge_bases" / "pytorch_reference" / "manifests").mkdir(parents=True)
+    (root / "knowledge_bases" / "pytorch_reference" / "metadata").mkdir(parents=True)
+
+    fake_module = types.ModuleType("shared.airflow_git_sync")
+    fake_module.sync_dvc_dataset_via_temp_clone = lambda **kwargs: {
+        "changed": True,
+        "dataset": kwargs["dataset_rel_path"],
+    }
+    monkeypatch.setitem(sys.modules, "shared.airflow_git_sync", fake_module)
+
+    result = dag_module._sync_dvc(
+        **_context(
+            sync_dvc=True,
+            rag_data_root=root.as_posix(),
+            dvc_artifacts="manifests,metadata",
+        )
+    )
+
+    assert result["paths"] == [
+        "rag_data/knowledge_bases/pytorch_reference/manifests",
+        "rag_data/knowledge_bases/pytorch_reference/metadata",
+    ]

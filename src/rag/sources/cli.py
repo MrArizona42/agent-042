@@ -29,7 +29,13 @@ from rag.lifecycle import (
     run_materialize_stage,
     run_source_build_stage,
 )
-from rag.sources.build import build_catalog_source, build_catalog_sources, resolve_catalog_sources
+from rag.sources.build import (
+    build_catalog_source,
+    build_catalog_sources,
+    build_source_instance_by_global_id,
+    build_source_instances_by_global_id,
+    resolve_catalog_sources,
+)
 from rag.sources.bundles import collect_source_bundles, collect_source_chunks
 from rag.sources.chunks import ChunkingConfig
 from rag.sparse_encoder import SparseEncoderService
@@ -94,9 +100,11 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m rag.sources.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    def add_common_source_args(command: argparse.ArgumentParser) -> None:
+    def add_common_source_args(
+        command: argparse.ArgumentParser, *, kb_required: bool = True
+    ) -> None:
         command.add_argument("--catalog", required=True)
-        command.add_argument("--kb", required=True)
+        command.add_argument("--kb", required=kb_required)
         command.add_argument(
             "--source",
             action="append",
@@ -113,7 +121,16 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--dry-run", action="store_true")
 
     build_source = subparsers.add_parser("build-source")
-    add_common_source_args(build_source)
+    add_common_source_args(build_source, kb_required=False)
+    build_source.add_argument(
+        "--source-instance",
+        action="append",
+        dest="source_instance_ids",
+        help=(
+            "Global source instance id (e.g. 'kb_id.local_id'). Repeat for multiple. "
+            "Bypasses --kb/--source and rejects role='benchmark' targets."
+        ),
+    )
     build_source.add_argument("--force-fetch", action="store_true")
     build_source.add_argument("--force-extract", action="store_true")
     build_source.add_argument("--force-chunk", action="store_true")
@@ -205,6 +222,10 @@ def main(
     *,
     build_catalog_source_fn: Callable[..., Any] = build_catalog_source,
     build_catalog_sources_fn: Callable[..., Any] = build_catalog_sources,
+    build_source_instance_by_global_id_fn: Callable[..., Any] = build_source_instance_by_global_id,
+    build_source_instances_by_global_id_fn: Callable[
+        ..., Any
+    ] = build_source_instances_by_global_id,
     collect_source_chunks_fn: Callable[..., Any] = collect_source_chunks,
     collect_source_bundles_fn: Callable[..., Any] = collect_source_bundles,
     materialize_kb_collection_fn: Callable[..., Any] = materialize_kb_collection,
@@ -213,7 +234,33 @@ def main(
     """Run the source lifecycle CLI."""
     args = _parser().parse_args(argv)
 
+    if args.command == "build-source" and args.source_instance_ids:
+        build_kwargs: dict[str, Any] = {
+            "catalog_path": args.catalog,
+            "rag_data_root": args.rag_data_root,
+            "document_ids": _document_ids(args.document_ids),
+            "limit": args.limit,
+            "force_fetch": args.force_fetch,
+            "force_extract": args.force_extract,
+            "force_chunk": args.force_chunk,
+            "chunking": _chunking_from_args(args),
+        }
+        if len(args.source_instance_ids) == 1:
+            result = build_source_instance_by_global_id_fn(
+                source_instance_id=args.source_instance_ids[0],
+                **build_kwargs,
+            )
+        else:
+            result = build_source_instances_by_global_id_fn(
+                source_instance_ids=args.source_instance_ids,
+                **build_kwargs,
+            )
+        _print_model(result)
+        return 0
+
     if args.command == "build-source":
+        if not args.kb:
+            raise SystemExit("--kb is required when --source-instance is not given")
         source_ids = _source_ids(args.sources)
         stage_result = run_source_build_stage(
             BuildRequest(

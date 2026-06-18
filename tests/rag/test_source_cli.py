@@ -126,6 +126,74 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
     assert calls[0]["chunking"].chunk_overlap == 16
 
 
+def test_cli_build_source_with_single_source_instance_bypasses_kb(capsys) -> None:
+    calls: list[dict] = []
+
+    def fake_build_one(**kwargs):
+        calls.append(kwargs)
+        return _Model({"status": "success"})
+
+    exit_code = cli.main(
+        [
+            "build-source",
+            "--catalog",
+            "catalog.toml",
+            "--source-instance",
+            "pytorch_reference.docs",
+            "--rag-data-root",
+            "assets/rag_data",
+        ],
+        build_source_instance_by_global_id_fn=fake_build_one,
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload == {"status": "success"}
+    assert calls[0]["source_instance_id"] == "pytorch_reference.docs"
+    assert "kb_id" not in calls[0]
+
+
+def test_cli_build_source_with_multiple_source_instances(capsys) -> None:
+    calls: list[dict] = []
+
+    def fake_build_many(**kwargs):
+        calls.append(kwargs)
+        return _Model({"status": "success", "count": len(kwargs["source_instance_ids"])})
+
+    exit_code = cli.main(
+        [
+            "build-source",
+            "--catalog",
+            "catalog.toml",
+            "--source-instance",
+            "pytorch_reference.docs",
+            "--source-instance",
+            "ml_papers_core.papers",
+            "--rag-data-root",
+            "assets/rag_data",
+        ],
+        build_source_instances_by_global_id_fn=fake_build_many,
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload == {"status": "success", "count": 2}
+    assert calls[0]["source_instance_ids"] == ["pytorch_reference.docs", "ml_papers_core.papers"]
+
+
+def test_cli_build_source_requires_kb_when_no_source_instance_given() -> None:
+    with pytest.raises(SystemExit, match="--kb is required"):
+        cli.main(
+            [
+                "build-source",
+                "--catalog",
+                "catalog.toml",
+                "--rag-data-root",
+                "assets/rag_data",
+            ]
+        )
+
+
 def test_cli_collect_bundle_outputs_bundle_summary(capsys) -> None:
     def fake_collect(**kwargs):
         assert kwargs["kb_id"] == "pytorch_reference"

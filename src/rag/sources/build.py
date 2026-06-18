@@ -11,6 +11,9 @@ from pydantic import BaseModel, ConfigDict
 from app_config.catalog import (
     CatalogConfig,
     SourceConfig,
+    SourceInstanceRole,
+    build_source_instance_index,
+    conventional_manifest_path,
     legacy_source_instance_id,
     materialize_catalog,
 )
@@ -61,6 +64,17 @@ class CatalogSourcesBuildSummary(BaseModel):
     catalog_path: str
     kb_id: str
     sources: list[CatalogSourceBuildSummary]
+
+
+class GlobalSourceBuildSummary(BaseModel):
+    """Summary for one source instance build addressed by its global id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    catalog_path: str
+    source_instance_id: str
+    role: SourceInstanceRole
+    build: SourceBuildSummary
 
 
 def _build_status(
@@ -299,3 +313,105 @@ def build_catalog_sources(
         kb_id=kb_id,
         sources=summaries,
     )
+
+
+def _reject_benchmark_target(*, source_instance_id: str, role: SourceInstanceRole) -> None:
+    if role == "benchmark":
+        raise ValueError(
+            f"Source instance '{source_instance_id}' has role 'benchmark'; build-source only "
+            "builds role 'corpus' instances. Use prepare-benchmark for benchmark sources."
+        )
+
+
+def build_source_instance_by_global_id(
+    *,
+    catalog_path: Path | str,
+    source_instance_id: str,
+    rag_data_root: Path | str,
+    document_ids: list[str] | None = None,
+    limit: int | None = None,
+    force_fetch: bool = False,
+    force_extract: bool = False,
+    force_chunk: bool = False,
+    chunking: ChunkingConfig | None = None,
+    adapter_registry: SourceAdapterRegistry | None = None,
+) -> GlobalSourceBuildSummary:
+    """Build one source instance addressed by its globally unique id.
+
+    Rejects `role = "benchmark"` targets; those are built via the benchmark
+    preparation pipeline instead.
+    """
+    catalog_path = Path(catalog_path)
+    catalog = _load_catalog_config(catalog_path)
+    index = build_source_instance_index(catalog)
+    instance = index.get(source_instance_id)
+    _reject_benchmark_target(source_instance_id=source_instance_id, role=instance.role)
+
+    registry = adapter_registry or _resolve_default_adapter_registry(catalog)
+
+    if index.is_legacy(source_instance_id):
+        legacy_source = next(
+            source
+            for source in catalog.sources
+            if legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id)
+            == source_instance_id
+        )
+        manifest_path = _catalog_manifest_path(
+            catalog_path=catalog_path,
+            manifest_ref=legacy_source.manifest,
+        )
+        source_adapter = _resolve_source_adapter(legacy_source, adapter_registry=registry)
+    else:
+        manifest_path = conventional_manifest_path(rag_data_root, instance.id)
+        source_adapter = registry.get(instance.adapter.id, version=instance.adapter.version)
+
+    build = build_source_instance(
+        kb_id=instance.knowledge_base,
+        source_instance_id=instance.id,
+        manifest_path=manifest_path,
+        rag_data_root=rag_data_root,
+        source_adapter=source_adapter,
+        document_ids=document_ids,
+        limit=limit,
+        force_fetch=force_fetch,
+        force_extract=force_extract,
+        force_chunk=force_chunk,
+        chunking=chunking,
+    )
+    return GlobalSourceBuildSummary(
+        catalog_path=catalog_path.as_posix(),
+        source_instance_id=instance.id,
+        role=instance.role,
+        build=build,
+    )
+
+
+def build_source_instances_by_global_id(
+    *,
+    catalog_path: Path | str,
+    source_instance_ids: list[str],
+    rag_data_root: Path | str,
+    document_ids: list[str] | None = None,
+    limit: int | None = None,
+    force_fetch: bool = False,
+    force_extract: bool = False,
+    force_chunk: bool = False,
+    chunking: ChunkingConfig | None = None,
+    adapter_registry: SourceAdapterRegistry | None = None,
+) -> list[GlobalSourceBuildSummary]:
+    """Build multiple source instances addressed by their globally unique ids."""
+    return [
+        build_source_instance_by_global_id(
+            catalog_path=catalog_path,
+            source_instance_id=source_instance_id,
+            rag_data_root=rag_data_root,
+            document_ids=document_ids,
+            limit=limit,
+            force_fetch=force_fetch,
+            force_extract=force_extract,
+            force_chunk=force_chunk,
+            chunking=chunking,
+            adapter_registry=adapter_registry,
+        )
+        for source_instance_id in source_instance_ids
+    ]

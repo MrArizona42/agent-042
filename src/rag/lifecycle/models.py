@@ -68,6 +68,7 @@ class BuildRun(BaseModel):
     run_id: str
     kb_id: str
     source_ids: list[str] | None = None
+    source_instance_ids: list[str] = Field(default_factory=list)
     status: BuildRunStatus = "planned"
     current_stage: str | None = None
     catalog_path: str

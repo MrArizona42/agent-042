@@ -106,6 +106,9 @@ def _append_common_source_args(cmd: list[str], params: dict[str, Any]) -> None:
     for source in _csv_values(params.get("source")):
         cmd.extend(["--source", source])
 
+    for source_instance in _csv_values(params.get("source_instance")):
+        cmd.extend(["--source-instance", source_instance])
+
     cmd.extend(
         [
             "--rag-data-root",
@@ -219,16 +222,57 @@ def _promote_alias(**context: Any) -> dict[str, Any]:
     return {"promoted": True, **result}
 
 
+_KB_SCOPED_ARTIFACTS = {"manifests", "metadata"}
+
+
+def _catalog_kb_source_instance_ids(params: dict[str, Any]) -> list[str]:
+    """Resolve global source instance ids declared for this kb in the catalog."""
+    import tomllib
+
+    from app_config.catalog import legacy_source_instance_id
+    from app_config.catalog.schema import CatalogConfig
+
+    catalog_path = Path(str(params["catalog"]))
+    if not catalog_path.is_absolute():
+        catalog_path = PROJECT_ROOT / catalog_path
+    if not catalog_path.is_file():
+        return []
+    catalog = CatalogConfig(**tomllib.loads(catalog_path.read_text(encoding="utf-8")))
+    kb_id = str(params["kb"])
+    return [
+        legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id)
+        for source in catalog.sources
+        if source.kb == kb_id
+    ]
+
+
 def _dvc_artifact_rel_paths(params: dict[str, Any]) -> list[str]:
-    """Return generated RAG artifact paths that should be DVC-tracked."""
+    """Return generated RAG artifact paths that should be DVC-tracked.
+
+    KB-scoped artifacts (manifests, metadata) live under
+    `<rag_data_root>/knowledge_bases/<kb_id>/...`; per-source artifacts
+    (extracted, chunks, raw) live under
+    `<rag_data_root>/source_instances/<source_instance_id>/...` for every
+    source instance declared for this kb.
+    """
     rag_root = Path(str(params["rag_data_root"]))
     kb_id = str(params["kb"])
-    root = rag_root / kb_id
     requested = _csv_values(params.get("dvc_artifacts"))
     artifact_names = requested or ["extracted", "chunks", "manifests", "metadata"]
+    kb_names = [name for name in artifact_names if name in _KB_SCOPED_ARTIFACTS]
+    source_instance_names = [name for name in artifact_names if name not in _KB_SCOPED_ARTIFACTS]
+
+    candidate_paths: list[Path] = []
+    if kb_names:
+        kb_root = rag_root / "knowledge_bases" / kb_id
+        candidate_paths.extend(kb_root / name for name in kb_names)
+    if source_instance_names:
+        for source_instance_id in _catalog_kb_source_instance_ids(params):
+            instance_root = rag_root / "source_instances" / source_instance_id
+            candidate_paths.extend(instance_root / name for name in source_instance_names)
+
     rel_paths: list[str] = []
-    for artifact_name in artifact_names:
-        path = root / artifact_name
+    for path in candidate_paths:
         absolute_path = path if path.is_absolute() else PROJECT_ROOT / path
         if not absolute_path.exists():
             continue
@@ -299,6 +343,7 @@ with DAG(
         "catalog": Param(_configured_catalog_path(), type="string"),
         "kb": Param("", type="string"),
         "source": Param("", type=["null", "string", "array"]),
+        "source_instance": Param("", type=["null", "string", "array"]),
         "alias_config": Param("challenger", type="string"),
         "rag_data_root": Param("assets/rag_data", type="string"),
         "document_ids": Param("", type=["null", "string", "array"]),

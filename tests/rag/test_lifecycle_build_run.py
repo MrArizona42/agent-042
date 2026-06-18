@@ -114,6 +114,7 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
     assert set(build_run.manifest_digests) == {"docs"}
     assert build_run.manifest_digests["docs"].startswith("sha256:")
     assert build_run.adapter_versions == {"docs": "generic.http_html@1"}
+    assert build_run.source_instance_ids == ["pytorch_reference.docs"]
 
 
 def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> None:

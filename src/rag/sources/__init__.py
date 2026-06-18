@@ -12,11 +12,14 @@ from rag.sources.artifacts import (
 from rag.sources.build import (
     CatalogSourceBuildSummary,
     CatalogSourcesBuildSummary,
+    GlobalSourceBuildSummary,
     SourceBuildStatus,
     SourceBuildSummary,
     build_catalog_source,
     build_catalog_sources,
     build_source_instance,
+    build_source_instance_by_global_id,
+    build_source_instances_by_global_id,
     resolve_catalog_sources,
 )
 from rag.sources.bundles import (
@@ -69,6 +72,7 @@ __all__ = [
     "ExtractedDocumentArtifact",
     "ExtractionArtifactMeta",
     "GenericSourceEntry",
+    "GlobalSourceBuildSummary",
     "HtmlDocsFetcher",
     "HtmlDocsExtractor",
     "LLAMAINDEX_SENTENCE_SPLITTER",
@@ -87,6 +91,8 @@ __all__ = [
     "build_catalog_sources",
     "build_catalog_source",
     "build_source_instance",
+    "build_source_instance_by_global_id",
+    "build_source_instances_by_global_id",
     "chunk_artifact_path",
     "chunk_extracted_artifact",
     "chunk_source_instance",

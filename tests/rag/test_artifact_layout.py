@@ -76,8 +76,7 @@ def test_manifest_and_build_run_paths_are_knowledge_base_scoped(tmp_path: Path) 
     )
 
     assert manifest.as_posix().endswith(
-        "knowledge_bases/pytorch_reference/manifests/"
-        "rag__pytorch_reference__20260101_000000.json"
+        "knowledge_bases/pytorch_reference/manifests/rag__pytorch_reference__20260101_000000.json"
     )
     assert run.as_posix().endswith(
         "knowledge_bases/pytorch_reference/metadata/build_runs/"

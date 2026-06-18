@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from app_config.catalog import CatalogConfig, materialize_catalog
+from app_config.catalog import CatalogConfig, legacy_source_instance_id, materialize_catalog
 from rag.lifecycle.models import (
     BuildRequest,
     BuildRun,
@@ -56,19 +56,22 @@ def _manifest_path(*, catalog_path: Path, manifest_ref: str) -> Path:
     return catalog_relative if catalog_relative.exists() else path
 
 
-def _source_attestation(request: BuildRequest) -> tuple[dict[str, str], dict[str, str]]:
+def _source_attestation(
+    request: BuildRequest,
+) -> tuple[dict[str, str], dict[str, str], list[str]]:
     catalog_path = Path(request.catalog_path)
     if not catalog_path.exists() or not catalog_path.is_file():
-        return {}, {}
+        return {}, {}, []
 
     try:
         catalog = CatalogConfig(**tomllib.loads(catalog_path.read_text(encoding="utf-8")))
     except (OSError, tomllib.TOMLDecodeError, ValueError):
-        return {}, {}
+        return {}, {}, []
 
     selected = set(request.source_ids) if request.source_ids is not None else None
     manifest_digests: dict[str, str] = {}
     adapter_versions: dict[str, str] = {}
+    source_instance_ids: list[str] = []
 
     for source in catalog.sources:
         if source.kb != request.kb_id:
@@ -83,8 +86,11 @@ def _source_attestation(request: BuildRequest) -> tuple[dict[str, str], dict[str
             manifest_digests[source.id] = digest
 
         adapter_versions[source.id] = f"{source.ingest_adapter.id}@{source.ingest_adapter.version}"
+        source_instance_ids.append(
+            legacy_source_instance_id(kb_id=source.kb, local_source_id=source.id)
+        )
 
-    return manifest_digests, adapter_versions
+    return manifest_digests, adapter_versions, source_instance_ids
 
 
 def create_build_run(
@@ -95,7 +101,7 @@ def create_build_run(
 ) -> BuildRun:
     """Create a planned BuildRun for a request."""
     created_at = created_at or datetime.now(tz=UTC)
-    manifest_digests, adapter_versions = _source_attestation(request)
+    manifest_digests, adapter_versions, source_instance_ids = _source_attestation(request)
     profile_payload = request.model_dump(
         mode="json",
         exclude={"catalog_path", "rag_data_root"},
@@ -105,6 +111,7 @@ def create_build_run(
         run_id=run_id or _run_id(kb_id=request.kb_id, created_at=created_at),
         kb_id=request.kb_id,
         source_ids=request.source_ids,
+        source_instance_ids=source_instance_ids,
         status="planned",
         catalog_path=request.catalog_path,
         rag_data_root=request.rag_data_root,
