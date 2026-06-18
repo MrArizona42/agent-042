@@ -29,6 +29,7 @@ from rag.lifecycle import (
     run_materialize_stage,
     run_source_build_stage,
 )
+from rag.sources.benchmark_prep import prepare_benchmark_source_instance
 from rag.sources.build import (
     build_catalog_source,
     build_catalog_sources,
@@ -172,6 +173,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     plan.add_argument("--rag-data-root", default=".")
 
+    prepare_benchmark = subparsers.add_parser(
+        "prepare-benchmark", help="Validate a benchmark manifest and emit cases/labels."
+    )
+    prepare_benchmark.add_argument("--catalog", required=True)
+    prepare_benchmark.add_argument("--source-instance", required=True, dest="source_instance_id")
+    prepare_benchmark.add_argument("--rag-data-root", required=True)
+
     status = subparsers.add_parser("status", help="List persisted build runs for a KB.")
     status.add_argument("--kb", required=True)
     status.add_argument("--rag-data-root", required=True)
@@ -230,9 +238,19 @@ def main(
     collect_source_bundles_fn: Callable[..., Any] = collect_source_bundles,
     materialize_kb_collection_fn: Callable[..., Any] = materialize_kb_collection,
     promote_materialized_alias_fn: Callable[..., Any] = promote_materialized_alias,
+    prepare_benchmark_source_instance_fn: Callable[..., Any] = prepare_benchmark_source_instance,
 ) -> int:
     """Run the source lifecycle CLI."""
     args = _parser().parse_args(argv)
+
+    if args.command == "prepare-benchmark":
+        result = prepare_benchmark_source_instance_fn(
+            catalog_path=args.catalog,
+            source_instance_id=args.source_instance_id,
+            rag_data_root=args.rag_data_root,
+        )
+        _print_model(result)
+        return 0
 
     if args.command == "build-source" and args.source_instance_ids:
         build_kwargs: dict[str, Any] = {

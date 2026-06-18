@@ -194,6 +194,34 @@ def test_cli_build_source_requires_kb_when_no_source_instance_given() -> None:
         )
 
 
+def test_cli_prepare_benchmark_wires_catalog_and_source_instance(capsys) -> None:
+    calls: list[dict] = []
+
+    def fake_prepare(**kwargs):
+        calls.append(kwargs)
+        return _Model({"case_count": 3, "label_count": 3})
+
+    exit_code = cli.main(
+        [
+            "prepare-benchmark",
+            "--catalog",
+            "catalog.toml",
+            "--source-instance",
+            "pytorch_reference.qa_benchmark",
+            "--rag-data-root",
+            "assets/rag_data",
+        ],
+        prepare_benchmark_source_instance_fn=fake_prepare,
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload == {"case_count": 3, "label_count": 3}
+    assert calls[0]["catalog_path"] == "catalog.toml"
+    assert calls[0]["source_instance_id"] == "pytorch_reference.qa_benchmark"
+    assert calls[0]["rag_data_root"] == "assets/rag_data"
+
+
 def test_cli_collect_bundle_outputs_bundle_summary(capsys) -> None:
     def fake_collect(**kwargs):
         assert kwargs["kb_id"] == "pytorch_reference"

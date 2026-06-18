@@ -2,18 +2,24 @@
 
 from rag.evaluation.models import (
     AnswerEvalObservation,
-    EvalResult,
-    NormalizedEvalRow,
+    BenchmarkCase,
+    BenchmarkLabel,
+    BenchmarkPreparedArtifacts,
+    GenerationObservation,
     PromotionDecision,
     Qrel,
     RetrievalEvalObservation,
+    RetrievedChunk,
 )
 
 __all__ = [
     "AnswerEvalObservation",
-    "EvalResult",
-    "NormalizedEvalRow",
+    "BenchmarkCase",
+    "BenchmarkLabel",
+    "BenchmarkPreparedArtifacts",
+    "GenerationObservation",
     "PromotionDecision",
     "Qrel",
     "RetrievalEvalObservation",
+    "RetrievedChunk",
 ]

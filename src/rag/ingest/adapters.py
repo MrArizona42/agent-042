@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 from rag.contracts import SourceDocument
+from rag.evaluation.models import BenchmarkPreparedArtifacts
 
 AdapterCapability = Literal["source", "benchmark"]
 
@@ -54,7 +55,7 @@ class SourceAdapter(Protocol):
 class BenchmarkAdapter(SourceAdapter, Protocol):
     """A source adapter that also implements benchmark preparation."""
 
-    def prepare_benchmark(self, manifest: Any) -> Any:
+    def prepare_benchmark(self, manifest: Any) -> BenchmarkPreparedArtifacts:
         """Emit normalized benchmark cases and labels for this manifest."""
         ...
 
