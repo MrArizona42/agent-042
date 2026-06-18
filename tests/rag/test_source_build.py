@@ -59,6 +59,11 @@ def _html_adapter() -> ManifestSourceAdapter:
     )
 
 
+def _catalog_declared_html_adapter() -> ManifestSourceAdapter:
+    """Factory referenced by `[[source_adapters]]` in `_catalog_with_declared_adapters`."""
+    return _html_adapter()
+
+
 def _manifest(tmp_path: Path) -> Path:
     return _write_manifest(
         tmp_path / "sources.toml",
@@ -129,6 +134,41 @@ def _catalog(tmp_path: Path, manifest_path: Path) -> Path:
         [[sources]]
         type = "html_docs"
         kb = "other_reference"
+        id = "docs"
+        manifest = "{manifest_path.as_posix()}"
+        ingest_adapter = {{ id = "generic.http_html", version = "1" }}
+        """,
+    )
+
+
+def _catalog_with_declared_adapters(tmp_path: Path, manifest_path: Path) -> Path:
+    return _write_manifest(
+        tmp_path / "catalog.toml",
+        f"""
+        schema_version = 3
+
+        [[source_adapters]]
+        id = "generic.http_html"
+        version = "1"
+        description = "Fetches HTTP HTML pages."
+        factory = "tests.rag.test_source_build:_catalog_declared_html_adapter"
+
+        [[knowledge_bases]]
+        id = "pytorch_reference"
+        enabled = true
+        label = "PyTorch reference"
+        description = "PyTorch documentation"
+        selection_description = "PyTorch docs"
+        update_strategy = "replace"
+        default_alias = "champion"
+        aliases.champion.top_k = 5
+        aliases.champion.score_threshold = 0.35
+        aliases.champion.retrieval_strategy = "dense"
+        aliases.champion.reranker_multiplier = 1
+
+        [[sources]]
+        type = "html_docs"
+        kb = "pytorch_reference"
         id = "docs"
         manifest = "{manifest_path.as_posix()}"
         ingest_adapter = {{ id = "generic.http_html", version = "1" }}
@@ -380,3 +420,19 @@ def test_build_catalog_sources_builds_selected_sources(tmp_path: Path) -> None:
     assert summary.kb_id == "pytorch_reference"
     assert [source_summary.source.id for source_summary in summary.sources] == ["docs"]
     assert summary.sources[0].build.status == "success"
+
+
+def test_build_catalog_source_uses_catalog_declared_adapter_by_default(tmp_path: Path) -> None:
+    manifest_path = _manifest(tmp_path)
+    catalog_path = _catalog_with_declared_adapters(tmp_path, manifest_path)
+
+    summary = build_catalog_source(
+        catalog_path=catalog_path,
+        kb_id="pytorch_reference",
+        source_instance_id="docs",
+        rag_data_root=tmp_path,
+        document_ids=["html_docs:tensors"],
+        chunking=ChunkingConfig(chunk_size=24, chunk_overlap=4),
+    )
+
+    assert summary.build.status == "success"

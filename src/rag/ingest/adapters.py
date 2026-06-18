@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from rag.contracts import SourceDocument
+
+AdapterCapability = Literal["source", "benchmark"]
 
 
 class SourceFetcherFactory(Protocol):
@@ -30,6 +32,7 @@ class SourceAdapter(Protocol):
     adapter_id: str
     version: str
     source_type: str
+    capabilities: frozenset[AdapterCapability]
 
     def validate_manifest(self, manifest: Any) -> Any:
         """Validate an already-loaded source manifest for this adapter."""
@@ -45,6 +48,14 @@ class SourceAdapter(Protocol):
 
     def extractor(self):
         """Return the extractor selected by this adapter."""
+        ...
+
+
+class BenchmarkAdapter(SourceAdapter, Protocol):
+    """A source adapter that also implements benchmark preparation."""
+
+    def prepare_benchmark(self, manifest: Any) -> Any:
+        """Emit normalized benchmark cases and labels for this manifest."""
         ...
 
 
@@ -81,6 +92,7 @@ class ManifestSourceAdapter:
     source_type: str
     _fetcher_factory: SourceFetcherFactory = field(repr=False)
     _extractor_factory: SourceExtractorFactory = field(repr=False)
+    capabilities: frozenset[AdapterCapability] = frozenset({"source"})
 
     def validate_manifest(self, manifest: Any) -> Any:
         """Validate that the manifest belongs to this adapter's source type."""
@@ -128,25 +140,39 @@ class SourceAdapterRegistry:
     @classmethod
     def with_defaults(cls) -> "SourceAdapterRegistry":
         registry = cls()
-        registry.register(
-            ManifestSourceAdapter(
-                adapter_id="generic.http_html",
-                version="1",
-                source_type="html_docs",
-                _fetcher_factory=_html_docs_fetcher,
-                _extractor_factory=_html_docs_extractor,
-            )
-        )
-        registry.register(
-            ManifestSourceAdapter(
-                adapter_id="generic.arxiv_paper",
-                version="1",
-                source_type="arxiv_paper",
-                _fetcher_factory=_arxiv_paper_fetcher,
-                _extractor_factory=_arxiv_paper_extractor,
-            )
-        )
+        registry.register(make_http_html_adapter())
+        registry.register(make_arxiv_paper_adapter())
         return registry
+
+
+def make_http_html_adapter() -> ManifestSourceAdapter:
+    """Factory for the built-in generic HTTP/HTML source adapter.
+
+    Referenced from catalog `[[source_adapters]]` entries as
+    `rag.ingest.adapters:make_http_html_adapter`.
+    """
+    return ManifestSourceAdapter(
+        adapter_id="generic.http_html",
+        version="1",
+        source_type="html_docs",
+        _fetcher_factory=_html_docs_fetcher,
+        _extractor_factory=_html_docs_extractor,
+    )
+
+
+def make_arxiv_paper_adapter() -> ManifestSourceAdapter:
+    """Factory for the built-in generic arXiv paper source adapter.
+
+    Referenced from catalog `[[source_adapters]]` entries as
+    `rag.ingest.adapters:make_arxiv_paper_adapter`.
+    """
+    return ManifestSourceAdapter(
+        adapter_id="generic.arxiv_paper",
+        version="1",
+        source_type="arxiv_paper",
+        _fetcher_factory=_arxiv_paper_fetcher,
+        _extractor_factory=_arxiv_paper_extractor,
+    )
 
 
 DEFAULT_SOURCE_ADAPTERS = SourceAdapterRegistry.with_defaults()

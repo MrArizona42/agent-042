@@ -9,7 +9,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from app_config.catalog import CatalogConfig, SourceConfig, materialize_catalog
-from rag.ingest import DEFAULT_SOURCE_ADAPTERS, SourceAdapter, SourceAdapterRegistry
+from rag.ingest import (
+    DEFAULT_SOURCE_ADAPTERS,
+    SourceAdapter,
+    SourceAdapterRegistry,
+    build_catalog_adapter_registry,
+)
 from rag.sources.chunks import (
     ChunkingConfig,
     SourceInstanceChunkingSummary,
@@ -79,6 +84,13 @@ def _load_catalog_config(catalog_path: Path | str) -> CatalogConfig:
     catalog = CatalogConfig(**raw)
     materialize_catalog(catalog)
     return catalog
+
+
+def _resolve_default_adapter_registry(catalog: CatalogConfig) -> SourceAdapterRegistry:
+    """Prefer catalog-declared adapters; fall back to defaults for legacy catalogs."""
+    if catalog.source_adapters or catalog.benchmark_adapters:
+        return build_catalog_adapter_registry(catalog)
+    return DEFAULT_SOURCE_ADAPTERS
 
 
 def _catalog_manifest_path(*, catalog_path: Path, manifest_ref: str) -> Path:
@@ -214,7 +226,7 @@ def build_catalog_source(
     )
     source_adapter = _resolve_source_adapter(
         source,
-        adapter_registry=adapter_registry or DEFAULT_SOURCE_ADAPTERS,
+        adapter_registry=adapter_registry or _resolve_default_adapter_registry(catalog),
     )
     build = build_source_instance(
         kb_id=source.kb,
