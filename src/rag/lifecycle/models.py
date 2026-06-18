@@ -125,7 +125,7 @@ class SourcePlanEntry(BaseModel):
     manifest_reachable: bool
     manifest_valid: bool = False
     adapter_registered: bool
-    source_type_matches: bool
+    adapter_compatible: bool
     errors: list[str] = Field(default_factory=list)
 
     @property

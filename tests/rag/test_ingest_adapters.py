@@ -1,44 +1,34 @@
-"""Tests for source ingest adapter contracts."""
+"""Tests for source adapter contracts."""
 
 from __future__ import annotations
 
-import pytest
+from rag.adapters import SourceAdapterContext
+from rag.adapters.sources import make_http_html_adapter
+from rag.sources.models import GenericSourceEntry, SourceManifest
 
-from rag.contracts import SourceDocument
 
-
-class _Manifest:
-    def __init__(self, source_type: str):
-        self.source_type = source_type
-
-    def to_source_documents(self):
-        return [
-            SourceDocument(
-                id="html:tensors",
-                source_type="html_docs",
-                uri="https://docs.test/tensors.html",
+def test_http_html_adapter_emits_identity_complete_llamaindex_documents() -> None:
+    adapter = make_http_html_adapter()
+    manifest = SourceManifest(
+        documents=[
+            GenericSourceEntry(
+                id="tensors",
                 title="Tensors",
+                url="https://docs.test/tensors.html",
             )
         ]
-
-
-def test_http_html_adapter_lists_manifest_documents():
-    from rag.ingest.adapters import make_http_html_adapter
-
-    adapter = make_http_html_adapter()
+    )
+    documents = adapter.list_documents(
+        manifest,
+        context=SourceAdapterContext(
+            kb_id="pytorch_reference",
+            source_instance_id="pytorch_reference.docs",
+            manifest_digest="sha256:manifest",
+        ),
+    )
 
     assert adapter.adapter_id == "generic.http_html"
-    assert adapter.version == "1"
-    assert adapter.source_type == "html_docs"
-    assert [document.id for document in adapter.list_documents(_Manifest("html_docs"))] == [
-        "html:tensors"
-    ]
-
-
-def test_http_html_adapter_rejects_wrong_manifest_type():
-    from rag.ingest.adapters import make_http_html_adapter
-
-    adapter = make_http_html_adapter()
-
-    with pytest.raises(ValueError, match="expects source_type 'html_docs'"):
-        adapter.validate_manifest(_Manifest("arxiv_paper"))
+    assert documents[0].id_ == "pytorch_reference.docs:tensors"
+    assert documents[0].metadata["source_uri"] == "https://docs.test/tensors.html"
+    assert documents[0].metadata["adapter_id"] == adapter.adapter_id
+    assert documents[0].metadata["manifest_digest"] == "sha256:manifest"

@@ -114,7 +114,7 @@ def _resolve_plan_adapter(
     if adapter_registry is not None:
         return adapter_registry.get(adapter_id, version=adapter_version)
 
-    from rag.ingest import load_adapter
+    from rag.adapters import load_adapter
 
     config = _declared_adapter_config(
         catalog,
@@ -141,7 +141,7 @@ def _plan_entry_for_instance(
     manifest_reachable = manifest_path_resolved.exists() and manifest_path_resolved.is_file()
     manifest_valid = False
     adapter_registered = False
-    source_type_matches = False
+    adapter_compatible = False
     errors: list[str] = []
     adapter: Any | None = None
 
@@ -153,7 +153,7 @@ def _plan_entry_for_instance(
             adapter_registry=adapter_registry,
         )
         adapter_registered = True
-        source_type_matches = True
+        adapter_compatible = True
     except Exception as exc:
         errors.append(f"Adapter '{adapter_id}@{adapter_version}' not registered: {exc}")
 
@@ -163,7 +163,7 @@ def _plan_entry_for_instance(
         try:
             adapter.validate_manifest(load_source_manifest(manifest_path_resolved))
             manifest_valid = True
-            source_type_matches = True
+            adapter_compatible = True
         except Exception as exc:
             errors.append(
                 f"Source manifest invalid for adapter '{adapter_id}@{adapter_version}': {exc}"
@@ -177,7 +177,7 @@ def _plan_entry_for_instance(
         manifest_reachable=manifest_reachable,
         manifest_valid=manifest_valid,
         adapter_registered=adapter_registered,
-        source_type_matches=source_type_matches,
+        adapter_compatible=adapter_compatible,
         errors=errors,
     )
 

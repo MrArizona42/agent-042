@@ -37,7 +37,7 @@ from rag.lifecycle import (
 )
 from rag.sources.benchmark_prep import prepare_benchmark_source_instance
 from rag.sources.build import build_catalog_sources
-from rag.sources.bundles import collect_source_bundles, collect_source_chunks
+from rag.sources.bundles import collect_source_bundles, collect_source_nodes
 from rag.sources.chunks import ChunkingConfig
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
@@ -260,7 +260,7 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     build_catalog_sources_fn: Callable[..., Any] = build_catalog_sources,
-    collect_source_chunks_fn: Callable[..., Any] = collect_source_chunks,
+    collect_source_nodes_fn: Callable[..., Any] = collect_source_nodes,
     collect_source_bundles_fn: Callable[..., Any] = collect_source_bundles,
     materialize_kb_collection_fn: Callable[..., Any] = materialize_kb_collection,
     promote_materialized_alias_fn: Callable[..., Any] = promote_materialized_alias,
@@ -312,7 +312,7 @@ def main(
             source_ids=source_ids,
         )
         if len(resolved_source_ids) == 1:
-            result = collect_source_chunks_fn(
+            result = collect_source_nodes_fn(
                 rag_data_root=args.rag_data_root,
                 kb_id=args.kb,
                 source_instance_id=resolved_source_ids[0],
@@ -367,7 +367,7 @@ def main(
             )
             if len(resolved_source_ids) == 1:
                 bundles = [
-                    collect_source_chunks_fn(
+                    collect_source_nodes_fn(
                         rag_data_root=args.rag_data_root,
                         kb_id=args.kb,
                         source_instance_id=resolved_source_ids[0],

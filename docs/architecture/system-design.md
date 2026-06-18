@@ -229,8 +229,8 @@ RAG в проекте разделён на несколько независи�
 - **KB id** — логическая база знаний из `catalog.toml`, например
   `ml_papers_core` или `pytorch_reference`.
 - **Source adapter** — catalog-declared source lifecycle behavior from
-  `[[source_adapters]]`. Adapter identity is the behavior selector; `source_type`
-  is being retired as a behavior concept.
+  `[[source_adapters]]`. Adapter identity is the behavior selector; source
+  manifests do not carry a separate `source_type` behavior field.
 - **Benchmark adapter** — catalog-declared adapter from `[[benchmark_adapters]]`
   that implements the normal source lifecycle plus benchmark preparation.
 - **Source instance** — globally meaningful source id, for example
@@ -299,9 +299,11 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 
 **Chunking:**
 Current chunking uses LlamaIndex `SentenceSplitter` through
-`src/rag/sources/chunks.py`. The LlamaIndex transition plan makes
-`Document` / `TextNode` primary and retires project `Document` / `Chunk`
-contracts from the active source/build path.
+`src/rag/sources/chunks.py`. Source adapters and extractors emit LlamaIndex
+`Document`; node artifacts persist native `TextNode` objects. `TextNode.id_` is
+a deterministic UUID used as the Qdrant point id, while the readable
+`chunk_id` remains in node metadata. Project `Document` / `Chunk` contracts are
+not part of the active source/build path.
 
 ### 5.3 Базы знаний и источники
 

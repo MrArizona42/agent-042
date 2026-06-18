@@ -5,7 +5,7 @@ from textwrap import dedent
 
 import httpx
 
-from rag.ingest.adapters import ManifestSourceAdapter
+from rag.adapters import ManifestSourceAdapter
 from rag.sources import process_source_instance
 from rag.sources.artifacts import extracted_artifact_path, read_extracted_artifact
 from rag.sources.extractors import HtmlDocsExtractor
@@ -39,7 +39,7 @@ def _html_adapter() -> ManifestSourceAdapter:
     return ManifestSourceAdapter(
         adapter_id="generic.http_html",
         version="1",
-        source_type="html_docs",
+        default_uri_prefix="http_html",
         _fetcher_factory=lambda: HtmlDocsFetcher(client=_html_client()),
         _extractor_factory=HtmlDocsExtractor,
     )
@@ -50,8 +50,6 @@ def test_process_source_instance_writes_extracted_artifact(tmp_path: Path) -> No
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "html_docs"
-
         [[documents]]
         id = "tensors"
         title = "Tensors"
@@ -70,7 +68,7 @@ def test_process_source_instance_writes_extracted_artifact(tmp_path: Path) -> No
         rag_data_root=tmp_path,
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_document_id="html_docs:tensors",
+        source_document_id="docs:tensors",
     )
     artifact = read_extracted_artifact(artifact_path)
 
@@ -81,7 +79,7 @@ def test_process_source_instance_writes_extracted_artifact(tmp_path: Path) -> No
     assert summary.extracted_from_cache == 0
     assert summary.failed == []
     assert artifact.document.text == "tensors body text."
-    assert artifact.raw.path.endswith("source_instances/docs/raw/html_docs_tensors/page.html")
+    assert artifact.raw.path.endswith("source_instances/docs/raw/docs_tensors/page.html")
 
 
 def test_process_source_instance_reuses_extracted_artifact(tmp_path: Path) -> None:
@@ -89,8 +87,6 @@ def test_process_source_instance_reuses_extracted_artifact(tmp_path: Path) -> No
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "html_docs"
-
         [[documents]]
         id = "tensors"
         title = "Tensors"
@@ -137,8 +133,6 @@ def test_process_source_instance_filters_documents_and_collects_failures(
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "html_docs"
-
         [[documents]]
         id = "tensors"
         title = "Tensors"
@@ -156,7 +150,7 @@ def test_process_source_instance_filters_documents_and_collects_failures(
         source_instance_id="docs",
         manifest_path=manifest_path,
         rag_data_root=tmp_path,
-        document_ids=["html_docs:broken"],
+        document_ids=["docs:broken"],
         source_adapter=_html_adapter(),
     )
 
@@ -164,11 +158,11 @@ def test_process_source_instance_filters_documents_and_collects_failures(
     assert summary.fetched == 0
     assert summary.extracted == 0
     assert len(summary.failed) == 1
-    assert summary.failed[0].document_id == "html_docs:broken"
+    assert summary.failed[0].document_id == "docs:broken"
     assert summary.failed[0].error_type == "HTTPStatusError"
 
 
-def test_process_source_instance_rejects_source_type_mismatch(tmp_path: Path) -> None:
+def test_process_source_instance_rejects_retired_source_type_field(tmp_path: Path) -> None:
     manifest_path = _write_manifest(
         tmp_path / "sources.toml",
         """
@@ -182,27 +176,15 @@ def test_process_source_instance_rejects_source_type_mismatch(tmp_path: Path) ->
         """,
     )
 
-    from rag.ingest.adapters import ManifestSourceAdapter
-    from rag.sources.extractors import ArxivPdfExtractor
-    from rag.sources.fetchers import ArxivPaperFetcher
-
-    arxiv_adapter = ManifestSourceAdapter(
-        adapter_id="generic.arxiv_paper",
-        version="1",
-        source_type="arxiv_paper",
-        _fetcher_factory=ArxivPaperFetcher,
-        _extractor_factory=ArxivPdfExtractor,
-    )
-
     try:
         process_source_instance(
             kb_id="pytorch_reference",
             source_instance_id="docs",
             manifest_path=manifest_path,
             rag_data_root=tmp_path,
-            source_adapter=arxiv_adapter,
+            source_adapter=_html_adapter(),
         )
     except ValueError as exc:
-        assert "arxiv_paper" in str(exc)
+        assert "source_type" in str(exc)
     else:
-        raise AssertionError("expected source_type mismatch to raise ValueError")
+        raise AssertionError("expected retired source_type field to raise ValueError")

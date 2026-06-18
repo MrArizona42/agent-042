@@ -26,17 +26,19 @@ source-instance-only catalog:
 - legacy `[[sources]]`, local `--source <id>` selectors, arbitrary manifest
   paths, and `DEFAULT_SOURCE_ADAPTERS` are removed.
 
-Current source lifecycle is project-owned:
+Phases 0-2 are implemented. The source lifecycle now uses LlamaIndex objects,
+while collection materialization and runtime retrieval remain project-owned:
 
 ```text
 catalog source_instance
   -> catalog-declared adapter factory
   -> source manifest TOML
-  -> SourceDocument
+  -> LlamaIndex Document source descriptors with project metadata
   -> fetch raw artifact
-  -> ExtractedDocument artifact
-  -> Chunk artifact
-  -> SourceChunkBundle
+  -> extracted artifact containing a LlamaIndex Document
+  -> SentenceSplitter
+  -> native TextNode artifact with deterministic UUID id_
+  -> SourceNodeBundle
   -> materialize_kb_collection()
   -> custom QdrantVectorStore
   -> Qdrant points + collection_meta sentinel
@@ -45,12 +47,11 @@ catalog source_instance
   -> RagRuntime + custom Retriever
 ```
 
-Current project-owned RAG contracts include:
+The active source/build path no longer depends on project `SourceDocument`,
+`ExtractedDocument`, `DocumentSection`, or `Chunk` contracts. They remain only
+in legacy compatibility modules/tests and are deleted in Phase 6. Current
+durable project RAG contracts include:
 
-- `SourceDocument`;
-- `ExtractedDocument`;
-- `DocumentSection`;
-- `Chunk`;
 - `CollectionAttestation`;
 - `IndexManifest`;
 - `RetrievalHit`.
@@ -88,8 +89,9 @@ Current LlamaIndex facts from the checkup:
   indexes, and sync/async clients;
 - LlamaIndex `TextNode.id_` is used as the Qdrant point id, so it must be a
   valid Qdrant point id, usually UUID or integer;
-- current custom materialization already derives deterministic UUID5 point ids
-  from human-readable chunk ids;
+- source node parsing derives deterministic UUID5 `TextNode.id_` values from
+  human-readable chunk ids, and transitional materialization passes those ids
+  through unchanged;
 - LlamaIndex built-in retrieval metrics include `hit_rate`, `mrr`,
   `precision`, `recall`, `ap`, and `ndcg`, but they are binary-id metrics;
 - `RetrieverEvaluator` does not pass qrel grades, scores, entity types, or full
@@ -717,6 +719,8 @@ Artifact principle:
 
 ### Phase 0: Freeze Legacy Cleanup As Prerequisite
 
+Status: complete.
+
 Goal: avoid building the LlamaIndex path on compatibility branches that are
 already scheduled for removal.
 
@@ -740,6 +744,8 @@ Acceptance:
 
 ### Phase 1: Dependencies And Provider Adapters
 
+Status: complete.
+
 Goal: install only the LlamaIndex packages needed in the images that need them.
 
 Tasks:
@@ -762,6 +768,8 @@ Acceptance:
 
 ### Phase 2: Source Adapter And Object Model Migration
 
+Status: complete.
+
 Goal: make LlamaIndex `Document` and `TextNode` primary.
 
 Tasks:
@@ -770,16 +778,17 @@ Tasks:
   `Chunk` usage in new source pipeline with LlamaIndex objects.
 - Move built-in adapter factories toward `rag.adapters.sources` and
   `rag.adapters.benchmarks`; keep adapter protocols/capabilities explicit.
-- Move or delete the current `rag_data_pipelines.pytorch_docs` scraper. If its
-  redirect/placeholder handling remains useful, keep it as private helper code
-  behind the PyTorch docs source adapter or LlamaIndex reader wrapper.
+- Move the PyTorch redirect/placeholder helper to
+  `rag.adapters.pytorch_docs`; remove the top-level `rag_data_pipelines`
+  package.
 - Update source adapters to emit `Document[]`.
 - Add metadata enrichment helpers for required project keys.
 - Add deterministic UUID node id helper:
   `TextNode.id_ = uuid5(namespace, chunk_id)`.
-- Replace project chunk artifacts with native LlamaIndex document/node
-  persistence where artifacts are still needed.
-- Keep temporary mappers only where existing code still consumes old contracts.
+- Persist LlamaIndex `Document` and `TextNode` objects directly inside the
+  transitional extraction/node artifact envelopes.
+- Feed `SourceNodeBundle` into the existing materializer until Phase 3 replaces
+  the collection writer; do not map nodes back into project `Chunk` objects.
 
 Acceptance:
 

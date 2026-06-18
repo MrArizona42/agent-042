@@ -17,9 +17,8 @@ regression checks validate platform behavior across KBs. Not every benchmark is
 meaningful for every knowledge base.
 
 Before the RAG experiments start, complete the
-[RAG Pipeline Isolation Plan](rag-pipeline-isolation.md). The project should
-keep reusable RAG platform code in `src/`, production dataset pipelines in a
-dedicated pipeline layer, and exploratory notebooks/reports in `experiments/`.
+[RAG LlamaIndex Transition](rag-llamaindex-transition-plan.md). The durable RAG
+boundaries are documented in the main architecture and operations docs.
 
 ### 1. Source Citations In RAG Answers
 

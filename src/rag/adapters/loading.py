@@ -1,4 +1,4 @@
-"""Loads source/benchmark adapters declared in the catalog via factory references."""
+"""Load source and benchmark adapters declared by catalog factory references."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import importlib
 from typing import Any, Callable
 
 from app_config.catalog import BenchmarkAdapterConfig, CatalogConfig, SourceAdapterConfig
-from rag.ingest.adapters import AdapterCapability, SourceAdapter, SourceAdapterRegistry
+from rag.adapters.capabilities import AdapterCapability, SourceAdapter, SourceAdapterRegistry
 
 _REQUIRED_SOURCE_METHODS = ("validate_manifest", "list_documents", "fetcher", "extractor")
 
@@ -35,7 +35,6 @@ def _validate_adapter(
     required_capabilities: frozenset[AdapterCapability],
 ) -> SourceAdapter:
     adapter_ref = f"{config.id}@{config.version}"
-
     adapter_id = getattr(adapter, "adapter_id", None)
     version = getattr(adapter, "version", None)
     if adapter_id != config.id or version != config.version:
@@ -61,7 +60,6 @@ def _validate_adapter(
         method = getattr(adapter, method_name, None)
         if method is None or not callable(method):
             raise ValueError(f"Adapter '{adapter_ref}' is missing callable '{method_name}'")
-
     return adapter
 
 
@@ -70,7 +68,7 @@ def load_adapter(
     *,
     required_capabilities: frozenset[AdapterCapability],
 ) -> SourceAdapter:
-    """Import and call a declared adapter factory, validating its capabilities."""
+    """Import and validate one declared adapter factory."""
     factory = import_factory(config.factory)
     try:
         adapter = factory()
@@ -86,17 +84,12 @@ def load_adapter(
 
 
 def build_catalog_adapter_registry(catalog_cfg: CatalogConfig) -> SourceAdapterRegistry:
-    """Build an adapter registry from declared `[[source_adapters]]`/`[[benchmark_adapters]]`."""
+    """Build a registry from declared source and benchmark adapters."""
     registry = SourceAdapterRegistry()
-    for source_adapter_cfg in catalog_cfg.source_adapters:
+    for config in catalog_cfg.source_adapters:
+        registry.register(load_adapter(config, required_capabilities=frozenset({"source"})))
+    for config in catalog_cfg.benchmark_adapters:
         registry.register(
-            load_adapter(source_adapter_cfg, required_capabilities=frozenset({"source"}))
-        )
-    for benchmark_adapter_cfg in catalog_cfg.benchmark_adapters:
-        registry.register(
-            load_adapter(
-                benchmark_adapter_cfg,
-                required_capabilities=frozenset({"source", "benchmark"}),
-            )
+            load_adapter(config, required_capabilities=frozenset({"source", "benchmark"}))
         )
     return registry

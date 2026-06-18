@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rag.contracts import SourceDocument
 from rag.contracts.manifests import manifest_path
+from rag.contracts.metadata import source_document
 from rag.lifecycle.commands import build_run_path
 from rag.sources.artifacts import extracted_artifact_path
 from rag.sources.cache import source_cache_paths
@@ -17,20 +17,24 @@ def test_source_cache_paths_are_keyed_by_global_source_instance_id(tmp_path: Pat
         rag_data_root=tmp_path,
         kb_id="pytorch_reference",
         source_instance_id="pytorch_reference.docs",
-        source_document=SourceDocument(
-            id="html_docs:tensors",
-            source_type="html_docs",
-            uri="https://docs.test/tensors.html",
+        source_document=source_document(
+            local_document_id="tensors",
             title="Tensors",
+            source_uri="https://docs.test/tensors.html",
+            kb_id="pytorch_reference",
+            source_instance_id="pytorch_reference.docs",
+            adapter_id="generic.http_html",
+            adapter_version="1",
+            manifest_digest="sha256:manifest",
         ),
         raw_filename="page.html",
     )
 
     assert paths.raw_path.as_posix().endswith(
-        "source_instances/pytorch_reference.docs/raw/html_docs_tensors/page.html"
+        "source_instances/pytorch_reference.docs/raw/pytorch_reference.docs_tensors/page.html"
     )
     assert paths.metadata_path.as_posix().endswith(
-        "source_instances/pytorch_reference.docs/metadata/html_docs_tensors.json"
+        "source_instances/pytorch_reference.docs/metadata/pytorch_reference.docs_tensors.json"
     )
 
 
@@ -39,20 +43,20 @@ def test_extracted_and_chunk_artifact_paths_are_source_instance_scoped(tmp_path:
         rag_data_root=tmp_path,
         kb_id="pytorch_reference",
         source_instance_id="pytorch_reference.docs",
-        source_document_id="html_docs:tensors",
+        source_document_id="pytorch_reference.docs:tensors",
     )
     chunk = chunk_artifact_path(
         rag_data_root=tmp_path,
         kb_id="pytorch_reference",
         source_instance_id="pytorch_reference.docs",
-        source_document_id="html_docs:tensors",
+        source_document_id="pytorch_reference.docs:tensors",
     )
 
     assert extracted.as_posix().endswith(
-        "source_instances/pytorch_reference.docs/extracted/html_docs_tensors.json"
+        "source_instances/pytorch_reference.docs/extracted/pytorch_reference.docs_tensors.json"
     )
     assert chunk.as_posix().endswith(
-        "source_instances/pytorch_reference.docs/chunks/html_docs_tensors.json"
+        "source_instances/pytorch_reference.docs/chunks/pytorch_reference.docs_tensors.json"
     )
 
 

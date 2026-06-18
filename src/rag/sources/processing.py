@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from llama_index.core import Document
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.contracts import SourceDocument
-from rag.ingest import SourceAdapter
+from rag.adapters import SourceAdapter, SourceAdapterContext
 from rag.sources.artifacts import (
     extracted_artifact_from_result,
     extracted_artifact_path,
     read_extracted_artifact,
     write_extracted_artifact,
 )
+from rag.sources.cache import sha256_bytes
 from rag.sources.manifests import load_source_manifest
 
 
@@ -34,7 +35,7 @@ class SourceProcessingSummary(BaseModel):
 
     kb_id: str
     source_instance_id: str
-    source_type: str
+    adapter_id: str
     total_selected: int = Field(ge=0)
     fetched: int = Field(default=0, ge=0)
     fetched_from_cache: int = Field(default=0, ge=0)
@@ -44,18 +45,20 @@ class SourceProcessingSummary(BaseModel):
 
 
 def _source_document_matches(
-    source_document: SourceDocument,
+    source_document: Document,
     selected_ids: set[str],
 ) -> bool:
-    return source_document.id in selected_ids
+    return source_document.id_ in selected_ids or str(
+        source_document.metadata.get("local_document_id", "")
+    ) in selected_ids
 
 
 def _select_source_documents(
-    source_documents: list[SourceDocument],
+    source_documents: list[Document],
     *,
     document_ids: list[str] | None,
     limit: int | None,
-) -> list[SourceDocument]:
+) -> list[Document]:
     selected = source_documents
     if document_ids is not None:
         selected_ids = set(document_ids)
@@ -84,20 +87,27 @@ def process_source_instance(
     force_extract: bool = False,
 ) -> SourceProcessingSummary:
     """Fetch, extract, and persist artifacts for one source instance."""
+    manifest_path = Path(manifest_path)
     manifest = source_adapter.validate_manifest(load_source_manifest(manifest_path))
-    source_type = source_adapter.source_type
     fetcher = source_adapter.fetcher()
     extractor = source_adapter.extractor()
 
     selected_documents = _select_source_documents(
-        source_adapter.list_documents(manifest),
+        source_adapter.list_documents(
+            manifest,
+            context=SourceAdapterContext(
+                kb_id=kb_id,
+                source_instance_id=source_instance_id,
+                manifest_digest=sha256_bytes(manifest_path.read_bytes()),
+            ),
+        ),
         document_ids=document_ids,
         limit=limit,
     )
     summary = SourceProcessingSummary(
         kb_id=kb_id,
         source_instance_id=source_instance_id,
-        source_type=source_type,
+        adapter_id=source_adapter.adapter_id,
         total_selected=len(selected_documents),
     )
 
@@ -107,7 +117,7 @@ def process_source_instance(
                 rag_data_root=rag_data_root,
                 kb_id=kb_id,
                 source_instance_id=source_instance_id,
-                source_document_id=source_document.id,
+                source_document_id=source_document.id_,
             )
             if artifact_path.exists() and not force_extract:
                 read_extracted_artifact(artifact_path)
@@ -137,7 +147,7 @@ def process_source_instance(
         except Exception as exc:  # noqa: BLE001 - lifecycle summary owns per-doc failures.
             summary.failed.append(
                 SourceProcessingFailure(
-                    document_id=source_document.id,
+                    document_id=source_document.id_,
                     error_type=exc.__class__.__name__,
                     message=str(exc),
                 )

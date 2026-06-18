@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from llama_index.core import Document
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.contracts import ExtractedDocument, SourceDocument
 from rag.sources.cache import safe_document_id, write_json_immutable
 from rag.sources.fetchers import SourceFetchResult
 
@@ -36,14 +36,13 @@ class ExtractedDocumentArtifact(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = Field(default=1, ge=1)
+    schema_version: int = Field(default=2, ge=2)
     kb_id: str
     source_instance_id: str
-    source_type: str
-    source_document: SourceDocument
+    source_document: Document
     raw: RawArtifactRef
     extraction: ExtractionArtifactMeta
-    document: ExtractedDocument
+    document: Document
 
 
 def extracted_artifact_path(
@@ -72,14 +71,13 @@ def extracted_artifact_from_result(
     kb_id: str,
     source_instance_id: str,
     fetch_result: SourceFetchResult,
-    extracted_document: ExtractedDocument,
+    extracted_document: Document,
 ) -> ExtractedDocumentArtifact:
     """Build a persisted extraction artifact from fetch and extraction results."""
     source_document = fetch_result.source_document
     return ExtractedDocumentArtifact(
         kb_id=kb_id,
         source_instance_id=source_instance_id,
-        source_type=source_document.source_type,
         source_document=source_document,
         raw=RawArtifactRef(
             path=fetch_result.raw_path.as_posix(),
@@ -87,8 +85,8 @@ def extracted_artifact_from_result(
             content_type=fetch_result.content_type,
         ),
         extraction=ExtractionArtifactMeta(
-            method=extracted_document.extraction_method,
-            warnings=extracted_document.extraction_warnings,
+            method=str(extracted_document.metadata["extraction_method"]),
+            warnings=list(extracted_document.metadata.get("extraction_warnings", [])),
         ),
         document=extracted_document,
     )

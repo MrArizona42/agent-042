@@ -15,8 +15,8 @@ from app_config.catalog import (
     conventional_manifest_path,
     materialize_catalog,
 )
+from rag.adapters import SourceAdapterRegistry, build_catalog_adapter_registry
 from rag.evaluation.models import BenchmarkCase, BenchmarkLabel, BenchmarkPreparedArtifacts
-from rag.ingest import SourceAdapterRegistry, build_catalog_adapter_registry
 from rag.sources.manifests import load_source_manifest
 
 

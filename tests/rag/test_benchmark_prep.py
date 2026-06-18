@@ -17,16 +17,14 @@ from rag.sources.benchmark_prep import (
 class _FakeQABenchmarkAdapter:
     adapter_id = "benchmark.fake_qa"
     version = "1"
-    source_type = "benchmark_qa"
     capabilities = frozenset({"source", "benchmark"})
 
     def validate_manifest(self, manifest):
-        if manifest.source_type != self.source_type:
-            raise ValueError(f"expects source_type '{self.source_type}'")
         return manifest
 
-    def list_documents(self, manifest):
-        return manifest.to_source_documents()
+    def list_documents(self, manifest, *, context):
+        del manifest, context
+        return []
 
     def fetcher(self):
         raise NotImplementedError
@@ -118,8 +116,6 @@ def _manifest(tmp_path: Path, source_instance_id: str) -> Path:
         tmp_path / "source_instances" / source_instance_id / "manifest.toml",
         """
         schema_version = 1
-        source_type = "benchmark_qa"
-
         [[documents]]
         id = "q1"
         title = "What is a tensor?"

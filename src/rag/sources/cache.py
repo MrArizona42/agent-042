@@ -8,9 +8,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from llama_index.core import Document
 from pydantic import BaseModel, ConfigDict
-
-from rag.contracts import SourceDocument
 
 
 class SourceCachePaths(BaseModel):
@@ -34,7 +33,7 @@ def source_cache_paths(
     rag_data_root: Path | str,
     kb_id: str,
     source_instance_id: str,
-    source_document: SourceDocument,
+    source_document: Document,
     raw_filename: str,
 ) -> SourceCachePaths:
     """Return conventional cache paths for a source document.
@@ -42,7 +41,7 @@ def source_cache_paths(
     Cache paths are keyed by the globally unique source instance id, not by
     `kb_id`; `kb_id` is accepted for caller symmetry with sibling functions.
     """
-    document_dir_name = safe_document_id(source_document.id)
+    document_dir_name = safe_document_id(source_document.id_)
     root_dir = Path(rag_data_root) / "source_instances" / source_instance_id
     return SourceCachePaths(
         root_dir=root_dir,

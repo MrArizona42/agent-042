@@ -84,8 +84,9 @@ bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias \
 
 ## Build Rules
 
-- `build-source` fetches/extracts/chunks source documents. Cache artifacts are
-  immutable unless force flags are passed.
+- `build-source` fetches source documents, extracts native LlamaIndex
+  `Document` objects, and parses them into native `TextNode` artifacts. Cache
+  artifacts are immutable unless force flags are passed.
 - `build-source` takes one or more global `--source-instance` values and derives
   the KB from those source instances. All selected source instances must belong
   to the same KB.

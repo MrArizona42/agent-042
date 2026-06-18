@@ -389,7 +389,7 @@ def test_sync_dvc_syncs_generated_artifact_paths(
                 'id = "generic.http_html"',
                 'version = "1"',
                 'description = "d"',
-                'factory = "rag.ingest.adapters:make_http_html_adapter"',
+                'factory = "rag.adapters.sources:make_http_html_adapter"',
                 "",
                 "[[source_instances]]",
                 'id = "pytorch_reference.docs"',

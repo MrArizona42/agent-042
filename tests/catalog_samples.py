@@ -64,13 +64,13 @@ def write_chat_and_code_catalog(path: Path) -> Path:
         id = "generic.arxiv_paper"
         version = "1"
         description = "Fetches arXiv papers."
-        factory = "rag.ingest.adapters:make_arxiv_paper_adapter"
+        factory = "rag.adapters.sources:make_arxiv_paper_adapter"
 
         [[source_adapters]]
         id = "generic.http_html"
         version = "1"
         description = "Fetches HTTP HTML pages."
-        factory = "rag.ingest.adapters:make_http_html_adapter"
+factory = "rag.adapters.sources:make_http_html_adapter"
 
         [[source_instances]]
         id = "ml_papers_core.papers"
@@ -121,7 +121,7 @@ def write_chat_only_catalog(
         id = "generic.arxiv_paper"
         version = "1"
         description = "Fetches arXiv papers."
-        factory = "rag.ingest.adapters:make_arxiv_paper_adapter"
+        factory = "rag.adapters.sources:make_arxiv_paper_adapter"
 
         [[source_instances]]
         id = "ml_papers_core.papers"
@@ -160,7 +160,7 @@ def write_code_only_catalog(path: Path) -> Path:
         id = "generic.http_html"
         version = "1"
         description = "Fetches HTTP HTML pages."
-        factory = "rag.ingest.adapters:make_http_html_adapter"
+        factory = "rag.adapters.sources:make_http_html_adapter"
 
         [[source_instances]]
         id = "pytorch_reference.docs"

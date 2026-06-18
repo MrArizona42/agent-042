@@ -30,7 +30,7 @@ reranker_multiplier = 1
 id = "generic.http_html"
 version = "1"
 description = "Fetches HTTP HTML pages."
-factory = "rag.ingest.adapters:make_http_html_adapter"
+factory = "rag.adapters.sources:make_http_html_adapter"
 
 [[benchmark_adapters]]
 id = "benchmark.pytorch_qa"

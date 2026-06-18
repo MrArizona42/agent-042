@@ -65,10 +65,10 @@ adapter = { id = "generic.http_html", version = "1" }
 id = "generic.arxiv_paper"
 version = "1"
 description = "Fetches arXiv papers and extracts PDF text sections."
-factory = "rag.ingest.adapters:make_arxiv_paper_adapter"
+factory = "rag.adapters.sources:make_arxiv_paper_adapter"
 
 [[source_adapters]]
 id = "generic.http_html"
 version = "1"
 description = "Fetches HTTP HTML pages and extracts readable text sections."
-factory = "rag.ingest.adapters:make_http_html_adapter"
+factory = "rag.adapters.sources:make_http_html_adapter"

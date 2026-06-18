@@ -25,7 +25,7 @@ def _write_catalog(path: Path) -> Path:
             id = "generic.http_html"
             version = "1"
             description = "Fetches HTML pages."
-            factory = "rag.ingest.adapters:make_http_html_adapter"
+            factory = "rag.adapters.sources:make_http_html_adapter"
 
             [[knowledge_bases]]
             id = "pytorch_reference"
@@ -75,13 +75,13 @@ def _write_v3_catalog(path: Path) -> Path:
             id = "generic.http_html"
             version = "1"
             description = "Fetches HTML pages."
-            factory = "rag.ingest.adapters:make_http_html_adapter"
+            factory = "rag.adapters.sources:make_http_html_adapter"
 
             [[benchmark_adapters]]
             id = "benchmark.fake"
             version = "1"
             description = "Fake benchmark adapter."
-            factory = "rag.ingest.adapters:make_http_html_adapter"
+            factory = "rag.adapters.sources:make_http_html_adapter"
 
             [[knowledge_bases]]
             id = "pytorch_reference"
@@ -156,7 +156,7 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
             "--rag-data-root",
             "assets/rag_data",
             "--document-id",
-            "html_docs:tensors",
+            "tensors",
             "--limit",
             "1",
             "--force-fetch",
@@ -175,7 +175,7 @@ def test_cli_build_source_wires_catalog_pair_and_force_flags(capsys) -> None:
     assert payload == {"status": "success", "sources": ["pytorch_reference.docs"]}
     assert calls[0]["kb_id"] == "pytorch_reference"
     assert calls[0]["source_instance_ids"] == ["pytorch_reference.docs"]
-    assert calls[0]["document_ids"] == ["html_docs:tensors"]
+    assert calls[0]["document_ids"] == ["tensors"]
     assert calls[0]["limit"] == 1
     assert calls[0]["force_fetch"] is True
     assert calls[0]["force_extract"] is True
@@ -275,7 +275,7 @@ def test_cli_collect_bundle_outputs_bundle_summary(capsys) -> None:
             "--rag-data-root",
             "assets/rag_data",
         ],
-        collect_source_chunks_fn=fake_collect,
+        collect_source_nodes_fn=fake_collect,
     )
 
     assert exit_code == 0
@@ -413,7 +413,7 @@ def test_cli_collect_bundle_with_v3_catalog_excludes_benchmark_sources(
             "--rag-data-root",
             "assets/rag_data",
         ],
-        collect_source_chunks_fn=fake_collect,
+        collect_source_nodes_fn=fake_collect,
     )
 
     assert exit_code == 0
@@ -467,7 +467,7 @@ def test_cli_materialize_derives_hybrid_capability_from_catalog(
             "--rag-data-root",
             "assets/rag_data",
         ],
-        collect_source_chunks_fn=fake_collect,
+        collect_source_nodes_fn=fake_collect,
         materialize_kb_collection_fn=fake_materialize,
     )
 
@@ -528,7 +528,7 @@ def test_cli_materialize_with_v3_catalog_uses_corpus_source_instance(
             "--rag-data-root",
             "assets/rag_data",
         ],
-        collect_source_chunks_fn=fake_collect,
+        collect_source_nodes_fn=fake_collect,
         materialize_kb_collection_fn=fake_materialize,
     )
 
@@ -588,7 +588,7 @@ def test_cli_materialize_can_persist_build_run(
             "manual-run",
             "--persist-build-run",
         ],
-        collect_source_chunks_fn=fake_collect,
+        collect_source_nodes_fn=fake_collect,
         materialize_kb_collection_fn=fake_materialize,
     )
 

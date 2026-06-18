@@ -6,10 +6,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from rag.contracts import SourceDocument
-
-SourceType = str
-
 
 class GenericSourceEntry(BaseModel):
     """Generic manifest entry for adapter-owned source families."""
@@ -37,25 +33,12 @@ class GenericSourceEntry(BaseModel):
         stripped = value.strip()
         return stripped or None
 
-    def to_source_document(self, source_type: str) -> SourceDocument:
-        """Convert a generic manifest entry to a source document contract."""
-        uri = self.uri or self.url or f"{source_type}:{self.id}"
-        return SourceDocument(
-            id=f"{source_type}:{self.id}",
-            source_type=source_type,
-            uri=uri,
-            title=self.title,
-            metadata=self.metadata,
-        )
-
-
 class SourceManifest(BaseModel):
-    """One source-type manifest for one source instance."""
+    """Adapter-owned entries for one source instance."""
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: int = Field(default=1, ge=1)
-    source_type: SourceType
     documents: list[GenericSourceEntry]
 
     @model_validator(mode="after")
@@ -66,11 +49,6 @@ class SourceManifest(BaseModel):
                 raise ValueError(f"Duplicate source document id '{document.id}'")
             seen_ids.add(document.id)
         return self
-
-    def to_source_documents(self) -> list[SourceDocument]:
-        """Convert manifest entries to source document contracts."""
-        return [document.to_source_document(self.source_type) for document in self.documents]
-
 
 def source_manifest_from_raw(raw: dict[str, Any]) -> SourceManifest:
     """Validate a raw TOML payload as a typed source manifest."""

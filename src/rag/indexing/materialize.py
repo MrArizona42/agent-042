@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
@@ -20,13 +19,12 @@ from rag.contracts.manifests import (
     manifest_path,
     write_index_manifest,
 )
-from rag.sources.bundles import SourceChunkBundle
+from rag.sources.bundles import SourceNodeBundle
 from rag.sources.chunks import LLAMAINDEX_SENTENCE_SPLITTER, read_chunk_artifact
 
 RetrievalStrategy = Literal["dense", "hybrid"]
 SourceRetrievalCapability = Literal["dense", "hybrid"]
 
-_POINT_ID_NS = uuid.UUID("46fe6fc7-dbd6-4934-9a73-2cc6ccfbef28")
 _logger = logging.getLogger(__name__)
 
 
@@ -167,13 +165,13 @@ def retrieval_capability_for_strategy(
     return "dense"
 
 
-def source_snapshot_id(bundles: list[SourceChunkBundle]) -> str:
-    """Hash chunk artifact identities and checksums into a source snapshot id."""
+def source_snapshot_id(bundles: list[SourceNodeBundle]) -> str:
+    """Hash node artifact identities and checksums into a source snapshot id."""
     payload = [
         {
             "kb_id": bundle.kb_id,
             "source_instance_id": bundle.source_instance_id,
-            "chunk_artifact_checksums": bundle.chunk_artifact_checksums,
+            "node_artifact_checksums": bundle.node_artifact_checksums,
         }
         for bundle in bundles
     ]
@@ -181,22 +179,18 @@ def source_snapshot_id(bundles: list[SourceChunkBundle]) -> str:
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
-def _point_id(chunk_id: str) -> str:
-    return str(uuid.uuid5(_POINT_ID_NS, chunk_id))
-
-
-def _all_chunks(bundles: list[SourceChunkBundle]):
+def _all_nodes(bundles: list[SourceNodeBundle]):
     for bundle in bundles:
-        yield from bundle.chunks
+        yield from bundle.nodes
 
 
-def _chunking_config(bundles: list[SourceChunkBundle]) -> dict[str, object]:
+def _chunking_config(bundles: list[SourceNodeBundle]) -> dict[str, object]:
     config: dict[str, object] = {
         "strategy": LLAMAINDEX_SENTENCE_SPLITTER,
         "source_instance_ids": [bundle.source_instance_id for bundle in bundles],
     }
     for bundle in bundles:
-        for artifact_path in bundle.chunk_artifact_paths:
+        for artifact_path in bundle.node_artifact_paths:
             path = Path(artifact_path)
             if path.exists():
                 try:
@@ -214,7 +208,7 @@ def materialize_kb_collection(
     *,
     kb_id: str,
     collection_name: str,
-    bundles: list[SourceChunkBundle],
+    bundles: list[SourceNodeBundle],
     vector_store: SourceVectorStore,
     embedding_client: EmbeddingClient,
     embedding_model: str,
@@ -243,33 +237,22 @@ def materialize_kb_collection(
     if retrieval_capability == "hybrid" and not sparse_encoder_model:
         raise ValueError("hybrid materialization requires sparse_encoder_model")
 
-    chunks = list(_all_chunks(bundles))
-    if not chunks:
-        raise ValueError("at least one chunk is required for materialization")
-    texts = [chunk.text for chunk in chunks]
+    nodes = list(_all_nodes(bundles))
+    if not nodes:
+        raise ValueError("at least one node is required for materialization")
+    texts = [node.text for node in nodes]
     embeddings = embedding_client.embed_documents(texts)
-    if len(embeddings) != len(chunks):
-        raise ValueError("embedding_client returned a vector count that does not match chunks")
+    if len(embeddings) != len(nodes):
+        raise ValueError("embedding_client returned a vector count that does not match nodes")
     sparse_vectors = (
         sparse_encoder_client.encode_documents(texts)
         if retrieval_capability == "hybrid" and sparse_encoder_client is not None
         else None
     )
-    if sparse_vectors is not None and len(sparse_vectors) != len(chunks):
-        raise ValueError("sparse_encoder_client returned a vector count that does not match chunks")
-    metadatas = [
-        {
-            **chunk.metadata,
-            "chunk_id": chunk.id,
-            "document_id": chunk.document_id,
-            "source_document_id": chunk.source_document_id,
-            "section_title": chunk.section_title,
-            "ordinal": chunk.ordinal,
-            "token_count": chunk.token_count,
-        }
-        for chunk in chunks
-    ]
-    point_ids = [_point_id(chunk.id) for chunk in chunks]
+    if sparse_vectors is not None and len(sparse_vectors) != len(nodes):
+        raise ValueError("sparse_encoder_client returned a vector count that does not match nodes")
+    metadatas = [dict(node.metadata) for node in nodes]
+    point_ids = [node.id_ for node in nodes]
 
     vector_store.create_collection(
         dimension=embedding_client.dimension,
@@ -294,7 +277,7 @@ def materialize_kb_collection(
         source_manifest_digests=source_manifest_digests or {},
         source_adapter_versions=source_adapter_versions or {},
         document_count=sum(bundle.document_count for bundle in bundles),
-        chunk_count=len(chunks),
+        chunk_count=len(nodes),
         embedding_model=embedding_model,
         vector_dimension=embedding_client.dimension,
         sparse_encoder=sparse_encoder_model if retrieval_capability == "hybrid" else None,
@@ -322,7 +305,7 @@ def materialize_kb_collection(
         kb_id=kb_id,
         collection_name=collection_name,
         document_count=sum(bundle.document_count for bundle in bundles),
-        chunk_count=len(chunks),
+        chunk_count=len(nodes),
         retrieval_capability=RetrievalCapability(retrieval_capability),
         vector_size=embedding_client.dimension,
         sparse_enabled=retrieval_capability == "hybrid",

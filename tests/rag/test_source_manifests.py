@@ -5,10 +5,7 @@ from textwrap import dedent
 
 import pytest
 
-from rag.sources import (
-    GenericSourceEntry,
-    load_source_manifest,
-)
+from rag.sources import GenericSourceEntry, load_source_manifest
 
 
 def _write_manifest(path: Path, content: str) -> Path:
@@ -16,12 +13,11 @@ def _write_manifest(path: Path, content: str) -> Path:
     return path
 
 
-def test_arxiv_source_manifest_loads_source_documents(tmp_path: Path) -> None:
+def test_source_manifest_loads_adapter_owned_entries(tmp_path: Path) -> None:
     path = _write_manifest(
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "arxiv_paper"
 
         [[documents]]
         id = "1706.03762"
@@ -30,45 +26,18 @@ def test_arxiv_source_manifest_loads_source_documents(tmp_path: Path) -> None:
     )
 
     manifest = load_source_manifest(path)
-    documents = manifest.to_source_documents()
 
-    assert manifest.source_type == "arxiv_paper"
     assert isinstance(manifest.documents[0], GenericSourceEntry)
-    assert documents[0].id == "arxiv_paper:1706.03762"
-    assert documents[0].uri == "arxiv_paper:1706.03762"
-    assert documents[0].metadata == {}
+    assert manifest.documents[0].id == "1706.03762"
+    assert manifest.documents[0].uri is None
+    assert manifest.documents[0].metadata == {}
 
 
-def test_html_docs_manifest_loads_source_documents(tmp_path: Path) -> None:
+def test_source_manifest_normalizes_blank_urls(tmp_path: Path) -> None:
     path = _write_manifest(
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "html_docs"
-
-        [[documents]]
-        id = "tensors"
-        url = "https://pytorch.org/docs/stable/tensors.html"
-        title = "Tensors"
-        """,
-    )
-
-    manifest = load_source_manifest(path)
-    documents = manifest.to_source_documents()
-
-    assert manifest.source_type == "html_docs"
-    assert isinstance(manifest.documents[0], GenericSourceEntry)
-    assert documents[0].id == "html_docs:tensors"
-    assert documents[0].uri == "https://pytorch.org/docs/stable/tensors.html"
-    assert documents[0].metadata == {}
-
-
-def test_arxiv_source_manifest_allows_blank_url_and_uses_arxiv_uri(tmp_path: Path) -> None:
-    path = _write_manifest(
-        tmp_path / "sources.toml",
-        """
-        schema_version = 1
-        source_type = "arxiv_paper"
 
         [[documents]]
         id = "1706.03762"
@@ -77,11 +46,7 @@ def test_arxiv_source_manifest_allows_blank_url_and_uses_arxiv_uri(tmp_path: Pat
         """,
     )
 
-    manifest = load_source_manifest(path)
-    documents = manifest.to_source_documents()
-
-    assert manifest.documents[0].url is None
-    assert documents[0].uri == "arxiv_paper:1706.03762"
+    assert load_source_manifest(path).documents[0].url is None
 
 
 def test_source_manifest_rejects_duplicate_document_ids(tmp_path: Path) -> None:
@@ -89,7 +54,6 @@ def test_source_manifest_rejects_duplicate_document_ids(tmp_path: Path) -> None:
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "html_docs"
 
         [[documents]]
         id = "tensors"
@@ -107,7 +71,7 @@ def test_source_manifest_rejects_duplicate_document_ids(tmp_path: Path) -> None:
         load_source_manifest(path)
 
 
-def test_unknown_source_manifest_uses_generic_entries(tmp_path: Path) -> None:
+def test_source_manifest_rejects_retired_source_type(tmp_path: Path) -> None:
     path = _write_manifest(
         tmp_path / "sources.toml",
         """
@@ -117,17 +81,8 @@ def test_unknown_source_manifest_uses_generic_entries(tmp_path: Path) -> None:
         [[documents]]
         id = "paper-1"
         title = "Paper One"
-        uri = "s3://datasets/qasper/paper-1.json"
-        metadata = { split = "train" }
         """,
     )
 
-    manifest = load_source_manifest(path)
-    documents = manifest.to_source_documents()
-
-    assert manifest.source_type == "qasper"
-    assert isinstance(manifest.documents[0], GenericSourceEntry)
-    assert documents[0].id == "qasper:paper-1"
-    assert documents[0].source_type == "qasper"
-    assert documents[0].uri == "s3://datasets/qasper/paper-1.json"
-    assert documents[0].metadata == {"split": "train"}
+    with pytest.raises(ValueError, match="source_type"):
+        load_source_manifest(path)

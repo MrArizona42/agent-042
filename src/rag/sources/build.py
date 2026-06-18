@@ -16,7 +16,7 @@ from app_config.catalog import (
     materialize_catalog,
     resolve_corpus_source_instance_ids,
 )
-from rag.ingest import SourceAdapter, SourceAdapterRegistry, load_adapter
+from rag.adapters import SourceAdapter, SourceAdapterRegistry, load_adapter
 from rag.sources.chunks import (
     ChunkingConfig,
     SourceInstanceChunkingSummary,
@@ -34,7 +34,7 @@ class SourceBuildSummary(BaseModel):
 
     kb_id: str
     source_instance_id: str
-    source_type: str
+    adapter_id: str
     status: SourceBuildStatus
     processing: SourceProcessingSummary
     chunking: SourceInstanceChunkingSummary
@@ -165,7 +165,7 @@ def build_source_instance(
     return SourceBuildSummary(
         kb_id=kb_id,
         source_instance_id=source_instance_id,
-        source_type=source_adapter.source_type,
+        adapter_id=source_adapter.adapter_id,
         status=_build_status(processing=processing, chunking=chunking_summary),
         processing=processing,
         chunking=chunking_summary,

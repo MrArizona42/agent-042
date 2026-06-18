@@ -88,13 +88,13 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
             id = "generic.http_html"
             version = "1"
             description = "d"
-            factory = "rag.ingest.adapters:make_http_html_adapter"
+            factory = "rag.adapters.sources:make_http_html_adapter"
 
             [[source_adapters]]
             id = "generic.http_html"
             version = "2"
             description = "d"
-            factory = "rag.ingest.adapters:make_http_html_adapter"
+            factory = "rag.adapters.sources:make_http_html_adapter"
 
             [[source_instances]]
             id = "pytorch_reference.docs"
@@ -138,8 +138,6 @@ def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> No
     manifest_path.write_text(
         dedent(
             """
-            source_type = "html_docs"
-
             [[documents]]
             id = "intro"
             title = "Introduction"
@@ -170,7 +168,7 @@ def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> No
             id = "generic.http_html"
             version = "1"
             description = "d"
-            factory = "rag.ingest.adapters:make_http_html_adapter"
+            factory = "rag.adapters.sources:make_http_html_adapter"
 
             [[source_instances]]
             id = "pytorch_reference.docs"
@@ -204,7 +202,7 @@ def test_plan_build_rejects_manifest_that_adapter_would_reject(tmp_path: Path) -
     manifest_path.write_text(
         dedent(
             """
-            source_type = "arxiv_paper"
+            unexpected_field = "not allowed"
 
             [[documents]]
             id = "intro"
@@ -236,7 +234,7 @@ def test_plan_build_rejects_manifest_that_adapter_would_reject(tmp_path: Path) -
             id = "generic.http_html"
             version = "1"
             description = "d"
-            factory = "rag.ingest.adapters:make_http_html_adapter"
+            factory = "rag.adapters.sources:make_http_html_adapter"
 
             [[source_instances]]
             id = "pytorch_reference.docs"
@@ -275,8 +273,6 @@ def test_plan_build_supports_v3_source_instances_without_loading_benchmark_adapt
     manifest_path.write_text(
         dedent(
             """
-            source_type = "html_docs"
-
             [[documents]]
             id = "intro"
             title = "Introduction"
@@ -296,13 +292,13 @@ def test_plan_build_supports_v3_source_instances_without_loading_benchmark_adapt
             id = "generic.http_html"
             version = "1"
             description = "Fetches HTML pages."
-            factory = "rag.ingest.adapters:make_http_html_adapter"
+            factory = "rag.adapters.sources:make_http_html_adapter"
 
             [[benchmark_adapters]]
             id = "benchmark.not_loaded"
             version = "1"
             description = "Intentionally broken for corpus-only planning."
-            factory = "rag.ingest.no_such_module:make_benchmark"
+            factory = "rag.adapters.no_such_module:make_benchmark"
 
             [[knowledge_bases]]
             id = "pytorch_reference"

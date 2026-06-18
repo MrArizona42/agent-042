@@ -1,4 +1,4 @@
-"""Chunk extracted source artifacts into persisted project chunks."""
+"""Parse extracted LlamaIndex documents into persisted native text nodes."""
 
 from __future__ import annotations
 
@@ -6,10 +6,16 @@ import json
 from pathlib import Path
 from typing import Any
 
+from llama_index.core import Document
 from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.schema import MetadataMode, TextNode
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from rag.contracts import Chunk, DocumentSection
+from rag.contracts.metadata import (
+    node_id_for_chunk,
+    require_document_metadata,
+    require_node_metadata,
+)
 from rag.sources.artifacts import ExtractedDocumentArtifact, read_extracted_artifact
 from rag.sources.cache import safe_document_id, sha256_bytes, write_json_immutable
 
@@ -19,7 +25,7 @@ LLAMAINDEX_SENTENCE_SPLITTER = "llamaindex_sentence_splitter"
 
 
 class ChunkingConfig(BaseModel):
-    """Configuration for source artifact chunking."""
+    """Configuration for LlamaIndex node parsing."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -34,24 +40,23 @@ class ChunkingConfig(BaseModel):
         return self
 
 
-class ChunkArtifact(BaseModel):
-    """Stored chunks for one extracted source document."""
+class NodeArtifact(BaseModel):
+    """Native LlamaIndex text nodes derived from one extracted document."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = Field(default=1, ge=1)
+    schema_version: int = Field(default=2, ge=2)
     kb_id: str
     source_instance_id: str
-    source_type: str
     source_document_id: str
     extracted_artifact_path: str
     extracted_checksum: str
     chunking: ChunkingConfig
-    chunks: list[Chunk]
+    nodes: list[TextNode]
 
 
 class SourceInstanceChunkingSummary(BaseModel):
-    """Summary for chunking extracted artifacts from one source instance."""
+    """Summary for parsing one source instance into text nodes."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -71,11 +76,8 @@ def chunk_artifact_path(
     source_instance_id: str,
     source_document_id: str,
 ) -> Path:
-    """Return the conventional chunk artifact path for one source document.
-
-    Keyed by the globally unique source instance id, not by `kb_id`; `kb_id`
-    is accepted for caller symmetry with sibling functions.
-    """
+    """Return the transitional native-node artifact path."""
+    del kb_id
     return (
         Path(rag_data_root)
         / "source_instances"
@@ -85,92 +87,93 @@ def chunk_artifact_path(
     )
 
 
-def write_chunk_artifact(path: Path, artifact: ChunkArtifact, *, force: bool = False) -> None:
-    """Write a chunk artifact once unless *force* is set."""
+def write_chunk_artifact(path: Path, artifact: NodeArtifact, *, force: bool = False) -> None:
     write_json_immutable(path, artifact.model_dump(mode="json"), force=force)
 
 
-def read_chunk_artifact(path: Path) -> ChunkArtifact:
-    """Read a persisted chunk artifact."""
-    return ChunkArtifact.model_validate(json.loads(path.read_text(encoding="utf-8")))
+def read_chunk_artifact(path: Path) -> NodeArtifact:
+    return NodeArtifact.model_validate(json.loads(path.read_text(encoding="utf-8")))
 
 
-def _extracted_checksum(path: Path) -> str:
-    return sha256_bytes(path.read_bytes())
-
-
-def _split_text(text: str, config: ChunkingConfig) -> list[str]:
-    splitter = SentenceSplitter(
-        chunk_size=config.chunk_size,
-        chunk_overlap=config.chunk_overlap,
-    )
-    return [chunk.strip() for chunk in splitter.split_text(text) if chunk.strip()]
-
-
-def _section_inputs(artifact: ExtractedDocumentArtifact) -> list[tuple[str, str, dict[str, Any]]]:
-    sections = artifact.document.sections
-    if not sections:
+def _section_documents(document: Document) -> list[Document]:
+    require_document_metadata(document)
+    raw_sections = document.metadata.get("sections") or []
+    base_metadata = {key: value for key, value in document.metadata.items() if key != "sections"}
+    if not raw_sections:
+        metadata = {
+            **base_metadata,
+            "section_title": None,
+            "section_ordinal": None,
+            "section_level": None,
+        }
         return [
-            (
-                artifact.source_document.title,
-                artifact.document.text,
-                {"section_ordinal": None, "section_level": None},
+            Document(
+                text=document.text,
+                id_=document.id_,
+                metadata=metadata,
+                excluded_embed_metadata_keys=list(metadata),
+                excluded_llm_metadata_keys=list(metadata),
             )
         ]
 
-    result: list[tuple[str, str, dict[str, Any]]] = []
-    for section in sections:
-        result.append((_section_title(section), section.text, _section_metadata(section)))
-    return result
+    sections: list[Document] = []
+    for raw in raw_sections:
+        section = dict(raw)
+        section_metadata = dict(section.get("metadata") or {})
+        metadata = {
+            **base_metadata,
+            **section_metadata,
+            "section_title": section.get("title"),
+            "section_ordinal": section.get("ordinal"),
+            "section_level": section.get("level"),
+        }
+        sections.append(
+            Document(
+                text=str(section["text"]),
+                id_=document.id_,
+                metadata=metadata,
+                excluded_embed_metadata_keys=list(metadata),
+                excluded_llm_metadata_keys=list(metadata),
+            )
+        )
+    return sections
 
 
-def _section_title(section: DocumentSection) -> str:
-    return section.title or f"Section {section.ordinal + 1}"
-
-
-def _section_metadata(section: DocumentSection) -> dict[str, Any]:
-    return {
-        "section_ordinal": section.ordinal,
-        "section_level": section.level,
-        **section.metadata,
-    }
-
-
-def _chunk_id(source_document_id: str, ordinal: int) -> str:
-    return f"{source_document_id}:chunk:{ordinal:04d}"
-
-
-def _build_chunks(
+def _build_nodes(
     artifact: ExtractedDocumentArtifact,
     *,
     artifact_path: Path,
     config: ChunkingConfig,
-) -> list[Chunk]:
-    chunks: list[Chunk] = []
-    for section_title, text, section_metadata in _section_inputs(artifact):
-        for chunk_text in _split_text(text, config):
-            ordinal = len(chunks)
-            chunks.append(
-                Chunk(
-                    id=_chunk_id(artifact.document.id, ordinal),
-                    document_id=artifact.document.id,
-                    source_document_id=artifact.document.source_document_id,
-                    text=chunk_text,
-                    section_title=section_title,
-                    ordinal=ordinal,
-                    token_count=len(chunk_text.split()),
-                    metadata={
-                        "kb_id": artifact.kb_id,
-                        "source_instance_id": artifact.source_instance_id,
-                        "source_type": artifact.source_type,
-                        "source_uri": artifact.source_document.uri,
-                        "title": artifact.source_document.title,
-                        "extracted_artifact_path": artifact_path.as_posix(),
-                        **section_metadata,
-                    },
-                )
-            )
-    return chunks
+) -> list[TextNode]:
+    parser = SentenceSplitter(
+        chunk_size=config.chunk_size,
+        chunk_overlap=config.chunk_overlap,
+        include_metadata=False,
+    )
+    parsed_with_metadata: list[tuple[TextNode, dict[str, Any]]] = []
+    for section_document in _section_documents(artifact.document):
+        for parsed_node in parser.get_nodes_from_documents([section_document]):
+            parsed_with_metadata.append((parsed_node, section_document.metadata))
+    nodes: list[TextNode] = []
+    for ordinal, (parsed_node, section_metadata) in enumerate(parsed_with_metadata):
+        metadata: dict[str, Any] = {
+            **section_metadata,
+            "chunk_id": f"{artifact.document.id_}:chunk:{ordinal:04d}",
+            "document_id": artifact.document.id_,
+            "source_document_id": artifact.document.metadata["source_document_id"],
+            "ordinal": ordinal,
+            "token_count": len(parsed_node.get_content(metadata_mode=MetadataMode.NONE).split()),
+            "extracted_artifact_path": artifact_path.as_posix(),
+        }
+        node = TextNode(
+            id_=node_id_for_chunk(str(metadata["chunk_id"])),
+            text=parsed_node.get_content(metadata_mode=MetadataMode.NONE),
+            metadata=metadata,
+            relationships=parsed_node.relationships,
+        )
+        require_node_metadata(node)
+        nodes.append(node)
+    return nodes
 
 
 def chunk_extracted_artifact(
@@ -179,32 +182,32 @@ def chunk_extracted_artifact(
     rag_data_root: Path | str,
     config: ChunkingConfig | None = None,
     force: bool = False,
-) -> ChunkArtifact:
-    """Chunk one extracted artifact and persist the chunk artifact."""
+) -> NodeArtifact:
+    """Parse one extracted document and persist native LlamaIndex nodes."""
     extracted_path = Path(extracted_path)
     artifact = read_extracted_artifact(extracted_path)
+    source_document_id = str(artifact.document.metadata["source_document_id"])
     output_path = chunk_artifact_path(
         rag_data_root=rag_data_root,
         kb_id=artifact.kb_id,
         source_instance_id=artifact.source_instance_id,
-        source_document_id=artifact.document.source_document_id,
+        source_document_id=source_document_id,
     )
     if output_path.exists() and not force:
         return read_chunk_artifact(output_path)
 
     chunking_config = config or ChunkingConfig()
-    chunk_artifact = ChunkArtifact(
+    result = NodeArtifact(
         kb_id=artifact.kb_id,
         source_instance_id=artifact.source_instance_id,
-        source_type=artifact.source_type,
-        source_document_id=artifact.document.source_document_id,
+        source_document_id=source_document_id,
         extracted_artifact_path=extracted_path.as_posix(),
-        extracted_checksum=_extracted_checksum(extracted_path),
+        extracted_checksum=sha256_bytes(extracted_path.read_bytes()),
         chunking=chunking_config,
-        chunks=_build_chunks(artifact, artifact_path=extracted_path, config=chunking_config),
+        nodes=_build_nodes(artifact, artifact_path=extracted_path, config=chunking_config),
     )
-    write_chunk_artifact(output_path, chunk_artifact, force=force)
-    return chunk_artifact
+    write_chunk_artifact(output_path, result, force=force)
+    return result
 
 
 def chunk_source_instance(
@@ -217,12 +220,17 @@ def chunk_source_instance(
     config: ChunkingConfig | None = None,
     force: bool = False,
 ) -> SourceInstanceChunkingSummary:
-    """Chunk extracted artifacts for one source instance."""
+    """Parse extracted documents for one source instance into text nodes."""
     root = Path(rag_data_root)
-    extracted_dir = root / "source_instances" / source_instance_id / "extracted"
-    extracted_paths = sorted(extracted_dir.glob("*.json"))
+    extracted_paths = sorted(
+        (root / "source_instances" / source_instance_id / "extracted").glob("*.json")
+    )
     if document_ids is not None:
-        selected_ids = {safe_document_id(document_id) for document_id in document_ids}
+        selected_ids = {
+            safe_document_id(candidate)
+            for document_id in document_ids
+            for candidate in (document_id, f"{source_instance_id}:{document_id}")
+        }
         extracted_paths = [path for path in extracted_paths if path.stem in selected_ids]
     if limit is not None:
         if limit < 0:
@@ -237,20 +245,21 @@ def chunk_source_instance(
     for extracted_path in extracted_paths:
         try:
             artifact = read_extracted_artifact(extracted_path)
+            source_document_id = str(artifact.document.metadata["source_document_id"])
             output_path = chunk_artifact_path(
                 rag_data_root=root,
                 kb_id=artifact.kb_id,
                 source_instance_id=artifact.source_instance_id,
-                source_document_id=artifact.document.source_document_id,
+                source_document_id=source_document_id,
             )
             from_cache = output_path.exists() and not force
-            chunk_artifact = chunk_extracted_artifact(
+            node_artifact = chunk_extracted_artifact(
                 extracted_path,
                 rag_data_root=root,
                 config=config,
                 force=force,
             )
-            summary.chunk_count += len(chunk_artifact.chunks)
+            summary.chunk_count += len(node_artifact.nodes)
             if from_cache:
                 summary.from_cache += 1
             else:

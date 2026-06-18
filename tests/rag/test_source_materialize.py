@@ -3,10 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from llama_index.core.schema import TextNode
 from qdrant_client.models import SparseVector
 
-from rag.contracts import Chunk, RetrievalCapability
+from rag.contracts import RetrievalCapability
 from rag.contracts.manifests import attestation_from_payload, read_index_manifest
+from rag.contracts.metadata import node_id_for_chunk
 from rag.indexing.materialize import (
     collection_name_for_build,
     materialize_kb_collection,
@@ -15,7 +17,7 @@ from rag.indexing.materialize import (
     retrieval_capability_for_strategy,
     validate_strategy_supported,
 )
-from rag.sources.bundles import SourceChunkBundle
+from rag.sources.bundles import SourceNodeBundle
 
 
 class _EmbeddingClient:
@@ -86,38 +88,37 @@ class _VectorStore:
         self.aliases[alias_name] = collection_name
 
 
-def _bundle() -> SourceChunkBundle:
-    chunks = [
-        Chunk(
-            id="html:tensors:chunk:0000",
-            document_id="html:tensors",
-            source_document_id="html:tensors",
+def _bundle() -> SourceNodeBundle:
+    nodes = [
+        TextNode(
+            id_=node_id_for_chunk("docs:tensors:chunk:0000"),
             text="Tensor text.",
-            section_title="Overview",
-            ordinal=0,
-            token_count=2,
-            metadata={"kb_id": "pytorch_reference", "source_type": "html_docs"},
+            metadata={
+                "kb_id": "pytorch_reference",
+                "chunk_id": "docs:tensors:chunk:0000",
+                "document_id": "docs:tensors",
+                "source_document_id": "docs:tensors",
+            },
         ),
-        Chunk(
-            id="html:torch:chunk:0000",
-            document_id="html:torch",
-            source_document_id="html:torch",
+        TextNode(
+            id_=node_id_for_chunk("docs:torch:chunk:0000"),
             text="Torch text.",
-            section_title="Overview",
-            ordinal=1,
-            token_count=2,
-            metadata={"kb_id": "pytorch_reference", "source_type": "html_docs"},
+            metadata={
+                "kb_id": "pytorch_reference",
+                "chunk_id": "docs:torch:chunk:0000",
+                "document_id": "docs:torch",
+                "source_document_id": "docs:torch",
+            },
         ),
     ]
-    return SourceChunkBundle(
+    return SourceNodeBundle(
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_types=["html_docs"],
-        chunk_artifact_paths=["chunks/html_tensors.json"],
-        chunk_artifact_checksums={"chunks/html_tensors.json": "sha256:abc"},
-        chunks=chunks,
+        node_artifact_paths=["chunks/docs_tensors.json"],
+        node_artifact_checksums={"chunks/docs_tensors.json": "sha256:abc"},
+        nodes=nodes,
         document_count=2,
-        chunk_count=2,
+        node_count=2,
     )
 
 

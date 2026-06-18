@@ -30,16 +30,16 @@ from rag.sources.build import (
     build_source_instances_by_global_id,
 )
 from rag.sources.bundles import (
-    SourceChunkBundle,
+    SourceNodeBundle,
     collect_source_bundles,
-    collect_source_chunks,
+    collect_source_nodes,
 )
 from rag.sources.chunks import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
     LLAMAINDEX_SENTENCE_SPLITTER,
-    ChunkArtifact,
     ChunkingConfig,
+    NodeArtifact,
     SourceInstanceChunkingSummary,
     chunk_artifact_path,
     chunk_extracted_artifact,
@@ -58,7 +58,6 @@ from rag.sources.manifests import load_source_manifest
 from rag.sources.models import (
     GenericSourceEntry,
     SourceManifest,
-    SourceType,
     source_manifest_from_raw,
 )
 from rag.sources.processing import (
@@ -73,7 +72,6 @@ __all__ = [
     "ArxivPaperFetcher",
     "ArxivPdfExtractor",
     "BenchmarkPrepSummary",
-    "ChunkArtifact",
     "ChunkingConfig",
     "CatalogSourceBuildSummary",
     "CatalogSourcesBuildSummary",
@@ -87,7 +85,8 @@ __all__ = [
     "RawArtifactRef",
     "SourceBuildStatus",
     "SourceBuildSummary",
-    "SourceChunkBundle",
+    "NodeArtifact",
+    "SourceNodeBundle",
     "SourceExtractor",
     "SourceFetcher",
     "SourceFetchResult",
@@ -95,7 +94,6 @@ __all__ = [
     "SourceManifest",
     "SourceProcessingFailure",
     "SourceProcessingSummary",
-    "SourceType",
     "benchmark_artifact_dir",
     "build_catalog_sources",
     "build_source_instance",
@@ -106,7 +104,7 @@ __all__ = [
     "chunk_extracted_artifact",
     "chunk_source_instance",
     "collect_source_bundles",
-    "collect_source_chunks",
+    "collect_source_nodes",
     "extracted_artifact_from_result",
     "extracted_artifact_path",
     "labels_artifact_path",
