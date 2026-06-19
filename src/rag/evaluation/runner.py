@@ -126,7 +126,8 @@ async def _execute(
         node_postprocessors=target.node_postprocessors,
     )
     assert isinstance(retrieval_evaluator, ProjectRetrieverEvaluator)
-    judges = BenchmarkJudges(judge_llm) if judge_llm is not None else None
+    needs_judges = "context_quality" in suites or "generation_quality" in suites
+    judges = BenchmarkJudges(judge_llm) if needs_judges and judge_llm is not None else None
 
     for case in cases:
         query = _case_query(case)

@@ -7,7 +7,7 @@ from time import perf_counter
 
 from llama_index.core.llms import LLM
 from llama_index.core.schema import NodeWithScore
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app_config.catalog import KBConfig, get_catalog, get_kb_config
 from app_config.runtime import get_settings, secret_value
@@ -61,6 +61,7 @@ class RagRuntime:
         settings=None,
         embedding_service: EmbeddingService | None = None,
         qdrant_client: QdrantClient | None = None,
+        qdrant_aclient: AsyncQdrantClient | None = None,
         resolver: LlamaIndexRuntimeResolver | None = None,
         reranker_factory=get_reranker,
         sparse_encoder_factory=None,
@@ -79,8 +80,13 @@ class RagRuntime:
             host=self.platform_settings.qdrant_host,
             port=self.platform_settings.qdrant_port,
         )
+        aclient = qdrant_aclient or AsyncQdrantClient(
+            host=self.platform_settings.qdrant_host,
+            port=self.platform_settings.qdrant_port,
+        )
         self._resolver = resolver or LlamaIndexRuntimeResolver(
             qdrant_client=client,
+            qdrant_aclient=aclient,
             embedding_service=self.embedding_service,
             embedding_model=self.rag_settings.embedding_model,
             qdrant_batch_size=self.rag_settings.build.qdrant_upsert_batch_size,

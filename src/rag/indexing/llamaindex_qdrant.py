@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from llama_index.vector_stores.qdrant import QdrantVectorStore
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client.models import (
     CreateAlias,
     CreateAliasOperation,
@@ -25,8 +25,15 @@ SPARSE_VECTOR_NAME = "sparse"
 class QdrantCollectionManager:
     """Own collection lifecycle, attestation metadata, and alias operations."""
 
-    def __init__(self, *, client: QdrantClient, collection_name: str) -> None:
+    def __init__(
+        self,
+        *,
+        client: QdrantClient,
+        collection_name: str,
+        aclient: AsyncQdrantClient | None = None,
+    ) -> None:
         self.client = client
+        self.aclient = aclient
         self.collection_name = collection_name
 
     @classmethod
@@ -39,6 +46,7 @@ class QdrantCollectionManager:
     ) -> "QdrantCollectionManager":
         return cls(
             client=QdrantClient(host=host, port=port),
+            aclient=AsyncQdrantClient(host=host, port=port),
             collection_name=collection_name,
         )
 
@@ -67,6 +75,7 @@ class QdrantCollectionManager:
         return QdrantVectorStore(
             collection_name=self.collection_name,
             client=self.client,
+            aclient=self.aclient,
             batch_size=batch_size,
             dense_config=VectorParams(size=vector_size, distance=Distance.COSINE),
             sparse_config=SparseVectorParams(index=SparseIndexParams()),

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Literal
 
 from llama_index.core import VectorStoreIndex
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from rag.contracts import CollectionAttestation
 from rag.indexing.llamaindex_embeddings import ProjectEmbedding, ProjectSparseEncoder
@@ -36,9 +36,11 @@ class LlamaIndexRuntimeResolver:
         embedding_model: str,
         qdrant_batch_size: int,
         sparse_encoder_factory: Callable[[], object],
+        qdrant_aclient: AsyncQdrantClient | None = None,
         collection_manager_factory: Callable[[str], QdrantCollectionManager] | None = None,
     ) -> None:
         self.qdrant_client = qdrant_client
+        self.qdrant_aclient = qdrant_aclient
         self.embedding_service = embedding_service
         self.embedding_model = embedding_model
         self.qdrant_batch_size = qdrant_batch_size
@@ -48,6 +50,7 @@ class LlamaIndexRuntimeResolver:
     def _default_manager(self, collection_name: str) -> QdrantCollectionManager:
         return QdrantCollectionManager(
             client=self.qdrant_client,
+            aclient=self.qdrant_aclient,
             collection_name=collection_name,
         )
 

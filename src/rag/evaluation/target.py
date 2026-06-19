@@ -134,6 +134,7 @@ def materialize_benchmark_target(
     collection_name = f"eval__{kb.name}__{source_instance_id.replace('.', '_')}__{stamp}"
     manager = QdrantCollectionManager(
         client=runtime.resolver.qdrant_client,
+        aclient=runtime.resolver.qdrant_aclient,
         collection_name=collection_name,
     )
     corpus_payload = json.dumps(
