@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from llama_index.core.llms import MockLLM
 from llama_index.core.schema import TextNode
@@ -8,16 +10,16 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import SparseVector
 
 from app_config.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
+from app_config.catalog.schema import AliasBuildConfig, AliasRetrievalConfig
 from app_config.runtime import load_settings
 from rag.contracts.metadata import node_id_for_chunk
+from rag.control_plane.models import AliasDeployment, RagRelease
 from rag.evaluation.models import GenerationObservation
 from rag.indexing.llamaindex_qdrant import QdrantCollectionManager
-from rag.indexing.materialize import (
-    materialize_kb_collection_llamaindex,
-    promote_materialized_alias,
-)
+from rag.indexing.materialize import materialize_release_collection
 from rag.runtime import RagRuntime, RagRuntimeSource
 from rag.sources.bundles import SourceNodeBundle
+from tests.rag.control_plane_fakes import FakeAliasDeploymentRepository, FakeReleaseRepository
 
 
 class _Embedding:
@@ -140,59 +142,112 @@ def _bundle() -> SourceNodeBundle:
     )
 
 
-def _build_collection(
+def _build_release(
     *,
     client: QdrantClient,
     root: Path,
-    name: str,
+    collection_name: str,
     capability: str,
-) -> QdrantCollectionManager:
-    manager = QdrantCollectionManager(client=client, collection_name=name)
-    materialize_kb_collection_llamaindex(
+) -> RagRelease:
+    """Materialize a release directly from a fixed bundle (no real fetch/chunk)."""
+    manager = QdrantCollectionManager(client=client, collection_name=collection_name)
+    build_config = AliasBuildConfig(
+        chunking={"strategy": "sentence", "chunk_size": 512, "chunk_overlap": 64},
+        dense_encoder={"model": "test-embedding", "dimension": 3},
+        sparse_encoder={"model": "test-sparse"} if capability == "hybrid" else None,
+    )
+    return materialize_release_collection(
         kb_id="pytorch_reference",
-        collection_name=name,
+        release_id=f"ragrel_pytorch_reference_{collection_name[-12:]}",
+        collection_name=collection_name,
+        release_fingerprint=f"sha256:fingerprint-{collection_name}",
+        catalog_digest="sha256:catalog",
+        build_config_digest="sha256:build",
+        source_declaration_digest="sha256:source",
+        source_snapshot_id="sha256:snapshot",
+        build_config=build_config,
         bundles=[_bundle()],
         collection_manager=manager,
         embedding_client=_Embedding(),
-        embedding_model="test-embedding",
-        retrieval_capability=capability,  # type: ignore[arg-type]
-        rag_data_root=root,
-        sparse_encoder_model="Qdrant/bm25" if capability == "hybrid" else None,
         sparse_encoder_client=_Sparse() if capability == "hybrid" else None,
+        rag_data_root=root,
+        source_adapter_versions={},
+        source_manifest_digests={},
     )
-    return manager
 
 
-def _promote(manager: QdrantCollectionManager, alias: str) -> None:
-    promote_materialized_alias(
+def _activate(
+    *,
+    release: RagRelease,
+    alias: str,
+    deployment_repo: FakeAliasDeploymentRepository,
+    strategy: str,
+) -> None:
+    deployment = AliasDeployment(
+        id=uuid4(),
         kb_id="pytorch_reference",
         alias=alias,
-        collection_name=manager.collection_name,
-        collection_manager=manager,
+        release_id=release.id,
+        collection_name=release.collection_name,
+        catalog_digest="sha256:catalog",
+        build_config_digest=release.build_config_digest,
+        retrieval_config_digest="sha256:retrieval",
+        retrieval_config=AliasRetrievalConfig(strategy=strategy, top_k=2, score_threshold=0.1),
+        status="pending",
     )
+    deployment_repo.create_pending(deployment)
+    deployment_repo.activate(deployment.id, applied_at=datetime.now(timezone.utc))
 
 
-def _runtime(client: QdrantClient) -> RagRuntime:
+def _runtime(
+    client: QdrantClient,
+    *,
+    deployment_repo: FakeAliasDeploymentRepository,
+    release_repo: FakeReleaseRepository,
+) -> RagRuntime:
     return RagRuntime(
         settings=_settings(),
         embedding_service=_Embedding(),
         qdrant_client=client,
         sparse_encoder_factory=_Sparse,
+        deployment_repo=deployment_repo,
+        release_repo=release_repo,
     )
+
+
+def _deployed(
+    *,
+    client: QdrantClient,
+    root: Path,
+    collection_name: str,
+    capability: str,
+    alias: str,
+    strategy: str,
+) -> tuple[RagRelease, FakeAliasDeploymentRepository, FakeReleaseRepository]:
+    release = _build_release(
+        client=client, root=root, collection_name=collection_name, capability=capability
+    )
+    release_repo = FakeReleaseRepository()
+    release_repo.insert(release, manifest_path="unused.json")
+    deployment_repo = FakeAliasDeploymentRepository()
+    _activate(release=release, alias=alias, deployment_repo=deployment_repo, strategy=strategy)
+    return release, deployment_repo, release_repo
 
 
 def test_runtime_uses_default_alias_and_returns_native_nodes(tmp_path: Path) -> None:
     client = QdrantClient(":memory:")
-    manager = _build_collection(
+    release, deployment_repo, release_repo = _deployed(
         client=client,
         root=tmp_path,
-        name="rag__pytorch_reference__dense",
+        collection_name="rag__pytorch_reference__dense",
         capability="dense",
+        alias="champion",
+        strategy="dense",
     )
-    _promote(manager, "champion")
 
     with catalog_override(_catalog()):
-        result = _runtime(client).retrieve(
+        runtime = _runtime(client, deployment_repo=deployment_repo, release_repo=release_repo)
+        result = runtime.retrieve(
             query="How do I define a module?",
             sources=[RagRuntimeSource(knowledge_base="pytorch_reference")],
         )
@@ -200,23 +255,26 @@ def test_runtime_uses_default_alias_and_returns_native_nodes(tmp_path: Path) -> 
     assert len(result.nodes) == 2
     assert result.nodes[0].node.metadata["qdrant_alias"] == "rag__pytorch_reference__champion"
     assert result.nodes[0].node.metadata["adapter_id"] == "generic.http_html"
-    assert result.provenance[0]["collection_name"] == manager.collection_name
+    assert result.provenance[0]["collection_name"] == release.collection_name
     assert result.provenance[0]["manifest_id"].startswith("sha256:")
+    assert result.provenance[0]["release_id"] == release.id
     assert result.diagnostics["no_hit"] is False
 
 
 def test_runtime_allows_dense_alias_on_hybrid_collection(tmp_path: Path) -> None:
     client = QdrantClient(":memory:")
-    manager = _build_collection(
+    _, deployment_repo, release_repo = _deployed(
         client=client,
         root=tmp_path,
-        name="rag__pytorch_reference__hybrid",
+        collection_name="rag__pytorch_reference__hybrid",
         capability="hybrid",
+        alias="champion",
+        strategy="dense",
     )
-    _promote(manager, "champion")
 
     with catalog_override(_catalog()):
-        result = _runtime(client).retrieve(
+        runtime = _runtime(client, deployment_repo=deployment_repo, release_repo=release_repo)
+        result = runtime.retrieve(
             query="module",
             sources=[RagRuntimeSource(knowledge_base="pytorch_reference", alias="champion")],
         )
@@ -227,16 +285,18 @@ def test_runtime_allows_dense_alias_on_hybrid_collection(tmp_path: Path) -> None
 
 def test_runtime_rejects_hybrid_alias_on_dense_collection(tmp_path: Path) -> None:
     client = QdrantClient(":memory:")
-    manager = _build_collection(
+    _, deployment_repo, release_repo = _deployed(
         client=client,
         root=tmp_path,
-        name="rag__pytorch_reference__dense",
+        collection_name="rag__pytorch_reference__dense",
         capability="dense",
+        alias="challenger",
+        strategy="hybrid",
     )
-    _promote(manager, "challenger")
 
     with catalog_override(_catalog()):
-        result = _runtime(client).retrieve(
+        runtime = _runtime(client, deployment_repo=deployment_repo, release_repo=release_repo)
+        result = runtime.retrieve(
             query="module",
             sources=[RagRuntimeSource(knowledge_base="pytorch_reference", alias="challenger")],
         )
@@ -247,16 +307,18 @@ def test_runtime_rejects_hybrid_alias_on_dense_collection(tmp_path: Path) -> Non
 
 def test_runtime_uses_explicit_hybrid_alias(tmp_path: Path) -> None:
     client = QdrantClient(":memory:")
-    manager = _build_collection(
+    _, deployment_repo, release_repo = _deployed(
         client=client,
         root=tmp_path,
-        name="rag__pytorch_reference__hybrid",
+        collection_name="rag__pytorch_reference__hybrid",
         capability="hybrid",
+        alias="challenger",
+        strategy="hybrid",
     )
-    _promote(manager, "challenger")
 
     with catalog_override(_catalog()):
-        result = _runtime(client).retrieve(
+        runtime = _runtime(client, deployment_repo=deployment_repo, release_repo=release_repo)
+        result = runtime.retrieve(
             query="module",
             sources=[RagRuntimeSource(knowledge_base="pytorch_reference", alias="challenger")],
         )
@@ -268,16 +330,18 @@ def test_runtime_uses_explicit_hybrid_alias(tmp_path: Path) -> None:
 
 def test_runtime_marks_resolved_source_with_no_hits(tmp_path: Path) -> None:
     client = QdrantClient(":memory:")
-    manager = _build_collection(
+    _, deployment_repo, release_repo = _deployed(
         client=client,
         root=tmp_path,
-        name="rag__pytorch_reference__dense",
+        collection_name="rag__pytorch_reference__dense",
         capability="dense",
+        alias="champion",
+        strategy="dense",
     )
-    _promote(manager, "champion")
 
     with catalog_override(_catalog()):
-        result = _runtime(client).retrieve(
+        runtime = _runtime(client, deployment_repo=deployment_repo, release_repo=release_repo)
+        result = runtime.retrieve(
             query="unrelated question",
             sources=[RagRuntimeSource(knowledge_base="pytorch_reference")],
         )
@@ -290,16 +354,18 @@ def test_runtime_marks_resolved_source_with_no_hits(tmp_path: Path) -> None:
 
 def test_runtime_query_engine_returns_answer_sources_and_prompt_identity(tmp_path: Path) -> None:
     client = QdrantClient(":memory:")
-    manager = _build_collection(
+    release, deployment_repo, release_repo = _deployed(
         client=client,
         root=tmp_path,
-        name="rag__pytorch_reference__dense",
+        collection_name="rag__pytorch_reference__dense",
         capability="dense",
+        alias="champion",
+        strategy="dense",
     )
-    _promote(manager, "champion")
 
     with catalog_override(_catalog()):
-        result = _runtime(client).query(
+        runtime = _runtime(client, deployment_repo=deployment_repo, release_repo=release_repo)
+        result = runtime.query(
             query="How do I define a module?",
             source=RagRuntimeSource(knowledge_base="pytorch_reference"),
             llm=MockLLM(max_tokens=32),
@@ -313,7 +379,7 @@ def test_runtime_query_engine_returns_answer_sources_and_prompt_identity(tmp_pat
     }
     assert result.prompt_identity.prompt_id == "rag.query.default"
     assert result.prompt_identity.prompt_digest.startswith("sha256:")
-    assert result.provenance["collection_name"] == manager.collection_name
+    assert result.provenance["collection_name"] == release.collection_name
 
     observation = GenerationObservation(**result.prompt_identity.model_dump())
     assert observation.prompt_id == "rag.query.default"
@@ -323,8 +389,11 @@ def test_runtime_query_engine_returns_answer_sources_and_prompt_identity(tmp_pat
 
 def test_runtime_reports_empty_query_diagnostics() -> None:
     client = QdrantClient(":memory:")
+    deployment_repo = FakeAliasDeploymentRepository()
+    release_repo = FakeReleaseRepository()
     with catalog_override(_catalog()):
-        result = _runtime(client).retrieve(
+        runtime = _runtime(client, deployment_repo=deployment_repo, release_repo=release_repo)
+        result = runtime.retrieve(
             query=" ",
             sources=[RagRuntimeSource(knowledge_base="pytorch_reference")],
         )

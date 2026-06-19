@@ -162,11 +162,9 @@ suites = ["retrieval_quality"]
         )
         parameter_state = SimpleNamespace(
             collection_name="rag__kb__production",
-            attestation=SimpleNamespace(manifest_id="sha256:production"),
+            manifest_id="sha256:production",
         )
-        build_profile = SimpleNamespace(
-            chunking_config={"strategy": "sentence", "chunk_size": 512, "chunk_overlap": 64}
-        )
+        build_profile = {"strategy": "sentence", "chunk_size": 512, "chunk_overlap": 64}
         retriever = _Retriever()
         node_postprocessors = []
         closed = False
@@ -300,11 +298,9 @@ suites = ["retrieval_quality"]
         )
         parameter_state = SimpleNamespace(
             collection_name="rag__kb__production",
-            attestation=SimpleNamespace(manifest_id="sha256:production"),
+            manifest_id="sha256:production",
         )
-        build_profile = SimpleNamespace(
-            chunking_config={"strategy": "sentence", "chunk_size": 512, "chunk_overlap": 64}
-        )
+        build_profile = {"strategy": "sentence", "chunk_size": 512, "chunk_overlap": 64}
         retriever = _Retriever()
         node_postprocessors = []
 
@@ -429,11 +425,9 @@ suites = ["context_quality"]
         )
         parameter_state = SimpleNamespace(
             collection_name="rag__kb__production",
-            attestation=SimpleNamespace(manifest_id="sha256:production"),
+            manifest_id="sha256:production",
         )
-        build_profile = SimpleNamespace(
-            chunking_config={"strategy": "sentence", "chunk_size": 512, "chunk_overlap": 64}
-        )
+        build_profile = {"strategy": "sentence", "chunk_size": 512, "chunk_overlap": 64}
         retriever = _Retriever()
         node_postprocessors = []
 

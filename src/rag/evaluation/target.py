@@ -14,8 +14,7 @@ from llama_index.core.schema import Document, NodeWithScore, TextNode
 
 from app_config.catalog import AliasConfig, KBConfig
 from rag.contracts import DEFAULT_RAG_QUERY_PROMPTS, ProjectQueryPrompts
-from rag.contracts.manifests import manifest_path, read_index_manifest
-from rag.contracts.models import IndexManifest
+from rag.contracts.manifests import manifest_path
 from rag.evaluation.models import BenchmarkPreparedArtifacts
 from rag.indexing.llamaindex_qdrant import QdrantCollectionManager
 from rag.indexing.materialize import (
@@ -38,7 +37,7 @@ class BenchmarkTarget:
     state: RuntimeAliasState
     runtime_retriever: RuntimeRetriever
     parameter_state: RuntimeAliasState
-    build_profile: IndexManifest
+    build_profile: dict[str, object]
     collection_manager: QdrantCollectionManager | None = None
     manifest_artifact: Path | None = None
 
@@ -98,13 +97,17 @@ def materialize_benchmark_target(
         kb_id=kb.name,
         alias=alias,
     )
-    profile_manifest = read_index_manifest(
-        manifest_path(
-            rag_data_root=rag_data_root,
-            kb_id=kb.name,
-            collection_name=parameter_state.collection_name,
+    if parameter_state.release is None:
+        raise RuntimeError(
+            f"Active deployment for kb='{kb.name}' alias='{alias}' resolved without a "
+            "release; cannot mirror its build profile for benchmark preparation"
         )
-    )
+    chunking = parameter_state.release.build_config.chunking
+    build_profile: dict[str, object] = {
+        "strategy": chunking.strategy,
+        "chunk_size": chunking.chunk_size,
+        "chunk_overlap": chunking.chunk_overlap,
+    }
 
     if not artifacts.documents:
         return BenchmarkTarget(
@@ -115,11 +118,11 @@ def materialize_benchmark_target(
             state=parameter_state,
             runtime_retriever=parameter_retriever,
             parameter_state=parameter_state,
-            build_profile=profile_manifest,
+            build_profile=build_profile,
         )
 
-    chunk_size = int(profile_manifest.chunking_config.get("chunk_size", 512))
-    chunk_overlap = int(profile_manifest.chunking_config.get("chunk_overlap", 64))
+    chunk_size = int(build_profile["chunk_size"])
+    chunk_overlap = int(build_profile["chunk_overlap"])
     nodes = _benchmark_nodes(
         artifacts.documents,
         chunk_size=chunk_size,
@@ -201,7 +204,7 @@ def materialize_benchmark_target(
             reranker_client=reranker,
         ),
         parameter_state=parameter_state,
-        build_profile=profile_manifest,
+        build_profile=build_profile,
         collection_manager=manager,
         manifest_artifact=Path(result.manifest_path),
     )

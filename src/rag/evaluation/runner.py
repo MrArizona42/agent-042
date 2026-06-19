@@ -287,7 +287,7 @@ def run_benchmark(
             run_id = uuid.uuid4()
             metric_value = sum(values) / len(values)
             metric_values[metric_name] = metric_value
-            chunking = target.build_profile.chunking_config
+            chunking = target.build_profile
             uses_judge = metric_name in {
                 "context_relevancy",
                 "faithfulness",
@@ -327,9 +327,7 @@ def run_benchmark(
                         "benchmark_adapter_id": metadata.get("adapter_id"),
                         "benchmark_adapter_version": metadata.get("adapter_version"),
                         "parameter_source_collection": target.parameter_state.collection_name,
-                        "parameter_source_manifest_id": (
-                            target.parameter_state.attestation.manifest_id
-                        ),
+                        "parameter_source_manifest_id": target.parameter_state.manifest_id,
                         "retrieval_strategy": target.alias_config.retrieval_strategy,
                         "retrieval_capability": (
                             target.state.attestation.retrieval_capability.value

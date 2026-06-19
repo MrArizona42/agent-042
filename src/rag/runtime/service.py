@@ -9,14 +9,21 @@ from llama_index.core.llms import LLM
 from llama_index.core.schema import NodeWithScore
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
-from app_config.catalog import KBConfig, get_catalog, get_kb_config
+from app_config.catalog import AliasConfig, KBConfig, get_catalog, get_kb_config
+from app_config.catalog.schema import AliasRetrievalConfig
 from app_config.runtime import JudgeSettings, get_settings, secret_value
 from rag.contracts import (
     DEFAULT_RAG_QUERY_PROMPTS,
     ProjectQueryPrompts,
 )
+from rag.control_plane.postgres import (
+    PostgresAliasDeploymentRepository,
+    PostgresReleaseRepository,
+    create_session_factory,
+)
+from rag.control_plane.repositories import AliasDeploymentRepository, ReleaseRepository
 from rag.embeddings import EmbeddingService
-from rag.indexing.materialize import qdrant_alias_name, validate_strategy_supported
+from rag.indexing.materialize import validate_strategy_supported
 from rag.reranker import Reranker, get_reranker
 from rag.runtime.engines import RuntimeRetriever, build_runtime_retriever
 from rag.runtime.models import (
@@ -29,6 +36,32 @@ from rag.runtime.resolver import LlamaIndexRuntimeResolver, RuntimeAliasState
 from rag.sparse_encoder import SparseEncoderService
 
 logger = logging.getLogger(__name__)
+
+
+class RagDatabaseUnavailableError(RuntimeError):
+    """RAG is enabled but no agent042 Postgres database is configured.
+
+    Postgres holds the applied alias deployment state that the runtime
+    resolves against; without it there is no source of truth to serve from.
+    """
+
+
+def _to_flat_alias_config(retrieval_config: AliasRetrievalConfig) -> AliasConfig:
+    """Adapt the snapshotted deployment retrieval config to the runtime's flat shape.
+
+    `rag.runtime.engines.build_runtime_retriever` and the postprocessor stack
+    take `app_config.catalog.AliasConfig` (field name `retrieval_strategy`);
+    `AliasDeployment.retrieval_config` is `AliasRetrievalConfig` (field name
+    `strategy`). Converting here keeps that call site catalog-schema-agnostic
+    instead of churning engines.py for a field rename.
+    """
+    return AliasConfig(
+        top_k=retrieval_config.top_k,
+        score_threshold=retrieval_config.score_threshold,
+        reranker=retrieval_config.reranker,
+        retrieval_strategy=retrieval_config.strategy,
+        reranker_multiplier=retrieval_config.reranker_multiplier,
+    )
 
 
 def _elapsed_ms(started_at: float) -> float:
@@ -65,6 +98,8 @@ class RagRuntime:
         resolver: LlamaIndexRuntimeResolver | None = None,
         reranker_factory=get_reranker,
         sparse_encoder_factory=None,
+        deployment_repo: AliasDeploymentRepository | None = None,
+        release_repo: ReleaseRepository | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.platform_settings = self.settings.platform
@@ -72,6 +107,22 @@ class RagRuntime:
         self.embedding_service = embedding_service or EmbeddingService()
         self._reranker_factory = reranker_factory
         self._sparse_encoder_factory = sparse_encoder_factory or self._default_sparse_encoder
+
+        if deployment_repo is None or release_repo is None:
+            db_url = self.settings.auth.agent042_db_url
+            if not db_url:
+                raise RagDatabaseUnavailableError(
+                    "RAG is enabled but no agent042 database URL is configured "
+                    "(settings.auth.agent042_db_url). The applied alias deployment "
+                    "control plane requires Postgres; set GATEWAY_AGENT042_DB_URL or "
+                    "the underlying postgres settings."
+                )
+            session_factory = create_session_factory(db_url)
+            deployment_repo = deployment_repo or PostgresAliasDeploymentRepository(session_factory)
+            release_repo = release_repo or PostgresReleaseRepository(session_factory)
+        self._deployment_repo: AliasDeploymentRepository = deployment_repo
+        self._release_repo: ReleaseRepository = release_repo
+
         client = qdrant_client or QdrantClient(
             host=self.platform_settings.qdrant_host,
             port=self.platform_settings.qdrant_port,
@@ -87,9 +138,10 @@ class RagRuntime:
             embedding_model=self.rag_settings.embedding_model,
             qdrant_batch_size=self.rag_settings.build.qdrant_upsert_batch_size,
             sparse_encoder_factory=self._sparse_encoder_factory,
+            release_repo=self._release_repo,
         )
-        self._retrievers: dict[str, RuntimeRetriever] = {}
-        self._alias_states: dict[str, RuntimeAliasState] = {}
+        self._retrievers: dict[object, RuntimeRetriever] = {}
+        self._alias_states: dict[tuple[str, str], RuntimeAliasState] = {}
 
     def invalidate_caches(self) -> None:
         self._retrievers.clear()
@@ -120,10 +172,6 @@ class RagRuntime:
         return SparseEncoderService(embeddings_url=self.platform_settings.embeddings_url)
 
     @staticmethod
-    def _cache_key(kb_id: str, alias: str) -> str:
-        return qdrant_alias_name(kb_id=kb_id, alias=alias)
-
-    @staticmethod
     def _effective_alias(kb_cfg: KBConfig, alias: str | None) -> str:
         return alias or kb_cfg.default_alias
 
@@ -134,49 +182,54 @@ class RagRuntime:
         alias: str,
         strict: bool,
     ) -> RuntimeAliasState | None:
-        cache_key = self._cache_key(kb_id, alias)
-        cached = self._alias_states.get(cache_key)
-        if cached is not None:
-            if self._resolver.alias_target(cache_key) == cached.collection_name:
-                return cached
-            self._retrievers.pop(cache_key, None)
+        """Resolve the active applied deployment for (kb_id, alias).
+
+        Looks up the active deployment fresh on every call -- cheap relative
+        to the Qdrant attestation read it gates -- so a new deployment from
+        `alias apply` becomes visible without a process restart. The more
+        expensive release/attestation validation only reruns when the active
+        deployment id actually changed since the last resolution.
+        """
+        cache_key = (kb_id, alias)
+        deployment = self._deployment_repo.get_active(kb_id=kb_id, alias=alias)
+        if deployment is None:
             self._alias_states.pop(cache_key, None)
+            if strict:
+                raise RuntimeError(f"No active alias deployment for kb='{kb_id}' alias='{alias}'")
+            return None
+
+        cached = self._alias_states.get(cache_key)
+        if cached is not None and cached.deployment_id == deployment.id:
+            return cached
 
         state = self._resolver.resolve(
-            kb_id=kb_id,
-            alias=alias,
-            qdrant_alias=cache_key,
-            strict=strict,
+            kb_id=kb_id, alias=alias, deployment=deployment, strict=strict
         )
         if state is not None:
             self._alias_states[cache_key] = state
+        else:
+            self._alias_states.pop(cache_key, None)
         return state
 
-    def _get_retriever(
-        self,
-        *,
-        kb_cfg: KBConfig,
-        alias: str,
-        state: RuntimeAliasState,
-    ) -> RuntimeRetriever:
-        cached = self._retrievers.get(state.qdrant_alias)
+    def _get_retriever(self, *, state: RuntimeAliasState) -> RuntimeRetriever:
+        cache_key = state.deployment_id or state.qdrant_alias
+        cached = self._retrievers.get(cache_key)
         if cached is not None:
             return cached
 
-        alias_cfg = kb_cfg.aliases[alias]
-        index = self._resolver.open_index(
-            state,
-            strategy=alias_cfg.retrieval_strategy,
-        )
+        retrieval_config = state.retrieval_config
+        assert retrieval_config is not None, "applied-state resolution always sets retrieval_config"
+        flat_alias_cfg = _to_flat_alias_config(retrieval_config)
+        index = self._resolver.open_index(state, strategy=retrieval_config.strategy)
         reranker: Reranker | None = (
-            self._reranker_factory(alias_cfg.reranker) if alias_cfg.reranker else None
+            self._reranker_factory(retrieval_config.reranker) if retrieval_config.reranker else None
         )
         runtime_retriever = build_runtime_retriever(
             index=index,
-            alias_config=alias_cfg,
+            alias_config=flat_alias_cfg,
             reranker_client=reranker,
         )
-        self._retrievers[state.qdrant_alias] = runtime_retriever
+        self._retrievers[cache_key] = runtime_retriever
         return runtime_retriever
 
     def resolve_alias_profile(
@@ -193,11 +246,12 @@ class RagRuntime:
             raise ValueError(f"Unknown alias '{alias}' for KB '{kb_id}'")
         state = self._resolve_alias_state(kb_id=kb_id, alias=alias, strict=True)
         assert state is not None
+        assert state.retrieval_config is not None
         validate_strategy_supported(
-            retrieval_strategy=kb_cfg.aliases[alias].retrieval_strategy,
-            retrieval_capability=state.attestation.retrieval_capability.value,
+            retrieval_strategy=state.retrieval_config.strategy,
+            retrieval_capability=state.retrieval_capability,
         )
-        return kb_cfg, state, self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state)
+        return kb_cfg, state, self._get_retriever(state=state)
 
     @staticmethod
     def _enrich_node(
@@ -211,28 +265,33 @@ class RagRuntime:
                 "alias": state.alias,
                 "qdrant_alias": state.qdrant_alias,
                 "collection_name": state.collection_name,
-                "manifest_id": state.attestation.manifest_id,
-                "retrieval_capability": state.attestation.retrieval_capability.value,
+                "manifest_id": state.manifest_id,
+                "retrieval_capability": state.retrieval_capability,
             }
         )
         return node
 
     def validate_aliases(self, *, strict: bool = False) -> None:
-        """Validate every declared catalog alias that is currently available."""
+        """Validate every declared catalog alias resolves to a healthy applied deployment.
+
+        Checks the *applied* deployment's retrieval config against the
+        applied release's capability -- not the current desired catalog
+        values, which may differ until the next `alias apply`.
+        """
         for task_cfg in get_catalog().values():
             for kb_cfg in task_cfg.knowledge_bases:
-                for alias, alias_cfg in kb_cfg.aliases.items():
+                for alias in kb_cfg.aliases:
                     state = self._resolve_alias_state(
                         kb_id=kb_cfg.name,
                         alias=alias,
                         strict=strict,
                     )
-                    if state is None:
+                    if state is None or state.retrieval_config is None:
                         continue
                     try:
                         validate_strategy_supported(
-                            retrieval_strategy=alias_cfg.retrieval_strategy,
-                            retrieval_capability=state.attestation.retrieval_capability.value,
+                            retrieval_strategy=state.retrieval_config.strategy,
+                            retrieval_capability=state.retrieval_capability,
                         )
                     except ValueError:
                         if strict:
@@ -273,8 +332,7 @@ class RagRuntime:
                 continue
 
             alias = self._effective_alias(kb_cfg, source.alias)
-            alias_cfg = kb_cfg.aliases.get(alias)
-            if alias_cfg is None:
+            if alias not in kb_cfg.aliases:
                 result.skipped_sources.append(
                     RuntimeSkippedSource(
                         knowledge_base=source.knowledge_base,
@@ -296,10 +354,11 @@ class RagRuntime:
                     )
                 )
                 continue
+            assert state.retrieval_config is not None
             try:
                 validate_strategy_supported(
-                    retrieval_strategy=alias_cfg.retrieval_strategy,
-                    retrieval_capability=state.attestation.retrieval_capability.value,
+                    retrieval_strategy=state.retrieval_config.strategy,
+                    retrieval_capability=state.retrieval_capability,
                 )
             except ValueError as exc:
                 result.skipped_sources.append(
@@ -312,7 +371,7 @@ class RagRuntime:
                 continue
 
             retrieve_started_at = perf_counter()
-            nodes = self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state).retrieve(query)
+            nodes = self._get_retriever(state=state).retrieve(query)
             nodes = [self._enrich_node(node, state=state) for node in nodes]
             retrieve_ms = _elapsed_ms(retrieve_started_at)
             result.nodes.extend(nodes)
@@ -322,9 +381,11 @@ class RagRuntime:
                     "alias": alias,
                     "qdrant_alias": state.qdrant_alias,
                     "collection_name": state.collection_name,
-                    "manifest_id": state.attestation.manifest_id,
-                    "retrieval_strategy": alias_cfg.retrieval_strategy,
-                    "retrieval_capability": state.attestation.retrieval_capability.value,
+                    "manifest_id": state.manifest_id,
+                    "deployment_id": str(state.deployment_id) if state.deployment_id else None,
+                    "release_id": state.release.id if state.release else None,
+                    "retrieval_strategy": state.retrieval_config.strategy,
+                    "retrieval_capability": state.retrieval_capability,
                     "hit_count": len(nodes),
                     "no_hit": not nodes,
                     **_score_summary(nodes),
@@ -420,16 +481,16 @@ class RagRuntime:
         if kb_cfg is None:
             raise ValueError(f"Unknown knowledge base '{source.knowledge_base}'")
         alias = self._effective_alias(kb_cfg, source.alias)
-        alias_cfg = kb_cfg.aliases.get(alias)
-        if alias_cfg is None:
+        if alias not in kb_cfg.aliases:
             raise ValueError(f"Unknown alias '{alias}' for KB '{kb_cfg.name}'")
         state = self._resolve_alias_state(kb_id=kb_cfg.name, alias=alias, strict=True)
         assert state is not None
+        assert state.retrieval_config is not None
         validate_strategy_supported(
-            retrieval_strategy=alias_cfg.retrieval_strategy,
-            retrieval_capability=state.attestation.retrieval_capability.value,
+            retrieval_strategy=state.retrieval_config.strategy,
+            retrieval_capability=state.retrieval_capability,
         )
-        runtime_retriever = self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state)
+        runtime_retriever = self._get_retriever(state=state)
         response = runtime_retriever.query_engine(
             llm=llm or self.generation_llm(),
             prompts=prompts,
@@ -444,8 +505,10 @@ class RagRuntime:
                 "alias": alias,
                 "qdrant_alias": state.qdrant_alias,
                 "collection_name": state.collection_name,
-                "manifest_id": state.attestation.manifest_id,
-                "retrieval_strategy": alias_cfg.retrieval_strategy,
-                "retrieval_capability": state.attestation.retrieval_capability.value,
+                "manifest_id": state.manifest_id,
+                "deployment_id": str(state.deployment_id) if state.deployment_id else None,
+                "release_id": state.release.id if state.release else None,
+                "retrieval_strategy": state.retrieval_config.strategy,
+                "retrieval_capability": state.retrieval_capability,
             },
         )

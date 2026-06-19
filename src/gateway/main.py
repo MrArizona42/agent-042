@@ -20,6 +20,7 @@ from gateway.auth.session import SessionManager
 from gateway.services.celery_client import CeleryClient
 from gateway.services.processing import process_chat
 from gateway.services.redis_stream import RedisStreamService
+from rag.runtime.service import RagDatabaseUnavailableError
 from shared.events import create_inference_event_producer
 from shared.logging import configure_logging
 from shared.telemetry import (
@@ -63,6 +64,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             process_chat.ensure_rag_service(settings=settings, validate=True)
             logger.info("Knowledge base startup validation complete")
+        except RagDatabaseUnavailableError:
+            # Always fatal: RAG enabled with no Postgres control plane is a
+            # misconfiguration, not a degraded-but-usable startup state.
+            raise
         except Exception:
             if rag.strict_startup:
                 raise

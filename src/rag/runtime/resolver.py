@@ -1,33 +1,66 @@
-"""Resolve catalog aliases into validated LlamaIndex Qdrant indexes."""
+"""Resolve applied alias deployments into validated LlamaIndex Qdrant indexes."""
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
 from typing import Callable, Literal
+from uuid import UUID
 
 from llama_index.core import VectorStoreIndex
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
-from rag.contracts import CollectionAttestation
+from app_config.catalog.schema import AliasRetrievalConfig
+from rag.contracts import CollectionAttestation, compare_release_attestation
+from rag.control_plane.models import AliasDeployment, RagRelease
+from rag.control_plane.repositories import ReleaseRepository
 from rag.indexing.llamaindex_embeddings import ProjectEmbedding, ProjectSparseEncoder
 from rag.indexing.llamaindex_qdrant import QdrantCollectionManager
+from rag.indexing.materialize import qdrant_alias_name
 
 RetrievalStrategy = Literal["dense", "hybrid", "sparse"]
 
 
 @dataclass(frozen=True, slots=True)
 class RuntimeAliasState:
+    """A validated, queryable alias target.
+
+    Carries two shapes because two different code paths construct it: the
+    applied-state resolver below (deployment/release, the production KB
+    serving path) and `rag.evaluation.target`'s disposable benchmark
+    collections (which build one by hand from the old attestation-v1
+    materialize path, since release-aware benchmark mirroring is phase 6).
+    Use the `manifest_id`/`retrieval_capability` properties rather than the
+    raw fields so callers don't need to know which path produced a state.
+    """
+
     kb_id: str
     alias: str
-    qdrant_alias: str
     collection_name: str
-    attestation: CollectionAttestation
     vector_size: int
+    qdrant_alias: str | None = None
+    attestation: CollectionAttestation | None = None
+    deployment_id: UUID | None = None
+    release: RagRelease | None = None
+    retrieval_config: AliasRetrievalConfig | None = None
+
+    @property
+    def manifest_id(self) -> str:
+        if self.release is not None:
+            return self.release.manifest_id
+        assert self.attestation is not None
+        return self.attestation.manifest_id
+
+    @property
+    def retrieval_capability(self) -> str:
+        if self.release is not None:
+            return "hybrid" if self.release.build_config.sparse_encoder is not None else "dense"
+        assert self.attestation is not None
+        return self.attestation.retrieval_capability.value
 
 
 class LlamaIndexRuntimeResolver:
-    """Validate alias targets and reopen their LlamaIndex vector indexes."""
+    """Validate the applied alias deployment and reopen its LlamaIndex vector index."""
 
     def __init__(
         self,
@@ -37,6 +70,7 @@ class LlamaIndexRuntimeResolver:
         embedding_model: str,
         qdrant_batch_size: int,
         sparse_encoder_factory: Callable[[], object],
+        release_repo: ReleaseRepository,
         qdrant_aclient: AsyncQdrantClient | None = None,
         collection_manager_factory: Callable[[str], QdrantCollectionManager] | None = None,
     ) -> None:
@@ -46,6 +80,7 @@ class LlamaIndexRuntimeResolver:
         self.embedding_model = embedding_model
         self.qdrant_batch_size = qdrant_batch_size
         self._sparse_encoder_factory = sparse_encoder_factory
+        self._release_repo = release_repo
         self._manager_factory = collection_manager_factory or self._default_manager
 
     def _default_manager(self, collection_name: str) -> QdrantCollectionManager:
@@ -73,6 +108,12 @@ class LlamaIndexRuntimeResolver:
             raise RuntimeError(message)
 
     def alias_target(self, qdrant_alias: str) -> str | None:
+        """Resolve the Qdrant alias mirror's current target collection.
+
+        Diagnostic/inspection only -- not used by `resolve()`. Postgres
+        (the active `AliasDeployment`), not the Qdrant alias, is the
+        runtime serving source of truth.
+        """
         return self._manager_factory(qdrant_alias).resolve_alias(qdrant_alias)
 
     def resolve(
@@ -80,40 +121,46 @@ class LlamaIndexRuntimeResolver:
         *,
         kb_id: str,
         alias: str,
-        qdrant_alias: str,
+        deployment: AliasDeployment,
         strict: bool,
     ) -> RuntimeAliasState | None:
-        collection_name = self.alias_target(qdrant_alias)
-        if collection_name is None:
-            self._fail(f"Qdrant alias '{qdrant_alias}' does not resolve", strict=strict)
+        """Validate *deployment*'s release and attestation, returning a queryable state."""
+        release = self._release_repo.get(deployment.release_id)
+        if release is None:
+            self._fail(
+                f"Active deployment for kb='{kb_id}' alias='{alias}' references unknown "
+                f"release '{deployment.release_id}'",
+                strict=strict,
+            )
             return None
 
-        manager = self._manager_factory(collection_name)
-        attestation = manager.read_attestation()
+        manager = self._manager_factory(release.collection_name)
+        if not manager.collection_exists():
+            self._fail(f"Collection '{release.collection_name}' does not exist", strict=strict)
+            return None
+
+        attestation = manager.read_release_attestation()
         if attestation is None:
             self._fail(
-                f"Collection '{collection_name}' has no collection metadata attestation",
+                f"Collection '{release.collection_name}' has no release attestation",
                 strict=strict,
             )
             return None
-        if attestation.kb_id != kb_id:
+
+        comparison = compare_release_attestation(release, attestation)
+        if not comparison.matches:
             self._fail(
-                f"Collection '{collection_name}' belongs to KB '{attestation.kb_id}', "
-                f"not requested KB '{kb_id}'",
+                f"Release attestation mismatch for '{release.collection_name}': "
+                f"{comparison.mismatches}",
                 strict=strict,
             )
             return None
-        if attestation.collection_name != collection_name:
+
+        if release.build_config.dense_encoder.model != self.embedding_model:
             self._fail(
-                f"Collection attestation names '{attestation.collection_name}', "
-                f"not resolved collection '{collection_name}'",
-                strict=strict,
-            )
-            return None
-        if attestation.embedding_model != self.embedding_model:
-            self._fail(
-                f"Embedding model mismatch for '{collection_name}': "
-                f"collection={attestation.embedding_model}, runtime={self.embedding_model}",
+                f"Embedding model mismatch for '{release.collection_name}': "
+                f"release={release.build_config.dense_encoder.model}, "
+                f"runtime={self.embedding_model}",
                 strict=strict,
             )
             return None
@@ -122,18 +169,21 @@ class LlamaIndexRuntimeResolver:
         runtime_dimension = getattr(self.embedding_service, "dimension", None)
         if vector_size is None or vector_size != runtime_dimension:
             self._fail(
-                f"Embedding dimension mismatch for '{collection_name}': "
+                f"Embedding dimension mismatch for '{release.collection_name}': "
                 f"collection={vector_size}, runtime={runtime_dimension}",
                 strict=strict,
             )
             return None
+
         return RuntimeAliasState(
             kb_id=kb_id,
             alias=alias,
-            qdrant_alias=qdrant_alias,
-            collection_name=collection_name,
-            attestation=attestation,
+            collection_name=release.collection_name,
             vector_size=vector_size,
+            qdrant_alias=qdrant_alias_name(kb_id=kb_id, alias=alias),
+            deployment_id=deployment.id,
+            release=release,
+            retrieval_config=deployment.retrieval_config,
         )
 
     def open_index(
