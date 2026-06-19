@@ -52,6 +52,7 @@ class NodeArtifact(BaseModel):
     extracted_artifact_path: str
     extracted_checksum: str
     chunking: ChunkingConfig
+    transformation_digest: str | None = None
     nodes: list[TextNode]
 
 
@@ -75,16 +76,21 @@ def chunk_artifact_path(
     kb_id: str,
     source_instance_id: str,
     source_document_id: str,
+    transformation_digest: str | None = None,
 ) -> Path:
-    """Return the transitional native-node artifact path."""
+    """Return the native-node artifact path.
+
+    When *transformation_digest* is given, the artifact is scoped under a
+    digest directory so that aliases with different chunking configurations
+    never share node artifacts. Omitting it preserves the flat legacy path.
+    """
     del kb_id
-    return (
-        Path(rag_data_root)
-        / "source_instances"
-        / source_instance_id
-        / "chunks"
-        / f"{safe_document_id(source_document_id)}.json"
-    )
+    base = Path(rag_data_root) / "source_instances" / source_instance_id / "chunks"
+    if transformation_digest is not None:
+        from rag.control_plane.fingerprints import digest_directory_name
+
+        base = base / digest_directory_name(transformation_digest)
+    return base / f"{safe_document_id(source_document_id)}.json"
 
 
 def write_chunk_artifact(path: Path, artifact: NodeArtifact, *, force: bool = False) -> None:
@@ -183,6 +189,7 @@ def chunk_extracted_artifact(
     rag_data_root: Path | str,
     config: ChunkingConfig | None = None,
     force: bool = False,
+    transformation_digest: str | None = None,
 ) -> NodeArtifact:
     """Parse one extracted document and persist native LlamaIndex nodes."""
     extracted_path = Path(extracted_path)
@@ -193,6 +200,7 @@ def chunk_extracted_artifact(
         kb_id=artifact.kb_id,
         source_instance_id=artifact.source_instance_id,
         source_document_id=source_document_id,
+        transformation_digest=transformation_digest,
     )
     if output_path.exists() and not force:
         return read_chunk_artifact(output_path)
@@ -205,6 +213,7 @@ def chunk_extracted_artifact(
         extracted_artifact_path=extracted_path.as_posix(),
         extracted_checksum=sha256_bytes(extracted_path.read_bytes()),
         chunking=chunking_config,
+        transformation_digest=transformation_digest,
         nodes=_build_nodes(artifact, artifact_path=extracted_path, config=chunking_config),
     )
     write_chunk_artifact(output_path, result, force=force)
@@ -220,6 +229,7 @@ def chunk_source_instance(
     limit: int | None = None,
     config: ChunkingConfig | None = None,
     force: bool = False,
+    transformation_digest: str | None = None,
 ) -> SourceInstanceChunkingSummary:
     """Parse extracted documents for one source instance into text nodes."""
     root = Path(rag_data_root)
@@ -252,6 +262,7 @@ def chunk_source_instance(
                 kb_id=artifact.kb_id,
                 source_instance_id=artifact.source_instance_id,
                 source_document_id=source_document_id,
+                transformation_digest=transformation_digest,
             )
             from_cache = output_path.exists() and not force
             node_artifact = chunk_extracted_artifact(
@@ -259,6 +270,7 @@ def chunk_source_instance(
                 rag_data_root=root,
                 config=config,
                 force=force,
+                transformation_digest=transformation_digest,
             )
             summary.chunk_count += len(node_artifact.nodes)
             if from_cache:

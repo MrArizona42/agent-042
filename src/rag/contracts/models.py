@@ -133,4 +133,48 @@ class ManifestComparison(BaseModel):
     mismatches: dict[str, tuple[Any, Any]] = Field(default_factory=dict)
 
 
+class ReleaseAttestation(BaseModel):
+    """Small Qdrant-side runtime metadata for a collection backing an immutable release.
+
+    This is the schema-version-2 attestation written by `rag.control_plane`
+    release builds. It replaces `CollectionAttestation` (schema version 1,
+    written by the old IndexManifest-based materialize path) once that path
+    is retired; until then the two coexist because they attest to physically
+    different collections.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[2] = 2
+    release_id: str
+    manifest_id: str
+    kb_id: str
+    collection_name: str
+    release_fingerprint: str
+    build_config_digest: str
+    source_snapshot_id: str
+    dense_encoder_model: str
+    dense_vector_dimension: int = Field(gt=0)
+    sparse_encoder_model: str | None = None
+    retrieval_capability: RetrievalCapability
+    chunk_count: int = Field(ge=0)
+    created_at: datetime
+
+    @field_validator(
+        "release_id",
+        "manifest_id",
+        "kb_id",
+        "collection_name",
+        "release_fingerprint",
+        "build_config_digest",
+        "source_snapshot_id",
+        "dense_encoder_model",
+    )
+    @classmethod
+    def _required_strings_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value must be non-empty")
+        return value.strip()
+
+
 CollectionAlias = Literal["champion", "challenger", "shadow"]

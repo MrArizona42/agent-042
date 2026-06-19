@@ -100,7 +100,7 @@ def _load_catalog_config(catalog_path: Path | str) -> CatalogConfig:
     return catalog
 
 
-def _declared_adapter_config(
+def declared_adapter_config(
     catalog: CatalogConfig,
     *,
     adapter_id: str,
@@ -112,7 +112,7 @@ def _declared_adapter_config(
     return None
 
 
-def _resolve_adapter_ref(
+def resolve_adapter_ref(
     catalog: CatalogConfig,
     *,
     adapter_id: str,
@@ -121,7 +121,7 @@ def _resolve_adapter_ref(
 ) -> SourceAdapter:
     if adapter_registry is not None:
         return adapter_registry.get(adapter_id, version=version)
-    config = _declared_adapter_config(catalog, adapter_id=adapter_id, version=version)
+    config = declared_adapter_config(catalog, adapter_id=adapter_id, version=version)
     if config is None:
         raise ValueError(f"Catalog references undeclared adapter '{adapter_id}@{version}'")
     return load_adapter(config, required_capabilities=frozenset({"source"}))
@@ -205,7 +205,7 @@ def build_source_instance_by_global_id(
     _reject_benchmark_target(source_instance_id=source_instance_id, role=instance.role)
 
     manifest_path = conventional_manifest_path(rag_data_root, instance.id)
-    source_adapter = _resolve_adapter_ref(
+    source_adapter = resolve_adapter_ref(
         catalog,
         adapter_id=instance.adapter.id,
         version=instance.adapter.version,

@@ -31,10 +31,14 @@ def _node_artifact_paths(
     source_instance_id: str,
     document_ids: list[str] | None,
     limit: int | None,
+    transformation_digest: str | None = None,
 ) -> list[Path]:
-    paths = sorted(
-        (Path(rag_data_root) / "source_instances" / source_instance_id / "chunks").glob("*.json")
-    )
+    chunks_dir = Path(rag_data_root) / "source_instances" / source_instance_id / "chunks"
+    if transformation_digest is not None:
+        from rag.control_plane.fingerprints import digest_directory_name
+
+        chunks_dir = chunks_dir / digest_directory_name(transformation_digest)
+    paths = sorted(chunks_dir.glob("*.json"))
     if document_ids is not None:
         selected_ids = {
             safe_document_id(candidate)
@@ -56,6 +60,7 @@ def collect_source_nodes(
     source_instance_id: str,
     document_ids: list[str] | None = None,
     limit: int | None = None,
+    transformation_digest: str | None = None,
 ) -> SourceNodeBundle:
     """Collect valid native node artifacts for one source instance."""
     paths = _node_artifact_paths(
@@ -63,6 +68,7 @@ def collect_source_nodes(
         source_instance_id=source_instance_id,
         document_ids=document_ids,
         limit=limit,
+        transformation_digest=transformation_digest,
     )
     artifacts: list[NodeArtifact] = []
     checksums: dict[str, str] = {}
@@ -90,6 +96,7 @@ def collect_source_bundles(
     source_instance_ids: list[str],
     document_ids: list[str] | None = None,
     limit: int | None = None,
+    transformation_digest: str | None = None,
 ) -> list[SourceNodeBundle]:
     return [
         collect_source_nodes(
@@ -98,6 +105,7 @@ def collect_source_bundles(
             source_instance_id=source_instance_id,
             document_ids=document_ids,
             limit=limit,
+            transformation_digest=transformation_digest,
         )
         for source_instance_id in source_instance_ids
     ]

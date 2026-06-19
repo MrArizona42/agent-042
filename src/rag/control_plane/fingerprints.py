@@ -104,3 +104,8 @@ def release_id(kb_id: str, fingerprint: str) -> str:
 
 def collection_name(kb_id: str, fingerprint: str) -> str:
     return f"rag__{_sanitize_kb_id(kb_id)}__{_fingerprint_hex(fingerprint)[:16]}"
+
+
+def digest_directory_name(digest: str) -> str:
+    """Return the filesystem-safe directory name for a digest (no `sha256:` prefix)."""
+    return _fingerprint_hex(digest)
