@@ -43,7 +43,7 @@ def _internal_chunking_config(build_config: AliasBuildConfig) -> ChunkingConfig:
     )
 
 
-def _source_declaration(
+def source_declaration(
     *,
     source_instance_ids: list[str],
     source_index: SourceInstanceIndex,
@@ -101,7 +101,7 @@ def build_release(
     if not resolved_source_ids:
         raise ValueError(f"KB '{kb_id}' has no corpus source instances to build a release from")
 
-    source_declaration_digest, manifest_digests, adapter_versions = _source_declaration(
+    source_declaration_digest, manifest_digests, adapter_versions = source_declaration(
         source_instance_ids=resolved_source_ids,
         source_index=source_index,
         rag_data_root=rag_data_root,
