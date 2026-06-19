@@ -332,11 +332,12 @@ not part of the active source/build path.
 
 Source/build lifecycle is split across production modules:
 
-- `src/rag/ingest/` — adapter contracts and adapter registry;
+- `src/rag/adapters/` — adapter contracts, catalog factory loading, and source
+  implementations;
 - `src/rag/sources/` — generic source manifests, fetch/extract/chunk artifacts,
   source builds, benchmark preparation, and source bundle collection;
-- `src/rag/indexing/` — Qdrant materialization, collection manifests, and alias
-  promotion;
+- `src/rag/indexing/` — LlamaIndex Qdrant materialization, collection metadata,
+  collection manifests, and project-owned alias promotion;
 - `src/rag/lifecycle/` — shared `BuildRequest` / `BuildRun` stage wrappers used
   by CLI and Airflow.
 
@@ -345,11 +346,11 @@ The data flow is:
 ```text
 source instance manifest
   -> fetch raw artifacts
-  -> extract normalized text artifacts
-  -> process/chunk documents
-  -> collect build bundle
-  -> materialize Qdrant collection
-  -> write artifact manifest + Qdrant attestation
+  -> extract LlamaIndex Document artifacts
+  -> parse native TextNode artifacts
+  -> collect SourceNodeBundle
+  -> VectorStoreIndex + LlamaIndex QdrantVectorStore
+  -> write artifact manifest + collection metadata attestation
   -> optional alias promotion
 ```
 
@@ -412,6 +413,11 @@ A/B тестов.
 3. **Inspection** — direct Qdrant notebook или CLI summary проверяют aliases, collection metadata, sample points.
 4. **Alias promotion** (`python -m rag.sources.cli promote-alias`) — переключение `rag__<kb>__<alias>` на attested collection.
 5. **Cleanup** (`dags/rag_collection_cleanup.py`) — удаление устаревших коллекций без активных aliases.
+
+Until Phase 4 is complete, LlamaIndex-built collections must not be promoted to
+serving aliases: the legacy runtime still expects its previous vector and
+payload layout. Phase 3 promotion validates collection metadata and alias
+operations, but Phase 4 supplies the compatible serving path.
 
 ### 5.6 Runtime retrieval и observability
 

@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from textwrap import dedent
+from types import SimpleNamespace
 
 import pytest
 
+from rag.contracts import RetrievalCapability
 from rag.sources import cli
 
 
@@ -440,7 +442,7 @@ def test_cli_materialize_derives_hybrid_capability_from_catalog(
     monkeypatch.setattr(cli, "SparseEncoderService", _Sparse)
     monkeypatch.setattr(
         cli,
-        "_vector_store",
+        "_collection_manager",
         lambda collection_name: {"collection": collection_name},
     )
 
@@ -500,7 +502,7 @@ def test_cli_materialize_with_v3_catalog_uses_corpus_source_instance(
     monkeypatch.setattr(cli, "SparseEncoderService", _Sparse)
     monkeypatch.setattr(
         cli,
-        "_vector_store",
+        "_collection_manager",
         lambda collection_name: {"collection": collection_name},
     )
 
@@ -558,7 +560,7 @@ def test_cli_materialize_can_persist_build_run(
     monkeypatch.setattr(cli, "SparseEncoderService", _Sparse)
     monkeypatch.setattr(
         cli,
-        "_vector_store",
+        "_collection_manager",
         lambda collection_name: {"collection": collection_name},
     )
 
@@ -633,7 +635,7 @@ def test_cli_materialize_all_sources_passes_multiple_bundles(
     monkeypatch.setattr(cli, "SparseEncoderService", _Sparse)
     monkeypatch.setattr(
         cli,
-        "_vector_store",
+        "_collection_manager",
         lambda collection_name: {"collection": collection_name},
     )
 
@@ -675,17 +677,17 @@ def test_cli_materialize_all_sources_passes_multiple_bundles(
 def test_cli_promote_alias_wires_collection(tmp_path: Path, capsys, monkeypatch) -> None:
     catalog_path = _write_catalog(tmp_path / "catalog.toml")
 
-    class _Store:
+    class _Manager:
         def __init__(self, collection_name: str):
             self.collection_name = collection_name
 
-        def read_meta(self) -> dict:
-            return {"retrieval_capability": "hybrid"}
+        def read_attestation(self):
+            return SimpleNamespace(retrieval_capability=RetrievalCapability.HYBRID)
 
     monkeypatch.setattr(
         cli,
-        "_vector_store",
-        lambda collection_name: _Store(collection_name),
+        "_collection_manager",
+        lambda collection_name: _Manager(collection_name),
     )
 
     def fake_promote(**kwargs):
@@ -721,11 +723,11 @@ def test_cli_promote_alias_rejects_incompatible_collection(
 ) -> None:
     catalog_path = _write_catalog(tmp_path / "catalog.toml")
 
-    class _Store:
-        def read_meta(self) -> dict:
-            return {"retrieval_capability": "dense"}
+    class _Manager:
+        def read_attestation(self):
+            return SimpleNamespace(retrieval_capability=RetrievalCapability.DENSE)
 
-    monkeypatch.setattr(cli, "_vector_store", lambda collection_name: _Store())
+    monkeypatch.setattr(cli, "_collection_manager", lambda collection_name: _Manager())
 
     with pytest.raises(ValueError, match="retrieval_strategy 'hybrid' is not supported"):
         cli.main(

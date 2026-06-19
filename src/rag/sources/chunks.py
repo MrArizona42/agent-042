@@ -170,6 +170,7 @@ def _build_nodes(
             text=parsed_node.get_content(metadata_mode=MetadataMode.NONE),
             metadata=metadata,
             relationships=parsed_node.relationships,
+            excluded_embed_metadata_keys=list(metadata),
         )
         require_node_metadata(node)
         nodes.append(node)

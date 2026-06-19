@@ -26,8 +26,9 @@ source-instance-only catalog:
 - legacy `[[sources]]`, local `--source <id>` selectors, arbitrary manifest
   paths, and `DEFAULT_SOURCE_ADAPTERS` are removed.
 
-Phases 0-2 are implemented. The source lifecycle now uses LlamaIndex objects,
-while collection materialization and runtime retrieval remain project-owned:
+Phases 0-3 are implemented. Source processing and collection materialization
+now use LlamaIndex objects; runtime retrieval remains on the legacy path until
+Phase 4:
 
 ```text
 catalog source_instance
@@ -39,9 +40,9 @@ catalog source_instance
   -> SentenceSplitter
   -> native TextNode artifact with deterministic UUID id_
   -> SourceNodeBundle
-  -> materialize_kb_collection()
-  -> custom QdrantVectorStore
-  -> Qdrant points + collection_meta sentinel
+  -> materialize_kb_collection_llamaindex()
+  -> VectorStoreIndex + LlamaIndex QdrantVectorStore
+  -> Qdrant node points + collection metadata attestation
   -> IndexManifest JSON
   -> Qdrant alias promotion
   -> RagRuntime + custom Retriever
@@ -66,10 +67,11 @@ Current evaluation contracts already live in `src/rag/evaluation/models.py`:
 - `AnswerEvalObservation`;
 - `PromotionDecision`.
 
-The current Qdrant runtime attestation is stored as a sentinel point with
-`type=collection_meta`. Promotion and runtime validation depend on the
-attestation contract, not on the sentinel storage mechanism. A deployed Qdrant
-smoke test confirmed collection metadata round-trips through:
+New LlamaIndex collections store attestation in
+`.result.config.metadata.attestation`; no sentinel point is written. Legacy
+collections and the pre-Phase-4 runtime still understand the old
+`type=collection_meta` sentinel. A deployed Qdrant smoke test confirmed
+collection metadata round-trips through:
 
 ```text
 PUT /collections/<collection>              metadata accepted
@@ -77,8 +79,9 @@ GET /collections/<collection>              .result.config.metadata returned
 PATCH /collections/<collection>            metadata updated
 ```
 
-Target direction: retire the sentinel during the LlamaIndex transition and use
-Qdrant collection metadata for attestation.
+Phase 4 must switch runtime retrieval before a LlamaIndex-built collection is
+promoted to a serving alias. Phase 6 removes the remaining sentinel code after
+legacy collections are rebuilt or retired.
 
 Current LlamaIndex facts from the checkup:
 
@@ -798,6 +801,8 @@ Acceptance:
 - Project `Document` / `Chunk` are no longer required by the new build path.
 
 ### Phase 3: LlamaIndex Qdrant Materialization
+
+Status: complete.
 
 Goal: replace custom Qdrant writes with LlamaIndex vector-store indexing.
 

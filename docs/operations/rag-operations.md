@@ -32,9 +32,9 @@ commands and server workflow.
 - Artifact manifest: full build provenance JSON under
   `assets/rag_data/knowledge_bases/<kb>/manifests/`.
 - Qdrant attestation: compact collection metadata used so runtime can validate
-  alias targets. Existing legacy collections may still expose this through a
-  `collection_meta` sentinel point until the LlamaIndex transition removes that
-  storage path.
+  alias targets. New builds store it at
+  `.result.config.metadata.attestation`; existing legacy collections may still
+  expose a `collection_meta` sentinel until they are rebuilt or retired.
 - Benchmark artifacts: normalized `cases.jsonl`, `labels.jsonl`, and
   `metadata.json` under
   `assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/`.
@@ -93,13 +93,17 @@ bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias \
 - `build-source --source-instance <id>` rejects `role = "benchmark"` targets.
   Use `prepare-benchmark` for benchmark source instances.
 - `materialize --alias-config <alias>` uses that alias profile as build input.
-  It does not assign or move a Qdrant alias.
+  It indexes native nodes through LlamaIndex and does not assign or move a
+  Qdrant alias.
 - `promote-alias --alias <alias>` points `rag__<kb>__<alias>` at an attested
   physical collection.
 - Dense alias configs can query dense or hybrid collections.
 - Hybrid alias configs require hybrid collections.
 - Challenger collections should normally be built and inspected before
   champion promotion.
+- During the Phase 3/4 migration boundary, do not promote LlamaIndex-built
+  collections to serving aliases. The legacy runtime cannot consume their
+  vector/payload layout; Phase 4 installs the matching runtime path.
 - Benchmark execution must receive an explicit alias. A benchmark source
   instance is attached to exactly one KB through `source_instance.knowledge_base`;
   the alias supplies the KB runtime/build profile for that run.

@@ -1,4 +1,4 @@
-"""Materialize source chunk bundles into Qdrant collections."""
+"""Materialize source nodes through LlamaIndex and promote attested collections."""
 
 from __future__ import annotations
 
@@ -9,16 +9,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
+from llama_index.core import StorageContext, VectorStoreIndex
+from llama_index.vector_stores.qdrant import QdrantVectorStore
 from pydantic import BaseModel, ConfigDict, Field
 from qdrant_client.models import SparseVector
 
-from rag.contracts import IndexManifest, RetrievalCapability
+from rag.contracts import CollectionAttestation, IndexManifest, RetrievalCapability
 from rag.contracts.manifests import (
-    attestation_from_payload,
-    attestation_payload,
     manifest_path,
     write_index_manifest,
 )
+from rag.indexing.llamaindex_embeddings import ProjectEmbedding, ProjectSparseEncoder
 from rag.sources.bundles import SourceNodeBundle
 from rag.sources.chunks import LLAMAINDEX_SENTENCE_SPLITTER, read_chunk_artifact
 
@@ -37,6 +38,10 @@ class EmbeddingClient(Protocol):
         """Embed document texts."""
         ...
 
+    def embed_query(self, text: str) -> list[float]:
+        """Embed one query."""
+        ...
+
 
 class SparseEmbeddingClient(Protocol):
     """Sparse embedding client contract used by hybrid materialization."""
@@ -46,38 +51,36 @@ class SparseEmbeddingClient(Protocol):
         ...
 
 
-class SourceVectorStore(Protocol):
-    """Qdrant-like vector store contract used by source materialization."""
+class CollectionManager(Protocol):
+    """Project-owned collection metadata and alias operations."""
 
     collection_name: str
 
-    def create_collection(
+    def prepare_new_collection(
         self,
-        dimension: int,
-        retrieval_capability: str = "dense",
-        force_recreate: bool = False,
+        *,
+        force_recreate: bool,
     ) -> None:
-        """Create the backing collection."""
+        """Ensure a clean physical collection can be created."""
         ...
 
-    def add_documents(
+    def vector_store(
         self,
-        documents: list[str],
-        embeddings: list[list[float]] | None = None,
-        metadatas: list[dict] | None = None,
-        ids: list[str] | None = None,
-        sparse_vectors: list[SparseVector] | None = None,
-        upsert_batch_size: int = 500,
-    ) -> None:
-        """Add documents to the backing collection."""
+        *,
+        vector_size: int,
+        batch_size: int,
+        enable_hybrid: bool,
+        sparse_encoder: ProjectSparseEncoder | None,
+    ) -> QdrantVectorStore:
+        """Return the LlamaIndex store for this collection."""
         ...
 
-    def write_meta(self, payload: dict, dimension: int) -> None:
-        """Write collection metadata."""
+    def write_attestation(self, attestation: CollectionAttestation) -> None:
+        """Write collection-level attestation metadata."""
         ...
 
-    def read_meta(self) -> dict | None:
-        """Read collection metadata."""
+    def read_attestation(self) -> CollectionAttestation | None:
+        """Read collection-level attestation metadata."""
         ...
 
     def collection_exists(self) -> bool:
@@ -204,12 +207,12 @@ def _chunking_config(bundles: list[SourceNodeBundle]) -> dict[str, object]:
     return config
 
 
-def materialize_kb_collection(
+def materialize_kb_collection_llamaindex(
     *,
     kb_id: str,
     collection_name: str,
     bundles: list[SourceNodeBundle],
-    vector_store: SourceVectorStore,
+    collection_manager: CollectionManager,
     embedding_client: EmbeddingClient,
     embedding_model: str,
     retrieval_capability: SourceRetrievalCapability,
@@ -227,11 +230,16 @@ def materialize_kb_collection(
     benchmark_scope: str | None = None,
     created_at: datetime | None = None,
 ) -> MaterializationResult:
-    """Materialize chunk bundles into a Qdrant collection and write its manifest."""
+    """Materialize native nodes through LlamaIndex and attest the collection."""
     if not bundles:
-        raise ValueError("at least one source chunk bundle is required")
+        raise ValueError("at least one source node bundle is required")
     if any(bundle.kb_id != kb_id for bundle in bundles):
-        raise ValueError("all source chunk bundles must belong to the target kb_id")
+        raise ValueError("all source node bundles must belong to the target kb_id")
+    if collection_manager.collection_name != collection_name:
+        raise ValueError(
+            "collection manager name does not match requested physical collection "
+            f"('{collection_manager.collection_name}' != '{collection_name}')"
+        )
     if retrieval_capability == "hybrid" and sparse_encoder_client is None:
         raise ValueError("hybrid materialization requires a sparse_encoder_client")
     if retrieval_capability == "hybrid" and not sparse_encoder_model:
@@ -240,32 +248,31 @@ def materialize_kb_collection(
     nodes = list(_all_nodes(bundles))
     if not nodes:
         raise ValueError("at least one node is required for materialization")
-    texts = [node.text for node in nodes]
-    embeddings = embedding_client.embed_documents(texts)
-    if len(embeddings) != len(nodes):
-        raise ValueError("embedding_client returned a vector count that does not match nodes")
-    sparse_vectors = (
-        sparse_encoder_client.encode_documents(texts)
+    if len({node.id_ for node in nodes}) != len(nodes):
+        raise ValueError("node ids must be unique within one materialization")
+
+    collection_manager.prepare_new_collection(force_recreate=force_recreate)
+    project_embedding = ProjectEmbedding(
+        embedding_client=embedding_client,
+        model_name=embedding_model,
+    )
+    sparse_encoder = (
+        ProjectSparseEncoder(sparse_encoder_client)
         if retrieval_capability == "hybrid" and sparse_encoder_client is not None
         else None
     )
-    if sparse_vectors is not None and len(sparse_vectors) != len(nodes):
-        raise ValueError("sparse_encoder_client returned a vector count that does not match nodes")
-    metadatas = [dict(node.metadata) for node in nodes]
-    point_ids = [node.id_ for node in nodes]
-
-    vector_store.create_collection(
-        dimension=embedding_client.dimension,
-        retrieval_capability=retrieval_capability,
-        force_recreate=force_recreate,
+    vector_store = collection_manager.vector_store(
+        vector_size=embedding_client.dimension,
+        batch_size=qdrant_upsert_batch_size,
+        enable_hybrid=retrieval_capability == "hybrid",
+        sparse_encoder=sparse_encoder,
     )
-    vector_store.add_documents(
-        texts,
-        embeddings=embeddings,
-        metadatas=metadatas,
-        ids=point_ids,
-        sparse_vectors=sparse_vectors,
-        upsert_batch_size=qdrant_upsert_batch_size,
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    VectorStoreIndex(
+        nodes=nodes,
+        storage_context=storage_context,
+        embed_model=project_embedding,
+        insert_batch_size=qdrant_upsert_batch_size,
     )
 
     created_at = created_at or datetime.now(tz=UTC)
@@ -296,10 +303,7 @@ def materialize_kb_collection(
         collection_name=collection_name,
     )
     manifest = write_index_manifest(path, manifest)
-    vector_store.write_meta(
-        attestation_payload(manifest.to_attestation()),
-        embedding_client.dimension,
-    )
+    collection_manager.write_attestation(manifest.to_attestation())
 
     summary = MaterializationSummary(
         kb_id=kb_id,
@@ -323,15 +327,14 @@ def promote_materialized_alias(
     kb_id: str,
     alias: str,
     collection_name: str,
-    vector_store: SourceVectorStore,
+    collection_manager: CollectionManager,
 ) -> AliasPromotionResult:
     """Point a conventional KB alias at an attested materialized collection."""
-    if not vector_store.collection_exists():
+    if not collection_manager.collection_exists():
         raise RuntimeError(f"Collection '{collection_name}' does not exist")
-    payload = vector_store.read_meta()
-    if payload is None:
+    attestation = collection_manager.read_attestation()
+    if attestation is None:
         raise RuntimeError(f"Collection '{collection_name}' has no attestation metadata")
-    attestation = attestation_from_payload(payload)
     if attestation.kb_id != kb_id:
         raise RuntimeError(
             f"Collection '{collection_name}' belongs to '{attestation.kb_id}', not '{kb_id}'"
@@ -342,7 +345,7 @@ def promote_materialized_alias(
         )
 
     alias_name = qdrant_alias_name(kb_id=kb_id, alias=alias)
-    vector_store.update_alias(alias_name, collection_name)
+    collection_manager.update_alias(alias_name, collection_name)
     return AliasPromotionResult(
         alias_name=alias_name,
         collection_name=collection_name,

@@ -18,9 +18,10 @@ from app_config.catalog import (
 )
 from app_config.runtime import get_settings
 from rag.embeddings import EmbeddingService
+from rag.indexing.llamaindex_qdrant import QdrantCollectionManager
 from rag.indexing.materialize import (
     collection_name_for_build,
-    materialize_kb_collection,
+    materialize_kb_collection_llamaindex,
     promote_materialized_alias,
     retrieval_capability_for_strategy,
     validate_strategy_supported,
@@ -40,7 +41,6 @@ from rag.sources.build import build_catalog_sources
 from rag.sources.bundles import collect_source_bundles, collect_source_nodes
 from rag.sources.chunks import ChunkingConfig
 from rag.sparse_encoder import SparseEncoderService
-from rag.vector_store import QdrantVectorStore
 
 
 def _json_default(value: object) -> str:
@@ -247,9 +247,9 @@ def _catalog_path_from_args(args: argparse.Namespace) -> Path | str:
     return args.catalog or get_settings().catalog.path
 
 
-def _vector_store(*, collection_name: str) -> QdrantVectorStore:
+def _collection_manager(*, collection_name: str) -> QdrantCollectionManager:
     settings = get_settings()
-    return QdrantVectorStore(
+    return QdrantCollectionManager.connect(
         host=settings.platform.qdrant_host,
         port=settings.platform.qdrant_port,
         collection_name=collection_name,
@@ -262,7 +262,7 @@ def main(
     build_catalog_sources_fn: Callable[..., Any] = build_catalog_sources,
     collect_source_nodes_fn: Callable[..., Any] = collect_source_nodes,
     collect_source_bundles_fn: Callable[..., Any] = collect_source_bundles,
-    materialize_kb_collection_fn: Callable[..., Any] = materialize_kb_collection,
+    materialize_kb_collection_fn: Callable[..., Any] = materialize_kb_collection_llamaindex,
     promote_materialized_alias_fn: Callable[..., Any] = promote_materialized_alias,
     prepare_benchmark_source_instance_fn: Callable[..., Any] = prepare_benchmark_source_instance,
 ) -> int:
@@ -387,7 +387,7 @@ def main(
                 kb_id=args.kb,
                 collection_name=collection_name,
                 bundles=bundles,
-                vector_store=_vector_store(collection_name=collection_name),
+                collection_manager=_collection_manager(collection_name=collection_name),
                 embedding_client=EmbeddingService(),
                 embedding_model=settings.rag.embedding_model,
                 retrieval_capability=capability,
@@ -438,19 +438,19 @@ def main(
 
         def _promote_stage() -> Any:
             strategy = _alias_strategy(catalog_path=catalog_path, kb_id=args.kb, alias=args.alias)
-            vector_store = _vector_store(collection_name=args.collection)
-            payload = vector_store.read_meta()
-            if payload is None:
+            collection_manager = _collection_manager(collection_name=args.collection)
+            attestation = collection_manager.read_attestation()
+            if attestation is None:
                 raise RuntimeError(f"Collection '{args.collection}' has no attestation metadata")
             validate_strategy_supported(
                 retrieval_strategy=strategy,  # type: ignore[arg-type]
-                retrieval_capability=payload.get("retrieval_capability"),  # type: ignore[arg-type]
+                retrieval_capability=attestation.retrieval_capability.value,
             )
             return promote_materialized_alias_fn(
                 kb_id=args.kb,
                 alias=args.alias,
                 collection_name=args.collection,
-                vector_store=vector_store,
+                collection_manager=collection_manager,
             )
 
         if args.rag_data_root:
