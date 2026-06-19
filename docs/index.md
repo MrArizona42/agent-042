@@ -9,8 +9,9 @@ in the repository root: [README.md](../README.md).
   component relationships.
 - [Deployment And Operations](../infra/README.md): server layout, `.env`,
   Docker Compose, shared roots, ports, and operational setup.
-- [RAG Operations](operations/rag-operations.md): build, materialize, promote,
-  inspect, and roll back RAG collections.
+- [RAG Operations](operations/rag-operations.md): canonical operator runbook
+  for validation, source builds, materialization, benchmarks, promotion,
+  inspection, failure recovery, legacy migration, and rollback.
 - [Observability, Evaluation, And Analytics Workflow](analytics/observability-evaluation-workflow.md):
   one-request diagnostics and the overall control loop.
 - [Observability](analytics/observability.md): logs, traces, Grafana Explore,

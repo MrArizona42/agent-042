@@ -101,8 +101,7 @@ manual build runs through `rag-ops`:
 ```bash
 bash scripts/rag_ops.sh python -m rag.sources.cli build-source \
   --catalog catalog.toml \
-  --kb pytorch_reference \
-  --source docs \
+  --source-instance pytorch_reference.docs \
   --rag-data-root assets/rag_data \
   --limit 1
 ```
@@ -111,7 +110,8 @@ The same lifecycle code is used by Airflow DAGs. Jupyter is for inspection and
 curation, not as the production build entry point.
 
 See [docs/operations/rag-operations.md](docs/operations/rag-operations.md) for
-naming, promotion, inspection, rollback, and Airflow parameters.
+the complete validation, build, benchmark, promotion, inspection, recovery,
+migration, rollback, and Airflow runbook.
 
 ## Configuration
 
