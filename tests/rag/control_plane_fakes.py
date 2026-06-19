@@ -87,14 +87,12 @@ class FakeReleaseRepository:
         *,
         build_config_digest: str,
         source_declaration_digest: str,
-        source_snapshot_id: str,
     ) -> list[RagRelease]:
         return [
             release
             for release in self._rows.values()
             if release.build_config_digest == build_config_digest
             and release.source_declaration_digest == source_declaration_digest
-            and release.source_snapshot_id == source_snapshot_id
         ]
 
     def list_for_kb(self, kb_id: str) -> list[RagRelease]:

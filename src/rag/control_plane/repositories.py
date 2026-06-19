@@ -73,9 +73,15 @@ class ReleaseRepository(Protocol):
         *,
         build_config_digest: str,
         source_declaration_digest: str,
-        source_snapshot_id: str,
     ) -> list[RagRelease]:
-        """Return releases matching this build/source identity (ambiguity candidates)."""
+        """Return non-retired releases matching this build config and source declaration.
+
+        Deliberately does not match on source_snapshot_id: a manifest left
+        unchanged can still have produced releases with different snapshots
+        if remote source content drifted between builds. Multiple results
+        here is exactly the "ambiguous reusable release" case alias apply
+        must refuse unless disambiguated with --release.
+        """
         ...
 
     def list_for_kb(self, kb_id: str) -> list[RagRelease]:

@@ -33,7 +33,13 @@ def _build_config() -> AliasBuildConfig:
     )
 
 
-def _release(release_id: str = "ragrel_pytorch_reference_abc123") -> RagRelease:
+def _release(
+    release_id: str = "ragrel_pytorch_reference_abc123",
+    *,
+    build_config_digest: str = "sha256:b",
+    source_declaration_digest: str = "sha256:d",
+    source_snapshot_id: str = "sha256:s",
+) -> RagRelease:
     return RagRelease(
         id=release_id,
         kb_id="pytorch_reference",
@@ -41,9 +47,9 @@ def _release(release_id: str = "ragrel_pytorch_reference_abc123") -> RagRelease:
         manifest_id=f"sha256:{release_id}",
         release_fingerprint=f"sha256:fp-{release_id}",
         catalog_digest="sha256:a",
-        build_config_digest="sha256:b",
-        source_declaration_digest="sha256:d",
-        source_snapshot_id="sha256:s",
+        build_config_digest=build_config_digest,
+        source_declaration_digest=source_declaration_digest,
+        source_snapshot_id=source_snapshot_id,
         build_config=_build_config(),
         source_manifest_digests={},
         source_adapter_versions={},
@@ -134,23 +140,38 @@ class TestReleaseRepositoryImmutability:
         found = releases.find_reusable(
             build_config_digest=release.build_config_digest,
             source_declaration_digest=release.source_declaration_digest,
-            source_snapshot_id=release.source_snapshot_id,
         )
 
         assert [r.id for r in found] == [release.id]
 
-    def test_find_reusable_does_not_match_different_source_snapshot(self):
+    def test_find_reusable_does_not_match_different_build_config(self):
         releases = FakeReleaseRepository()
         release = _release()
         releases.insert(release, manifest_path="x.json")
 
         found = releases.find_reusable(
-            build_config_digest=release.build_config_digest,
+            build_config_digest="sha256:other-build",
             source_declaration_digest=release.source_declaration_digest,
-            source_snapshot_id="sha256:different",
         )
 
         assert found == []
+
+    def test_find_reusable_surfaces_ambiguity_across_source_snapshots(self):
+        # Same build config and source declaration (manifest unchanged), but
+        # remote content drifted between two builds without anyone editing
+        # the manifest -- two releases, same lookup key, different content.
+        releases = FakeReleaseRepository()
+        first = _release("ragrel_a", source_snapshot_id="sha256:snap-1")
+        second = _release("ragrel_b", source_snapshot_id="sha256:snap-2")
+        releases.insert(first, manifest_path="a.json")
+        releases.insert(second, manifest_path="b.json")
+
+        found = releases.find_reusable(
+            build_config_digest=first.build_config_digest,
+            source_declaration_digest=first.source_declaration_digest,
+        )
+
+        assert {r.id for r in found} == {"ragrel_a", "ragrel_b"}
 
 
 class TestAliasDeploymentRepositoryUniqueness:

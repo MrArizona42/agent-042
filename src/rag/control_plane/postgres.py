@@ -239,14 +239,12 @@ class PostgresReleaseRepository:
         *,
         build_config_digest: str,
         source_declaration_digest: str,
-        source_snapshot_id: str,
     ) -> list[RagRelease]:
         with self._session_factory() as session:
             rows = session.scalars(
                 select(RagReleaseRow).where(
                     RagReleaseRow.build_config_digest == build_config_digest,
                     RagReleaseRow.source_declaration_digest == source_declaration_digest,
-                    RagReleaseRow.source_snapshot_id == source_snapshot_id,
                     RagReleaseRow.retired_at.is_(None),
                 )
             ).all()
