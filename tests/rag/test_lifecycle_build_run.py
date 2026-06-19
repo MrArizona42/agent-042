@@ -71,18 +71,31 @@ def test_create_build_run_records_source_manifest_and_adapter_attestation(
     catalog_path.write_text(
         dedent(
             """
-            schema_version = 3
+            schema_version = 4
 
             [[knowledge_bases]]
             id = "pytorch_reference"
             description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
-            aliases.challenger.top_k = 5
-            aliases.challenger.score_threshold = 0.01
-            aliases.challenger.retrieval_strategy = "hybrid"
-            aliases.challenger.reranker = "reranker"
-            aliases.challenger.reranker_multiplier = 4
+            [knowledge_bases.aliases.challenger.build.chunking]
+            strategy = "sentence"
+            chunk_size = 512
+            chunk_overlap = 64
+
+            [knowledge_bases.aliases.challenger.build.dense_encoder]
+            model = "sentence-transformers/all-MiniLM-L6-v2"
+            dimension = 384
+
+            [knowledge_bases.aliases.challenger.build.sparse_encoder]
+            model = "Qdrant/bm25"
+
+            [knowledge_bases.aliases.challenger.retrieve]
+            top_k = 5
+            score_threshold = 0.01
+            strategy = "hybrid"
+            reranker = "reranker"
+            reranker_multiplier = 4
 
             [[source_adapters]]
             id = "generic.http_html"
@@ -151,18 +164,31 @@ def test_plan_build_validates_source_manifest_with_adapter(tmp_path: Path) -> No
     catalog_path.write_text(
         dedent(
             """
-            schema_version = 3
+            schema_version = 4
 
             [[knowledge_bases]]
             id = "pytorch_reference"
             description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
-            aliases.challenger.top_k = 5
-            aliases.challenger.score_threshold = 0.01
-            aliases.challenger.retrieval_strategy = "hybrid"
-            aliases.challenger.reranker = "reranker"
-            aliases.challenger.reranker_multiplier = 4
+            [knowledge_bases.aliases.challenger.build.chunking]
+            strategy = "sentence"
+            chunk_size = 512
+            chunk_overlap = 64
+
+            [knowledge_bases.aliases.challenger.build.dense_encoder]
+            model = "sentence-transformers/all-MiniLM-L6-v2"
+            dimension = 384
+
+            [knowledge_bases.aliases.challenger.build.sparse_encoder]
+            model = "Qdrant/bm25"
+
+            [knowledge_bases.aliases.challenger.retrieve]
+            top_k = 5
+            score_threshold = 0.01
+            strategy = "hybrid"
+            reranker = "reranker"
+            reranker_multiplier = 4
 
             [[source_adapters]]
             id = "generic.http_html"
@@ -217,18 +243,31 @@ def test_plan_build_rejects_manifest_that_adapter_would_reject(tmp_path: Path) -
     catalog_path.write_text(
         dedent(
             """
-            schema_version = 3
+            schema_version = 4
 
             [[knowledge_bases]]
             id = "pytorch_reference"
             description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
-            aliases.challenger.top_k = 5
-            aliases.challenger.score_threshold = 0.01
-            aliases.challenger.retrieval_strategy = "hybrid"
-            aliases.challenger.reranker = "reranker"
-            aliases.challenger.reranker_multiplier = 4
+            [knowledge_bases.aliases.challenger.build.chunking]
+            strategy = "sentence"
+            chunk_size = 512
+            chunk_overlap = 64
+
+            [knowledge_bases.aliases.challenger.build.dense_encoder]
+            model = "sentence-transformers/all-MiniLM-L6-v2"
+            dimension = 384
+
+            [knowledge_bases.aliases.challenger.build.sparse_encoder]
+            model = "Qdrant/bm25"
+
+            [knowledge_bases.aliases.challenger.retrieve]
+            top_k = 5
+            score_threshold = 0.01
+            strategy = "hybrid"
+            reranker = "reranker"
+            reranker_multiplier = 4
 
             [[source_adapters]]
             id = "generic.http_html"
@@ -286,7 +325,7 @@ def test_plan_build_supports_v3_source_instances_without_loading_benchmark_adapt
     catalog_path.write_text(
         dedent(
             """
-            schema_version = 3
+            schema_version = 4
 
             [[source_adapters]]
             id = "generic.http_html"
@@ -305,11 +344,24 @@ def test_plan_build_supports_v3_source_instances_without_loading_benchmark_adapt
             description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
-            aliases.challenger.top_k = 5
-            aliases.challenger.score_threshold = 0.01
-            aliases.challenger.retrieval_strategy = "hybrid"
-            aliases.challenger.reranker = "reranker"
-            aliases.challenger.reranker_multiplier = 4
+            [knowledge_bases.aliases.challenger.build.chunking]
+            strategy = "sentence"
+            chunk_size = 512
+            chunk_overlap = 64
+
+            [knowledge_bases.aliases.challenger.build.dense_encoder]
+            model = "sentence-transformers/all-MiniLM-L6-v2"
+            dimension = 384
+
+            [knowledge_bases.aliases.challenger.build.sparse_encoder]
+            model = "Qdrant/bm25"
+
+            [knowledge_bases.aliases.challenger.retrieve]
+            top_k = 5
+            score_threshold = 0.01
+            strategy = "hybrid"
+            reranker = "reranker"
+            reranker_multiplier = 4
 
             [[source_instances]]
             id = "pytorch_reference.docs"

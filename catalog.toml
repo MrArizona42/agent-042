@@ -4,14 +4,18 @@
 # Conventions:
 # - ids are canonical task / knowledge-base ids
 # - each task owns an ordered knowledge_bases list
-# - each KB owns explicit per-alias retrieval settings
+# - each KB alias declares complete desired state: a `build` block (artifacts
+#   that must exist) and a `retrieve` block (how a release is queried)
 # - source instance manifests live at
 #   assets/rag_data/source_instances/<source_instance_id>/manifest.toml
-# - omitted reranker means reranking is disabled for that alias
+# - omitted reranker means reranking is disabled for that alias, and
+#   reranker_multiplier must then be 1
+# - omitted build.sparse_encoder means a dense-only release; retrieve.strategy
+#   "sparse"/"hybrid" require build.sparse_encoder
 # - omitted lora_adapter.name / lora_adapter.alias means defaults apply while enabled = false
 # - role allowed values: "corpus", "benchmark"
 
-schema_version = 3
+schema_version = 4
 
 [[tasks]]
 id = "chat"
@@ -36,16 +40,80 @@ id = "ml_papers_core"
 description = "Curated full-text ML/AI papers for literature-grounded discussion, including methods, architectures, experiments, benchmarks, theory, and literature-grounded answers."
 update_strategy = "replace"
 default_alias = "champion"
-aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
-aliases.challenger = { top_k = 5, score_threshold = 0.01, retrieval_strategy = "hybrid", reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2", reranker_multiplier = 4 }
+
+[knowledge_bases.aliases.champion.build.chunking]
+strategy = "sentence"
+chunk_size = 512
+chunk_overlap = 64
+
+[knowledge_bases.aliases.champion.build.dense_encoder]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+dimension = 384
+
+[knowledge_bases.aliases.champion.retrieve]
+strategy = "dense"
+top_k = 5
+score_threshold = 0.35
+reranker_multiplier = 1
+
+[knowledge_bases.aliases.challenger.build.chunking]
+strategy = "sentence"
+chunk_size = 512
+chunk_overlap = 64
+
+[knowledge_bases.aliases.challenger.build.dense_encoder]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+dimension = 384
+
+[knowledge_bases.aliases.challenger.build.sparse_encoder]
+model = "Qdrant/bm25"
+
+[knowledge_bases.aliases.challenger.retrieve]
+strategy = "hybrid"
+top_k = 5
+score_threshold = 0.01
+reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+reranker_multiplier = 4
 
 [[knowledge_bases]]
 id = "pytorch_reference"
 description = "PyTorch documentation for coding assistance, including API reference, tutorials, tensors, autograd, modules, distributed training, and implementation guidance."
 update_strategy = "replace"
 default_alias = "champion"
-aliases.champion = { top_k = 5, score_threshold = 0.35, retrieval_strategy = "dense", reranker_multiplier = 1 }
-aliases.challenger = { top_k = 5, score_threshold = 0.01, retrieval_strategy = "hybrid", reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2", reranker_multiplier = 4 }
+
+[knowledge_bases.aliases.champion.build.chunking]
+strategy = "sentence"
+chunk_size = 512
+chunk_overlap = 64
+
+[knowledge_bases.aliases.champion.build.dense_encoder]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+dimension = 384
+
+[knowledge_bases.aliases.champion.retrieve]
+strategy = "dense"
+top_k = 5
+score_threshold = 0.35
+reranker_multiplier = 1
+
+[knowledge_bases.aliases.challenger.build.chunking]
+strategy = "sentence"
+chunk_size = 512
+chunk_overlap = 64
+
+[knowledge_bases.aliases.challenger.build.dense_encoder]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+dimension = 384
+
+[knowledge_bases.aliases.challenger.build.sparse_encoder]
+model = "Qdrant/bm25"
+
+[knowledge_bases.aliases.challenger.retrieve]
+strategy = "hybrid"
+top_k = 5
+score_threshold = 0.01
+reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+reranker_multiplier = 4
 
 [[source_instances]]
 id = "ml_papers_core.papers"

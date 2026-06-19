@@ -15,7 +15,7 @@ def write_chat_and_code_catalog(path: Path) -> Path:
     return _write_catalog(
         path,
         """
-        schema_version = 3
+        schema_version = 4
 
         [[tasks]]
         id = "chat"
@@ -35,17 +35,38 @@ def write_chat_and_code_catalog(path: Path) -> Path:
         update_strategy = "replace"
         description = "Research papers and literature-grounded answers."
 
-        [knowledge_bases.aliases.champion]
+        [knowledge_bases.aliases.champion.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.champion.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+
+        [knowledge_bases.aliases.champion.retrieve]
         top_k = 5
         score_threshold = 0.35
-        retrieval_strategy = "dense"
+        strategy = "dense"
         reranker_multiplier = 1
 
-        [knowledge_bases.aliases.challenger]
+        [knowledge_bases.aliases.challenger.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.challenger.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+
+        [knowledge_bases.aliases.challenger.build.sparse_encoder]
+        model = "Qdrant/bm25"
+
+        [knowledge_bases.aliases.challenger.retrieve]
         top_k = 5
         score_threshold = 0.01
         reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-        retrieval_strategy = "hybrid"
+        strategy = "hybrid"
         reranker_multiplier = 4
 
         [[knowledge_bases]]
@@ -54,10 +75,19 @@ def write_chat_and_code_catalog(path: Path) -> Path:
         update_strategy = "replace"
         description = "PyTorch API reference and implementation guidance."
 
-        [knowledge_bases.aliases.champion]
+        [knowledge_bases.aliases.champion.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.champion.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+
+        [knowledge_bases.aliases.champion.retrieve]
         top_k = 5
         score_threshold = 0.35
-        retrieval_strategy = "dense"
+        strategy = "dense"
         reranker_multiplier = 1
 
         [[source_adapters]]
@@ -94,10 +124,18 @@ def write_chat_only_catalog(
     *,
     retrieval_strategy: str = "dense",
 ) -> Path:
+    sparse_encoder_block = (
+        """
+        [knowledge_bases.aliases.champion.build.sparse_encoder]
+        model = "Qdrant/bm25"
+        """
+        if retrieval_strategy in ("sparse", "hybrid")
+        else ""
+    )
     return _write_catalog(
         path,
         f"""
-        schema_version = 3
+        schema_version = 4
 
         [[tasks]]
         id = "chat"
@@ -111,10 +149,19 @@ def write_chat_only_catalog(
         update_strategy = "replace"
         description = "Research papers and literature-grounded answers."
 
-        [knowledge_bases.aliases.champion]
+        [knowledge_bases.aliases.champion.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.champion.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+        {sparse_encoder_block}
+        [knowledge_bases.aliases.champion.retrieve]
         top_k = 5
         score_threshold = 0.35
-        retrieval_strategy = "{retrieval_strategy}"
+        strategy = "{retrieval_strategy}"
         reranker_multiplier = 1
 
         [[source_adapters]]
@@ -137,7 +184,7 @@ def write_code_only_catalog(path: Path) -> Path:
     return _write_catalog(
         path,
         """
-        schema_version = 3
+        schema_version = 4
 
         [[tasks]]
         id = "code"
@@ -150,10 +197,19 @@ def write_code_only_catalog(path: Path) -> Path:
         default_alias = "champion"
         description = "PyTorch API reference."
 
-        [knowledge_bases.aliases.champion]
+        [knowledge_bases.aliases.champion.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.champion.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+
+        [knowledge_bases.aliases.champion.retrieve]
         top_k = 5
         score_threshold = 0.35
-        retrieval_strategy = "dense"
+        strategy = "dense"
         reranker_multiplier = 1
 
         [[source_adapters]]

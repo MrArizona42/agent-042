@@ -6,21 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app_config.catalog.models import AdapterConfig, AliasConfig
-
-
-class CatalogAliasConfig(AliasConfig):
-    """Explicit per-KB alias configuration in the catalog file."""
-
+from app_config.catalog.models import AdapterConfig
 
 # ---------------------------------------------------------------------------
 # Schema-version-4 alias build/retrieve shapes.
-#
-# These types are not yet wired into `CatalogAliasConfig` or `schema_version`.
-# They exist so `rag.control_plane` can depend on the eventual catalog
-# contract without `app_config` depending on `rag` (catalog always sits below
-# rag in the import graph). The declarative alias workflow plan activates
-# them on `CatalogAliasConfig` and bumps `schema_version` to 4.
 # ---------------------------------------------------------------------------
 
 RetrievalStrategy = Literal["dense", "sparse", "hybrid"]
@@ -85,6 +74,25 @@ class AliasRetrievalConfig(BaseModel):
     def _reranker_multiplier_requires_reranker(self) -> "AliasRetrievalConfig":
         if self.reranker is None and self.reranker_multiplier != 1:
             raise ValueError("reranker_multiplier must be 1 when reranker is omitted")
+        return self
+
+
+class CatalogAliasConfig(BaseModel):
+    """Complete desired state for one named KB deployment: build and retrieve."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    build: AliasBuildConfig
+    retrieve: AliasRetrievalConfig
+
+    @model_validator(mode="after")
+    def _retrieval_strategy_matches_available_encoders(self) -> "CatalogAliasConfig":
+        strategy = self.retrieve.strategy
+        has_sparse = self.build.sparse_encoder is not None
+        if strategy == "sparse" and not has_sparse:
+            raise ValueError("retrieve.strategy 'sparse' requires build.sparse_encoder")
+        if strategy == "hybrid" and not has_sparse:
+            raise ValueError("retrieve.strategy 'hybrid' requires build.sparse_encoder")
         return self
 
 
@@ -219,9 +227,22 @@ class CatalogConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = 3
+    schema_version: int = 4
     tasks: list[CatalogTaskConfig] = Field(default_factory=list)
     knowledge_bases: list[CatalogKBConfig] = Field(default_factory=list)
     source_adapters: list[SourceAdapterConfig] = Field(default_factory=list)
     benchmark_adapters: list[BenchmarkAdapterConfig] = Field(default_factory=list)
     source_instances: list[SourceInstanceConfig] = Field(default_factory=list)
+
+    @field_validator("schema_version")
+    @classmethod
+    def _schema_version_must_be_current(cls, value: int) -> int:
+        if value != 4:
+            raise ValueError(
+                f"catalog schema_version {value} is not supported; only version 4 "
+                "(nested alias build/retrieve blocks) is accepted. Migrate flat "
+                "top_k/score_threshold/retrieval_strategy alias fields into "
+                "[knowledge_bases.aliases.<name>.build] and "
+                "[knowledge_bases.aliases.<name>.retrieve] tables."
+            )
+        return value

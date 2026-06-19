@@ -42,6 +42,12 @@ class RerankResponse(BaseModel):
     model: str
 
 
+class InfoResponse(BaseModel):
+    """Response body for the /v1/info endpoint: provider identity, no inference."""
+
+    model: str
+
+
 # ---------------------------------------------------------------------------
 # Application
 # ---------------------------------------------------------------------------
@@ -71,6 +77,15 @@ def health() -> dict:
     if _model is None:
         return {"status": "unavailable"}
     return {"status": "ok"}
+
+
+@app.get("/v1/info", response_model=InfoResponse)
+def info() -> InfoResponse:
+    """Report the identity of the model this instance has loaded, with no inference."""
+    if _model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    settings = get_settings()
+    return InfoResponse(model=settings.rag.reranker_model)
 
 
 @app.post("/v1/rerank", response_model=RerankResponse)

@@ -97,7 +97,7 @@ def _catalog(tmp_path: Path, *, factory: str) -> Path:
     return _write(
         tmp_path / "catalog.toml",
         f"""
-        schema_version = 3
+        schema_version = 4
 
         [[benchmark_adapters]]
         id = "benchmark.fake_qa"
@@ -110,10 +110,19 @@ def _catalog(tmp_path: Path, *, factory: str) -> Path:
         description = "PyTorch API reference."
         default_alias = "champion"
 
-        [knowledge_bases.aliases.champion]
+        [knowledge_bases.aliases.champion.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.champion.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+
+        [knowledge_bases.aliases.champion.retrieve]
         top_k = 5
         score_threshold = 0.35
-        retrieval_strategy = "dense"
+        strategy = "dense"
         reranker_multiplier = 1
 
         [[source_instances]]

@@ -69,11 +69,7 @@ class RagRuntime:
         self.settings = settings or get_settings()
         self.platform_settings = self.settings.platform
         self.rag_settings = self.settings.rag
-        self.embedding_service = embedding_service or EmbeddingService(
-            model_name=self.rag_settings.embedding_model,
-            device=self.rag_settings.embedding_device,
-            batch_size=self.rag_settings.build.embedding_batch_size,
-        )
+        self.embedding_service = embedding_service or EmbeddingService()
         self._reranker_factory = reranker_factory
         self._sparse_encoder_factory = sparse_encoder_factory or self._default_sparse_encoder
         client = qdrant_client or QdrantClient(

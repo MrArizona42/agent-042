@@ -17,6 +17,10 @@ from app_config.runtime import get_settings
 logger = logging.getLogger(__name__)
 
 
+class EmbeddingIdentityMismatch(RuntimeError):
+    """Catalog-declared dense encoder identity does not match the live provider."""
+
+
 class EmbeddingService:
     """HTTP client for the embeddings microservice.
 
@@ -26,19 +30,10 @@ class EmbeddingService:
     without modification.
     """
 
-    def __init__(
-        self,
-        model_name: Optional[str] = None,
-        device: Optional[str] = None,
-        batch_size: Optional[int] = None,
-        embeddings_url: Optional[str] = None,
-    ):
+    def __init__(self, embeddings_url: Optional[str] = None):
         """Initialize the embedding client.
 
         Args:
-            model_name: Ignored (kept for backwards compatibility).
-            device: Ignored (kept for backwards compatibility).
-            batch_size: Ignored (kept for backwards compatibility).
             embeddings_url: Override for the embeddings service URL.
         """
         settings = get_settings()
@@ -49,11 +44,12 @@ class EmbeddingService:
         )
 
         logger.info(f"Connecting to embeddings service at {base_url}")
-        resp = self._client.get("/v1/dimension")
+        resp = self._client.get("/v1/info")
         resp.raise_for_status()
         data = resp.json()
-        self.dimension: int = data["dimension"]
-        logger.info(f"Embedding dimension: {self.dimension} (model: {data.get('model')})")
+        self.model: str = data["dense_model"]
+        self.dimension: int = data["dense_dimension"]
+        logger.info(f"Embedding dimension: {self.dimension} (model: {self.model})")
 
     # Maximum number of texts sent per HTTP request.  Large inputs (e.g.
     # eval corpora with 5 000+ docs) are split into chunks of this size so
@@ -98,3 +94,19 @@ class EmbeddingService:
     def close(self) -> None:
         """Close the underlying HTTP client."""
         self._client.close()
+
+
+def validate_dense_encoder_identity(
+    client: EmbeddingService, *, expected_model: str, expected_dimension: int
+) -> None:
+    """Raise if the catalog-declared dense encoder does not match the live provider.
+
+    A mismatch is an external configuration error; callers must not silently
+    substitute the provider's actual identity for the catalog's declared one.
+    """
+    if client.model != expected_model or client.dimension != expected_dimension:
+        raise EmbeddingIdentityMismatch(
+            f"catalog declares dense_encoder model={expected_model!r} "
+            f"dimension={expected_dimension}, but the embeddings provider reports "
+            f"model={client.model!r} dimension={client.dimension}"
+        )

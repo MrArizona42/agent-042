@@ -58,6 +58,14 @@ class DimensionResponse(BaseModel):
     model: str
 
 
+class InfoResponse(BaseModel):
+    """Response body for the /v1/info endpoint: provider identity, no inference."""
+
+    dense_model: str
+    dense_dimension: int
+    sparse_model: str
+
+
 class SparseEmbeddingItem(BaseModel):
     """Single sparse embedding entry in the response."""
 
@@ -119,6 +127,24 @@ def dimension() -> DimensionResponse:
     settings = get_settings()
     dim = _model.get_sentence_embedding_dimension()
     return DimensionResponse(dimension=dim, model=settings.rag.embedding_model)
+
+
+@app.get("/v1/info", response_model=InfoResponse)
+def info() -> InfoResponse:
+    """Report the identity of the dense and sparse models this instance has loaded.
+
+    Used to validate catalog-declared encoder identity before build or query,
+    without performing any embedding work.
+    """
+    if _model is None or _sparse_model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    settings = get_settings()
+    rag = settings.rag
+    return InfoResponse(
+        dense_model=rag.embedding_model,
+        dense_dimension=_model.get_sentence_embedding_dimension(),
+        sparse_model=rag.sparse_encoder_model,
+    )
 
 
 @app.post("/v1/embeddings", response_model=EmbeddingsResponse)

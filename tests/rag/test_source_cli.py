@@ -15,7 +15,7 @@ def _write_catalog(path: Path) -> Path:
     path.write_text(
         dedent(
             """
-            schema_version = 3
+            schema_version = 4
 
             [[tasks]]
             id = "code"
@@ -34,11 +34,24 @@ def _write_catalog(path: Path) -> Path:
             description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
-            aliases.challenger.top_k = 5
-            aliases.challenger.score_threshold = 0.01
-            aliases.challenger.retrieval_strategy = "hybrid"
-            aliases.challenger.reranker = "reranker"
-            aliases.challenger.reranker_multiplier = 4
+            [knowledge_bases.aliases.challenger.build.chunking]
+            strategy = "sentence"
+            chunk_size = 512
+            chunk_overlap = 64
+
+            [knowledge_bases.aliases.challenger.build.dense_encoder]
+            model = "sentence-transformers/all-MiniLM-L6-v2"
+            dimension = 384
+
+            [knowledge_bases.aliases.challenger.build.sparse_encoder]
+            model = "Qdrant/bm25"
+
+            [knowledge_bases.aliases.challenger.retrieve]
+            top_k = 5
+            score_threshold = 0.01
+            strategy = "hybrid"
+            reranker = "reranker"
+            reranker_multiplier = 4
 
             [[source_instances]]
             id = "pytorch_reference.docs"
@@ -65,7 +78,7 @@ def _write_v3_catalog(path: Path) -> Path:
     path.write_text(
         dedent(
             """
-            schema_version = 3
+            schema_version = 4
 
             [[tasks]]
             id = "code"
@@ -90,11 +103,24 @@ def _write_v3_catalog(path: Path) -> Path:
             description = "PyTorch docs"
             update_strategy = "replace"
             default_alias = "challenger"
-            aliases.challenger.top_k = 5
-            aliases.challenger.score_threshold = 0.01
-            aliases.challenger.retrieval_strategy = "hybrid"
-            aliases.challenger.reranker = "reranker"
-            aliases.challenger.reranker_multiplier = 4
+            [knowledge_bases.aliases.challenger.build.chunking]
+            strategy = "sentence"
+            chunk_size = 512
+            chunk_overlap = 64
+
+            [knowledge_bases.aliases.challenger.build.dense_encoder]
+            model = "sentence-transformers/all-MiniLM-L6-v2"
+            dimension = 384
+
+            [knowledge_bases.aliases.challenger.build.sparse_encoder]
+            model = "Qdrant/bm25"
+
+            [knowledge_bases.aliases.challenger.retrieve]
+            top_k = 5
+            score_threshold = 0.01
+            strategy = "hybrid"
+            reranker = "reranker"
+            reranker_multiplier = 4
 
             [[source_instances]]
             id = "pytorch_reference.docs"

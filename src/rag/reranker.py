@@ -15,6 +15,10 @@ from app_config.runtime import get_settings
 logger = logging.getLogger(__name__)
 
 
+class RerankerIdentityMismatch(RuntimeError):
+    """Catalog-declared reranker identity does not match the live provider."""
+
+
 class Reranker:
     """Post-retrieval cross-encoder reranker."""
 
@@ -39,6 +43,9 @@ class CrossEncoderReranker(Reranker):
             timeout=settings.gateway.embeddings_timeout,
         )
         logger.info(f"CrossEncoderReranker connecting to {base_url}")
+        resp = self._client.get("/v1/info")
+        resp.raise_for_status()
+        self.model: str = resp.json()["model"]
 
     def rerank(self, query: str, nodes: list[NodeWithScore], top_k: int) -> list[NodeWithScore]:
         """Rerank *nodes* against *query* and return them sorted by score.
@@ -72,11 +79,23 @@ class CrossEncoderReranker(Reranker):
         self._client.close()
 
 
+def validate_reranker_identity(client: CrossEncoderReranker, *, expected_model: str) -> None:
+    """Raise if the catalog-declared reranker does not match the live provider."""
+    if client.model != expected_model:
+        raise RerankerIdentityMismatch(
+            f"catalog declares reranker={expected_model!r}, but the reranker "
+            f"provider reports model={client.model!r}"
+        )
+
+
 def get_reranker(model_name: str) -> Reranker:
     """Factory — returns a :class:`CrossEncoderReranker` using ``settings.rag.reranker_url``.
 
-    The *model_name* parameter is accepted for future dispatch but is currently
-    unused; the reranker service reads its model from ``RERANKER_MODEL`` at startup.
+    Validates that *model_name* (the catalog-declared reranker identity)
+    matches what the live provider reports; the provider is a single-model
+    service today, so this catches configuration drift rather than dispatching.
     """
     settings = get_settings()
-    return CrossEncoderReranker(reranker_url=settings.rag.reranker_url)
+    client = CrossEncoderReranker(reranker_url=settings.rag.reranker_url)
+    validate_reranker_identity(client, expected_model=model_name)
+    return client

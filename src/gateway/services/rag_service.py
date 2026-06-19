@@ -62,12 +62,7 @@ class RAGService:
 
         logger.info("Initializing RAG service...")
 
-        # Initialize embedding service using config device
-        self.embedding_service = EmbeddingService(
-            model_name=self.rag_settings.embedding_model,
-            device=self.rag_settings.embedding_device,
-            batch_size=self.rag_settings.build.embedding_batch_size,
-        )
+        self.embedding_service = EmbeddingService()
         self.runtime = RagRuntime(
             settings=settings,
             embedding_service=self.embedding_service,

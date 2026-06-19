@@ -93,7 +93,7 @@ def test_run_benchmark_requires_alias_and_persists_metric_and_artifact_identity(
     _write(
         catalog,
         """
-schema_version = 3
+schema_version = 4
 [[benchmark_adapters]]
 id = "benchmark.fake"
 description = "Fake benchmark."
@@ -102,10 +102,17 @@ factory = "tests.rag.test_benchmark_prep:_fake_qa_benchmark_adapter_factory"
 id = "kb"
 description = "KB."
 default_alias = "champion"
-[knowledge_bases.aliases.champion]
+[knowledge_bases.aliases.champion.build.chunking]
+strategy = "sentence"
+chunk_size = 512
+chunk_overlap = 64
+[knowledge_bases.aliases.champion.build.dense_encoder]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+dimension = 384
+[knowledge_bases.aliases.champion.retrieve]
 top_k = 2
 score_threshold = 0.1
-retrieval_strategy = "dense"
+strategy = "dense"
 reranker_multiplier = 1
 [[source_instances]]
 id = "kb.benchmark"
@@ -227,7 +234,7 @@ def test_run_benchmark_retrieval_only_never_constructs_judges(
     _write(
         catalog,
         """
-schema_version = 3
+schema_version = 4
 [[benchmark_adapters]]
 id = "benchmark.fake"
 description = "Fake benchmark."
@@ -236,10 +243,17 @@ factory = "tests.rag.test_benchmark_prep:_fake_qa_benchmark_adapter_factory"
 id = "kb"
 description = "KB."
 default_alias = "champion"
-[knowledge_bases.aliases.champion]
+[knowledge_bases.aliases.champion.build.chunking]
+strategy = "sentence"
+chunk_size = 512
+chunk_overlap = 64
+[knowledge_bases.aliases.champion.build.dense_encoder]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+dimension = 384
+[knowledge_bases.aliases.champion.retrieve]
 top_k = 2
 score_threshold = 0.1
-retrieval_strategy = "dense"
+strategy = "dense"
 reranker_multiplier = 1
 [[source_instances]]
 id = "kb.benchmark"
@@ -352,7 +366,7 @@ def test_run_benchmark_persists_resolved_judge_identity_for_context_quality(
     _write(
         catalog,
         """
-schema_version = 3
+schema_version = 4
 [[benchmark_adapters]]
 id = "benchmark.fake"
 description = "Fake benchmark."
@@ -361,10 +375,17 @@ factory = "tests.rag.test_benchmark_prep:_fake_qa_benchmark_adapter_factory"
 id = "kb"
 description = "KB."
 default_alias = "champion"
-[knowledge_bases.aliases.champion]
+[knowledge_bases.aliases.champion.build.chunking]
+strategy = "sentence"
+chunk_size = 512
+chunk_overlap = 64
+[knowledge_bases.aliases.champion.build.dense_encoder]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+dimension = 384
+[knowledge_bases.aliases.champion.retrieve]
 top_k = 2
 score_threshold = 0.1
-retrieval_strategy = "dense"
+strategy = "dense"
 reranker_multiplier = 1
 [[source_instances]]
 id = "kb.benchmark"

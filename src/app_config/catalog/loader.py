@@ -43,13 +43,17 @@ def materialize_catalog(
 
     kb_index: dict[str, KBConfig] = {}
     for kb_name, kb_cfg in catalog_kbs.items():
+        # Runtime KBConfig.aliases stays query-time-only (AliasConfig). The
+        # desired `build` block is control-plane/build-pipeline state, not a
+        # runtime query concern; consumers needing it read the raw
+        # CatalogConfig/CatalogAliasConfig directly.
         aliases = {
             alias_name: AliasConfig(
-                top_k=alias_cfg.top_k,
-                score_threshold=alias_cfg.score_threshold,
-                reranker=alias_cfg.reranker,
-                retrieval_strategy=alias_cfg.retrieval_strategy,
-                reranker_multiplier=alias_cfg.reranker_multiplier,
+                top_k=alias_cfg.retrieve.top_k,
+                score_threshold=alias_cfg.retrieve.score_threshold,
+                reranker=alias_cfg.retrieve.reranker,
+                retrieval_strategy=alias_cfg.retrieve.strategy,
+                reranker_multiplier=alias_cfg.retrieve.reranker_multiplier,
             )
             for alias_name, alias_cfg in kb_cfg.aliases.items()
         }
