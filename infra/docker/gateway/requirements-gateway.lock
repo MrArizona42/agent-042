@@ -156,10 +156,15 @@ llama-index-core==0.14.22
     # via
     #   agent-042 (pyproject.toml)
     #   llama-index-llms-openai
+    #   llama-index-llms-openai-like
     #   llama-index-vector-stores-qdrant
 llama-index-instrumentation==0.5.0
     # via llama-index-workflows
 llama-index-llms-openai==0.7.9
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-llms-openai-like
+llama-index-llms-openai-like==0.7.2
     # via agent-042 (pyproject.toml)
 llama-index-vector-stores-qdrant==0.10.1
     # via agent-042 (pyproject.toml)
