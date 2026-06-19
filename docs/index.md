@@ -32,6 +32,10 @@ in the repository root: [README.md](../README.md).
   concrete migration plan for replacing custom RAG mechanics with LlamaIndex
   after the source-instance catalog, benchmark, and DB boundaries documented in
   the main architecture, operations, and evaluation docs.
+- [Declarative RAG Alias Workflow Implementation Plan](planning/rag-declarative-alias-workflow-plan.md):
+  control-plane refactor for alias-owned build/retrieval desired state,
+  immutable releases, applied deployments, benchmark identity, and the unified
+  Typer operator CLI.
 
 ## Documentation Ownership
 
