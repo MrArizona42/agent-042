@@ -67,6 +67,7 @@ read_env_value() {
 
 compose_project_name="$(read_env_value COMPOSE_PROJECT_NAME)"
 project_root="$(read_env_value PROJECT_ROOT)"
+compose_file="$project_root/infra/compose/docker-compose.yaml"
 
 [[ -n "$compose_project_name" ]] || {
     echo "COMPOSE_PROJECT_NAME is missing in $ENV_FILE" >&2
@@ -76,18 +77,98 @@ project_root="$(read_env_value PROJECT_ROOT)"
     echo "PROJECT_ROOT is missing in $ENV_FILE" >&2
     exit 1
 }
+[[ -f "$compose_file" ]] || {
+    echo "Compose file not found: $compose_file" >&2
+    exit 1
+}
 
 LOG_DIR="$project_root/artifacts/infra/compose_logs"
-compose_args=(--env-file "$ENV_FILE" --project-name "$compose_project_name")
+compose_args=(--env-file "$ENV_FILE" --project-name "$compose_project_name" -f "$compose_file")
 
 mkdir -p "$LOG_DIR"
+
+docker_compose() {
+    docker compose "${compose_args[@]}" "$@"
+}
+
+dump_inventory() {
+    local compose_status="$LOG_DIR/compose_status.txt"
+    local compose_status_err="$LOG_DIR/compose_status.err.log"
+    local docker_containers="$LOG_DIR/docker_containers.txt"
+
+    if docker_compose ps -a > "$compose_status" 2> "$compose_status_err"; then
+        rm -f "$compose_status_err"
+    else
+        echo "Failed to dump compose status; stderr saved to $compose_status_err" >&2
+    fi
+
+    docker ps -a \
+        --filter "label=com.docker.compose.project=$compose_project_name" \
+        --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.ID}}' \
+        > "$docker_containers"
+}
+
+dump_container_logs_by_label() {
+    local service="$1"
+    local -a containers=()
+    local container name
+
+    mapfile -t containers < <(
+        docker ps -aq \
+            --filter "label=com.docker.compose.project=$compose_project_name" \
+            --filter "label=com.docker.compose.service=$service"
+    )
+
+    [[ ${#containers[@]} -gt 0 ]] || return 1
+
+    for container in "${containers[@]}"; do
+        name="$(docker inspect --format '{{.Name}}' "$container" 2>/dev/null | sed 's#^/##')"
+        if [[ ${#containers[@]} -gt 1 ]]; then
+            printf '===== %s (%s) =====\n' "${name:-$container}" "$container"
+        fi
+        docker logs --timestamps "$container"
+    done
+}
+
+dump_service_logs() {
+    local service="$1"
+    local outfile="$LOG_DIR/${service}.log"
+    local errfile="$LOG_DIR/${service}.err.log"
+    local fallback_file="$outfile.fallback"
+
+    echo "Dumping $service -> $outfile"
+
+    if docker_compose logs --no-color --no-log-prefix "$service" > "$outfile" 2> "$errfile"; then
+        if [[ ! -s "$outfile" ]]; then
+            if dump_container_logs_by_label "$service" > "$fallback_file" 2>> "$errfile" && [[ -s "$fallback_file" ]]; then
+                mv "$fallback_file" "$outfile"
+                echo "  used docker logs fallback for $service"
+            else
+                rm -f "$fallback_file"
+            fi
+        fi
+    else
+        echo "  docker compose logs failed for $service; trying docker logs fallback" >&2
+        if ! dump_container_logs_by_label "$service" > "$outfile" 2>> "$errfile"; then
+            echo "  no logs for $service"
+        fi
+    fi
+
+    if [[ -s "$errfile" ]]; then
+        echo "  stderr saved to $errfile" >&2
+    else
+        rm -f "$errfile"
+    fi
+}
+
+dump_inventory
 
 # Resolve services: args or all running services
 if [[ $# -gt 0 ]]; then
     services=("$@")
 else
     mapfile -t services < <(
-        docker compose "${compose_args[@]}" ps -a --format '{{.Service}}' 2>/dev/null
+        docker_compose ps -a --format '{{.Service}}'
     )
 fi
 
@@ -97,11 +178,7 @@ if [[ ${#services[@]} -eq 0 ]]; then
 fi
 
 for svc in "${services[@]}"; do
-    outfile="$LOG_DIR/${svc}.log"
-    echo "Dumping $svc → $outfile"
-    docker compose "${compose_args[@]}" \
-        logs --no-color --no-log-prefix "$svc" > "$outfile" 2>/dev/null || \
-        echo "  (no logs for $svc)"
+    dump_service_logs "$svc"
 done
 
 echo "Done. Logs saved to $LOG_DIR/"
