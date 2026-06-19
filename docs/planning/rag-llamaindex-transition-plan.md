@@ -26,8 +26,8 @@ source-instance-only catalog:
 - legacy `[[sources]]`, local `--source <id>` selectors, arbitrary manifest
   paths, and `DEFAULT_SOURCE_ADAPTERS` are removed.
 
-Phases 0-4 are implemented. Source processing, collection materialization,
-runtime retrieval, and the standalone query-engine path now use LlamaIndex:
+Phases 0-5 are implemented. Source processing, collection materialization,
+runtime retrieval, query execution, and benchmark evaluation now use LlamaIndex:
 
 ```text
 catalog source_instance
@@ -66,6 +66,7 @@ Current evaluation contracts already live in `src/rag/evaluation/models.py`:
 - `Qrel`;
 - `BenchmarkLabel`;
 - `BenchmarkPreparedArtifacts`;
+- `ProjectRetrievalEvalResult`;
 - `RetrievalEvalObservation`;
 - `AnswerEvalObservation`;
 - `PromotionDecision`.
@@ -619,7 +620,7 @@ Preparation flow:
 ```text
 benchmark source instance
   -> benchmark-capable adapter
-  -> LlamaIndex Document[] / TextNode[] for benchmark corpus when applicable
+  -> LlamaIndex Document[] for benchmark corpus when applicable
   -> BenchmarkCase[] input artifact
   -> BenchmarkLabel[] expected-output artifact
 ```
@@ -647,8 +648,10 @@ class ProjectRetrieverEvaluator(RetrieverEvaluator):
     async def aevaluate_project(
         self,
         *,
-        case: BenchmarkCase,
-        label: BenchmarkLabel,
+        query: str,
+        qrels: Sequence[Qrel],
+        entity_type: Literal["document", "chunk"],
+        metadata: dict[str, Any] | None = None,
     ) -> ProjectRetrievalEvalResult:
         ...
 ```
@@ -660,13 +663,15 @@ Responsibilities:
 - run built-in binary metrics where applicable;
 - pass `qrels[]`, relevance grades, entity types, scores, metadata, and
   `NodeWithScore[]` to project graded scorers;
-- produce `RetrievalEvalObservation`.
+- produce `ProjectRetrievalEvalResult` containing native nodes, resolved ids,
+  per-case scores, and metadata. The DB mapper stores the durable observation.
 
 Context/generation evaluation:
 
-- `context_quality` maps to LlamaIndex context/relevancy evaluators;
-- `generation_quality` maps to correctness, semantic similarity, faithfulness,
-  answer relevancy, and guideline evaluators;
+- `context_quality` maps to LlamaIndex `RelevancyEvaluator` over the retrieved
+  contexts;
+- `generation_quality` maps to `FaithfulnessEvaluator`, `RelevancyEvaluator`,
+  and `CorrectnessEvaluator` when reference answers exist;
 - judge LLM can use LlamaIndex OpenAI-compatible client pointed at the
   vLLM/gateway path;
 - prompt identity is persisted with every run/sample.
@@ -681,6 +686,7 @@ assets/rag_data/
     <source_instance_id>/
       manifest.toml
       benchmark/
+        corpus.jsonl
         cases.jsonl
         labels.jsonl
         metadata.json
@@ -859,6 +865,8 @@ Acceptance:
 
 ### Phase 5: Benchmark Execution And Evaluation
 
+Status: implemented.
+
 Goal: run RAG benchmarks through LlamaIndex retrieval/query/evaluator
 abstractions while keeping project DB persistence.
 
@@ -879,6 +887,25 @@ Acceptance:
 - Context/generation-quality benchmarks use LlamaIndex evaluator inputs.
 - Every benchmark run requires explicit alias.
 - Results are persisted to Postgres, not report files.
+
+Implementation notes:
+
+- `prepare-benchmark` writes normalized `corpus.jsonl`, `cases.jsonl`, and
+  `labels.jsonl`; `metadata.json` records counts and SHA-256 artifact digests.
+- An empty corpus means cases evaluate the attached live KB alias. A non-empty
+  corpus is split with the selected alias collection's current chunk profile,
+  materialized into a disposable LlamaIndex/Qdrant collection, and deleted in
+  `finally` cleanup.
+- `ProjectRetrieverEvaluator` reuses the LlamaIndex retriever and
+  postprocessors. Binary hit rate, MRR, precision, recall, AP, and NDCG come
+  from LlamaIndex. Graded NDCG remains project-owned and supports document and
+  chunk qrels.
+- `src/shared/db/eval_writer.py` is the only eval DB writer. It uses the shared
+  `EvalRun` and `EvalSample` ORM models; the older generation runner delegates
+  to it instead of declaring private SQLAlchemy tables.
+- Run with `python -m rag.evaluation.cli --catalog <path> --source-instance
+  <benchmark-id> --alias <alias> --rag-data-root <path>`. The configured
+  Postgres URL is mandatory.
 
 ### Phase 6: Remove Old RAG Mechanics
 

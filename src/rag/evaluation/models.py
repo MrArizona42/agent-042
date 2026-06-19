@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from llama_index.core.schema import Document
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 EntityType = Literal["document", "chunk"]
@@ -107,10 +108,11 @@ class BenchmarkLabel(BaseModel):
 
 
 class BenchmarkPreparedArtifacts(BaseModel):
-    """Normalized cases and labels emitted by a benchmark adapter's `prepare_benchmark()`."""
+    """Normalized corpus, cases, and labels emitted by a benchmark adapter."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
+    documents: list[Document] = Field(default_factory=list)
     cases: list[BenchmarkCase] = Field(default_factory=list)
     labels: list[BenchmarkLabel] = Field(default_factory=list)
 

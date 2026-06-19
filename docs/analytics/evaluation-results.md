@@ -63,6 +63,7 @@ reports:
 
 ```text
 assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/
+  corpus.jsonl
   cases.jsonl
   labels.jsonl
   metadata.json
@@ -87,6 +88,24 @@ generation_quality
 Retrieval labels are normalized as `qrels[]` with `entity_type` set to
 `document` or `chunk`. Flat relevant id lists are derived from qrels rather than
 stored as a second source of truth.
+
+`corpus.jsonl` contains normalized LlamaIndex `Document` objects. It is empty
+for benchmarks that evaluate the attached live KB corpus. When populated, the
+runner builds and deletes a temporary collection using the explicitly selected
+KB alias's current chunking, embedding, retrieval, threshold, and reranking
+profile.
+
+Phase 5 RAG rows use `task = 'rag'` and
+`dataset_name = <benchmark_source_instance_id>`. Each metric gets one
+`eval_runs` row. Its `extra` contains:
+
+- `benchmark_source_instance_id`;
+- `benchmark_artifact_digests`;
+- `benchmark_suites`.
+
+Per-case `eval_samples.detail` stores metric score and judge feedback plus the
+applicable retrieved ids/scores, qrel entity type, generated answer, reference
+answers, cited chunk ids, and prompt identity.
 
 ## Metric Families
 
@@ -274,13 +293,13 @@ order by created_at desc
 limit 50;
 ```
 
-## Current Gaps For Phase 2
+## Remaining Evaluation Gaps
 
 - Citation metadata is not yet stored per sample.
 - Retrieval eval has document ids and relevance labels, but not final
   user-facing citation correctness.
-- LLM-as-judge prompts exist in code but should be versioned explicitly before
-  judge metrics become promotion gates.
+- Judge prompt identity is not yet separately versioned from the RAG answer
+  prompt identity; add it before judge metrics become promotion gates.
 - Production feedback is not yet joined to eval samples.
 - Request-level production events and offline eval rows do not yet share a
   first-class experiment or variant id.

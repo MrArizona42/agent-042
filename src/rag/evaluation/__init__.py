@@ -11,6 +11,11 @@ from rag.evaluation.models import (
     RetrievalEvalObservation,
     RetrievedChunk,
 )
+from rag.evaluation.retrieval import (
+    ProjectRetrievalEvalResult,
+    ProjectRetrieverEvaluator,
+    graded_ndcg,
+)
 
 __all__ = [
     "AnswerEvalObservation",
@@ -19,7 +24,10 @@ __all__ = [
     "BenchmarkPreparedArtifacts",
     "GenerationObservation",
     "PromotionDecision",
+    "ProjectRetrievalEvalResult",
+    "ProjectRetrieverEvaluator",
     "Qrel",
     "RetrievalEvalObservation",
     "RetrievedChunk",
+    "graded_ndcg",
 ]

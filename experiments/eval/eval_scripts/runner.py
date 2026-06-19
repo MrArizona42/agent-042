@@ -40,22 +40,6 @@ from typing import Any, Iterable
 
 import fire
 import httpx
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    Float,
-    ForeignKey,
-    Integer,
-    MetaData,
-    Table,
-    Text,
-    UniqueConstraint,
-    create_engine,
-    insert,
-)
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 from app_config.catalog import get_kb_config
 from app_config.runtime import (
@@ -90,6 +74,7 @@ from rag.reranker import get_reranker
 from rag.retriever import Retriever
 from rag.sparse_encoder import SparseEncoderService
 from rag.vector_store import QdrantVectorStore
+from shared.db.eval_writer import write_evaluation_results
 from shared.model_registry import AdapterRegistry
 
 logger = logging.getLogger(__name__)
@@ -447,92 +432,12 @@ def _log_to_db(
     sample_rows: list[dict[str, Any]] | None = None,
 ) -> None:
     """Write eval result rows to ``eval_runs`` and per-sample detail to ``eval_samples``."""
-    if not db_url:
-        logger.warning("No DB URL configured; skipping database logging")
-        return
-
-    try:
-        engine = create_engine(db_url)
-        meta = MetaData()
-
-        eval_runs = Table(
-            "eval_runs",
-            meta,
-            Column("id", PG_UUID(as_uuid=True), primary_key=True),
-            Column("created_at", DateTime(timezone=True), nullable=False),
-            Column("finished_at", DateTime(timezone=True)),
-            Column("status", Text, nullable=False, server_default="running"),
-            Column("task", Text, nullable=False),
-            Column("dataset_name", Text, nullable=False),
-            Column("metric_name", Text, nullable=False),
-            Column("metric_value", Float, nullable=False),
-            Column("base_model", Text, nullable=False),
-            Column("adapter_name", Text),
-            Column("adapter_version", Integer),
-            Column("adapter_mlflow_run_id", Text),
-            Column("lora_alias", Text),
-            Column("rag_enabled", Boolean, nullable=False, server_default="false"),
-            Column("rag_alias", Text),
-            Column("knowledge_base", Text),
-            Column("qdrant_alias", Text),
-            Column("qdrant_collection", Text),
-            Column("rag_manifest_id", Text),
-            Column("embedding_model", Text),
-            Column("chunking_strategy", Text),
-            Column("chunk_size", Integer),
-            Column("chunk_overlap", Integer),
-            Column("retrieval_top_k", Integer),
-            Column("score_threshold", Float),
-            Column("qdrant_snapshot_id", Text),
-            Column("dataset_dvc_hash", Text),
-            Column("reranking_strategy", Text),
-            Column("judge_backend", Text),
-            Column("judge_model", Text),
-            Column("bert_score_model", Text),
-            Column("temperature", Float),
-            Column("max_tokens", Integer),
-            Column("eval_verdict", Text),
-            Column("extra", JSONB, nullable=False, server_default="{}"),
-            Column("error_message", Text),
-        )
-
-        eval_samples = Table(
-            "eval_samples",
-            meta,
-            Column("id", PG_UUID(as_uuid=True), primary_key=True),
-            Column(
-                "eval_run_id",
-                PG_UUID(as_uuid=True),
-                ForeignKey("eval_runs.id", ondelete="CASCADE"),
-                nullable=False,
-            ),
-            Column("sample_idx", Integer, nullable=False),
-            Column("sample_id", Text),
-            Column("input", Text),
-            Column("output", Text),
-            Column("reference", Text),
-            Column("detail", JSONB, nullable=False, server_default="{}"),
-            UniqueConstraint("eval_run_id", "sample_idx"),
-        )
-
-        meta.create_all(engine, tables=[eval_runs, eval_samples], checkfirst=True)
-
-        with engine.begin() as conn:
-            for row in rows:
-                if "id" not in row:
-                    row["id"] = uuid.uuid4()
-                conn.execute(insert(eval_runs).values(**row))
-
-            if sample_rows:
-                for sr in sample_rows:
-                    if "id" not in sr:
-                        sr["id"] = uuid.uuid4()
-                    conn.execute(insert(eval_samples).values(**sr))
-
-        n_samples = len(sample_rows) if sample_rows else 0
-        logger.info("Logged %d eval rows + %d sample rows to database", len(rows), n_samples)
-    except Exception as e:
-        logger.error("Failed to log to database: %s", e)
+    write_evaluation_results(rows, db_url=db_url, sample_rows=sample_rows)
+    logger.info(
+        "Logged %d eval rows + %d sample rows to database",
+        len(rows),
+        len(sample_rows or []),
+    )
 
 
 # ---------------------------------------------------------------------------

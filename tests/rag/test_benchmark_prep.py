@@ -6,6 +6,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
+from llama_index.core.schema import Document
 
 from rag.evaluation.models import BenchmarkCase, BenchmarkLabel, BenchmarkPreparedArtifacts, Qrel
 from rag.sources.benchmark_prep import (
@@ -61,12 +62,29 @@ class _FakeQABenchmarkAdapterWithUndeclaredQrels(_FakeQABenchmarkAdapter):
         return artifacts
 
 
+class _FakeQABenchmarkAdapterWithCorpus(_FakeQABenchmarkAdapter):
+    def prepare_benchmark(self, manifest) -> BenchmarkPreparedArtifacts:
+        artifacts = super().prepare_benchmark(manifest)
+        artifacts.documents.append(
+            Document(
+                id_="doc:q1",
+                text="A tensor is a multi-dimensional array.",
+                metadata={"document_id": "doc:q1"},
+            )
+        )
+        return artifacts
+
+
 def _fake_qa_benchmark_adapter_factory() -> _FakeQABenchmarkAdapter:
     return _FakeQABenchmarkAdapter()
 
 
 def _fake_qa_benchmark_adapter_with_qrels_factory() -> _FakeQABenchmarkAdapterWithUndeclaredQrels:
     return _FakeQABenchmarkAdapterWithUndeclaredQrels()
+
+
+def _fake_qa_benchmark_adapter_with_corpus_factory() -> _FakeQABenchmarkAdapterWithCorpus:
+    return _FakeQABenchmarkAdapterWithCorpus()
 
 
 def _write(path: Path, content: str) -> Path:
@@ -191,3 +209,26 @@ def test_read_prepared_benchmark_artifacts_returns_empty_when_not_prepared(
 
     assert artifacts.cases == []
     assert artifacts.labels == []
+
+
+def test_prepare_benchmark_round_trips_normalized_llamaindex_corpus(tmp_path: Path) -> None:
+    _manifest(tmp_path, "pytorch_reference.qa_benchmark")
+    catalog_path = _catalog(
+        tmp_path,
+        factory="tests.rag.test_benchmark_prep:_fake_qa_benchmark_adapter_with_corpus_factory",
+    )
+
+    summary = prepare_benchmark_source_instance(
+        catalog_path=catalog_path,
+        source_instance_id="pytorch_reference.qa_benchmark",
+        rag_data_root=tmp_path,
+    )
+    artifacts = read_prepared_benchmark_artifacts(
+        tmp_path,
+        "pytorch_reference.qa_benchmark",
+    )
+
+    assert summary.document_count == 1
+    assert set(summary.artifact_digests) == {"corpus", "cases", "labels"}
+    assert artifacts.documents[0].id_ == "doc:q1"
+    assert artifacts.documents[0].metadata["document_id"] == "doc:q1"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tomllib
 from pathlib import Path
@@ -29,8 +30,10 @@ class BenchmarkPrepSummary(BaseModel):
     knowledge_base: str
     adapter_id: str
     adapter_version: str
+    document_count: int
     case_count: int
     label_count: int
+    artifact_digests: dict[str, str]
 
 
 def _load_catalog_config(catalog_path: Path | str) -> CatalogConfig:
@@ -59,6 +62,11 @@ def labels_artifact_path(rag_data_root: Path | str, source_instance_id: str) -> 
     return benchmark_artifact_dir(rag_data_root, source_instance_id) / "labels.jsonl"
 
 
+def corpus_artifact_path(rag_data_root: Path | str, source_instance_id: str) -> Path:
+    """Return the conventional normalized benchmark corpus path."""
+    return benchmark_artifact_dir(rag_data_root, source_instance_id) / "corpus.jsonl"
+
+
 def metadata_artifact_path(rag_data_root: Path | str, source_instance_id: str) -> Path:
     """Return the conventional path for a benchmark source instance's metadata artifact."""
     return benchmark_artifact_dir(rag_data_root, source_instance_id) / "metadata.json"
@@ -77,6 +85,10 @@ def _read_jsonl(path: Path, model_cls: type[BaseModel]) -> list[Any]:
     if not text:
         return []
     return [model_cls.model_validate_json(line) for line in text.splitlines()]
+
+
+def _digest(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
 def prepare_benchmark_source_instance(
@@ -117,16 +129,25 @@ def prepare_benchmark_source_instance(
     manifest = adapter.validate_manifest(load_source_manifest(manifest_path))
     artifacts = adapter.prepare_benchmark(manifest)
 
+    _write_jsonl(corpus_artifact_path(rag_data_root, source_instance_id), artifacts.documents)
     _write_jsonl(cases_artifact_path(rag_data_root, source_instance_id), artifacts.cases)
     _write_jsonl(labels_artifact_path(rag_data_root, source_instance_id), artifacts.labels)
+
+    artifact_paths = {
+        "corpus": corpus_artifact_path(rag_data_root, source_instance_id),
+        "cases": cases_artifact_path(rag_data_root, source_instance_id),
+        "labels": labels_artifact_path(rag_data_root, source_instance_id),
+    }
 
     summary = BenchmarkPrepSummary(
         source_instance_id=source_instance_id,
         knowledge_base=instance.knowledge_base,
         adapter_id=instance.adapter.id,
         adapter_version=instance.adapter.version,
+        document_count=len(artifacts.documents),
         case_count=len(artifacts.cases),
         label_count=len(artifacts.labels),
+        artifact_digests={name: _digest(path) for name, path in artifact_paths.items()},
     )
     metadata_path = metadata_artifact_path(rag_data_root, source_instance_id)
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,6 +163,9 @@ def read_prepared_benchmark_artifacts(
     source_instance_id: str,
 ) -> BenchmarkPreparedArtifacts:
     """Read back a previously prepared benchmark source instance's cases and labels."""
+    from llama_index.core.schema import Document
+
+    documents = _read_jsonl(corpus_artifact_path(rag_data_root, source_instance_id), Document)
     cases = _read_jsonl(cases_artifact_path(rag_data_root, source_instance_id), BenchmarkCase)
     labels = _read_jsonl(labels_artifact_path(rag_data_root, source_instance_id), BenchmarkLabel)
-    return BenchmarkPreparedArtifacts(cases=cases, labels=labels)
+    return BenchmarkPreparedArtifacts(documents=documents, cases=cases, labels=labels)

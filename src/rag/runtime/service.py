@@ -94,6 +94,19 @@ class RagRuntime:
         self._retrievers.clear()
         self._alias_states.clear()
 
+    @property
+    def resolver(self) -> LlamaIndexRuntimeResolver:
+        """Expose the configured resolver to collection-scoped runtime workflows."""
+        return self._resolver
+
+    def sparse_encoder(self) -> SparseEncoderService:
+        """Create the runtime-configured sparse encoder."""
+        return self._sparse_encoder_factory()
+
+    def reranker(self, model: str | None) -> Reranker | None:
+        """Create the runtime-configured reranker when requested."""
+        return self._reranker_factory(model) if model else None
+
     def _default_sparse_encoder(self) -> SparseEncoderService:
         return SparseEncoderService(embeddings_url=self.platform_settings.embeddings_url)
 
@@ -156,6 +169,26 @@ class RagRuntime:
         )
         self._retrievers[state.qdrant_alias] = runtime_retriever
         return runtime_retriever
+
+    def resolve_alias_profile(
+        self,
+        *,
+        kb_id: str,
+        alias: str,
+    ) -> tuple[KBConfig, RuntimeAliasState, RuntimeRetriever]:
+        """Resolve one explicit alias and its reusable retrieval profile."""
+        kb_cfg = get_kb_config(kb_id)
+        if kb_cfg is None:
+            raise ValueError(f"Unknown knowledge base '{kb_id}'")
+        if alias not in kb_cfg.aliases:
+            raise ValueError(f"Unknown alias '{alias}' for KB '{kb_id}'")
+        state = self._resolve_alias_state(kb_id=kb_id, alias=alias, strict=True)
+        assert state is not None
+        validate_strategy_supported(
+            retrieval_strategy=kb_cfg.aliases[alias].retrieval_strategy,
+            retrieval_capability=state.attestation.retrieval_capability.value,
+        )
+        return kb_cfg, state, self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state)
 
     @staticmethod
     def _hit_from_node(
@@ -324,7 +357,8 @@ class RagRuntime:
             "no_hit": not result.hits,
         }
 
-    def _default_llm(self) -> LLM:
+    def default_llm(self) -> LLM:
+        """Return the runtime-configured OpenAI-compatible generation client."""
         from llama_index.llms.openai import OpenAI
 
         api_key = secret_value(getattr(self.settings.gateway, "api_key", None)) or "not-needed"
@@ -362,7 +396,7 @@ class RagRuntime:
         )
         runtime_retriever = self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state)
         response = runtime_retriever.query_engine(
-            llm=llm or self._default_llm(),
+            llm=llm or self.default_llm(),
             prompts=prompts,
         ).query(query)
         source_nodes = list(response.source_nodes)
