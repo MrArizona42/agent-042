@@ -6,14 +6,46 @@
 #   bash scripts/dump_docker_logs.sh            # all services
 #   bash scripts/dump_docker_logs.sh gateway ui  # specific services
 #
-# Uses the canonical repo-root `.env` by default. Override with
-# COMPOSE_ENV_FILE=/absolute/path/to/.env if needed.
+# Uses the canonical env file by default:
+# - repo-root `.env` for local checkouts
+# - release-root `.env` when run from current/ or releases/<sha>/
+# Override with COMPOSE_ENV_FILE=/absolute/path/to/.env if needed.
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENV_FILE="${COMPOSE_ENV_FILE:-$REPO_ROOT/.env}"
+
+default_env_file() {
+    local repo_env="$REPO_ROOT/.env"
+    local repo_name parent_name release_root_env
+
+    if [[ -f "$repo_env" ]]; then
+        printf '%s\n' "$repo_env"
+        return
+    fi
+
+    repo_name="$(basename "$REPO_ROOT")"
+    parent_name="$(basename "$(dirname "$REPO_ROOT")")"
+
+    if [[ "$repo_name" == "current" ]]; then
+        release_root_env="$(cd "$REPO_ROOT/.." && pwd)/.env"
+        if [[ -f "$release_root_env" ]]; then
+            printf '%s\n' "$release_root_env"
+            return
+        fi
+    elif [[ "$parent_name" == "releases" ]]; then
+        release_root_env="$(cd "$REPO_ROOT/../.." && pwd)/.env"
+        if [[ -f "$release_root_env" ]]; then
+            printf '%s\n' "$release_root_env"
+            return
+        fi
+    fi
+
+    printf '%s\n' "$repo_env"
+}
+
+ENV_FILE="${COMPOSE_ENV_FILE:-$(default_env_file)}"
 
 [[ -f "$ENV_FILE" ]] || {
     echo "Env file not found: $ENV_FILE" >&2
