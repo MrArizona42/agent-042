@@ -52,6 +52,7 @@ class HttpSourceFetcher:
     """Base fetcher for simple HTTP source documents."""
 
     raw_filename: str
+
     def __init__(
         self,
         *,
@@ -173,6 +174,7 @@ class ArxivPaperFetcher(HttpSourceFetcher):
     """Fetch ArXiv PDFs into raw cache."""
 
     raw_filename = "paper.pdf"
+
     def _pdf_url(self, source_document: Document) -> str:
         arxiv_id = str(source_document.metadata.get("arxiv_id") or "").strip()
         if not arxiv_id:

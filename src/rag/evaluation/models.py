@@ -172,7 +172,10 @@ class GenerationObservation(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    prompt_id: str | None = None
+    prompt_version: str | None = None
     prompt_digest: str | None = None
+    prompt_params: dict[str, Any] = Field(default_factory=dict)
     prompt_tokens: int | None = Field(default=None, ge=0)
     completion_tokens: int | None = Field(default=None, ge=0)
     latency_ms: float | None = Field(default=None, ge=0)

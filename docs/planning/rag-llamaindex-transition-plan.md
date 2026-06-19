@@ -26,9 +26,8 @@ source-instance-only catalog:
 - legacy `[[sources]]`, local `--source <id>` selectors, arbitrary manifest
   paths, and `DEFAULT_SOURCE_ADAPTERS` are removed.
 
-Phases 0-3 are implemented. Source processing and collection materialization
-now use LlamaIndex objects; runtime retrieval remains on the legacy path until
-Phase 4:
+Phases 0-4 are implemented. Source processing, collection materialization,
+runtime retrieval, and the standalone query-engine path now use LlamaIndex:
 
 ```text
 catalog source_instance
@@ -45,7 +44,11 @@ catalog source_instance
   -> Qdrant node points + collection metadata attestation
   -> IndexManifest JSON
   -> Qdrant alias promotion
-  -> RagRuntime + custom Retriever
+  -> RagRuntime resolver
+  -> VectorStoreIndex.from_vector_store()
+  -> native NodeWithScore retrieval
+  -> compatibility RetrievalHit mapping for the gateway
+  -> optional RetrieverQueryEngine + versioned project prompt wrapper
 ```
 
 The active source/build path no longer depends on project `SourceDocument`,
@@ -68,9 +71,10 @@ Current evaluation contracts already live in `src/rag/evaluation/models.py`:
 - `PromotionDecision`.
 
 New LlamaIndex collections store attestation in
-`.result.config.metadata.attestation`; no sentinel point is written. Legacy
-collections and the pre-Phase-4 runtime still understand the old
-`type=collection_meta` sentinel. A deployed Qdrant smoke test confirmed
+`.result.config.metadata.attestation`; no sentinel point is written. The
+LlamaIndex runtime reads that collection metadata directly. Legacy collections
+may still carry the old `type=collection_meta` sentinel until Phase 6 removes
+the old store and rebuild requirement. A deployed Qdrant smoke test confirmed
 collection metadata round-trips through:
 
 ```text
@@ -79,9 +83,9 @@ GET /collections/<collection>              .result.config.metadata returned
 PATCH /collections/<collection>            metadata updated
 ```
 
-Phase 4 must switch runtime retrieval before a LlamaIndex-built collection is
-promoted to a serving alias. Phase 6 removes the remaining sentinel code after
-legacy collections are rebuilt or retired.
+LlamaIndex-built collections can now be promoted to serving aliases. Phase 6
+removes the remaining sentinel code after legacy collections are rebuilt or
+retired.
 
 Current LlamaIndex facts from the checkup:
 
@@ -826,6 +830,8 @@ Acceptance:
 - No sentinel point appears in LlamaIndex-built collections.
 
 ### Phase 4: Runtime Retrieval And Query Engine
+
+Status: complete.
 
 Goal: replace custom runtime retriever with LlamaIndex retriever/query engine
 behind the existing catalog/alias boundary.

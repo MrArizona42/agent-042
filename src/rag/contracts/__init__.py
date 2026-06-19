@@ -22,6 +22,11 @@ from rag.contracts.models import (
     RetrievalHit,
     SourceDocument,
 )
+from rag.contracts.prompts import (
+    DEFAULT_RAG_QUERY_PROMPTS,
+    ProjectQueryPrompts,
+    PromptIdentity,
+)
 
 __all__ = [
     "Chunk",
@@ -32,6 +37,9 @@ __all__ = [
     "ManifestComparison",
     "RetrievalCapability",
     "RetrievalHit",
+    "DEFAULT_RAG_QUERY_PROMPTS",
+    "ProjectQueryPrompts",
+    "PromptIdentity",
     "SourceDocument",
     "attestation_from_payload",
     "attestation_payload",

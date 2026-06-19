@@ -33,6 +33,7 @@ class GenericSourceEntry(BaseModel):
         stripped = value.strip()
         return stripped or None
 
+
 class SourceManifest(BaseModel):
     """Adapter-owned entries for one source instance."""
 
@@ -49,6 +50,7 @@ class SourceManifest(BaseModel):
                 raise ValueError(f"Duplicate source document id '{document.id}'")
             seen_ids.add(document.id)
         return self
+
 
 def source_manifest_from_raw(raw: dict[str, Any]) -> SourceManifest:
     """Validate a raw TOML payload as a typed source manifest."""

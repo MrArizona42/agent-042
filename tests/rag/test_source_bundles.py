@@ -36,8 +36,7 @@ def test_collect_source_nodes_returns_materialization_bundle(tmp_path: Path) -> 
     assert bundle.node_count == len(bundle.nodes)
     assert len(bundle.node_artifact_paths) == 2
     assert all(
-        checksum.startswith("sha256:")
-        for checksum in bundle.node_artifact_checksums.values()
+        checksum.startswith("sha256:") for checksum in bundle.node_artifact_checksums.values()
     )
 
 

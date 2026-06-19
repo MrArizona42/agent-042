@@ -414,10 +414,10 @@ A/B тестов.
 4. **Alias promotion** (`python -m rag.sources.cli promote-alias`) — переключение `rag__<kb>__<alias>` на attested collection.
 5. **Cleanup** (`dags/rag_collection_cleanup.py`) — удаление устаревших коллекций без активных aliases.
 
-Until Phase 4 is complete, LlamaIndex-built collections must not be promoted to
-serving aliases: the legacy runtime still expects its previous vector and
-payload layout. Phase 3 promotion validates collection metadata and alias
-operations, but Phase 4 supplies the compatible serving path.
+LlamaIndex-built collections are serving-compatible: runtime resolves the
+physical collection, validates collection metadata, reopens
+`VectorStoreIndex.from_vector_store()`, and queries native nodes. Alias
+promotion remains a project-owned atomic Qdrant operation.
 
 ### 5.6 Runtime retrieval и observability
 
@@ -429,8 +429,16 @@ Gateway вызывает `RAGService`, который делегирует looku
 3. resolves Qdrant alias `rag__<kb>__<alias>`;
 4. читает Qdrant attestation;
 5. проверяет KB id, collection name, embedding dimension и retrieval capability;
-6. вызывает retriever;
-7. возвращает citation-ready hits и observability payload.
+6. reopens the LlamaIndex vector index and retrieves `NodeWithScore` objects;
+7. applies optional project reranking and score filtering as LlamaIndex node
+   postprocessors;
+8. maps nodes to citation-ready compatibility hits and observability payload.
+
+`RagRuntime.query()` is the standalone generation path for benchmarks and
+future inference integration. It uses `RetrieverQueryEngine`, returns answer
+plus source nodes, and records `prompt_id`, `prompt_version`, `prompt_digest`,
+and prompt parameters. Gateway chat keeps its existing streaming generation
+path and consumes the compatibility retrieval mapping.
 
 `RagRuntimeResult` содержит:
 

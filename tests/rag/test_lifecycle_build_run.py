@@ -541,7 +541,7 @@ def test_materialize_and_promote_append_existing_build_run(tmp_path: Path) -> No
     assert payload.alias_config == "challenger"
     assert payload.collection_name == "rag__pytorch_reference__test"
     assert payload.stage_results == {
-            "build_source": {"sources": ["pytorch_reference.docs"]},
+        "build_source": {"sources": ["pytorch_reference.docs"]},
         "materialize": {"collection": "rag__pytorch_reference__test"},
         "promote_alias": {"alias": "rag__pytorch_reference__challenger"},
     }

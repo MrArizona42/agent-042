@@ -107,12 +107,16 @@ def _manager(client: QdrantClient) -> QdrantCollectionManager:
 def test_strategy_capability_rules_are_explicit() -> None:
     assert retrieval_capability_for_strategy("dense") == "dense"
     assert retrieval_capability_for_strategy("hybrid") == "hybrid"
+    assert retrieval_capability_for_strategy("sparse") == "hybrid"
     validate_strategy_supported(retrieval_strategy="dense", retrieval_capability="dense")
     validate_strategy_supported(retrieval_strategy="dense", retrieval_capability="hybrid")
     validate_strategy_supported(retrieval_strategy="hybrid", retrieval_capability="hybrid")
+    validate_strategy_supported(retrieval_strategy="sparse", retrieval_capability="hybrid")
 
     with pytest.raises(ValueError, match="not supported"):
         validate_strategy_supported(retrieval_strategy="hybrid", retrieval_capability="dense")
+    with pytest.raises(ValueError, match="not supported"):
+        validate_strategy_supported(retrieval_strategy="sparse", retrieval_capability="dense")
 
 
 def test_dense_materialization_retrieves_and_writes_collection_attestation(
@@ -265,8 +269,7 @@ def test_promote_alias_validates_collection_metadata(
         alias="challenger",
     )
     aliases = {
-        alias.alias_name: alias.collection_name
-        for alias in qdrant_client.get_aliases().aliases
+        alias.alias_name: alias.collection_name for alias in qdrant_client.get_aliases().aliases
     }
     assert aliases[result.alias_name] == manager.collection_name
 

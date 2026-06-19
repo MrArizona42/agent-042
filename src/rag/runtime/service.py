@@ -1,22 +1,33 @@
-"""Project-owned runtime RAG retrieval service."""
+"""Catalog-aware LlamaIndex runtime retrieval and query synthesis."""
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from time import perf_counter
-from typing import Callable
+
+from llama_index.core.llms import LLM
+from llama_index.core.schema import MetadataMode, NodeWithScore
+from qdrant_client import QdrantClient
 
 from app_config.catalog import KBConfig, get_catalog, get_kb_config
-from app_config.runtime import get_settings
-from rag.contracts import CollectionAttestation, RetrievalHit, attestation_from_payload
+from app_config.runtime import get_settings, secret_value
+from rag.contracts import (
+    DEFAULT_RAG_QUERY_PROMPTS,
+    ProjectQueryPrompts,
+    RetrievalHit,
+)
 from rag.embeddings import EmbeddingService
 from rag.indexing.materialize import qdrant_alias_name, validate_strategy_supported
 from rag.reranker import Reranker, get_reranker
-from rag.retriever import Retriever
-from rag.runtime.models import RagRuntimeResult, RagRuntimeSource, RuntimeSkippedSource
+from rag.runtime.engines import RuntimeRetriever, build_runtime_retriever
+from rag.runtime.models import (
+    RagQueryResult,
+    RagRuntimeResult,
+    RagRuntimeSource,
+    RuntimeSkippedSource,
+)
+from rag.runtime.resolver import LlamaIndexRuntimeResolver, RuntimeAliasState
 from rag.sparse_encoder import SparseEncoderService
-from rag.vector_store import Document, QdrantVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +36,8 @@ def _elapsed_ms(started_at: float) -> float:
     return round((perf_counter() - started_at) * 1000, 3)
 
 
-def _score_summary(documents: list[Document]) -> dict[str, float | list[float] | None]:
-    scores = [float(document.score) for document in documents if document.score is not None]
+def _score_summary(nodes: list[NodeWithScore]) -> dict[str, float | list[float] | None]:
+    scores = [float(node.score) for node in nodes if node.score is not None]
     if not scores:
         return {
             "score_min": None,
@@ -42,26 +53,18 @@ def _score_summary(documents: list[Document]) -> dict[str, float | list[float] |
     }
 
 
-@dataclass(frozen=True)
-class _RuntimeAliasState:
-    kb_id: str
-    alias: str
-    qdrant_alias: str
-    collection_name: str
-    attestation: CollectionAttestation
-
-
 class RagRuntime:
-    """Resolve catalog KB aliases into Qdrant retrieval operations."""
+    """Resolve catalog KB aliases into LlamaIndex retrieval and query operations."""
 
     def __init__(
         self,
         *,
         settings=None,
         embedding_service: EmbeddingService | None = None,
-        vector_store_factory: Callable[[str], QdrantVectorStore] | None = None,
-        reranker_factory: Callable[[str], Reranker] = get_reranker,
-        sparse_encoder_factory: Callable[[], SparseEncoderService] | None = None,
+        qdrant_client: QdrantClient | None = None,
+        resolver: LlamaIndexRuntimeResolver | None = None,
+        reranker_factory=get_reranker,
+        sparse_encoder_factory=None,
     ) -> None:
         self.settings = settings or get_settings()
         self.platform_settings = self.settings.platform
@@ -71,23 +74,25 @@ class RagRuntime:
             device=self.rag_settings.embedding_device,
             batch_size=self.rag_settings.build.embedding_batch_size,
         )
-        self._vector_store_factory = vector_store_factory or self._default_vector_store
         self._reranker_factory = reranker_factory
         self._sparse_encoder_factory = sparse_encoder_factory or self._default_sparse_encoder
-        self._retrievers: dict[str, Retriever] = {}
-        self._alias_states: dict[str, _RuntimeAliasState] = {}
-
-    def invalidate_caches(self) -> None:
-        """Clear alias and retriever caches."""
-        self._retrievers.clear()
-        self._alias_states.clear()
-
-    def _default_vector_store(self, collection_name: str) -> QdrantVectorStore:
-        return QdrantVectorStore(
+        client = qdrant_client or QdrantClient(
             host=self.platform_settings.qdrant_host,
             port=self.platform_settings.qdrant_port,
-            collection_name=collection_name,
         )
+        self._resolver = resolver or LlamaIndexRuntimeResolver(
+            qdrant_client=client,
+            embedding_service=self.embedding_service,
+            embedding_model=self.rag_settings.embedding_model,
+            qdrant_batch_size=self.rag_settings.build.qdrant_upsert_batch_size,
+            sparse_encoder_factory=self._sparse_encoder_factory,
+        )
+        self._retrievers: dict[str, RuntimeRetriever] = {}
+        self._alias_states: dict[str, RuntimeAliasState] = {}
+
+    def invalidate_caches(self) -> None:
+        self._retrievers.clear()
+        self._alias_states.clear()
 
     def _default_sparse_encoder(self) -> SparseEncoderService:
         return SparseEncoderService(embeddings_url=self.platform_settings.embeddings_url)
@@ -106,83 +111,23 @@ class RagRuntime:
         kb_id: str,
         alias: str,
         strict: bool,
-    ) -> _RuntimeAliasState | None:
+    ) -> RuntimeAliasState | None:
         cache_key = self._cache_key(kb_id, alias)
         cached = self._alias_states.get(cache_key)
         if cached is not None:
-            alias_store = self._vector_store_factory(cache_key)
-            current_collection = alias_store.resolve_alias(cache_key)
-            if current_collection == cached.collection_name:
+            if self._resolver.alias_target(cache_key) == cached.collection_name:
                 return cached
             self._retrievers.pop(cache_key, None)
             self._alias_states.pop(cache_key, None)
 
-        alias_store = self._vector_store_factory(cache_key)
-        if not alias_store.collection_exists():
-            message = f"Qdrant alias '{cache_key}' does not resolve"
-            if strict:
-                raise RuntimeError(message)
-            logger.warning(message)
-            return None
-
-        collection_name = alias_store.resolve_alias(cache_key) or cache_key
-        collection_store = (
-            alias_store
-            if collection_name == cache_key
-            else self._vector_store_factory(collection_name)
-        )
-        payload = collection_store.read_meta()
-        if payload is None:
-            message = f"Collection '{collection_name}' has no Qdrant attestation"
-            if strict:
-                raise RuntimeError(message)
-            logger.warning(message)
-            return None
-
-        attestation = attestation_from_payload(payload)
-        if attestation.kb_id != kb_id:
-            message = (
-                f"Collection '{collection_name}' belongs to KB '{attestation.kb_id}', "
-                f"not requested KB '{kb_id}'"
-            )
-            if strict:
-                raise RuntimeError(message)
-            logger.warning(message)
-            return None
-        if attestation.collection_name != collection_name:
-            message = (
-                f"Collection attestation names '{attestation.collection_name}', "
-                f"not resolved collection '{collection_name}'"
-            )
-            if strict:
-                raise RuntimeError(message)
-            logger.warning(message)
-            return None
-
-        vector_size = collection_store.get_collection_info().get("vector_size")
-        runtime_dimension = getattr(self.embedding_service, "dimension", None)
-        if (
-            isinstance(vector_size, int)
-            and isinstance(runtime_dimension, int)
-            and vector_size != runtime_dimension
-        ):
-            message = (
-                f"Embedding dimension mismatch for '{collection_name}': "
-                f"collection={vector_size}, runtime={runtime_dimension}"
-            )
-            if strict:
-                raise RuntimeError(message)
-            logger.warning(message)
-            return None
-
-        state = _RuntimeAliasState(
+        state = self._resolver.resolve(
             kb_id=kb_id,
             alias=alias,
             qdrant_alias=cache_key,
-            collection_name=collection_name,
-            attestation=attestation,
+            strict=strict,
         )
-        self._alias_states[cache_key] = state
+        if state is not None:
+            self._alias_states[cache_key] = state
         return state
 
     def _get_retriever(
@@ -190,43 +135,40 @@ class RagRuntime:
         *,
         kb_cfg: KBConfig,
         alias: str,
-        state: _RuntimeAliasState,
-    ) -> Retriever:
-        cache_key = state.qdrant_alias
-        cached = self._retrievers.get(cache_key)
+        state: RuntimeAliasState,
+    ) -> RuntimeRetriever:
+        cached = self._retrievers.get(state.qdrant_alias)
         if cached is not None:
             return cached
 
         alias_cfg = kb_cfg.aliases[alias]
-        vector_store = self._vector_store_factory(state.collection_name)
-        reranker = self._reranker_factory(alias_cfg.reranker) if alias_cfg.reranker else None
-        sparse_encoder_service = (
-            self._sparse_encoder_factory()
-            if alias_cfg.retrieval_strategy in {"hybrid", "sparse"}
-            else None
+        index = self._resolver.open_index(
+            state,
+            strategy=alias_cfg.retrieval_strategy,
         )
-        retriever = Retriever(
-            embedding_service=self.embedding_service,
-            vector_store=vector_store,
-            reranker=reranker,
-            sparse_encoder_service=sparse_encoder_service,
-            reranker_multiplier=alias_cfg.reranker_multiplier,
+        reranker: Reranker | None = (
+            self._reranker_factory(alias_cfg.reranker) if alias_cfg.reranker else None
         )
-        self._retrievers[cache_key] = retriever
-        return retriever
+        runtime_retriever = build_runtime_retriever(
+            index=index,
+            alias_config=alias_cfg,
+            reranker_client=reranker,
+        )
+        self._retrievers[state.qdrant_alias] = runtime_retriever
+        return runtime_retriever
 
-    def _hit_from_document(
-        self,
-        document: Document,
+    @staticmethod
+    def _hit_from_node(
+        node: NodeWithScore,
         *,
-        state: _RuntimeAliasState,
+        state: RuntimeAliasState,
     ) -> RetrievalHit:
-        metadata = dict(document.metadata)
-        chunk_id = str(metadata.get("chunk_id") or metadata.get("id") or "")
+        metadata = dict(node.node.metadata)
+        chunk_id = str(metadata.get("chunk_id") or node.node.node_id)
         document_id = str(metadata.get("document_id") or metadata.get("source_document_id") or "")
         title = str(metadata.get("title") or document_id or "Untitled source")
-        uri = str(metadata.get("source_uri") or metadata.get("uri") or "unknown")
-        source_type = str(metadata.get("source_type") or "unknown")
+        uri = str(metadata.get("source_uri") or "unknown")
+        source_type = str(metadata.get("adapter_id") or "unknown")
         metadata.update(
             {
                 "kb_id": state.kb_id,
@@ -238,10 +180,10 @@ class RagRuntime:
             }
         )
         return RetrievalHit(
-            chunk_id=chunk_id or f"{state.collection_name}:unknown",
-            document_id=document_id or chunk_id or f"{state.collection_name}:unknown",
-            text=document.content,
-            score=float(document.score if document.score is not None else 0.0),
+            chunk_id=chunk_id,
+            document_id=document_id or chunk_id,
+            text=node.node.get_content(metadata_mode=MetadataMode.NONE),
+            score=float(node.score if node.score is not None else 0.0),
             source_type=source_type,
             title=title,
             uri=uri,
@@ -270,13 +212,10 @@ class RagRuntime:
                         if strict:
                             raise
                         logger.warning(
-                            "RAG alias is not compatible with its collection: "
-                            "kb=%s alias=%s collection=%s strategy=%s capability=%s",
+                            "RAG alias is incompatible: kb=%s alias=%s collection=%s",
                             kb_cfg.name,
                             alias,
                             state.collection_name,
-                            alias_cfg.retrieval_strategy,
-                            state.attestation.retrieval_capability.value,
                             exc_info=True,
                         )
 
@@ -286,18 +225,12 @@ class RagRuntime:
         query: str,
         sources: list[RagRuntimeSource],
     ) -> RagRuntimeResult:
-        """Retrieve citation-ready hits from requested KB aliases."""
+        """Retrieve native nodes and compatibility hits from requested KB aliases."""
         started_at = perf_counter()
         result = RagRuntimeResult()
         if not query.strip():
             result.timings_ms["total"] = _elapsed_ms(started_at)
-            result.diagnostics = {
-                "requested_source_count": len(sources),
-                "resolved_source_count": 0,
-                "skipped_source_count": 0,
-                "hit_count": 0,
-                "no_hit": True,
-            }
+            result.diagnostics = self._diagnostics(result, requested=len(sources))
             return result
 
         for source in sources:
@@ -337,7 +270,6 @@ class RagRuntime:
                     )
                 )
                 continue
-
             try:
                 validate_strategy_supported(
                     retrieval_strategy=alias_cfg.retrieval_strategy,
@@ -354,15 +286,10 @@ class RagRuntime:
                 continue
 
             retrieve_started_at = perf_counter()
-            retriever = self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state)
-            documents = retriever.retrieve(
-                query=query,
-                top_k=alias_cfg.top_k,
-                score_threshold=alias_cfg.score_threshold,
-                strategy=alias_cfg.retrieval_strategy,
-            )
+            nodes = self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state).retrieve(query)
             retrieve_ms = _elapsed_ms(retrieve_started_at)
-            source_total_ms = _elapsed_ms(source_started_at)
+            result.nodes.extend(nodes)
+            result.hits.extend(self._hit_from_node(node, state=state) for node in nodes)
             result.provenance.append(
                 {
                     "knowledge_base": kb_cfg.name,
@@ -372,35 +299,85 @@ class RagRuntime:
                     "manifest_id": state.attestation.manifest_id,
                     "retrieval_strategy": alias_cfg.retrieval_strategy,
                     "retrieval_capability": state.attestation.retrieval_capability.value,
-                    "hit_count": len(documents),
-                    "no_hit": not documents,
-                    **_score_summary(documents),
+                    "hit_count": len(nodes),
+                    "no_hit": not nodes,
+                    **_score_summary(nodes),
                     "timings_ms": {
                         "resolve": resolve_ms,
                         "retrieve": retrieve_ms,
-                        "total": source_total_ms,
+                        "total": _elapsed_ms(source_started_at),
                     },
                 }
             )
-            result.hits.extend(
-                self._hit_from_document(document, state=state) for document in documents
-            )
 
         result.timings_ms["total"] = _elapsed_ms(started_at)
-        result.diagnostics = {
-            "requested_source_count": len(sources),
+        result.diagnostics = self._diagnostics(result, requested=len(sources))
+        return result
+
+    @staticmethod
+    def _diagnostics(result: RagRuntimeResult, *, requested: int) -> dict[str, object]:
+        return {
+            "requested_source_count": requested,
             "resolved_source_count": len(result.provenance),
             "skipped_source_count": len(result.skipped_sources),
             "hit_count": len(result.hits),
             "no_hit": not result.hits,
         }
-        logger.info(
-            "RAG runtime retrieval complete: requested_sources=%s resolved_sources=%s "
-            "skipped_sources=%s hits=%s total_ms=%.3f",
-            result.diagnostics["requested_source_count"],
-            result.diagnostics["resolved_source_count"],
-            result.diagnostics["skipped_source_count"],
-            result.diagnostics["hit_count"],
-            result.timings_ms["total"],
+
+    def _default_llm(self) -> LLM:
+        from llama_index.llms.openai import OpenAI
+
+        api_key = secret_value(getattr(self.settings.gateway, "api_key", None)) or "not-needed"
+        return OpenAI(
+            model=self.settings.vllm.model,
+            api_base=f"{str(self.platform_settings.vllm_base_url).rstrip('/')}/v1",
+            api_key=api_key,
+            temperature=0.0,
+            timeout=float(self.settings.gateway.vllm_timeout),
         )
-        return result
+
+    def query(
+        self,
+        *,
+        query: str,
+        source: RagRuntimeSource,
+        llm: LLM | None = None,
+        prompts: ProjectQueryPrompts = DEFAULT_RAG_QUERY_PROMPTS,
+    ) -> RagQueryResult:
+        """Run one KB/alias query engine and return answer plus source nodes."""
+        if not query.strip():
+            raise ValueError("query must not be blank")
+        kb_cfg = get_kb_config(source.knowledge_base)
+        if kb_cfg is None:
+            raise ValueError(f"Unknown knowledge base '{source.knowledge_base}'")
+        alias = self._effective_alias(kb_cfg, source.alias)
+        alias_cfg = kb_cfg.aliases.get(alias)
+        if alias_cfg is None:
+            raise ValueError(f"Unknown alias '{alias}' for KB '{kb_cfg.name}'")
+        state = self._resolve_alias_state(kb_id=kb_cfg.name, alias=alias, strict=True)
+        assert state is not None
+        validate_strategy_supported(
+            retrieval_strategy=alias_cfg.retrieval_strategy,
+            retrieval_capability=state.attestation.retrieval_capability.value,
+        )
+        runtime_retriever = self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state)
+        response = runtime_retriever.query_engine(
+            llm=llm or self._default_llm(),
+            prompts=prompts,
+        ).query(query)
+        source_nodes = list(response.source_nodes)
+        return RagQueryResult(
+            answer=str(response),
+            source_nodes=source_nodes,
+            hits=[self._hit_from_node(node, state=state) for node in source_nodes],
+            prompt_identity=prompts.identity,
+            provenance={
+                "knowledge_base": kb_cfg.name,
+                "alias": alias,
+                "qdrant_alias": state.qdrant_alias,
+                "collection_name": state.collection_name,
+                "manifest_id": state.attestation.manifest_id,
+                "retrieval_strategy": alias_cfg.retrieval_strategy,
+                "retrieval_capability": state.attestation.retrieval_capability.value,
+            },
+        )

@@ -90,10 +90,10 @@ def test_rag_lifecycle_dag_exposes_generic_params(monkeypatch: pytest.MonkeyPatc
     params = dag_module.dag.kwargs["params"]
 
     assert set(params) >= {
-            "catalog",
-            "kb",
-            "source_instance",
-            "alias_config",
+        "catalog",
+        "kb",
+        "source_instance",
+        "alias_config",
         "rag_data_root",
         "collection",
         "promote_alias",
@@ -131,13 +131,13 @@ def test_build_source_task_constructs_source_cli(monkeypatch: pytest.MonkeyPatch
 
     assert result == {"ok": True}
     assert calls == [
-            [
-                "build-source",
-                "--persist-build-run",
-                "--catalog",
-                "catalog.toml",
-                "--source-instance",
-                "pytorch_reference.docs",
+        [
+            "build-source",
+            "--persist-build-run",
+            "--catalog",
+            "catalog.toml",
+            "--source-instance",
+            "pytorch_reference.docs",
             "--rag-data-root",
             "assets/rag_data",
             "--document-id",
@@ -169,13 +169,13 @@ def test_build_source_task_accepts_multiple_sources(monkeypatch: pytest.MonkeyPa
     )
 
     assert calls == [
-            [
-                "build-source",
-                "--persist-build-run",
-                "--catalog",
-                "catalog.toml",
-                "--source-instance",
-                "pytorch_reference.docs",
+        [
+            "build-source",
+            "--persist-build-run",
+            "--catalog",
+            "catalog.toml",
+            "--source-instance",
+            "pytorch_reference.docs",
             "--source-instance",
             "pytorch_reference.tutorials",
             "--rag-data-root",

@@ -23,7 +23,7 @@ from rag.indexing.llamaindex_embeddings import ProjectEmbedding, ProjectSparseEn
 from rag.sources.bundles import SourceNodeBundle
 from rag.sources.chunks import LLAMAINDEX_SENTENCE_SPLITTER, read_chunk_artifact
 
-RetrievalStrategy = Literal["dense", "hybrid"]
+RetrievalStrategy = Literal["dense", "hybrid", "sparse"]
 SourceRetrievalCapability = Literal["dense", "hybrid"]
 
 _logger = logging.getLogger(__name__)
@@ -151,7 +151,7 @@ def validate_strategy_supported(
     """Validate that a query strategy is supported by collection capability."""
     if retrieval_strategy == "dense":
         return
-    if retrieval_strategy == "hybrid" and retrieval_capability == "hybrid":
+    if retrieval_strategy in {"hybrid", "sparse"} and retrieval_capability == "hybrid":
         return
     raise ValueError(
         f"retrieval_strategy '{retrieval_strategy}' is not supported by "
@@ -163,7 +163,7 @@ def retrieval_capability_for_strategy(
     retrieval_strategy: RetrievalStrategy,
 ) -> SourceRetrievalCapability:
     """Return the minimum physical collection capability for a retrieval strategy."""
-    if retrieval_strategy == "hybrid":
+    if retrieval_strategy in {"hybrid", "sparse"}:
         return "hybrid"
     return "dense"
 

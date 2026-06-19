@@ -48,9 +48,10 @@ def _source_document_matches(
     source_document: Document,
     selected_ids: set[str],
 ) -> bool:
-    return source_document.id_ in selected_ids or str(
-        source_document.metadata.get("local_document_id", "")
-    ) in selected_ids
+    return (
+        source_document.id_ in selected_ids
+        or str(source_document.metadata.get("local_document_id", "")) in selected_ids
+    )
 
 
 def _select_source_documents(

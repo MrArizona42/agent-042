@@ -120,8 +120,7 @@ def _kb_for_source_instances(
         kb_ids.add(instance.knowledge_base)
     if len(kb_ids) != 1:
         raise ValueError(
-            "build-source requires source instances from exactly one KB; "
-            f"got {sorted(kb_ids)}"
+            f"build-source requires source instances from exactly one KB; got {sorted(kb_ids)}"
         )
     return next(iter(kb_ids))
 

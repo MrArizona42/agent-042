@@ -101,9 +101,9 @@ bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias \
 - Hybrid alias configs require hybrid collections.
 - Challenger collections should normally be built and inspected before
   champion promotion.
-- During the Phase 3/4 migration boundary, do not promote LlamaIndex-built
-  collections to serving aliases. The legacy runtime cannot consume their
-  vector/payload layout; Phase 4 installs the matching runtime path.
+- LlamaIndex-built collections are serving-compatible after inspection;
+  runtime reopens them through the alias and validates collection metadata
+  before retrieval.
 - Benchmark execution must receive an explicit alias. A benchmark source
   instance is attached to exactly one KB through `source_instance.knowledge_base`;
   the alias supplies the KB runtime/build profile for that run.

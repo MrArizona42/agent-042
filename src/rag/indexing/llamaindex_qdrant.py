@@ -80,6 +80,24 @@ class QdrantCollectionManager:
     def collection_exists(self) -> bool:
         return self.client.collection_exists(self.collection_name)
 
+    def resolve_alias(self, alias_name: str) -> str | None:
+        for alias in self.client.get_aliases().aliases:
+            if alias.alias_name == alias_name:
+                return alias.collection_name
+        return None
+
+    def vector_size(self) -> int | None:
+        """Return the collection's dense vector dimension."""
+        if not self.collection_exists():
+            return None
+        vectors = self.client.get_collection(self.collection_name).config.params.vectors
+        if isinstance(vectors, dict):
+            for params in vectors.values():
+                if isinstance(params.size, int):
+                    return params.size
+            return None
+        return vectors.size if isinstance(vectors.size, int) else None
+
     def write_attestation(self, attestation: CollectionAttestation) -> None:
         """Persist runtime validation data as real Qdrant collection metadata."""
         if not self.collection_exists():

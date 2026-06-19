@@ -39,9 +39,7 @@ class TestProjectRerankerPostprocessor:
         postprocessor = ProjectRerankerPostprocessor(reranker_client=reranker)
         nodes = [_node("a", "alpha"), _node("b", "beta"), _node("c", "gamma")]
 
-        result = postprocessor.postprocess_nodes(
-            nodes, query_bundle=QueryBundle(query_str="q")
-        )
+        result = postprocessor.postprocess_nodes(nodes, query_bundle=QueryBundle(query_str="q"))
 
         assert [n.node.id_ for n in result] == ["c", "b", "a"]
         assert [n.score for n in result] == [0.0, 1.0, 2.0]
@@ -52,9 +50,7 @@ class TestProjectRerankerPostprocessor:
         postprocessor = ProjectRerankerPostprocessor(reranker_client=reranker, top_n=1)
         nodes = [_node("a", "alpha"), _node("b", "beta")]
 
-        result = postprocessor.postprocess_nodes(
-            nodes, query_bundle=QueryBundle(query_str="q")
-        )
+        result = postprocessor.postprocess_nodes(nodes, query_bundle=QueryBundle(query_str="q"))
 
         assert [n.node.id_ for n in result] == ["b"]
 
