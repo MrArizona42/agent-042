@@ -19,6 +19,14 @@ from rag.sources.cache import (
 )
 
 
+DEFAULT_FETCH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+}
+
+
 class SourceFetchResult(BaseModel):
     """Result of fetching one source document into cache."""
 
@@ -82,7 +90,11 @@ class HttpSourceFetcher:
         if self._client is not None:
             response = self._client.get(uri)
         else:
-            with httpx.Client(timeout=self._timeout, follow_redirects=True) as client:
+            with httpx.Client(
+                timeout=self._timeout,
+                follow_redirects=True,
+                headers=DEFAULT_FETCH_HEADERS,
+            ) as client:
                 response = client.get(uri)
         response.raise_for_status()
         return response.content, response.headers.get("content-type")
