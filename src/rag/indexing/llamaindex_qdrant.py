@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from llama_index.vector_stores.qdrant import QdrantVectorStore
@@ -49,6 +50,22 @@ class QdrantCollectionManager:
             aclient=AsyncQdrantClient(host=host, port=port),
             collection_name=collection_name,
         )
+
+    def close(self) -> None:
+        """Close the sync client and, if present, the async client.
+
+        Safe to call from a plain synchronous context (CLI commands) where no
+        event loop is running. Use :meth:`aclose` instead from async contexts.
+        """
+        self.client.close()
+        if self.aclient is not None:
+            asyncio.run(self.aclient.close())
+
+    async def aclose(self) -> None:
+        """Async counterpart to :meth:`close`, for use inside a running event loop."""
+        self.client.close()
+        if self.aclient is not None:
+            await self.aclient.close()
 
     def prepare_new_collection(self, *, force_recreate: bool) -> None:
         """Ensure materialization starts from a new physical collection."""

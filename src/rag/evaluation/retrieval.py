@@ -32,9 +32,7 @@ def _entity_id(node: NodeWithScore, entity_type: EntityType) -> str:
     metadata = node.node.metadata
     if entity_type == "document":
         return str(
-            metadata.get("document_id")
-            or metadata.get("source_document_id")
-            or node.node.node_id
+            metadata.get("document_id") or metadata.get("source_document_id") or node.node.node_id
         )
     return str(metadata.get("chunk_id") or node.node.node_id)
 

@@ -73,9 +73,7 @@ def _benchmark_nodes(documents: list[Document], *, chunk_size: int, chunk_overla
     splitter = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     nodes = splitter.get_nodes_from_documents(documents)
     for node in nodes:
-        document_id = str(
-            node.metadata.get("document_id") or node.ref_doc_id or node.node_id
-        )
+        document_id = str(node.metadata.get("document_id") or node.ref_doc_id or node.node_id)
         node.metadata.update(
             {
                 "document_id": document_id,
@@ -166,9 +164,7 @@ def materialize_benchmark_target(
             sparse_encoder_model=(
                 runtime.rag_settings.sparse_encoder_model if capability == "hybrid" else None
             ),
-            sparse_encoder_client=(
-                runtime.sparse_encoder() if capability == "hybrid" else None
-            ),
+            sparse_encoder_client=(runtime.sparse_encoder() if capability == "hybrid" else None),
             qdrant_upsert_batch_size=runtime.rag_settings.build.qdrant_upsert_batch_size,
             benchmark_scope=source_instance_id,
         )

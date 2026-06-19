@@ -24,19 +24,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = get_settings()
     runtime = RagRuntime(settings=settings)
-    llm = runtime.default_llm()
-    result = run_benchmark(
-        catalog_path=args.catalog,
-        source_instance_id=args.source_instance,
-        alias=args.alias,
-        rag_data_root=args.rag_data_root,
-        db_url=settings.auth.agent042_db_url,
-        runtime=runtime,
-        base_model=settings.vllm.model,
-        generation_llm=llm,
-        judge_llm=llm,
-        judge_model=settings.vllm.model,
-    )
+    try:
+        judge = runtime.judge_settings()
+        result = run_benchmark(
+            catalog_path=args.catalog,
+            source_instance_id=args.source_instance,
+            alias=args.alias,
+            rag_data_root=args.rag_data_root,
+            db_url=settings.auth.agent042_db_url,
+            runtime=runtime,
+            base_model=settings.vllm.model,
+            generation_llm=runtime.generation_llm(),
+            judge_llm=runtime.judge_llm(),
+            judge_model=judge.model,
+            judge_backend=judge.backend,
+        )
+    finally:
+        runtime.close()
     print(json.dumps(result.model_dump(mode="json"), indent=2, sort_keys=True))
     return 0
 

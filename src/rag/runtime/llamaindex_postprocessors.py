@@ -12,9 +12,7 @@ from pydantic import Field
 class RerankerProtocol(Protocol):
     """Reranker client contract used by :class:`ProjectRerankerPostprocessor`."""
 
-    def rerank(
-        self, query: str, nodes: list[NodeWithScore], top_k: int
-    ) -> list[NodeWithScore]:
+    def rerank(self, query: str, nodes: list[NodeWithScore], top_k: int) -> list[NodeWithScore]:
         """Rerank nodes against a query, returning them sorted descending by score."""
         ...
 

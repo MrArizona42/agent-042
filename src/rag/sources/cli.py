@@ -382,44 +382,50 @@ def main(
                     document_ids=_document_ids(args.document_ids),
                     limit=args.limit,
                 )
-            return materialize_kb_collection_fn(
-                kb_id=args.kb,
-                collection_name=collection_name,
-                bundles=bundles,
-                collection_manager=_collection_manager(collection_name=collection_name),
-                embedding_client=EmbeddingService(),
-                embedding_model=settings.rag.embedding_model,
-                retrieval_capability=capability,
-                rag_data_root=args.rag_data_root,
-                target_alias=None,
-                sparse_encoder_model=(
-                    settings.rag.sparse_encoder_model if capability == "hybrid" else None
-                ),
-                sparse_encoder_client=SparseEncoderService() if capability == "hybrid" else None,
-                qdrant_upsert_batch_size=settings.rag.build.qdrant_upsert_batch_size,
-                force_recreate=args.force_recreate,
-                build_config_ref=args.catalog,
-                source_adapter_versions=(
-                    build_run_for_materialize.adapter_versions
-                    if build_run_for_materialize is not None
-                    else None
-                ),
-                source_manifest_digests=(
-                    build_run_for_materialize.manifest_digests
-                    if build_run_for_materialize is not None
-                    else None
-                ),
-                build_config_digest=(
-                    build_run_for_materialize.catalog_digest
-                    if build_run_for_materialize is not None
-                    else None
-                ),
-                build_profile_digest=(
-                    build_run_for_materialize.build_profile_digest
-                    if build_run_for_materialize is not None
-                    else None
-                ),
-            )
+            manager = _collection_manager(collection_name=collection_name)
+            try:
+                return materialize_kb_collection_fn(
+                    kb_id=args.kb,
+                    collection_name=collection_name,
+                    bundles=bundles,
+                    collection_manager=manager,
+                    embedding_client=EmbeddingService(),
+                    embedding_model=settings.rag.embedding_model,
+                    retrieval_capability=capability,
+                    rag_data_root=args.rag_data_root,
+                    target_alias=None,
+                    sparse_encoder_model=(
+                        settings.rag.sparse_encoder_model if capability == "hybrid" else None
+                    ),
+                    sparse_encoder_client=(
+                        SparseEncoderService() if capability == "hybrid" else None
+                    ),
+                    qdrant_upsert_batch_size=settings.rag.build.qdrant_upsert_batch_size,
+                    force_recreate=args.force_recreate,
+                    build_config_ref=args.catalog,
+                    source_adapter_versions=(
+                        build_run_for_materialize.adapter_versions
+                        if build_run_for_materialize is not None
+                        else None
+                    ),
+                    source_manifest_digests=(
+                        build_run_for_materialize.manifest_digests
+                        if build_run_for_materialize is not None
+                        else None
+                    ),
+                    build_config_digest=(
+                        build_run_for_materialize.catalog_digest
+                        if build_run_for_materialize is not None
+                        else None
+                    ),
+                    build_profile_digest=(
+                        build_run_for_materialize.build_profile_digest
+                        if build_run_for_materialize is not None
+                        else None
+                    ),
+                )
+            finally:
+                manager.close()
 
         stage_result = run_materialize_stage(
             request,
@@ -438,19 +444,24 @@ def main(
         def _promote_stage() -> Any:
             strategy = _alias_strategy(catalog_path=catalog_path, kb_id=args.kb, alias=args.alias)
             collection_manager = _collection_manager(collection_name=args.collection)
-            attestation = collection_manager.read_attestation()
-            if attestation is None:
-                raise RuntimeError(f"Collection '{args.collection}' has no attestation metadata")
-            validate_strategy_supported(
-                retrieval_strategy=strategy,  # type: ignore[arg-type]
-                retrieval_capability=attestation.retrieval_capability.value,
-            )
-            return promote_materialized_alias_fn(
-                kb_id=args.kb,
-                alias=args.alias,
-                collection_name=args.collection,
-                collection_manager=collection_manager,
-            )
+            try:
+                attestation = collection_manager.read_attestation()
+                if attestation is None:
+                    raise RuntimeError(
+                        f"Collection '{args.collection}' has no attestation metadata"
+                    )
+                validate_strategy_supported(
+                    retrieval_strategy=strategy,  # type: ignore[arg-type]
+                    retrieval_capability=attestation.retrieval_capability.value,
+                )
+                return promote_materialized_alias_fn(
+                    kb_id=args.kb,
+                    alias=args.alias,
+                    collection_name=args.collection,
+                    collection_manager=collection_manager,
+                )
+            finally:
+                collection_manager.close()
 
         if args.rag_data_root:
             stage_result = run_alias_promotion_stage(

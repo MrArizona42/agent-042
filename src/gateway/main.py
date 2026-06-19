@@ -128,6 +128,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     inference_events.close()
     await redis_stream.close()
     celery_client.close()
+    await process_chat.aclose()
     if auth_redis is not None:
         await auth_redis.close()
     if auth.agent042_db_url:

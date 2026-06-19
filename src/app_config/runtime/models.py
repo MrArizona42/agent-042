@@ -467,6 +467,17 @@ class JudgeSettings(BaseModel):
     model: str
     base_url: str
     api_key: str | None
+    context_window: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Context window for LlamaIndex LLM clients (e.g. the RAG benchmark "
+            "judge), which need it to avoid depending on OpenAI's hardcoded "
+            "model-name allowlist. None for consumers that call the judge "
+            "backend directly over HTTP and don't need it; those consumers "
+            "must not require this field."
+        ),
+    )
     timeout: float = Field(
         ge=1.0,
         description="Timeout for one judge request in seconds",
@@ -491,6 +502,15 @@ class EvalJudgeSettings(BaseModel):
     )
     api_key: SecretStr | None = Field(
         description="Optional API key for external OpenAI-compatible judge backends.",
+    )
+    context_window: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Required when backend=openai_compatible, since the external model's "
+            "context size cannot be inferred from gateway settings. Ignored for "
+            "backend=local_vllm, which always uses gateway.budget.model_max_tokens."
+        ),
     )
     timeout: float = Field(ge=1.0)
     request_delay_seconds: float = Field(ge=0.0)
@@ -548,8 +568,23 @@ class EvalConfig(BaseModel):
         _validate_judge_base_url(self.judge)
         return self
 
-    def resolve_judge_settings(self, platform: PlatformSettings) -> JudgeSettings:
-        """Resolve backend-specific judge settings to a concrete transport config."""
+    def resolve_judge_settings(
+        self,
+        platform: PlatformSettings,
+        *,
+        local_context_window: int | None = None,
+    ) -> JudgeSettings:
+        """Resolve backend-specific judge settings to a concrete transport config.
+
+        ``context_window`` on the result is ``None`` unless a caller that needs
+        it supplies one: ``local_context_window`` backs the ``local_vllm`` case
+        (that judge runs on the same locally-served model as generation, so it
+        reuses the gateway's declared context window), and ``openai_compatible``
+        passes through ``eval.judge.context_window`` as configured. Plain
+        HTTP-calling judge consumers can ignore the field entirely; consumers
+        that build a LlamaIndex LLM client (e.g. the RAG benchmark judge) must
+        validate it is set before doing so.
+        """
         judge = self.judge
         api_key = secret_value(judge.api_key)
         if judge.backend == "local_vllm":
@@ -558,6 +593,7 @@ class EvalConfig(BaseModel):
                 model=judge.model.strip(),
                 base_url=platform.vllm_base_url,
                 api_key=api_key.strip() or None if api_key is not None else None,
+                context_window=local_context_window,
                 timeout=judge.timeout,
                 request_delay_seconds=judge.request_delay_seconds,
             )
@@ -567,6 +603,7 @@ class EvalConfig(BaseModel):
             model=judge.model.strip(),
             base_url=judge.base_url.strip(),
             api_key=api_key.strip() or None if api_key is not None else None,
+            context_window=judge.context_window,
             timeout=judge.timeout,
             request_delay_seconds=judge.request_delay_seconds,
         )
@@ -583,6 +620,11 @@ class RuntimeEvalJudgeSettings(BaseModel):
     )
     base_url: str = Field(
         description="Base URL for external OpenAI-compatible judge backends.",
+    )
+    context_window: int | None = Field(
+        default=None,
+        ge=1,
+        description=("Required when backend=openai_compatible; ignored for backend=local_vllm."),
     )
     timeout: float = Field(ge=1.0)
     request_delay_seconds: float = Field(ge=0.0)

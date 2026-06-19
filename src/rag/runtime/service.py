@@ -10,7 +10,7 @@ from llama_index.core.schema import NodeWithScore
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app_config.catalog import KBConfig, get_catalog, get_kb_config
-from app_config.runtime import get_settings, secret_value
+from app_config.runtime import JudgeSettings, get_settings, secret_value
 from rag.contracts import (
     DEFAULT_RAG_QUERY_PROMPTS,
     ProjectQueryPrompts,
@@ -98,6 +98,14 @@ class RagRuntime:
     def invalidate_caches(self) -> None:
         self._retrievers.clear()
         self._alias_states.clear()
+
+    def close(self) -> None:
+        """Close the underlying Qdrant clients (sync context, e.g. CLI commands)."""
+        self._resolver.close()
+
+    async def aclose(self) -> None:
+        """Close the underlying Qdrant clients (async context, e.g. gateway lifecycle)."""
+        await self._resolver.aclose()
 
     @property
     def resolver(self) -> LlamaIndexRuntimeResolver:
@@ -346,17 +354,59 @@ class RagRuntime:
             "no_hit": not result.nodes,
         }
 
-    def default_llm(self) -> LLM:
-        """Return the runtime-configured OpenAI-compatible generation client."""
-        from llama_index.llms.openai import OpenAI
+    def generation_llm(self) -> LLM:
+        """Return the runtime-configured OpenAI-compatible generation client.
+
+        Uses ``OpenAILike`` rather than ``OpenAI`` because the generation model
+        is served locally by vLLM under a non-OpenAI model name; LlamaIndex's
+        plain ``OpenAI`` client hard-validates model names against an OpenAI
+        allowlist and would raise on any access to ``.metadata``.
+        """
+        from llama_index.llms.openai_like import OpenAILike
 
         api_key = secret_value(getattr(self.settings.gateway, "api_key", None)) or "not-needed"
-        return OpenAI(
+        return OpenAILike(
             model=self.settings.vllm.model,
             api_base=f"{str(self.platform_settings.vllm_base_url).rstrip('/')}/v1",
             api_key=api_key,
+            context_window=self.settings.gateway.budget.model_max_tokens,
+            is_chat_model=True,
             temperature=0.0,
             timeout=float(self.settings.gateway.vllm_timeout),
+        )
+
+    def judge_settings(self) -> JudgeSettings:
+        """Resolve the LLM-as-judge transport config, independent of the generation model."""
+        return self.settings.eval.resolve_judge_settings(
+            self.platform_settings,
+            local_context_window=self.settings.gateway.budget.model_max_tokens,
+        )
+
+    def judge_llm(self) -> LLM:
+        """Return the LLM-as-judge client resolved from ``settings.eval.judge``.
+
+        Deliberately separate from ``generation_llm()``: the judge backend can
+        differ from the model serving RAG generation (e.g. an external
+        OpenAI-compatible judge), and conflating the two previously meant
+        benchmark runs silently scored answers using the generation model as
+        if it were the configured judge.
+        """
+        from llama_index.llms.openai_like import OpenAILike
+
+        judge = self.judge_settings()
+        if judge.context_window is None:
+            raise ValueError(
+                f"eval.judge.context_window must be set for backend '{judge.backend}' "
+                "before it can back a LlamaIndex judge LLM client"
+            )
+        return OpenAILike(
+            model=judge.model,
+            api_base=f"{judge.base_url.rstrip('/')}/v1",
+            api_key=judge.api_key or "not-needed",
+            context_window=judge.context_window,
+            is_chat_model=True,
+            temperature=0.0,
+            timeout=judge.timeout,
         )
 
     def query(
@@ -385,7 +435,7 @@ class RagRuntime:
         )
         runtime_retriever = self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state)
         response = runtime_retriever.query_engine(
-            llm=llm or self.default_llm(),
+            llm=llm or self.generation_llm(),
             prompts=prompts,
         ).query(query)
         source_nodes = [self._enrich_node(node, state=state) for node in response.source_nodes]

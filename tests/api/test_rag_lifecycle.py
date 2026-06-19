@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -446,6 +446,7 @@ class TestReloadConfigEndpoint:
             patch.object(
                 knowledge_bases.process_chat,
                 "reload_config_caches",
+                new_callable=AsyncMock,
                 side_effect=_reload_hook,
             ) as reload_caches,
             patch("gateway.api.v1.knowledge_bases.get_settings", return_value=MagicMock()),

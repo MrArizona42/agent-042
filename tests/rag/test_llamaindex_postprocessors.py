@@ -17,9 +17,7 @@ class _FakeReranker:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[str]]] = []
 
-    def rerank(
-        self, query: str, nodes: list[NodeWithScore], top_k: int
-    ) -> list[NodeWithScore]:
+    def rerank(self, query: str, nodes: list[NodeWithScore], top_k: int) -> list[NodeWithScore]:
         self.calls.append((query, [node.node.get_content() for node in nodes]))
         reversed_nodes = list(reversed(nodes))
         for score, node in enumerate(reversed_nodes):

@@ -90,6 +90,15 @@ class RAGService:
         if hasattr(self, "runtime"):
             self.runtime.invalidate_caches()
 
+    async def aclose(self) -> None:
+        """Close the underlying Qdrant clients.
+
+        Called when this service is discarded: on config reload (a fresh
+        ``RAGService`` replaces it) and on gateway shutdown.
+        """
+        if hasattr(self, "runtime"):
+            await self.runtime.aclose()
+
     def warm_caches(self, *, validate: bool = False) -> None:
         """Best-effort eager rebuild of config-derived caches.
 

@@ -50,6 +50,10 @@ inference_topic = "inference.events.v1"
 backend = "local_vllm"
 model = "/models/Qwen/Qwen3-0.6B"
 base_url = ""
+# context_window is required when backend = "openai_compatible" (the external
+# model's context size can't be inferred from gateway.budget.model_max_tokens).
+# Ignored for backend = "local_vllm", which always reuses gateway.budget.model_max_tokens.
+# context_window = 128000
 timeout = 60.0
 request_delay_seconds = 0.0
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -285,7 +286,7 @@ def test_reload_config_caches_invalidates_and_warms_router_and_rag_service() -> 
         "ensure_rag_service",
         return_value=warmed_rag_service,
     ) as ensure_rag_service:
-        process.reload_config_caches(settings=settings)
+        asyncio.run(process.reload_config_caches(settings=settings))
 
     process._router.invalidate_cache.assert_called_once_with()
     process._router.warm_cache.assert_called_once_with()
@@ -300,7 +301,7 @@ def test_reload_config_caches_is_fail_open_on_warmup_errors() -> None:
     process._router.warm_cache.side_effect = RuntimeError("router down")
 
     with patch.object(process, "ensure_rag_service", side_effect=RuntimeError("rag down")):
-        process.reload_config_caches(settings=_settings())
+        asyncio.run(process.reload_config_caches(settings=_settings()))
 
     process._router.invalidate_cache.assert_called_once_with()
     process._router.warm_cache.assert_called_once_with()

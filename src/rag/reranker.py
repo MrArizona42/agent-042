@@ -18,9 +18,7 @@ logger = logging.getLogger(__name__)
 class Reranker:
     """Post-retrieval cross-encoder reranker."""
 
-    def rerank(
-        self, query: str, nodes: list[NodeWithScore], top_k: int
-    ) -> list[NodeWithScore]:
+    def rerank(self, query: str, nodes: list[NodeWithScore], top_k: int) -> list[NodeWithScore]:
         raise NotImplementedError
 
 
@@ -42,9 +40,7 @@ class CrossEncoderReranker(Reranker):
         )
         logger.info(f"CrossEncoderReranker connecting to {base_url}")
 
-    def rerank(
-        self, query: str, nodes: list[NodeWithScore], top_k: int
-    ) -> list[NodeWithScore]:
+    def rerank(self, query: str, nodes: list[NodeWithScore], top_k: int) -> list[NodeWithScore]:
         """Rerank *nodes* against *query* and return them sorted by score.
 
         Args:
@@ -59,9 +55,7 @@ class CrossEncoderReranker(Reranker):
         if not nodes:
             return []
 
-        passages = [
-            node.node.get_content(metadata_mode=MetadataMode.NONE) for node in nodes
-        ]
+        passages = [node.node.get_content(metadata_mode=MetadataMode.NONE) for node in nodes]
         resp = self._client.post("/v1/rerank", json={"query": query, "passages": passages})
         resp.raise_for_status()
         scores: list[float] = resp.json()["scores"]

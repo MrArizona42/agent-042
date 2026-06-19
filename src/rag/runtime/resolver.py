@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Callable, Literal
 
@@ -53,6 +54,18 @@ class LlamaIndexRuntimeResolver:
             aclient=self.qdrant_aclient,
             collection_name=collection_name,
         )
+
+    def close(self) -> None:
+        """Close the resolver's shared sync/async Qdrant clients (sync context)."""
+        self.qdrant_client.close()
+        if self.qdrant_aclient is not None:
+            asyncio.run(self.qdrant_aclient.close())
+
+    async def aclose(self) -> None:
+        """Close the resolver's shared sync/async Qdrant clients (async context)."""
+        self.qdrant_client.close()
+        if self.qdrant_aclient is not None:
+            await self.qdrant_aclient.close()
 
     @staticmethod
     def _fail(message: str, *, strict: bool) -> None:

@@ -128,6 +128,14 @@ class _Model:
         return self._payload
 
 
+class _FakeCollectionManager(dict):
+    """Dict-like fake collection manager: keeps existing kwarg assertions working
+    while satisfying the CLI's ``manager.close()`` cleanup call."""
+
+    def close(self) -> None:
+        pass
+
+
 class _Settings:
     class rag:
         embedding_model = "test-embedding"
@@ -443,7 +451,7 @@ def test_cli_materialize_derives_hybrid_capability_from_catalog(
     monkeypatch.setattr(
         cli,
         "_collection_manager",
-        lambda collection_name: {"collection": collection_name},
+        lambda collection_name: _FakeCollectionManager(collection=collection_name),
     )
 
     def fake_collect(**kwargs):
@@ -503,7 +511,7 @@ def test_cli_materialize_with_v3_catalog_uses_corpus_source_instance(
     monkeypatch.setattr(
         cli,
         "_collection_manager",
-        lambda collection_name: {"collection": collection_name},
+        lambda collection_name: _FakeCollectionManager(collection=collection_name),
     )
 
     def fake_collect(**kwargs):
@@ -561,7 +569,7 @@ def test_cli_materialize_can_persist_build_run(
     monkeypatch.setattr(
         cli,
         "_collection_manager",
-        lambda collection_name: {"collection": collection_name},
+        lambda collection_name: _FakeCollectionManager(collection=collection_name),
     )
 
     def fake_collect(**kwargs):
@@ -636,7 +644,7 @@ def test_cli_materialize_all_sources_passes_multiple_bundles(
     monkeypatch.setattr(
         cli,
         "_collection_manager",
-        lambda collection_name: {"collection": collection_name},
+        lambda collection_name: _FakeCollectionManager(collection=collection_name),
     )
 
     def fake_collect_all(**kwargs):
@@ -684,6 +692,9 @@ def test_cli_promote_alias_wires_collection(tmp_path: Path, capsys, monkeypatch)
         def read_attestation(self):
             return SimpleNamespace(retrieval_capability=RetrievalCapability.HYBRID)
 
+        def close(self) -> None:
+            pass
+
     monkeypatch.setattr(
         cli,
         "_collection_manager",
@@ -726,6 +737,9 @@ def test_cli_promote_alias_rejects_incompatible_collection(
     class _Manager:
         def read_attestation(self):
             return SimpleNamespace(retrieval_capability=RetrievalCapability.DENSE)
+
+        def close(self) -> None:
+            pass
 
     monkeypatch.setattr(cli, "_collection_manager", lambda collection_name: _Manager())
 

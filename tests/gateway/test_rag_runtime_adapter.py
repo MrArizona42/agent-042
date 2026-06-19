@@ -118,10 +118,7 @@ def test_retrieve_documents_delegates_explicit_alias_to_runtime(monkeypatch) -> 
 
     assert len(docs) == 1
     assert docs[0].node.metadata["chunk_id"] == "torch.nn:chunk:0001"
-    assert (
-        docs[0].node.metadata["collection_name"]
-        == "rag__pytorch_reference__20260605_120000"
-    )
+    assert docs[0].node.metadata["collection_name"] == "rag__pytorch_reference__20260605_120000"
     assert runtime.calls[0]["sources"][0].knowledge_base == "pytorch_reference"
     assert runtime.calls[0]["sources"][0].alias == "challenger"
 

@@ -1377,6 +1377,7 @@ class TestEvalDvcTraceability:
 
 class _RetiredRetrievalEvalParity:
     """Historical pre-LlamaIndex retrieval tests retained only for migration archaeology."""
+
     def test_build_temp_collection_preserves_hybrid_sparse_leg(self):
         from experiments.eval.eval_scripts.retrieval_bench import (
             EvalBuildConfig,

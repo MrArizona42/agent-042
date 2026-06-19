@@ -59,9 +59,7 @@ def _case_query(case: BenchmarkCase) -> str:
 def _prepared_metadata(rag_data_root: Path | str, source_instance_id: str) -> dict[str, Any]:
     path = metadata_artifact_path(rag_data_root, source_instance_id)
     if not path.is_file():
-        raise ValueError(
-            f"Benchmark '{source_instance_id}' is not prepared; missing '{path}'"
-        )
+        raise ValueError(f"Benchmark '{source_instance_id}' is not prepared; missing '{path}'")
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -239,6 +237,7 @@ def run_benchmark(
     generation_llm: LLM | None = None,
     judge_llm: LLM | None = None,
     judge_model: str | None = None,
+    judge_backend: str | None = None,
     target_factory: Callable[..., BenchmarkTarget] = materialize_benchmark_target,
     writer: Callable[..., None] = write_evaluation_results,
 ) -> BenchmarkRunSummary:
@@ -319,8 +318,8 @@ def run_benchmark(
                     "retrieval_top_k": target.alias_config.top_k,
                     "score_threshold": target.alias_config.score_threshold,
                     "reranking_strategy": target.alias_config.reranker,
-                    "judge_backend": "llamaindex" if uses_judge else None,
-                    "judge_model": (judge_model or base_model) if uses_judge else None,
+                    "judge_backend": judge_backend if uses_judge else None,
+                    "judge_model": judge_model if uses_judge else None,
                     "extra": {
                         "benchmark_source_instance_id": source_instance_id,
                         "benchmark_artifact_digests": metadata.get("artifact_digests", {}),
