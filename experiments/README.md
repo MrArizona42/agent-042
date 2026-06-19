@@ -17,10 +17,8 @@ notebooks, and analysis work around those workflows.
   `eval_samples`.
 - `eval/eval_results.ipynb`: existing eval result exploration.
 - `eval/debug_eval.ipynb`: eval pipeline debugging.
-- `rag/`: RAG operator notebooks for Qdrant diagnostics and observability.
-- `rag/rag_ops.ipynb`: manual Qdrant inspection, aliases, attestations,
-  samples, cleanup checks, and danger-zone maintenance cells.
-- `rag/sandboxes/`: notebook-only experimental forks.
+- Direct Qdrant inspection uses the Qdrant API/dashboard; production RAG
+  operations use `python -m rag.sources.cli`.
 - `misc_ops/`: asset prefetch, MLflow, PostgreSQL, and other operational
   notebooks.
 

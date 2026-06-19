@@ -6,21 +6,13 @@ import pytest
 from pydantic import ValidationError
 
 from rag.contracts import (
-    Chunk,
-    DocumentSection,
-    ExtractedDocument,
     IndexManifest,
     RetrievalCapability,
-    SourceDocument,
     compare_manifest_attestation,
     manifest_path,
     read_index_manifest,
     with_manifest_id,
     write_index_manifest,
-)
-from rag.contracts.llamaindex import (
-    chunk_to_text_node,
-    extracted_document_to_llama_document,
 )
 
 
@@ -45,37 +37,6 @@ def _manifest() -> IndexManifest:
         eval_summary={"smoke_passed": True},
         created_at=_created_at(),
     )
-
-
-def test_source_and_extracted_document_contracts_validate_required_text() -> None:
-    source = SourceDocument(
-        id="arxiv:1706.03762",
-        source_type="arxiv_paper",
-        uri="https://arxiv.org/abs/1706.03762",
-        title="Attention Is All You Need",
-        authors=[" Ashish Vaswani ", ""],
-        metadata={"tags": ["transformer"]},
-    )
-    extracted = ExtractedDocument(
-        id="doc-1",
-        source_document_id=source.id,
-        text="## Introduction\nTransformer models...",
-        sections=[
-            DocumentSection(
-                title="Introduction",
-                text="Transformer models...",
-                level=2,
-                ordinal=0,
-            )
-        ],
-        extraction_method="pdf_text",
-    )
-
-    assert source.authors == ["Ashish Vaswani"]
-    assert extracted.sections[0].title == "Introduction"
-
-    with pytest.raises(ValidationError, match="section text"):
-        DocumentSection(text=" ", ordinal=0)
 
 
 def test_manifest_round_trip_sets_and_validates_deterministic_manifest_id(tmp_path) -> None:
@@ -127,32 +88,3 @@ def test_manifest_attestation_comparison_reports_drift() -> None:
         "sentence-transformers/all-MiniLM-L6-v2",
         "other-embedding-model",
     )
-
-
-def test_llamaindex_adapters_keep_project_metadata() -> None:
-    extracted = ExtractedDocument(
-        id="doc-1",
-        source_document_id="arxiv:1706.03762",
-        text="Transformer text",
-        extraction_method="pdf_text",
-        metadata={"title": "Attention Is All You Need"},
-    )
-    chunk = Chunk(
-        id="chunk-1",
-        document_id="doc-1",
-        source_document_id="arxiv:1706.03762",
-        text="Self-attention text",
-        section_title="Attention",
-        ordinal=3,
-        token_count=42,
-        metadata={"uri": "https://arxiv.org/abs/1706.03762"},
-    )
-
-    llama_doc = extracted_document_to_llama_document(extracted)
-    node = chunk_to_text_node(chunk)
-
-    assert llama_doc.text == "Transformer text"
-    assert llama_doc.metadata["source_document_id"] == "arxiv:1706.03762"
-    assert node.text == "Self-attention text"
-    assert node.metadata["chunk_id"] == "chunk-1"
-    assert node.metadata["section_title"] == "Attention"

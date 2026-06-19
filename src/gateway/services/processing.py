@@ -314,12 +314,12 @@ class _ProcessChat:
                 source_key = f"{src.knowledge_base}:{effective_alias}"
                 rag_chunks_by_source[source_key] = [
                     {
-                        "content": doc.content,
+                        "content": doc.node.get_content(),
                         "score": doc.score if doc.score is not None else 0.0,
                         "source": f"{src.knowledge_base}_{effective_alias}",
                         "knowledge_base": src.knowledge_base,
                         "alias": effective_alias,
-                        "metadata": dict(doc.metadata),
+                        "metadata": dict(doc.node.metadata),
                     }
                     for doc in docs
                 ]

@@ -474,10 +474,9 @@ Compose interpolation на хосте.
 
 Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.
 
-RAG operator boundary в JupyterLab:
-- `experiments/rag/rag_ops.ipynb` — прямые Qdrant операции, аналитика и observability для ручной проверки коллекций/aliases.
+RAG operator boundary:
+- Direct Qdrant diagnostics use the Qdrant API/dashboard.
 - Production lifecycle запускается через `rag-ops` container и `python -m rag.sources.cli`, либо через Airflow `rag_lifecycle`.
-- `experiments/rag/sandboxes/` — notebook-only experimental код. Gateway, Airflow DAG-и и production evals не должны импортировать его.
 
 ## DVC с бэкэндом Yandex Cloud S3
 

@@ -155,7 +155,7 @@ def test_dense_materialization_retrieves_and_writes_collection_attestation(
     }
     points, _ = qdrant_client.scroll(manager.collection_name, limit=10, with_payload=True)
     assert len(points) == 2
-    assert all(point.payload and point.payload.get("type") != "collection_meta" for point in points)
+    assert all(point.payload for point in points)
 
     vector_store = manager.vector_store(
         vector_size=embedding_client.dimension,

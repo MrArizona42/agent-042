@@ -1,8 +1,6 @@
 """Project-owned RAG contracts.
 
-These models describe the lifecycle data that crosses source connectors,
-extractors, build pipelines, runtime retrieval, manifests, and Qdrant
-collection metadata.
+These models describe collection manifests and Qdrant metadata.
 """
 
 from __future__ import annotations
@@ -20,97 +18,6 @@ class RetrievalCapability(StrEnum):
     DENSE = "dense"
     HYBRID = "hybrid"
     SPARSE = "sparse"
-
-
-class DocumentSection(BaseModel):
-    """A structured section extracted from a source document."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    title: str | None = None
-    text: str
-    level: int | None = Field(default=None, ge=1)
-    ordinal: int = Field(ge=0)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("text")
-    @classmethod
-    def _text_must_not_be_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("section text must be non-empty")
-        return value
-
-
-class SourceDocument(BaseModel):
-    """A selected source before extraction."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    source_type: str
-    uri: str
-    title: str
-    authors: list[str] = Field(default_factory=list)
-    published_at: datetime | None = None
-    raw_path: str | None = None
-    checksum: str | None = None
-    license: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("id", "source_type", "uri", "title")
-    @classmethod
-    def _required_strings_must_not_be_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("value must be non-empty")
-        return value.strip()
-
-    @field_validator("authors")
-    @classmethod
-    def _authors_must_not_be_blank(cls, value: list[str]) -> list[str]:
-        return [author.strip() for author in value if author.strip()]
-
-
-class ExtractedDocument(BaseModel):
-    """Text and structure extracted from a source document."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    source_document_id: str
-    text: str
-    sections: list[DocumentSection] = Field(default_factory=list)
-    extraction_method: str
-    extraction_warnings: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("id", "source_document_id", "text", "extraction_method")
-    @classmethod
-    def _required_strings_must_not_be_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("value must be non-empty")
-        return value
-
-
-class Chunk(BaseModel):
-    """A retrievable text unit derived from an extracted document."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    document_id: str
-    source_document_id: str
-    text: str
-    section_title: str | None = None
-    ordinal: int = Field(ge=0)
-    token_count: int | None = Field(default=None, ge=0)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("id", "document_id", "source_document_id", "text")
-    @classmethod
-    def _required_strings_must_not_be_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("value must be non-empty")
-        return value
 
 
 class CollectionAttestation(BaseModel):
@@ -215,29 +122,6 @@ class IndexManifest(BaseModel):
             chunk_count=manifest.chunk_count,
             created_at=manifest.created_at,
         )
-
-
-class RetrievalHit(BaseModel):
-    """Citation-ready runtime retrieval hit."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    chunk_id: str
-    document_id: str
-    text: str
-    score: float
-    source_type: str
-    title: str
-    uri: str
-    section_title: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("chunk_id", "document_id", "text", "source_type", "title", "uri")
-    @classmethod
-    def _required_strings_must_not_be_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("value must be non-empty")
-        return value
 
 
 class ManifestComparison(BaseModel):

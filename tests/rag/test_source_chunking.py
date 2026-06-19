@@ -7,8 +7,8 @@ from llama_index.core import Document
 
 from rag.contracts.metadata import source_document
 from rag.sources.artifacts import (
-    ExtractedDocumentArtifact,
     ExtractionArtifactMeta,
+    LlamaDocumentArtifact,
     RawArtifactRef,
     extracted_artifact_path,
     write_extracted_artifact,
@@ -57,7 +57,7 @@ def _write_extracted_artifact(
             ],
         },
     )
-    artifact = ExtractedDocumentArtifact(
+    artifact = LlamaDocumentArtifact(
         kb_id="pytorch_reference",
         source_instance_id="docs",
         source_document=source,

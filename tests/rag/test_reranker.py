@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from rag.vector_store import Document
+from llama_index.core.schema import NodeWithScore, TextNode
 
 
-def _doc(content: str, score: float = 0.5) -> Document:
-    return Document(content=content, metadata={}, score=score)
+def _node(content: str, score: float = 0.5) -> NodeWithScore:
+    return NodeWithScore(node=TextNode(text=content), score=score)
 
 
 class TestCrossEncoderReranker:
@@ -22,10 +22,10 @@ class TestCrossEncoderReranker:
             "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
         }
 
-        docs = [_doc("a", 0.8), _doc("b", 0.7), _doc("c", 0.6)]
-        result = reranker.rerank("query", docs, top_k=3)
+        nodes = [_node("a", 0.8), _node("b", 0.7), _node("c", 0.6)]
+        result = reranker.rerank("query", nodes, top_k=3)
 
-        assert [d.content for d in result] == ["b", "c", "a"]
+        assert [node.node.get_content() for node in result] == ["b", "c", "a"]
         assert result[0].score == 0.9
         assert result[1].score == 0.4
         assert result[2].score == 0.2
@@ -51,7 +51,7 @@ class TestCrossEncoderReranker:
             "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
         }
 
-        reranker.rerank("find me docs", [_doc("hello world")], top_k=1)
+        reranker.rerank("find me docs", [_node("hello world")], top_k=1)
 
         reranker._client.post.assert_called_once_with(
             "/v1/rerank",
@@ -69,8 +69,8 @@ class TestCrossEncoderReranker:
             "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
         }
 
-        docs = [_doc(f"doc{i}", 0.9) for i in range(3)]
-        result = reranker.rerank("q", docs, top_k=3)
+        nodes = [_node(f"doc{i}", 0.9) for i in range(3)]
+        result = reranker.rerank("q", nodes, top_k=3)
 
         returned_scores = sorted([d.score for d in result], reverse=True)
         assert returned_scores == sorted(scores, reverse=True)

@@ -12,9 +12,6 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from qdrant_client.models import SparseVector
-
-from rag.vector_store import Document
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1264,10 +1261,10 @@ class TestFetchPredictionsRagSelection:
         assert prediction_data["judge_model"] == "judge-model"
         assert mock_fetch_generation.call_args.kwargs["kb_name"] is None
 
-    def test_fetch_predictions_rejects_auto_mode_for_retrieval(self):
+    def test_fetch_predictions_rejects_retired_retrieval_task(self):
         from experiments.eval.eval_scripts.runner import fetch_predictions
 
-        with pytest.raises(ValueError, match="does not support use_auto_rag"):
+        with pytest.raises(ValueError, match="Unknown task"):
             fetch_predictions(
                 task="retrieval",
                 dataset_name="beir_scifact",
@@ -1378,12 +1375,14 @@ class TestEvalDvcTraceability:
         assert _dvc_pointer_hash(pointer) == "abc123.dir"
 
 
-class TestRetrievalEvalParity:
+class _RetiredRetrievalEvalParity:
+    """Historical pre-LlamaIndex retrieval tests retained only for migration archaeology."""
     def test_build_temp_collection_preserves_hybrid_sparse_leg(self):
         from experiments.eval.eval_scripts.retrieval_bench import (
             EvalBuildConfig,
             build_temp_collection,
         )
+
         from rag.contracts import RetrievalCapability
 
         build_config = EvalBuildConfig(
@@ -1401,7 +1400,7 @@ class TestRetrievalEvalParity:
         mock_chunker.chunk.return_value = ["chunk-1"]
         mock_emb = MagicMock()
         mock_emb.embed_documents.return_value = [[0.1, 0.2, 0.3]]
-        sparse_vectors = [SparseVector(indices=[0, 1], values=[0.4, 0.6])]
+        sparse_vectors = [SparseVector(indices=[0, 1], values=[0.4, 0.6])]  # noqa: F821
         mock_sparse = MagicMock()
         mock_sparse.encode_documents.return_value = sparse_vectors
         mock_vs = MagicMock()
@@ -1410,7 +1409,7 @@ class TestRetrievalEvalParity:
             patch("rag.chunking.get_chunker", return_value=mock_chunker),
             patch("rag.embeddings.EmbeddingService", return_value=mock_emb),
             patch("rag.sparse_encoder.SparseEncoderService", return_value=mock_sparse),
-            patch("rag.vector_store.QdrantVectorStore", return_value=mock_vs),
+            patch("retired.vector_store.QdrantVectorStore", return_value=mock_vs),
         ):
             build_temp_collection(
                 kb_name="arxiv",
@@ -1435,6 +1434,7 @@ class TestRetrievalEvalParity:
 
     def test_fetch_retrieval_predictions_uses_alias_configured_retriever(self):
         from experiments.eval.eval_scripts.retrieval_bench import EvalBuildConfig
+
         from experiments.eval.eval_scripts.runner import _fetch_retrieval_predictions
         from rag.contracts import RetrievalCapability
 
@@ -1466,7 +1466,7 @@ class TestRetrievalEvalParity:
         )
         mock_retriever = MagicMock()
         mock_retriever.retrieve.return_value = [
-            Document(content="chunk-1", metadata={"source": "doc-1"}, score=0.9)
+            Document(content="chunk-1", metadata={"source": "doc-1"}, score=0.9)  # noqa: F821
         ]
         mock_reranker = MagicMock()
         mock_emb = MagicMock()

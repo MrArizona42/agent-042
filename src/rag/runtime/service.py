@@ -6,7 +6,7 @@ import logging
 from time import perf_counter
 
 from llama_index.core.llms import LLM
-from llama_index.core.schema import MetadataMode, NodeWithScore
+from llama_index.core.schema import NodeWithScore
 from qdrant_client import QdrantClient
 
 from app_config.catalog import KBConfig, get_catalog, get_kb_config
@@ -14,7 +14,6 @@ from app_config.runtime import get_settings, secret_value
 from rag.contracts import (
     DEFAULT_RAG_QUERY_PROMPTS,
     ProjectQueryPrompts,
-    RetrievalHit,
 )
 from rag.embeddings import EmbeddingService
 from rag.indexing.materialize import qdrant_alias_name, validate_strategy_supported
@@ -191,18 +190,12 @@ class RagRuntime:
         return kb_cfg, state, self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state)
 
     @staticmethod
-    def _hit_from_node(
+    def _enrich_node(
         node: NodeWithScore,
         *,
         state: RuntimeAliasState,
-    ) -> RetrievalHit:
-        metadata = dict(node.node.metadata)
-        chunk_id = str(metadata.get("chunk_id") or node.node.node_id)
-        document_id = str(metadata.get("document_id") or metadata.get("source_document_id") or "")
-        title = str(metadata.get("title") or document_id or "Untitled source")
-        uri = str(metadata.get("source_uri") or "unknown")
-        source_type = str(metadata.get("adapter_id") or "unknown")
-        metadata.update(
+    ) -> NodeWithScore:
+        node.node.metadata.update(
             {
                 "kb_id": state.kb_id,
                 "alias": state.alias,
@@ -212,17 +205,7 @@ class RagRuntime:
                 "retrieval_capability": state.attestation.retrieval_capability.value,
             }
         )
-        return RetrievalHit(
-            chunk_id=chunk_id,
-            document_id=document_id or chunk_id,
-            text=node.node.get_content(metadata_mode=MetadataMode.NONE),
-            score=float(node.score if node.score is not None else 0.0),
-            source_type=source_type,
-            title=title,
-            uri=uri,
-            section_title=metadata.get("section_title"),
-            metadata=metadata,
-        )
+        return node
 
     def validate_aliases(self, *, strict: bool = False) -> None:
         """Validate every declared catalog alias that is currently available."""
@@ -320,9 +303,9 @@ class RagRuntime:
 
             retrieve_started_at = perf_counter()
             nodes = self._get_retriever(kb_cfg=kb_cfg, alias=alias, state=state).retrieve(query)
+            nodes = [self._enrich_node(node, state=state) for node in nodes]
             retrieve_ms = _elapsed_ms(retrieve_started_at)
             result.nodes.extend(nodes)
-            result.hits.extend(self._hit_from_node(node, state=state) for node in nodes)
             result.provenance.append(
                 {
                     "knowledge_base": kb_cfg.name,
@@ -353,8 +336,8 @@ class RagRuntime:
             "requested_source_count": requested,
             "resolved_source_count": len(result.provenance),
             "skipped_source_count": len(result.skipped_sources),
-            "hit_count": len(result.hits),
-            "no_hit": not result.hits,
+            "hit_count": len(result.nodes),
+            "no_hit": not result.nodes,
         }
 
     def default_llm(self) -> LLM:
@@ -399,11 +382,10 @@ class RagRuntime:
             llm=llm or self.default_llm(),
             prompts=prompts,
         ).query(query)
-        source_nodes = list(response.source_nodes)
+        source_nodes = [self._enrich_node(node, state=state) for node in response.source_nodes]
         return RagQueryResult(
             answer=str(response),
             source_nodes=source_nodes,
-            hits=[self._hit_from_node(node, state=state) for node in source_nodes],
             prompt_identity=prompts.identity,
             provenance={
                 "knowledge_base": kb_cfg.name,

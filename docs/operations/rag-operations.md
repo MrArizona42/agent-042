@@ -32,10 +32,9 @@ commands and server workflow.
 - Artifact manifest: full build provenance JSON under
   `assets/rag_data/knowledge_bases/<kb>/manifests/`.
 - Qdrant attestation: compact collection metadata used so runtime can validate
-  alias targets. New builds store it at
-  `.result.config.metadata.attestation`; existing legacy collections may still
-  expose a `collection_meta` sentinel until they are rebuilt or retired.
-- Benchmark artifacts: normalized `cases.jsonl`, `labels.jsonl`, and
+  alias targets. Builds store it at `.result.config.metadata.attestation`.
+  Collections without this metadata must be rebuilt before use.
+- Benchmark artifacts: normalized `corpus.jsonl`, `cases.jsonl`, `labels.jsonl`, and
   `metadata.json` under
   `assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/`.
 
@@ -155,19 +154,19 @@ DVC policy:
 
 ## Inspection
 
-Use `experiments/rag/rag_ops.ipynb` for direct Qdrant observability:
+Use the Qdrant API/dashboard and `rag.sources.cli` for direct observability:
 
 - list collections and aliases;
 - compare expected catalog aliases with live Qdrant aliases;
 - inspect collection attestation metadata and sample points;
 - identify old physical collections not behind any alias;
-- create snapshots or run danger-zone cleanup cells deliberately.
-
-The notebook is not a build entrypoint. Builds use CLI or Airflow.
+- create snapshots through Qdrant's snapshot API;
+- remove stale collections through the guarded collection-cleanup workflow.
 
 ## Runtime Observability
 
-`rag.runtime.RagRuntime` returns result-level observability alongside hits:
+`rag.runtime.RagRuntime` returns result-level observability alongside native
+`NodeWithScore` results:
 
 - `provenance`: one row per resolved KB/alias with Qdrant alias, physical
   collection, manifest id, retrieval strategy/capability, hit count, no-hit

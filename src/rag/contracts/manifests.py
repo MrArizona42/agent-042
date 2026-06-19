@@ -91,19 +91,3 @@ def compare_manifest_attestation(
         if expected_value != actual_value:
             mismatches[field_name] = (expected_value, actual_value)
     return ManifestComparison(matches=not mismatches, mismatches=mismatches)
-
-
-def attestation_payload(attestation: CollectionAttestation) -> dict[str, Any]:
-    """Return the Qdrant payload for collection metadata."""
-    return {
-        "metadata_kind": "collection_attestation",
-        **attestation.model_dump(mode="json", exclude_none=True),
-    }
-
-
-def attestation_from_payload(payload: dict[str, Any]) -> CollectionAttestation:
-    """Parse Qdrant collection metadata payload into an attestation."""
-    payload = dict(payload)
-    payload.pop("metadata_kind", None)
-    payload.pop("type", None)
-    return CollectionAttestation.model_validate(payload)

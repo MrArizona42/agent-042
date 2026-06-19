@@ -198,9 +198,8 @@ def test_runtime_uses_default_alias_and_returns_native_nodes(tmp_path: Path) -> 
         )
 
     assert len(result.nodes) == 2
-    assert len(result.hits) == 2
-    assert result.hits[0].metadata["qdrant_alias"] == "rag__pytorch_reference__champion"
-    assert result.hits[0].source_type == "generic.http_html"
+    assert result.nodes[0].node.metadata["qdrant_alias"] == "rag__pytorch_reference__champion"
+    assert result.nodes[0].node.metadata["adapter_id"] == "generic.http_html"
     assert result.provenance[0]["collection_name"] == manager.collection_name
     assert result.provenance[0]["manifest_id"].startswith("sha256:")
     assert result.diagnostics["no_hit"] is False
@@ -223,7 +222,7 @@ def test_runtime_allows_dense_alias_on_hybrid_collection(tmp_path: Path) -> None
         )
 
     assert result.skipped_sources == []
-    assert result.hits
+    assert result.nodes
 
 
 def test_runtime_rejects_hybrid_alias_on_dense_collection(tmp_path: Path) -> None:
@@ -242,7 +241,7 @@ def test_runtime_rejects_hybrid_alias_on_dense_collection(tmp_path: Path) -> Non
             sources=[RagRuntimeSource(knowledge_base="pytorch_reference", alias="challenger")],
         )
 
-    assert result.hits == []
+    assert result.nodes == []
     assert "hybrid" in result.skipped_sources[0].reason
 
 
@@ -264,7 +263,7 @@ def test_runtime_uses_explicit_hybrid_alias(tmp_path: Path) -> None:
 
     assert result.skipped_sources == []
     assert result.provenance[0]["retrieval_strategy"] == "hybrid"
-    assert result.hits
+    assert result.nodes
 
 
 def test_runtime_marks_resolved_source_with_no_hits(tmp_path: Path) -> None:
@@ -283,7 +282,7 @@ def test_runtime_marks_resolved_source_with_no_hits(tmp_path: Path) -> None:
             sources=[RagRuntimeSource(knowledge_base="pytorch_reference")],
         )
 
-    assert result.hits == []
+    assert result.nodes == []
     assert result.skipped_sources == []
     assert result.provenance[0]["no_hit"] is True
     assert result.diagnostics["no_hit"] is True
@@ -308,7 +307,10 @@ def test_runtime_query_engine_returns_answer_sources_and_prompt_identity(tmp_pat
 
     assert result.answer
     assert result.source_nodes
-    assert {hit.document_id for hit in result.hits} == {"torch.nn.Module", "torch.Tensor"}
+    assert {node.node.metadata["document_id"] for node in result.source_nodes} == {
+        "torch.nn.Module",
+        "torch.Tensor",
+    }
     assert result.prompt_identity.prompt_id == "rag.query.default"
     assert result.prompt_identity.prompt_digest.startswith("sha256:")
     assert result.provenance["collection_name"] == manager.collection_name
@@ -327,7 +329,6 @@ def test_runtime_reports_empty_query_diagnostics() -> None:
             sources=[RagRuntimeSource(knowledge_base="pytorch_reference")],
         )
 
-    assert result.hits == []
     assert result.nodes == []
     assert result.diagnostics == {
         "requested_source_count": 1,

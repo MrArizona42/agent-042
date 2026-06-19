@@ -31,7 +31,7 @@ class ExtractionArtifactMeta(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-class ExtractedDocumentArtifact(BaseModel):
+class LlamaDocumentArtifact(BaseModel):
     """Stored extraction artifact with source and raw-cache provenance."""
 
     model_config = ConfigDict(extra="forbid")
@@ -72,10 +72,10 @@ def extracted_artifact_from_result(
     source_instance_id: str,
     fetch_result: SourceFetchResult,
     extracted_document: Document,
-) -> ExtractedDocumentArtifact:
+) -> LlamaDocumentArtifact:
     """Build a persisted extraction artifact from fetch and extraction results."""
     source_document = fetch_result.source_document
-    return ExtractedDocumentArtifact(
+    return LlamaDocumentArtifact(
         kb_id=kb_id,
         source_instance_id=source_instance_id,
         source_document=source_document,
@@ -94,7 +94,7 @@ def extracted_artifact_from_result(
 
 def write_extracted_artifact(
     path: Path,
-    artifact: ExtractedDocumentArtifact,
+    artifact: LlamaDocumentArtifact,
     *,
     force: bool = False,
 ) -> None:
@@ -102,6 +102,6 @@ def write_extracted_artifact(
     write_json_immutable(path, artifact.model_dump(mode="json"), force=force)
 
 
-def read_extracted_artifact(path: Path) -> ExtractedDocumentArtifact:
+def read_extracted_artifact(path: Path) -> LlamaDocumentArtifact:
     """Read a persisted extracted artifact."""
-    return ExtractedDocumentArtifact.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    return LlamaDocumentArtifact.model_validate(json.loads(path.read_text(encoding="utf-8")))

@@ -26,7 +26,7 @@ source-instance-only catalog:
 - legacy `[[sources]]`, local `--source <id>` selectors, arbitrary manifest
   paths, and `DEFAULT_SOURCE_ADAPTERS` are removed.
 
-Phases 0-5 are implemented. Source processing, collection materialization,
+Phases 0-6 are implemented. Source processing, collection materialization,
 runtime retrieval, query execution, and benchmark evaluation now use LlamaIndex:
 
 ```text
@@ -46,19 +46,16 @@ catalog source_instance
   -> Qdrant alias promotion
   -> RagRuntime resolver
   -> VectorStoreIndex.from_vector_store()
-  -> native NodeWithScore retrieval
-  -> compatibility RetrievalHit mapping for the gateway
+  -> native NodeWithScore retrieval consumed directly by the gateway
   -> optional RetrieverQueryEngine + versioned project prompt wrapper
 ```
 
-The active source/build path no longer depends on project `SourceDocument`,
-`ExtractedDocument`, `DocumentSection`, or `Chunk` contracts. They remain only
-in legacy compatibility modules/tests and are deleted in Phase 6. Current
-durable project RAG contracts include:
+The source/build/runtime path no longer contains project `SourceDocument`,
+`ExtractedDocument`, `DocumentSection`, `Chunk`, or `RetrievalHit` contracts.
+Current durable project RAG contracts include:
 
 - `CollectionAttestation`;
 - `IndexManifest`;
-- `RetrievalHit`.
 
 Current evaluation contracts already live in `src/rag/evaluation/models.py`:
 
@@ -71,11 +68,10 @@ Current evaluation contracts already live in `src/rag/evaluation/models.py`:
 - `AnswerEvalObservation`;
 - `PromotionDecision`.
 
-New LlamaIndex collections store attestation in
+LlamaIndex collections store attestation in
 `.result.config.metadata.attestation`; no sentinel point is written. The
-LlamaIndex runtime reads that collection metadata directly. Legacy collections
-may still carry the old `type=collection_meta` sentinel until Phase 6 removes
-the old store and rebuild requirement. A deployed Qdrant smoke test confirmed
+LlamaIndex runtime reads that collection metadata directly. Collections built
+with the retired sentinel scheme must be rebuilt. A deployed Qdrant smoke test confirmed
 collection metadata round-trips through:
 
 ```text
@@ -605,9 +601,8 @@ metadata["source_instance_id"]  -> source provenance
 metadata["source_uri"]          -> citation URL
 ```
 
-`RetrievalHit` can be retired as a primary runtime contract after the gateway
-and DB observation code consume LlamaIndex response/source-node data directly.
-Until then, keep a mapper for compatibility.
+The gateway and DB observation code consume LlamaIndex response/source-node
+data directly; the former `RetrievalHit` compatibility contract is removed.
 
 ## Target Benchmark Pipeline
 
@@ -909,6 +904,8 @@ Implementation notes:
 
 ### Phase 6: Remove Old RAG Mechanics
 
+Status: implemented.
+
 Goal: finish the transition by deleting old runtime/build contracts and
 compatibility mappers.
 
@@ -930,6 +927,20 @@ Acceptance:
 - Live collections use Qdrant collection metadata attestation.
 - Tests no longer depend on legacy source schema or old document/chunk
   contracts.
+
+Implementation notes:
+
+- Deleted `rag.vector_store`, `rag.retriever`, the legacy domain-to-LlamaIndex
+  adapter module, sentinel helpers/tests, and the old experiment retrieval
+  benchmark runner.
+- Runtime and gateway exchange native `NodeWithScore` objects. Citation and
+  provenance fields live in node metadata.
+- The reranker accepts and returns `NodeWithScore` directly.
+- Source `raw/`, extracted native `Document`, and native `TextNode` caches are
+  retained because `build-source` and `materialize` are separate resumable
+  operator stages. They are cache artifacts, not alternate domain contracts.
+- Scheduled legacy retrieval eval DAGs were removed. Catalog RAG benchmarks
+  run through `rag.evaluation.runner` with an explicit alias.
 
 ## Residual Risks
 

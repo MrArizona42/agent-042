@@ -8,9 +8,9 @@ from __future__ import annotations
 import logging
 
 import httpx
+from llama_index.core.schema import MetadataMode, NodeWithScore
 
 from app_config.runtime import get_settings
-from rag.vector_store import Document
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 class Reranker:
     """Post-retrieval cross-encoder reranker."""
 
-    def rerank(self, query: str, docs: list[Document], top_k: int) -> list[Document]:
+    def rerank(
+        self, query: str, nodes: list[NodeWithScore], top_k: int
+    ) -> list[NodeWithScore]:
         raise NotImplementedError
 
 
@@ -40,30 +42,36 @@ class CrossEncoderReranker(Reranker):
         )
         logger.info(f"CrossEncoderReranker connecting to {base_url}")
 
-    def rerank(self, query: str, docs: list[Document], top_k: int) -> list[Document]:
-        """Rerank *docs* against *query* and return the full list sorted by score.
+    def rerank(
+        self, query: str, nodes: list[NodeWithScore], top_k: int
+    ) -> list[NodeWithScore]:
+        """Rerank *nodes* against *query* and return them sorted by score.
 
         Args:
             query: The user query string.
-            docs: Candidate documents from first-stage retrieval.
+            nodes: Candidate nodes from first-stage retrieval.
             top_k: Unused here — caller truncates after filtering by score_threshold.
 
         Returns:
-            *docs* with ``Document.score`` replaced by cross-encoder scores,
+            *nodes* with ``NodeWithScore.score`` replaced by cross-encoder scores,
             sorted descending.
         """
-        if not docs:
+        if not nodes:
             return []
 
-        passages = [doc.content for doc in docs]
+        passages = [
+            node.node.get_content(metadata_mode=MetadataMode.NONE) for node in nodes
+        ]
         resp = self._client.post("/v1/rerank", json={"query": query, "passages": passages})
         resp.raise_for_status()
         scores: list[float] = resp.json()["scores"]
 
-        for doc, score in zip(docs, scores):
-            doc.score = score
+        if len(scores) != len(nodes):
+            raise RuntimeError("Reranker score count does not match candidate node count")
+        for node, score in zip(nodes, scores, strict=True):
+            node.score = score
 
-        return sorted(docs, key=lambda d: d.score, reverse=True)
+        return sorted(nodes, key=lambda node: node.score or 0.0, reverse=True)
 
     def close(self) -> None:
         """Close the underlying HTTP client."""

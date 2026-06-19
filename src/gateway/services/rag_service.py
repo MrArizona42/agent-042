@@ -13,7 +13,6 @@ from app_config.runtime import get_settings, secret_value
 from gateway.schemas.openai_chat import RAGSource
 from rag.embeddings import EmbeddingService
 from rag.runtime import RagRuntime, RagRuntimeSource
-from rag.vector_store import Document
 
 logger = logging.getLogger(__name__)
 
@@ -280,7 +279,7 @@ class RAGService:
         alias: Optional[str] = None,
         top_k: Optional[int] = None,
     ) -> list:
-        """Retrieve relevant documents as a list of Document objects.
+        """Retrieve relevant LlamaIndex nodes.
 
         Args:
             query: User query
@@ -289,7 +288,7 @@ class RAGService:
             top_k: Number of documents to retrieve (uses alias config if None)
 
         Returns:
-            List of Document objects. Empty results only mean "no matches".
+            Native `NodeWithScore` objects. Empty results only mean "no matches".
         """
         if not self.enabled:
             return []
@@ -320,22 +319,7 @@ class RAGService:
                     )
                 ],
             )
-            documents = [
-                Document(
-                    content=hit.text,
-                    metadata={
-                        **hit.metadata,
-                        "chunk_id": hit.chunk_id,
-                        "document_id": hit.document_id,
-                        "source_type": hit.source_type,
-                        "title": hit.title,
-                        "source_uri": hit.uri,
-                        "section_title": hit.section_title,
-                    },
-                    score=hit.score,
-                )
-                for hit in runtime_result.hits
-            ]
+            documents = runtime_result.nodes
             if top_k is not None:
                 documents = documents[:top_k]
             logger.info(

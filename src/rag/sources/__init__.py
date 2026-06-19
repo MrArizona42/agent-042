@@ -1,8 +1,8 @@
 """RAG source manifest contracts and adapter-backed build pipeline."""
 
 from rag.sources.artifacts import (
-    ExtractedDocumentArtifact,
     ExtractionArtifactMeta,
+    LlamaDocumentArtifact,
     RawArtifactRef,
     extracted_artifact_from_result,
     extracted_artifact_path,
@@ -75,7 +75,7 @@ __all__ = [
     "ChunkingConfig",
     "CatalogSourceBuildSummary",
     "CatalogSourcesBuildSummary",
-    "ExtractedDocumentArtifact",
+    "LlamaDocumentArtifact",
     "ExtractionArtifactMeta",
     "GenericSourceEntry",
     "GlobalSourceBuildSummary",

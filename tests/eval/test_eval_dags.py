@@ -176,7 +176,6 @@ def test_generation_dag_params_expose_kb_mode_controls(
     eval_dags = importlib.reload(eval_dags)
 
     chat_params = eval_dags.eval_chat_hotpotqa.kwargs["params"]
-    retrieval_params = eval_dags.eval_retrieval_beir_scifact.kwargs["params"]
 
     assert "knowledge_base_mode" in chat_params
     assert chat_params["knowledge_base_mode"].kwargs["enum"] == ["explicit", "auto"]
@@ -188,9 +187,7 @@ def test_generation_dag_params_expose_kb_mode_controls(
         "champion",
     ]
 
-    assert "knowledge_base_mode" not in retrieval_params
-    assert "knowledge_base" in retrieval_params
-    assert "lora_aliases" not in retrieval_params
+    assert not hasattr(eval_dags, "eval_retrieval_beir_scifact")
 
 
 def test_fetch_predictions_task_forwards_use_auto_rag(

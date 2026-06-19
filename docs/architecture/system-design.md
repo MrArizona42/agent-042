@@ -276,7 +276,8 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 [Embedding / Sparse Encoding]
   │
   ▼
-[QdrantVectorStore] ── dense / sparse / hybrid search
+[LlamaIndex VectorStoreIndex + QdrantVectorStore]
+  ── dense / sparse / hybrid search
   │
   ▼
 [Reranker] (опционально) ── cross-encoder re-scoring
@@ -371,6 +372,7 @@ Benchmark source instances use the same source-instance identity model but
 
 ```text
 assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/
+  corpus.jsonl
   cases.jsonl
   labels.jsonl
   metadata.json
@@ -726,16 +728,15 @@ JupyterLab — точка входа для ручных операций опе
 
 | Ноутбук | Назначение |
 |---|---|
-| `experiments/rag/rag_ops.ipynb` | Direct Qdrant diagnostics: aliases, collections, attestations, samples, cleanup checks |
 | `experiments/training/lora_ops.ipynb` | LoRA операции: регистрация, промоушен, синхронизация |
 | `experiments/training/lora_training.ipynb` | Интерактивный запуск обучения |
 | `experiments/eval/eval_results.ipynb` | Анализ результатов оценки |
 | `experiments/misc_ops/prefetch_assets.ipynb` | Загрузка моделей и датасетов |
 | `experiments/misc_ops/postgres_diagnostics.ipynb` | Диагностика БД |
 
-RAG production lifecycle запускается через `python -m rag.sources.cli` в `rag-ops` контейнере или
-через Airflow `rag_lifecycle`. RAG notebook intentionally остается direct-Qdrant observability
-surface и не является entrypoint для build/materialize.
+RAG production lifecycle and diagnostics use `python -m rag.sources.cli` in
+the `rag-ops` container or Airflow `rag_lifecycle`. Direct collection metadata,
+alias, point, and snapshot inspection uses the Qdrant API/dashboard.
 
 ### 8.3 Версионирование данных (DVC)
 
@@ -960,13 +961,15 @@ agent-042/
 │   │   ├── schemas/            # Pydantic schemas (OpenAI-совместимые)
 │   │   └── services/           # Business logic (processing, RAG, prompt, Celery, Redis)
 │   ├── rag/                    # RAG pipeline
-│   │   ├── ops/                # Production lifecycle операции
-│   │   ├── chunking.py         # Стратегии chunking
+│   │   ├── adapters/           # Catalog-declared source/benchmark adapters
+│   │   ├── sources/            # Native Document/TextNode source lifecycle
+│   │   ├── indexing/           # LlamaIndex Qdrant materialization and aliases
+│   │   ├── runtime/            # LlamaIndex retrieval/query runtime
+│   │   ├── evaluation/         # RAG benchmark preparation and evaluation
+│   │   ├── lifecycle/          # Shared CLI/Airflow build stages
 │   │   ├── embeddings.py       # Embedding service
 │   │   ├── reranker.py         # Cross-encoder reranker
-│   │   ├── retriever.py        # Retrieval orchestration
 │   │   ├── sparse_encoder.py   # Sparse (BM25) encoding
-│   │   └── vector_store.py     # Qdrant абстракция
 │   ├── shared/                 # Общий код для всех сервисов
 │   │   ├── config.py           # Pydantic settings
 │   │   ├── catalog.toml       # Task / KB / source catalog

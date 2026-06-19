@@ -9,7 +9,6 @@ import pytest
 from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 
 from rag.runtime.llamaindex_postprocessors import ProjectRerankerPostprocessor
-from rag.vector_store import Document
 
 
 class _FakeReranker:
@@ -18,12 +17,14 @@ class _FakeReranker:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[str]]] = []
 
-    def rerank(self, query: str, docs: list[Document], top_k: int) -> list[Document]:
-        self.calls.append((query, [doc.content for doc in docs]))
-        reversed_docs = list(reversed(docs))
-        for score, doc in enumerate(reversed_docs):
-            doc.score = float(score)
-        return reversed_docs
+    def rerank(
+        self, query: str, nodes: list[NodeWithScore], top_k: int
+    ) -> list[NodeWithScore]:
+        self.calls.append((query, [node.node.get_content() for node in nodes]))
+        reversed_nodes = list(reversed(nodes))
+        for score, node in enumerate(reversed_nodes):
+            node.score = float(score)
+        return reversed_nodes
 
 
 def _node(node_id: str, text: str) -> NodeWithScore:

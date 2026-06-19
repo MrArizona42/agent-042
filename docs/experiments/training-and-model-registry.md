@@ -33,9 +33,6 @@ python -m experiments.training.train_adapter.start_train \
 * `./training/conf` - Hydra конфиги
 * `./training` - Обучение адаптера
 * `./training/lora_ops.ipynb` - Операции с LoRA (регистрация, промоушен, синхронизация)
-* `./rag` - RAG operator notebooks для Qdrant diagnostics и observability
-* `./rag/rag_ops.ipynb` - Прямые Qdrant операции: collections, aliases, attestations, samples, cleanup checks
-* `./rag/sandboxes/` - notebook-only experimental forks, которые не импортируются production-кодом
 * `./eval` - Оценка моделей
 * `./eval/eval_results.ipynb` - Результаты оценки (сравнение, отчёты)
 * `./eval/debug_eval.ipynb` - Отладка пайплайна оценки
@@ -50,14 +47,10 @@ python -m experiments.training.train_adapter.start_train \
   `rag-ops` контейнере внутри Docker network.
 - Airflow DAG `rag_lifecycle` вызывает те же CLI команды: `build-source`, `materialize`,
   optional `promote-alias`.
-- `experiments/rag/rag_ops.ipynb` не строит RAG и не содержит production logic. Он нужен для
-  ручной Qdrant diagnostics/observability: aliases, collection attestations, sample points,
-  stale collections, snapshots and danger-zone maintenance cells.
+- Direct Qdrant diagnostics use the Qdrant API/dashboard; production lifecycle
+  operations use `rag.sources.cli`.
 - Если notebook или helper всё же импортирует catalog-specific schema/loader напрямую, их источник
   должен быть `src/app_config/catalog/`, а не `shared.config`.
-- `experiments/rag/sandboxes/` предназначен только для notebook-only experiments. Если sandbox
-  эксперимент нужно продвигать в champion, код сначала переносится в `src/rag/`, а уже потом
-  пересобирается и промоутится коллекция.
 
 ## 📦 DVC
 

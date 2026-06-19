@@ -16,7 +16,7 @@ from rag.contracts.metadata import (
     require_document_metadata,
     require_node_metadata,
 )
-from rag.sources.artifacts import ExtractedDocumentArtifact, read_extracted_artifact
+from rag.sources.artifacts import LlamaDocumentArtifact, read_extracted_artifact
 from rag.sources.cache import safe_document_id, sha256_bytes, write_json_immutable
 
 DEFAULT_CHUNK_SIZE = 512
@@ -140,7 +140,7 @@ def _section_documents(document: Document) -> list[Document]:
 
 
 def _build_nodes(
-    artifact: ExtractedDocumentArtifact,
+    artifact: LlamaDocumentArtifact,
     *,
     artifact_path: Path,
     config: ChunkingConfig,

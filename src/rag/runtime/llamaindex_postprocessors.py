@@ -5,17 +5,17 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from llama_index.core.postprocessor.types import BaseNodePostprocessor
-from llama_index.core.schema import MetadataMode, NodeWithScore, QueryBundle
+from llama_index.core.schema import NodeWithScore, QueryBundle
 from pydantic import Field
-
-from rag.vector_store import Document
 
 
 class RerankerProtocol(Protocol):
     """Reranker client contract used by :class:`ProjectRerankerPostprocessor`."""
 
-    def rerank(self, query: str, docs: list[Document], top_k: int) -> list[Document]:
-        """Rerank documents against a query, returning them sorted descending by score."""
+    def rerank(
+        self, query: str, nodes: list[NodeWithScore], top_k: int
+    ) -> list[NodeWithScore]:
+        """Rerank nodes against a query, returning them sorted descending by score."""
         ...
 
 
@@ -48,18 +48,9 @@ class ProjectRerankerPostprocessor(BaseNodePostprocessor):
         if query_bundle is None:
             raise ValueError("ProjectRerankerPostprocessor requires a query_bundle")
 
-        documents = [
-            Document(content=node.get_content(metadata_mode=MetadataMode.EMBED), metadata={})
-            for node in nodes
-        ]
-        node_by_document_id = {id(doc): node.node for doc, node in zip(documents, nodes)}
-
         reranked = self.reranker_client.rerank(
             query_bundle.query_str,
-            documents,
-            top_k=len(documents),
+            nodes,
+            top_k=len(nodes),
         )
-        result = [
-            NodeWithScore(node=node_by_document_id[id(doc)], score=doc.score) for doc in reranked
-        ]
-        return result[: self.top_n] if self.top_n is not None else result
+        return reranked[: self.top_n] if self.top_n is not None else reranked

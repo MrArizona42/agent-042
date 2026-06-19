@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from llama_index.core.schema import NodeWithScore, TextNode
+
 from app_config.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
 from app_config.runtime import Settings, load_settings
 from gateway.services.rag_service import RAGService
-from rag.contracts import RetrievalHit
 from rag.runtime import RagRuntimeResult
 
 
@@ -27,20 +28,25 @@ class _Runtime:
     def retrieve(self, *, query, sources):
         self.calls.append({"query": query, "sources": sources})
         return RagRuntimeResult(
-            hits=[
-                RetrievalHit(
-                    chunk_id="torch.nn:chunk:0001",
-                    document_id="torch.nn",
-                    text="torch.nn.Module is the base class.",
+            nodes=[
+                NodeWithScore(
+                    node=TextNode(
+                        id_="torch.nn:chunk:0001",
+                        text="torch.nn.Module is the base class.",
+                        metadata={
+                            "chunk_id": "torch.nn:chunk:0001",
+                            "document_id": "torch.nn",
+                            "adapter_id": "html_docs",
+                            "title": "torch.nn.Module",
+                            "source_uri": (
+                                "https://pytorch.org/docs/stable/generated/torch.nn.Module.html"
+                            ),
+                            "section_title": "Module",
+                            "collection_name": "rag__pytorch_reference__20260605_120000",
+                            "manifest_id": "sha256:test",
+                        },
+                    ),
                     score=0.9,
-                    source_type="html_docs",
-                    title="torch.nn.Module",
-                    uri="https://pytorch.org/docs/stable/generated/torch.nn.Module.html",
-                    section_title="Module",
-                    metadata={
-                        "collection_name": "rag__pytorch_reference__20260605_120000",
-                        "manifest_id": "sha256:test",
-                    },
                 )
             ]
         )
@@ -111,8 +117,11 @@ def test_retrieve_documents_delegates_explicit_alias_to_runtime(monkeypatch) -> 
         )
 
     assert len(docs) == 1
-    assert docs[0].metadata["chunk_id"] == "torch.nn:chunk:0001"
-    assert docs[0].metadata["collection_name"] == "rag__pytorch_reference__20260605_120000"
+    assert docs[0].node.metadata["chunk_id"] == "torch.nn:chunk:0001"
+    assert (
+        docs[0].node.metadata["collection_name"]
+        == "rag__pytorch_reference__20260605_120000"
+    )
     assert runtime.calls[0]["sources"][0].knowledge_base == "pytorch_reference"
     assert runtime.calls[0]["sources"][0].alias == "challenger"
 

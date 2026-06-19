@@ -118,9 +118,10 @@ Automatic generation metrics:
 
 Retrieval metrics:
 
-- `recall_at_<k>`;
-- `ndcg_at_<k>`;
-- `mrr_at_<k>`.
+- binary `document_*` / `chunk_*` hit rate, MRR, precision, recall, AP, and
+  NDCG from LlamaIndex;
+- graded `document_graded_ndcg@<k>` / `chunk_graded_ndcg@<k>` from project
+  qrels.
 
 Code metrics:
 

@@ -7,7 +7,7 @@ from typing import Any
 from llama_index.core.schema import NodeWithScore
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.contracts import PromptIdentity, RetrievalHit
+from rag.contracts import PromptIdentity
 
 
 class RagRuntimeSource(BaseModel):
@@ -35,7 +35,6 @@ class RagRuntimeResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     nodes: list[NodeWithScore] = Field(default_factory=list)
-    hits: list[RetrievalHit] = Field(default_factory=list)
     skipped_sources: list[RuntimeSkippedSource] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     provenance: list[dict[str, Any]] = Field(default_factory=list)
@@ -50,6 +49,5 @@ class RagQueryResult(BaseModel):
 
     answer: str
     source_nodes: list[NodeWithScore] = Field(default_factory=list)
-    hits: list[RetrievalHit] = Field(default_factory=list)
     prompt_identity: PromptIdentity
     provenance: dict[str, Any] = Field(default_factory=dict)
