@@ -13,6 +13,81 @@ class CatalogAliasConfig(AliasConfig):
     """Explicit per-KB alias configuration in the catalog file."""
 
 
+# ---------------------------------------------------------------------------
+# Schema-version-4 alias build/retrieve shapes.
+#
+# These types are not yet wired into `CatalogAliasConfig` or `schema_version`.
+# They exist so `rag.control_plane` can depend on the eventual catalog
+# contract without `app_config` depending on `rag` (catalog always sits below
+# rag in the import graph). The declarative alias workflow plan activates
+# them on `CatalogAliasConfig` and bumps `schema_version` to 4.
+# ---------------------------------------------------------------------------
+
+RetrievalStrategy = Literal["dense", "sparse", "hybrid"]
+ChunkingStrategy = Literal["sentence"]
+
+
+class DenseEncoderConfig(BaseModel):
+    """Dense vector producer identity: model and expected output dimension."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str
+    dimension: int = Field(gt=0)
+
+
+class SparseEncoderConfig(BaseModel):
+    """Sparse vector producer identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str
+
+
+class AliasChunkingConfig(BaseModel):
+    """Chunking behavior that determines node/chunk artifact identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: ChunkingStrategy
+    chunk_size: int = Field(gt=0)
+    chunk_overlap: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _overlap_must_be_smaller_than_size(self) -> "AliasChunkingConfig":
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError("chunk_overlap must be less than chunk_size")
+        return self
+
+
+class AliasBuildConfig(BaseModel):
+    """Desired index-time configuration for one alias: artifacts that must exist."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunking: AliasChunkingConfig
+    dense_encoder: DenseEncoderConfig
+    sparse_encoder: SparseEncoderConfig | None = None
+
+
+class AliasRetrievalConfig(BaseModel):
+    """Desired query-time configuration for one alias: how a release is queried."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: RetrievalStrategy
+    top_k: int = Field(gt=0)
+    score_threshold: float
+    reranker: str | None = None
+    reranker_multiplier: int = Field(default=1, gt=0)
+
+    @model_validator(mode="after")
+    def _reranker_multiplier_requires_reranker(self) -> "AliasRetrievalConfig":
+        if self.reranker is None and self.reranker_multiplier != 1:
+            raise ValueError("reranker_multiplier must be 1 when reranker is omitted")
+        return self
+
+
 class CatalogTaskConfig(BaseModel):
     """Task entry in the catalog TOML file."""
 

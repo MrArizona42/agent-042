@@ -101,6 +101,7 @@ airflow-worker = [
     "llama-index-readers-papers>=0.5.0",
     # DVC for data versioning (S3 backend)
     "dvc[s3]>=3.66.1",
+    "typer>=0.21.1",
 ]
 
 # Base deps must be kept in sync with airflow-worker.
@@ -131,6 +132,7 @@ airflow-worker-gpu = [
     "llama-index-readers-file>=0.6.0",
     "llama-index-readers-papers>=0.5.0",
     "dvc[s3]>=3.66.1",
+    "typer>=0.21.1",
     # --- Training deps (GPU) ---
     "bitsandbytes>=0.49.1",
     "hydra-core>=1.3.2",
@@ -155,6 +157,7 @@ rag = [
     "llama-index-llms-openai-like>=0.5.0",
     "llama-index-readers-file>=0.6.0",
     "llama-index-readers-papers>=0.5.0",
+    "typer>=0.21.1",
 ]
 
 embeddings = [

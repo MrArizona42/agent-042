@@ -1020,6 +1020,7 @@ triton==3.6.0
     # via torch
 typer==0.24.1
     # via
+    #   agent-042 (pyproject.toml)
     #   gto
     #   huggingface-hub
     #   typer-slim

@@ -682,6 +682,7 @@ transformers==5.3.0
     # via bert-score
 typer==0.24.1
     # via
+    #   agent-042 (pyproject.toml)
     #   gto
     #   huggingface-hub
     #   transformers

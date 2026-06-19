@@ -79,6 +79,7 @@ airflow-worker = [
     { name = "requests", marker = "python_full_version < '3.13'" },
     { name = "rouge-score", marker = "python_full_version < '3.13'" },
     { name = "sentencepiece", marker = "python_full_version < '3.13'" },
+    { name = "typer", marker = "python_full_version < '3.13'" },
 ]
 airflow-worker-gpu = [
     { name = "arxiv", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -112,6 +113,7 @@ airflow-worker-gpu = [
     { name = "sentencepiece", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "torch", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "transformers", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "typer", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 embeddings = [
     { name = "fastapi", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -171,6 +173,7 @@ rag = [
     { name = "qdrant-client", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "requests", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "sentence-transformers", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "typer", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 reranker = [
     { name = "fastapi", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -390,6 +393,9 @@ requires-dist = [
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.9.0" },
     { name = "transformers", marker = "extra == 'airflow-worker-gpu'", specifier = ">=4.57.3" },
     { name = "transformers", marker = "extra == 'training'", specifier = ">=4.57.3" },
+    { name = "typer", marker = "extra == 'airflow-worker'", specifier = ">=0.21.1" },
+    { name = "typer", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.21.1" },
+    { name = "typer", marker = "extra == 'rag'", specifier = ">=0.21.1" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'embeddings'", specifier = ">=0.35.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'gateway'", specifier = ">=0.35.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'reranker'", specifier = ">=0.35.0" },
