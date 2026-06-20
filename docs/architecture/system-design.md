@@ -240,15 +240,23 @@ RAG в проекте разделён на несколько независи�
   normal materialization.
 - **Source manifest** — curated document list or adapter-specific config at
   `assets/rag_data/source_instances/<source_instance_id>/manifest.toml`.
-- **Artifact manifest** — JSON provenance конкретной сборки под
-  `assets/rag_data/knowledge_bases/<kb>/manifests/`.
+- **Release** — immutable, content-addressed build result. Its id
+  (`ragrel_<kb>_<16hex>`) and Qdrant collection name (`rag__<kb>__<16hex>`)
+  are derived from a fingerprint of the build config, source declaration,
+  and source snapshot — not a timestamp. Release manifest JSON provenance
+  lives at `assets/rag_data/knowledge_bases/<kb>/releases/<release_id>.json`.
+- **Alias deployment** — the Postgres row (`rag_alias_deployments`) recording
+  which release is active for a (kb_id, alias) pair. This, not the Qdrant
+  alias, is the runtime serving source of truth.
 - **Physical collection** — реальная Qdrant collection вида
-  `rag__<kb_id>__<timestamp>`. Имя физической коллекции не содержит alias.
+  `rag__<kb_id>__<16-hex fingerprint>`. Имя физической коллекции не содержит
+  alias.
 - **Qdrant alias** — runtime pointer вида `rag__<kb_id>__<alias>`, например
-  `rag__pytorch_reference__champion`.
-- **Qdrant attestation** — компактная запись metadata внутри collection,
-  позволяющая runtime проверить KB id, collection name, manifest id,
-  embedding model и retrieval capability.
+  `rag__pytorch_reference__champion`. Зеркало applied state, обновляется
+  после активации deployment в Postgres.
+- **Release attestation** — компактная запись metadata внутри collection
+  (schema version 2), позволяющая runtime/cleanup проверить release id, KB
+  id, collection name, manifest id, encoder identity и retrieval capability.
 
 Связи:
 
@@ -257,8 +265,9 @@ Task 1-to-many KB
 KB 1-to-many SourceInstance
 SourceInstance -> SourceAdapter | BenchmarkAdapter
 KB 1-to-many AliasConfig
-AliasConfig -> Qdrant alias -> Physical collection
-Physical collection -> Qdrant attestation -> Artifact manifest
+AliasConfig -> AliasService.diff/apply -> Release (Postgres rag_releases)
+Release -> Alias deployment (Postgres rag_alias_deployments) -> Qdrant alias (mirror)
+Release -> Qdrant attestation -> Release manifest
 ```
 
 Source instance ids are global. Legacy `[[sources]]` and KB-local `--source`
@@ -472,14 +481,22 @@ Gateway вызывает `RAGService`, который делегирует looku
 `rag.runtime.RagRuntime`. Runtime выполняет:
 
 1. normalizes requested `(knowledge_base, alias)`;
-2. находит alias config в catalog;
-3. resolves Qdrant alias `rag__<kb>__<alias>`;
-4. читает Qdrant attestation;
-5. проверяет KB id, collection name, embedding dimension и retrieval capability;
-6. reopens the LlamaIndex vector index and retrieves `NodeWithScore` objects;
-7. applies optional project reranking and score filtering as LlamaIndex node
+2. находит active `AliasDeployment` в Postgres (`rag_alias_deployments`) —
+   не Qdrant alias, который остаётся лишь зеркалом;
+3. резолвит deployment's `RagRelease` (`rag_releases`) и проверяет, что его
+   Qdrant collection существует и несёт matching schema-version-2 release
+   attestation (`compare_release_attestation`);
+4. проверяет live embedding provider identity (`embedding_service.model`,
+   не статичный `runtime.toml` config) и vector dimension против release;
+5. reopens the LlamaIndex vector index and retrieves `NodeWithScore` objects;
+6. applies optional project reranking and score filtering as LlamaIndex node
    postprocessors;
-8. maps nodes to citation-ready compatibility hits and observability payload.
+7. maps nodes to citation-ready compatibility hits and observability payload.
+
+Любое несовпадение (missing release, missing/mismatched collection,
+attestation mismatch, provider identity drift) — `fail-closed` для этого
+KB/alias: `strict` режим поднимает исключение, non-strict пропускает источник
+и помечает его в `skipped_sources`.
 
 `RagRuntime.query()` is the standalone generation path for benchmarks and
 future inference integration. It uses `RetrieverQueryEngine`, returns answer
