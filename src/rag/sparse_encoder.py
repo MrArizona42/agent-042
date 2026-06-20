@@ -35,9 +35,13 @@ class SparseEncoderService:
             timeout=settings.gateway.embeddings_timeout,
         )
         logger.info(f"SparseEncoderService connecting to {base_url}")
-        resp = self._client.get("/v1/info")
-        resp.raise_for_status()
-        self.model: str = resp.json()["sparse_model"]
+        try:
+            resp = self._client.get("/v1/info")
+            resp.raise_for_status()
+            self.model: str = resp.json()["sparse_model"]
+        except Exception:
+            self._client.close()
+            raise
 
     def encode_documents(self, texts: list[str]) -> list[SparseVector]:
         """Encode a list of documents into sparse vectors.

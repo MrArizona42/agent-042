@@ -32,10 +32,12 @@ class QdrantCollectionManager:
         client: QdrantClient,
         collection_name: str,
         aclient: AsyncQdrantClient | None = None,
+        owns_clients: bool = False,
     ) -> None:
         self.client = client
         self.aclient = aclient
         self.collection_name = collection_name
+        self._owns_clients = owns_clients
 
     @classmethod
     def connect(
@@ -49,6 +51,7 @@ class QdrantCollectionManager:
             client=QdrantClient(host=host, port=port),
             aclient=AsyncQdrantClient(host=host, port=port),
             collection_name=collection_name,
+            owns_clients=True,
         )
 
     def close(self) -> None:
@@ -57,12 +60,16 @@ class QdrantCollectionManager:
         Safe to call from a plain synchronous context (CLI commands) where no
         event loop is running. Use :meth:`aclose` instead from async contexts.
         """
+        if not self._owns_clients:
+            return
         self.client.close()
         if self.aclient is not None:
             asyncio.run(self.aclient.close())
 
     async def aclose(self) -> None:
         """Async counterpart to :meth:`close`, for use inside a running event loop."""
+        if not self._owns_clients:
+            return
         self.client.close()
         if self.aclient is not None:
             await self.aclient.close()

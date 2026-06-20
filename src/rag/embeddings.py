@@ -44,9 +44,13 @@ class EmbeddingService:
         )
 
         logger.info(f"Connecting to embeddings service at {base_url}")
-        resp = self._client.get("/v1/info")
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = self._client.get("/v1/info")
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            self._client.close()
+            raise
         self.model: str = data["dense_model"]
         self.dimension: int = data["dense_dimension"]
         logger.info(f"Embedding dimension: {self.dimension} (model: {self.model})")

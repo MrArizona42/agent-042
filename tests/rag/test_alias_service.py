@@ -651,6 +651,34 @@ class TestEvaluationGate:
 
 
 class TestProviderIdentityMismatch:
+    def test_diff_closes_all_provider_probe_clients(self, tmp_path, qdrant_client):
+        closed: list[str] = []
+
+        class Embedding(_EmbeddingClient):
+            def close(self):
+                closed.append("embedding")
+
+        class Sparse(_SparseClient):
+            def close(self):
+                closed.append("sparse")
+
+        class Reranker(_RerankerClient):
+            def close(self):
+                closed.append("reranker")
+
+        service = _service(
+            tmp_path=tmp_path,
+            qdrant_client=qdrant_client,
+            catalog_cfg=_catalog_config(),
+        )
+        service._embedding_client_factory = Embedding
+        service._sparse_encoder_client_factory = Sparse
+        service._reranker_client_factory = Reranker
+
+        service.diff(AliasDiffRequest(kb_id="pytorch_reference", alias="challenger"))
+
+        assert closed == ["reranker", "sparse", "embedding"]
+
     def test_apply_refuses_on_dense_encoder_mismatch(self, tmp_path, qdrant_client):
         _setup_source_manifest(tmp_path)
         catalog_cfg = _catalog_config(challenger_strategy="dense", challenger_reranker=None)

@@ -40,6 +40,12 @@ logger = logging.getLogger(__name__)
 ApplyAction = Literal["no_drift", "retrieval_only", "reused_release", "built_release"]
 
 
+def _close_resource(resource: object | None) -> None:
+    close = getattr(resource, "close", None)
+    if close is not None:
+        close()
+
+
 class AliasApplyError(RuntimeError):
     """An alias apply request was refused or failed. Not necessarily transient."""
 
@@ -131,25 +137,34 @@ class AliasService:
         return digest
 
     def _provider_mismatches(self, alias_cfg: CatalogAliasConfig) -> list[str]:
-        embedding_client = self._embedding_client_factory()
-        sparse_client = (
-            self._sparse_encoder_client_factory()
-            if alias_cfg.build.sparse_encoder is not None and self._sparse_encoder_client_factory
-            else None
-        )
-        reranker_client = (
-            self._reranker_client_factory(alias_cfg.retrieve.reranker)
-            if alias_cfg.retrieve.reranker is not None and self._reranker_client_factory
-            else None
-        )
-        return validate_build_provider_identity(
-            alias_cfg.build,
-            embedding_client=embedding_client,
-            sparse_encoder_client=sparse_client,
-        ) + validate_retrieval_provider_identity(
-            alias_cfg.retrieve,
-            reranker_client=reranker_client,
-        )
+        embedding_client = None
+        sparse_client = None
+        reranker_client = None
+        try:
+            embedding_client = self._embedding_client_factory()
+            sparse_client = (
+                self._sparse_encoder_client_factory()
+                if alias_cfg.build.sparse_encoder is not None
+                and self._sparse_encoder_client_factory
+                else None
+            )
+            reranker_client = (
+                self._reranker_client_factory(alias_cfg.retrieve.reranker)
+                if alias_cfg.retrieve.reranker is not None and self._reranker_client_factory
+                else None
+            )
+            return validate_build_provider_identity(
+                alias_cfg.build,
+                embedding_client=embedding_client,
+                sparse_encoder_client=sparse_client,
+            ) + validate_retrieval_provider_identity(
+                alias_cfg.retrieve,
+                reranker_client=reranker_client,
+            )
+        finally:
+            _close_resource(reranker_client)
+            _close_resource(sparse_client)
+            _close_resource(embedding_client)
 
     # ------------------------------------------------------------------
     # Diff
@@ -385,11 +400,14 @@ class AliasService:
         )
         self._release_build_repo.create(attempt)
 
-        sparse_client = (
-            self._sparse_encoder_client_factory()
-            if alias_cfg.build.sparse_encoder is not None and self._sparse_encoder_client_factory
-            else None
-        )
+        embedding_client = None
+        sparse_client = None
+        managers: list[object] = []
+
+        def _collection_manager(collection_name: str):
+            manager = self._collection_manager_factory(collection_name)
+            managers.append(manager)
+            return manager
 
         def _register_release(release: RagRelease) -> RagRelease:
             existing = self._release_repo.get_by_fingerprint(release.release_fingerprint)
@@ -402,14 +420,21 @@ class AliasService:
             return release
 
         try:
+            embedding_client = self._embedding_client_factory()
+            sparse_client = (
+                self._sparse_encoder_client_factory()
+                if alias_cfg.build.sparse_encoder is not None
+                and self._sparse_encoder_client_factory
+                else None
+            )
             release = build_release(
                 kb_id=kb_id,
                 build_config=alias_cfg.build,
                 catalog_digest=catalog_digest,
                 catalog_cfg=self._catalog_cfg,
                 rag_data_root=self._rag_data_root,
-                collection_manager_factory=self._collection_manager_factory,
-                embedding_client=self._embedding_client_factory(),
+                collection_manager_factory=_collection_manager,
+                embedding_client=embedding_client,
                 sparse_encoder_client=sparse_client,
                 adapter_registry=self._adapter_registry,
                 force_fetch=refresh_sources,
@@ -423,6 +448,11 @@ class AliasService:
                 attempt.id, error=str(exc), finished_at=self._clock()
             )
             raise AliasApplyError(f"release build failed: {exc}") from exc
+        finally:
+            for manager in managers:
+                _close_resource(manager)
+            _close_resource(sparse_client)
+            _close_resource(embedding_client)
 
         self._release_build_repo.mark_completed(
             attempt.id,

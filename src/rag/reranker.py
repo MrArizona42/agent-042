@@ -43,9 +43,13 @@ class CrossEncoderReranker(Reranker):
             timeout=settings.gateway.embeddings_timeout,
         )
         logger.info(f"CrossEncoderReranker connecting to {base_url}")
-        resp = self._client.get("/v1/info")
-        resp.raise_for_status()
-        self.model: str = resp.json()["model"]
+        try:
+            resp = self._client.get("/v1/info")
+            resp.raise_for_status()
+            self.model: str = resp.json()["model"]
+        except Exception:
+            self._client.close()
+            raise
 
     def rerank(self, query: str, nodes: list[NodeWithScore], top_k: int) -> list[NodeWithScore]:
         """Rerank *nodes* against *query* and return them sorted by score.
@@ -97,5 +101,9 @@ def get_reranker(model_name: str) -> Reranker:
     """
     settings = get_settings()
     client = CrossEncoderReranker(reranker_url=settings.rag.reranker_url)
-    validate_reranker_identity(client, expected_model=model_name)
+    try:
+        validate_reranker_identity(client, expected_model=model_name)
+    except Exception:
+        client.close()
+        raise
     return client
