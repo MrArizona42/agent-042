@@ -5,20 +5,62 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from llama_index.core.base.base_retriever import BaseRetriever
 from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 
+from app_config.catalog.schema import AliasRetrievalConfig
 from rag.evaluation import runner
 from rag.evaluation.models import BenchmarkCase, BenchmarkLabel, Qrel
 from rag.evaluation.retrieval import ProjectRetrieverEvaluator, graded_ndcg
 from rag.evaluation.runner import run_benchmark
 from rag.sources.benchmark_prep import (
+    BenchmarkPrepSummary,
     cases_artifact_path,
+    compute_preparation_digest,
     labels_artifact_path,
     metadata_artifact_path,
 )
+
+_NO_MANIFEST_DIGEST = "sha256:" + "0" * 64
+
+
+def _write_prepared_metadata(
+    tmp_path: Path,
+    source_instance_id: str,
+    *,
+    adapter_id: str = "benchmark.fake",
+    adapter_version: str = "1",
+    case_count: int = 1,
+    label_count: int = 1,
+) -> None:
+    """Write a metadata.json that `ensure_benchmark_prepared` recognizes as fresh.
+
+    Mirrors what `prepare_benchmark_source_instance` would write for a
+    benchmark with no manifest.toml on disk, without requiring these tests'
+    intentionally fake/mismatched adapter declaration to actually load.
+    """
+    summary = BenchmarkPrepSummary(
+        source_instance_id=source_instance_id,
+        knowledge_base="kb",
+        adapter_id=adapter_id,
+        adapter_version=adapter_version,
+        document_count=0,
+        case_count=case_count,
+        label_count=label_count,
+        artifact_digests={"cases": "sha256:cases"},
+        preparation_digest=compute_preparation_digest(
+            manifest_digest=_NO_MANIFEST_DIGEST,
+            adapter_id=adapter_id,
+            adapter_version=adapter_version,
+        ),
+    )
+    _write(
+        metadata_artifact_path(tmp_path, source_instance_id),
+        json.dumps(summary.model_dump(mode="json")),
+    )
 
 
 class _Retriever(BaseRetriever):
@@ -136,10 +178,7 @@ suites = ["retrieval_quality"]
     )
     _write(cases_artifact_path(tmp_path, "kb.benchmark"), case.model_dump_json() + "\n")
     _write(labels_artifact_path(tmp_path, "kb.benchmark"), label.model_dump_json() + "\n")
-    _write(
-        metadata_artifact_path(tmp_path, "kb.benchmark"),
-        json.dumps({"artifact_digests": {"cases": "sha256:cases"}}),
-    )
+    _write_prepared_metadata(tmp_path, "kb.benchmark")
 
     class FakeTarget:
         source_instance_id = "kb.benchmark"
@@ -163,6 +202,9 @@ suites = ["retrieval_quality"]
         parameter_state = SimpleNamespace(
             collection_name="rag__kb__production",
             manifest_id="sha256:production",
+            deployment_id=uuid4(),
+            release=SimpleNamespace(id="ragrel_kb_production", build_config_digest="sha256:build"),
+            retrieval_config=AliasRetrievalConfig(strategy="dense", top_k=2, score_threshold=0.1),
         )
         build_profile = {"strategy": "sentence", "chunk_size": 512, "chunk_overlap": 64}
         retriever = _Retriever()
@@ -275,7 +317,7 @@ suites = ["retrieval_quality"]
     )
     _write(cases_artifact_path(tmp_path, "kb.benchmark"), case.model_dump_json() + "\n")
     _write(labels_artifact_path(tmp_path, "kb.benchmark"), label.model_dump_json() + "\n")
-    _write(metadata_artifact_path(tmp_path, "kb.benchmark"), json.dumps({"artifact_digests": {}}))
+    _write_prepared_metadata(tmp_path, "kb.benchmark")
 
     class FakeTarget:
         source_instance_id = "kb.benchmark"
@@ -299,6 +341,9 @@ suites = ["retrieval_quality"]
         parameter_state = SimpleNamespace(
             collection_name="rag__kb__production",
             manifest_id="sha256:production",
+            deployment_id=uuid4(),
+            release=SimpleNamespace(id="ragrel_kb_production", build_config_digest="sha256:build"),
+            retrieval_config=AliasRetrievalConfig(strategy="dense", top_k=2, score_threshold=0.1),
         )
         build_profile = {"strategy": "sentence", "chunk_size": 512, "chunk_overlap": 64}
         retriever = _Retriever()
@@ -402,7 +447,7 @@ suites = ["context_quality"]
     label = BenchmarkLabel(case_id="case-1")
     _write(cases_artifact_path(tmp_path, "kb.benchmark"), case.model_dump_json() + "\n")
     _write(labels_artifact_path(tmp_path, "kb.benchmark"), label.model_dump_json() + "\n")
-    _write(metadata_artifact_path(tmp_path, "kb.benchmark"), json.dumps({"artifact_digests": {}}))
+    _write_prepared_metadata(tmp_path, "kb.benchmark")
 
     class FakeTarget:
         source_instance_id = "kb.benchmark"
@@ -426,6 +471,9 @@ suites = ["context_quality"]
         parameter_state = SimpleNamespace(
             collection_name="rag__kb__production",
             manifest_id="sha256:production",
+            deployment_id=uuid4(),
+            release=SimpleNamespace(id="ragrel_kb_production", build_config_digest="sha256:build"),
+            retrieval_config=AliasRetrievalConfig(strategy="dense", top_k=2, score_threshold=0.1),
         )
         build_profile = {"strategy": "sentence", "chunk_size": 512, "chunk_overlap": 64}
         retriever = _Retriever()

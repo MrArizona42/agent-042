@@ -46,7 +46,7 @@ class RagDatabaseUnavailableError(RuntimeError):
     """
 
 
-def _to_flat_alias_config(retrieval_config: AliasRetrievalConfig) -> AliasConfig:
+def to_flat_alias_config(retrieval_config: AliasRetrievalConfig) -> AliasConfig:
     """Adapt the snapshotted deployment retrieval config to the runtime's flat shape.
 
     `rag.runtime.engines.build_runtime_retriever` and the postprocessor stack
@@ -219,7 +219,7 @@ class RagRuntime:
 
         retrieval_config = state.retrieval_config
         assert retrieval_config is not None, "applied-state resolution always sets retrieval_config"
-        flat_alias_cfg = _to_flat_alias_config(retrieval_config)
+        flat_alias_cfg = to_flat_alias_config(retrieval_config)
         index = self._resolver.open_index(state, strategy=retrieval_config.strategy)
         reranker: Reranker | None = (
             self._reranker_factory(retrieval_config.reranker) if retrieval_config.reranker else None

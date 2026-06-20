@@ -34,6 +34,7 @@ class BenchmarkPrepSummary(BaseModel):
     case_count: int
     label_count: int
     artifact_digests: dict[str, str]
+    preparation_digest: str | None = None
 
 
 def _load_catalog_config(catalog_path: Path | str) -> CatalogConfig:
@@ -89,6 +90,33 @@ def _read_jsonl(path: Path, model_cls: type[BaseModel]) -> list[Any]:
 
 def _digest(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
+def _manifest_digest(rag_data_root: Path | str, source_instance_id: str) -> str:
+    path = conventional_manifest_path(rag_data_root, source_instance_id)
+    if not path.is_file():
+        return "sha256:" + "0" * 64
+    return _digest(path)
+
+
+def compute_preparation_digest(
+    *,
+    manifest_digest: str,
+    adapter_id: str,
+    adapter_version: str,
+) -> str:
+    """Digest identifying what produced a benchmark preparation.
+
+    Computable without re-running adapter.prepare_benchmark(); used to
+    decide whether a previous preparation is still valid.
+    """
+    payload = {
+        "manifest_digest": manifest_digest,
+        "adapter_id": adapter_id,
+        "adapter_version": adapter_version,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def prepare_benchmark_source_instance(
@@ -148,6 +176,11 @@ def prepare_benchmark_source_instance(
         case_count=len(artifacts.cases),
         label_count=len(artifacts.labels),
         artifact_digests={name: _digest(path) for name, path in artifact_paths.items()},
+        preparation_digest=compute_preparation_digest(
+            manifest_digest=_manifest_digest(rag_data_root, source_instance_id),
+            adapter_id=instance.adapter.id,
+            adapter_version=instance.adapter.version,
+        ),
     )
     metadata_path = metadata_artifact_path(rag_data_root, source_instance_id)
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,6 +189,51 @@ def prepare_benchmark_source_instance(
         encoding="utf-8",
     )
     return summary
+
+
+def ensure_benchmark_prepared(
+    *,
+    catalog_path: Path | str,
+    source_instance_id: str,
+    rag_data_root: Path | str,
+    adapter_registry: SourceAdapterRegistry | None = None,
+) -> BenchmarkPreparedArtifacts:
+    """Reuse a valid prior preparation, or prepare fresh if missing or stale.
+
+    Staleness is decided from the benchmark's source manifest digest and
+    adapter id/version -- computable without re-running the adapter -- so
+    benchmark execution never requires a separate manual prepare step in the
+    normal workflow.
+    """
+    catalog_path = Path(catalog_path)
+    catalog = _load_catalog_config(catalog_path)
+    index = build_source_instance_index(catalog)
+    instance = index.get(source_instance_id)
+
+    desired_digest = compute_preparation_digest(
+        manifest_digest=_manifest_digest(rag_data_root, source_instance_id),
+        adapter_id=instance.adapter.id,
+        adapter_version=instance.adapter.version,
+    )
+
+    metadata_path = metadata_artifact_path(rag_data_root, source_instance_id)
+    if metadata_path.is_file():
+        try:
+            existing = BenchmarkPrepSummary.model_validate_json(
+                metadata_path.read_text(encoding="utf-8")
+            )
+        except ValueError:
+            existing = None
+        if existing is not None and existing.preparation_digest == desired_digest:
+            return read_prepared_benchmark_artifacts(rag_data_root, source_instance_id)
+
+    prepare_benchmark_source_instance(
+        catalog_path=catalog_path,
+        source_instance_id=source_instance_id,
+        rag_data_root=rag_data_root,
+        adapter_registry=adapter_registry,
+    )
+    return read_prepared_benchmark_artifacts(rag_data_root, source_instance_id)
 
 
 def read_prepared_benchmark_artifacts(

@@ -10,6 +10,9 @@ from llama_index.core.schema import Document
 
 from rag.evaluation.models import BenchmarkCase, BenchmarkLabel, BenchmarkPreparedArtifacts, Qrel
 from rag.sources.benchmark_prep import (
+    BenchmarkPrepSummary,
+    ensure_benchmark_prepared,
+    metadata_artifact_path,
     prepare_benchmark_source_instance,
     read_prepared_benchmark_artifacts,
 )
@@ -241,3 +244,97 @@ def test_prepare_benchmark_round_trips_normalized_llamaindex_corpus(tmp_path: Pa
     assert set(summary.artifact_digests) == {"corpus", "cases", "labels"}
     assert artifacts.documents[0].id_ == "doc:q1"
     assert artifacts.documents[0].metadata["document_id"] == "doc:q1"
+
+
+def test_prepare_benchmark_records_preparation_digest(tmp_path: Path) -> None:
+    _manifest(tmp_path, "pytorch_reference.qa_benchmark")
+    catalog_path = _catalog(
+        tmp_path, factory="tests.rag.test_benchmark_prep:_fake_qa_benchmark_adapter_factory"
+    )
+
+    summary = prepare_benchmark_source_instance(
+        catalog_path=catalog_path,
+        source_instance_id="pytorch_reference.qa_benchmark",
+        rag_data_root=tmp_path,
+    )
+
+    assert summary.preparation_digest is not None
+    assert summary.preparation_digest.startswith("sha256:")
+
+
+def test_ensure_benchmark_prepared_runs_when_missing(tmp_path: Path) -> None:
+    _manifest(tmp_path, "pytorch_reference.qa_benchmark")
+    catalog_path = _catalog(
+        tmp_path, factory="tests.rag.test_benchmark_prep:_fake_qa_benchmark_adapter_factory"
+    )
+
+    artifacts = ensure_benchmark_prepared(
+        catalog_path=catalog_path,
+        source_instance_id="pytorch_reference.qa_benchmark",
+        rag_data_root=tmp_path,
+    )
+
+    assert len(artifacts.cases) == 1
+
+
+def test_ensure_benchmark_prepared_reuses_valid_preparation_without_rerunning(
+    tmp_path: Path,
+) -> None:
+    _manifest(tmp_path, "pytorch_reference.qa_benchmark")
+    catalog_path = _catalog(
+        tmp_path, factory="tests.rag.test_benchmark_prep:_fake_qa_benchmark_adapter_factory"
+    )
+    prepare_benchmark_source_instance(
+        catalog_path=catalog_path,
+        source_instance_id="pytorch_reference.qa_benchmark",
+        rag_data_root=tmp_path,
+    )
+    metadata_path = metadata_artifact_path(tmp_path, "pytorch_reference.qa_benchmark")
+    first_mtime = metadata_path.stat().st_mtime_ns
+
+    ensure_benchmark_prepared(
+        catalog_path=catalog_path,
+        source_instance_id="pytorch_reference.qa_benchmark",
+        rag_data_root=tmp_path,
+    )
+
+    # metadata.json (and therefore the whole preparation) was not rewritten.
+    assert metadata_path.stat().st_mtime_ns == first_mtime
+
+
+def test_ensure_benchmark_prepared_regenerates_when_manifest_changes(tmp_path: Path) -> None:
+    _manifest(tmp_path, "pytorch_reference.qa_benchmark")
+    catalog_path = _catalog(
+        tmp_path, factory="tests.rag.test_benchmark_prep:_fake_qa_benchmark_adapter_factory"
+    )
+    prepare_benchmark_source_instance(
+        catalog_path=catalog_path,
+        source_instance_id="pytorch_reference.qa_benchmark",
+        rag_data_root=tmp_path,
+    )
+    metadata_path = metadata_artifact_path(tmp_path, "pytorch_reference.qa_benchmark")
+    stale_digest = BenchmarkPrepSummary.model_validate_json(
+        metadata_path.read_text(encoding="utf-8")
+    ).preparation_digest
+
+    _write(
+        tmp_path / "source_instances" / "pytorch_reference.qa_benchmark" / "manifest.toml",
+        """
+        schema_version = 1
+        [[documents]]
+        id = "q2"
+        title = "What is autograd?"
+        metadata = { answer = "Autograd computes gradients automatically." }
+        """,
+    )
+
+    ensure_benchmark_prepared(
+        catalog_path=catalog_path,
+        source_instance_id="pytorch_reference.qa_benchmark",
+        rag_data_root=tmp_path,
+    )
+
+    refreshed = BenchmarkPrepSummary.model_validate_json(metadata_path.read_text(encoding="utf-8"))
+    assert refreshed.preparation_digest != stale_digest
+    artifacts = read_prepared_benchmark_artifacts(tmp_path, "pytorch_reference.qa_benchmark")
+    assert artifacts.cases[0].query == "What is autograd?"

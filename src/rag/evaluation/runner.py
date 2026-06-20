@@ -16,6 +16,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app_config.catalog import load_catalog_with_source_index
 from rag.contracts import DEFAULT_RAG_QUERY_PROMPTS
+from rag.control_plane.fingerprints import (
+    retrieval_config_digest as compute_retrieval_config_digest,
+)
 from rag.evaluation.judges import BenchmarkJudges
 from rag.evaluation.models import (
     AnswerEvalObservation,
@@ -28,8 +31,8 @@ from rag.evaluation.models import (
 from rag.evaluation.retrieval import ProjectRetrievalEvalResult, ProjectRetrieverEvaluator
 from rag.evaluation.target import BenchmarkTarget, materialize_benchmark_target
 from rag.sources.benchmark_prep import (
+    ensure_benchmark_prepared,
     metadata_artifact_path,
-    read_prepared_benchmark_artifacts,
 )
 from shared.db.eval_writer import write_evaluation_results
 
@@ -252,7 +255,11 @@ def run_benchmark(
     if alias not in kb.aliases:
         raise ValueError(f"Unknown alias '{alias}' for KB '{kb.name}'")
 
-    artifacts = read_prepared_benchmark_artifacts(rag_data_root, source_instance_id)
+    artifacts = ensure_benchmark_prepared(
+        catalog_path=catalog_path,
+        source_instance_id=source_instance_id,
+        rag_data_root=rag_data_root,
+    )
     if not artifacts.cases:
         raise ValueError(f"Benchmark '{source_instance_id}' has no prepared cases")
     metadata = _prepared_metadata(rag_data_root, source_instance_id)
@@ -280,6 +287,10 @@ def run_benchmark(
             )
         )
         now = datetime.now(tz=UTC)
+        benchmark_execution_id = uuid.uuid4()
+        release = target.parameter_state.release
+        retrieval_config = target.parameter_state.retrieval_config
+        assert release is not None and retrieval_config is not None
         rows: list[dict[str, Any]] = []
         samples: list[dict[str, Any]] = []
         metric_values: dict[str, float] = {}
@@ -320,6 +331,11 @@ def run_benchmark(
                     "reranking_strategy": target.alias_config.reranker,
                     "judge_backend": judge_backend if uses_judge else None,
                     "judge_model": judge_model if uses_judge else None,
+                    "benchmark_execution_id": benchmark_execution_id,
+                    "rag_release_id": release.id,
+                    "alias_deployment_id": target.parameter_state.deployment_id,
+                    "build_config_digest": release.build_config_digest,
+                    "retrieval_config_digest": compute_retrieval_config_digest(retrieval_config),
                     "extra": {
                         "benchmark_source_instance_id": source_instance_id,
                         "benchmark_artifact_digests": metadata.get("artifact_digests", {}),

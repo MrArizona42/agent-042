@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 
 from llama_index.core.evaluation import (
     CorrectnessEvaluator,
@@ -21,13 +22,32 @@ class JudgeResult:
 
 
 class BenchmarkJudges:
-    """Small project wrapper around LlamaIndex's generation evaluators."""
+    """Small project wrapper around LlamaIndex's generation evaluators.
+
+    Each evaluator is built lazily on first use: a context_quality-only run
+    never constructs faithfulness/answer_relevancy/correctness, and a
+    generation_quality run without reference answers never constructs
+    correctness.
+    """
 
     def __init__(self, llm: LLM) -> None:
-        self.context_relevancy = RelevancyEvaluator(llm=llm)
-        self.faithfulness = FaithfulnessEvaluator(llm=llm)
-        self.answer_relevancy = RelevancyEvaluator(llm=llm)
-        self.correctness = CorrectnessEvaluator(llm=llm)
+        self._llm = llm
+
+    @cached_property
+    def context_relevancy(self) -> RelevancyEvaluator:
+        return RelevancyEvaluator(llm=self._llm)
+
+    @cached_property
+    def faithfulness(self) -> FaithfulnessEvaluator:
+        return FaithfulnessEvaluator(llm=self._llm)
+
+    @cached_property
+    def answer_relevancy(self) -> RelevancyEvaluator:
+        return RelevancyEvaluator(llm=self._llm)
+
+    @cached_property
+    def correctness(self) -> CorrectnessEvaluator:
+        return CorrectnessEvaluator(llm=self._llm)
 
     @staticmethod
     def _result(metric_name: str, result) -> JudgeResult:

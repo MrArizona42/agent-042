@@ -23,6 +23,7 @@ from rag.indexing.materialize import (
 )
 from rag.runtime.engines import RuntimeRetriever, build_runtime_retriever
 from rag.runtime.resolver import RuntimeAliasState
+from rag.runtime.service import to_flat_alias_config
 from rag.sources.bundles import SourceNodeBundle
 
 
@@ -91,18 +92,24 @@ def materialize_benchmark_target(
     artifacts: BenchmarkPreparedArtifacts,
     rag_data_root: Path | str,
 ) -> BenchmarkTarget:
-    """Mirror an attached KB alias profile into a disposable benchmark collection."""
-    alias_config = kb.aliases[alias]
+    """Mirror an attached KB alias profile into a disposable benchmark collection.
+
+    Mirrors the *applied* deployment's build and retrieval state, not the
+    current desired catalog values, so a benchmark run reflects exactly what
+    is being served rather than an unapplied catalog edit.
+    """
     _, parameter_state, parameter_retriever = runtime.resolve_alias_profile(
         kb_id=kb.name,
         alias=alias,
     )
-    if parameter_state.release is None:
+    if parameter_state.release is None or parameter_state.retrieval_config is None:
         raise RuntimeError(
             f"Active deployment for kb='{kb.name}' alias='{alias}' resolved without a "
             "release; cannot mirror its build profile for benchmark preparation"
         )
-    chunking = parameter_state.release.build_config.chunking
+    alias_config = to_flat_alias_config(parameter_state.retrieval_config)
+    build_config = parameter_state.release.build_config
+    chunking = build_config.chunking
     build_profile: dict[str, object] = {
         "strategy": chunking.strategy,
         "chunk_size": chunking.chunk_size,
@@ -161,11 +168,13 @@ def materialize_benchmark_target(
             bundles=[bundle],
             collection_manager=manager,
             embedding_client=runtime.embedding_service,
-            embedding_model=runtime.rag_settings.embedding_model,
+            embedding_model=build_config.dense_encoder.model,
             retrieval_capability=capability,
             rag_data_root=rag_data_root,
             sparse_encoder_model=(
-                runtime.rag_settings.sparse_encoder_model if capability == "hybrid" else None
+                build_config.sparse_encoder.model
+                if capability == "hybrid" and build_config.sparse_encoder is not None
+                else None
             ),
             sparse_encoder_client=(runtime.sparse_encoder() if capability == "hybrid" else None),
             qdrant_upsert_batch_size=runtime.rag_settings.build.qdrant_upsert_batch_size,
