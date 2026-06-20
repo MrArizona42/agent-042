@@ -22,7 +22,11 @@ from app_config.catalog.source_instances import (
     conventional_manifest_path,
 )
 from rag.adapters import SourceAdapterRegistry
-from rag.contracts.manifests import read_release_manifest, release_manifest_path
+from rag.contracts.manifests import (
+    compare_release_attestation,
+    read_release_manifest,
+    release_manifest_path,
+)
 from rag.control_plane import fingerprints as fp
 from rag.control_plane.models import RagRelease
 from rag.indexing.llamaindex_qdrant import QdrantCollectionManager
@@ -176,10 +180,33 @@ def build_release(
         existing_path = release_manifest_path(
             rag_data_root=rag_data_root, kb_id=kb_id, release_id=release_id
         )
+        collection_manager = None
         if existing_path.exists():
-            release = read_release_manifest(existing_path)
-        else:
+            try:
+                release = read_release_manifest(existing_path)
+            except Exception:
+                release = None
             collection_manager = collection_manager_factory(collection_name)
+            attestation = (
+                collection_manager.read_release_attestation()
+                if collection_manager.collection_exists()
+                else None
+            )
+            valid_existing = (
+                release is not None
+                and attestation is not None
+                and compare_release_attestation(release, attestation).matches
+            )
+            if not valid_existing:
+                if collection_manager.collection_exists():
+                    collection_manager.client.delete_collection(collection_name)
+                existing_path.unlink(missing_ok=True)
+                release = None
+        else:
+            release = None
+
+        if release is None:
+            collection_manager = collection_manager or collection_manager_factory(collection_name)
             try:
                 release = materialize_release_collection(
                     kb_id=kb_id,
