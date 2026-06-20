@@ -16,8 +16,12 @@ CREATE TABLE IF NOT EXISTS rag_alias_deployments (
     created_at               TIMESTAMPTZ NOT NULL,
     applied_at               TIMESTAMPTZ,
     superseded_at            TIMESTAMPTZ,
-    error                    TEXT
+    error                    TEXT,
+    details                  JSONB NOT NULL DEFAULT '{}'
 );
+
+ALTER TABLE rag_alias_deployments
+    ADD COLUMN IF NOT EXISTS details JSONB NOT NULL DEFAULT '{}';
 
 -- At most one active deployment per (kb_id, alias).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_rag_alias_deployments_active

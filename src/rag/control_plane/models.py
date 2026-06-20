@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app_config.catalog.schema import AliasBuildConfig, AliasRetrievalConfig
 
@@ -33,6 +33,7 @@ class ReleaseBuildAttempt(BaseModel):
     started_at: datetime
     finished_at: datetime | None = None
     error: str | None = None
+    details: dict[str, object] = Field(default_factory=dict)
 
 
 class RagRelease(BaseModel):
@@ -76,6 +77,7 @@ class AliasDeployment(BaseModel):
     applied_at: datetime | None = None
     superseded_at: datetime | None = None
     error: str | None = None
+    details: dict[str, object] = Field(default_factory=dict)
 
 
 class AliasDiff(BaseModel):

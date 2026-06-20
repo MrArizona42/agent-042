@@ -241,6 +241,7 @@ class AliasService:
                 alias_cfg=alias_cfg,
                 diff=diff,
                 action="retrieval_only",
+                details=self._override_details(request, is_default_alias=is_default_alias),
             )
 
         release, built = self._resolve_release_for_apply(
@@ -265,7 +266,24 @@ class AliasService:
             alias_cfg=alias_cfg,
             diff=diff,
             action="built_release" if built else "reused_release",
+            details=self._override_details(request, is_default_alias=is_default_alias),
         )
+
+    @staticmethod
+    def _override_details(
+        request: AliasApplyRequest, *, is_default_alias: bool
+    ) -> dict[str, object]:
+        if not is_default_alias:
+            return {}
+        overrides = {
+            name: True
+            for name, enabled in {
+                "allow_unevaluated": request.allow_unevaluated,
+                "allow_build_default": request.allow_build_default,
+            }.items()
+            if enabled
+        }
+        return {"overrides": overrides} if overrides else {}
 
     @staticmethod
     def _validate_retrieval_compatibility(
@@ -335,6 +353,7 @@ class AliasService:
             alias_cfg=alias_cfg,
             catalog_digest=diff.desired_catalog_digest,
             refresh_sources=request.refresh_sources,
+            details=self._override_details(request, is_default_alias=is_default_alias),
         )
         return release, True
 
@@ -346,6 +365,7 @@ class AliasService:
         alias_cfg: CatalogAliasConfig,
         catalog_digest: str,
         refresh_sources: bool = False,
+        details: dict[str, object] | None = None,
     ) -> RagRelease:
         build_digest = fp.build_config_digest(alias_cfg.build)
         retrieval_digest = fp.retrieval_config_digest(alias_cfg.retrieve)
@@ -361,6 +381,7 @@ class AliasService:
             retrieval_config_digest=retrieval_digest,
             source_declaration_digest=source_declaration_digest,
             started_at=self._clock(),
+            details=details or {},
         )
         self._release_build_repo.create(attempt)
 
@@ -442,6 +463,7 @@ class AliasService:
         alias_cfg: CatalogAliasConfig,
         diff: AliasDiff,
         action: ApplyAction,
+        details: dict[str, object] | None = None,
     ) -> AliasApplyResult:
         active = self._deployment_repo.get_active(kb_id=kb_id, alias=alias)
         if (
@@ -463,6 +485,7 @@ class AliasService:
             retrieval_config_digest=diff.desired_retrieval_config_digest,
             retrieval_config=alias_cfg.retrieve,
             status="pending",
+            details=details or {},
         )
         self._deployment_repo.create_pending(deployment)
 

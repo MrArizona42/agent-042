@@ -290,6 +290,13 @@ class TestBootstrapApply:
 
         assert result.action == "built_release"
         assert result.deployment.status == "active"
+        assert result.deployment.details == {
+            "overrides": {"allow_unevaluated": True, "allow_build_default": True}
+        }
+        attempts = service._release_build_repo.list_for_kb("pytorch_reference")
+        assert attempts[0].details == {
+            "overrides": {"allow_unevaluated": True, "allow_build_default": True}
+        }
 
 
 class TestNoDriftAndRetrievalOnly:

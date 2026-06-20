@@ -280,6 +280,7 @@ class RagAliasDeploymentRow(Base):
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error: Mapped[str | None] = mapped_column(Text)
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
     __table_args__ = (
         Index(

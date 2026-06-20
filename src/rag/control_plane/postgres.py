@@ -55,6 +55,7 @@ def _attempt_to_row(attempt: ReleaseBuildAttempt) -> RagReleaseBuildRow:
         started_at=attempt.started_at,
         finished_at=attempt.finished_at,
         error=attempt.error,
+        details=attempt.details,
     )
 
 
@@ -74,6 +75,7 @@ def _row_to_attempt(row: RagReleaseBuildRow) -> ReleaseBuildAttempt:
         started_at=row.started_at,
         finished_at=row.finished_at,
         error=row.error,
+        details=row.details,
     )
 
 
@@ -133,6 +135,7 @@ def _deployment_to_row(deployment: AliasDeployment) -> RagAliasDeploymentRow:
         applied_at=deployment.applied_at,
         superseded_at=deployment.superseded_at,
         error=deployment.error,
+        details=deployment.details,
     )
 
 
@@ -151,6 +154,7 @@ def _row_to_deployment(row: RagAliasDeploymentRow) -> AliasDeployment:
         applied_at=row.applied_at,
         superseded_at=row.superseded_at,
         error=row.error,
+        details=row.details,
     )
 
 
