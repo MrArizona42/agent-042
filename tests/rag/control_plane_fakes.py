@@ -10,6 +10,7 @@ the fakes exercise the actual contract, not just a passive store.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime
 from uuid import UUID
 
@@ -81,6 +82,11 @@ class FakeReleaseRepository:
             if release.release_fingerprint == release_fingerprint:
                 return release
         return None
+
+    @contextmanager
+    def release_lock(self, release_fingerprint: str):
+        del release_fingerprint
+        yield
 
     def find_reusable(
         self,

@@ -9,10 +9,12 @@ stays as-is for API code.
 
 from __future__ import annotations
 
+import hashlib
+from contextlib import contextmanager
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app_config.catalog.schema import AliasBuildConfig, AliasRetrievalConfig
@@ -233,6 +235,15 @@ class PostgresReleaseRepository:
                 )
             ).one_or_none()
             return _row_to_release(row) if row is not None else None
+
+    @contextmanager
+    def release_lock(self, release_fingerprint: str):
+        """Hold a transaction-scoped advisory lock for one release fingerprint."""
+        digest = hashlib.sha256(release_fingerprint.encode("utf-8")).digest()
+        lock_key = int.from_bytes(digest[:8], byteorder="big", signed=True)
+        with self._session_factory() as session, session.begin():
+            session.execute(select(func.pg_advisory_xact_lock(lock_key)))
+            yield
 
     def find_reusable(
         self,

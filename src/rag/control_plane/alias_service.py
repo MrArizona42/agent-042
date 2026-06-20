@@ -369,6 +369,17 @@ class AliasService:
             if alias_cfg.build.sparse_encoder is not None and self._sparse_encoder_client_factory
             else None
         )
+
+        def _register_release(release: RagRelease) -> RagRelease:
+            existing = self._release_repo.get_by_fingerprint(release.release_fingerprint)
+            if existing is not None:
+                return existing
+            manifest_path = release_manifest_path(
+                rag_data_root=self._rag_data_root, kb_id=kb_id, release_id=release.id
+            )
+            self._release_repo.insert(release, manifest_path=manifest_path.as_posix())
+            return release
+
         try:
             release = build_release(
                 kb_id=kb_id,
@@ -383,18 +394,14 @@ class AliasService:
                 force_fetch=refresh_sources,
                 force_extract=refresh_sources,
                 force_chunk=refresh_sources,
+                release_lock_factory=self._release_repo.release_lock,
+                register_release=_register_release,
             )
         except Exception as exc:
             self._release_build_repo.mark_failed(
                 attempt.id, error=str(exc), finished_at=self._clock()
             )
             raise AliasApplyError(f"release build failed: {exc}") from exc
-
-        if self._release_repo.get(release.id) is None:
-            manifest_path = release_manifest_path(
-                rag_data_root=self._rag_data_root, kb_id=kb_id, release_id=release.id
-            )
-            self._release_repo.insert(release, manifest_path=manifest_path.as_posix())
 
         self._release_build_repo.mark_completed(
             attempt.id,

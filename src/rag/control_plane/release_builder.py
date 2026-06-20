@@ -10,8 +10,10 @@ without rebuilding.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Callable, ContextManager
 
 from app_config.catalog.schema import AliasBuildConfig, CatalogConfig
 from app_config.catalog.source_instances import (
@@ -87,6 +89,8 @@ def build_release(
     force_chunk: bool = False,
     qdrant_upsert_batch_size: int = 128,
     created_at: datetime | None = None,
+    release_lock_factory: Callable[[str], ContextManager[None]] | None = None,
+    register_release: Callable[[RagRelease], RagRelease] | None = None,
 ) -> RagRelease:
     """Resolve sources, materialize, and return the immutable release for *kb_id*.
 
@@ -167,40 +171,43 @@ def build_release(
     release_id = fp.release_id(kb_id, fingerprint)
     collection_name = fp.collection_name(kb_id, fingerprint)
 
-    existing_path = release_manifest_path(
-        rag_data_root=rag_data_root, kb_id=kb_id, release_id=release_id
-    )
-    if existing_path.exists():
-        return read_release_manifest(existing_path)
-
-    collection_manager = collection_manager_factory(collection_name)
-    try:
-        return materialize_release_collection(
-            kb_id=kb_id,
-            release_id=release_id,
-            collection_name=collection_name,
-            release_fingerprint=fingerprint,
-            catalog_digest=catalog_digest,
-            build_config_digest=build_digest,
-            source_declaration_digest=source_declaration_digest,
-            source_snapshot_id=snapshot_id,
-            build_config=build_config,
-            bundles=bundles,
-            collection_manager=collection_manager,
-            embedding_client=embedding_client,
-            sparse_encoder_client=sparse_encoder_client,
-            rag_data_root=rag_data_root,
-            source_adapter_versions=adapter_versions,
-            source_manifest_digests=manifest_digests,
-            qdrant_upsert_batch_size=qdrant_upsert_batch_size,
-            created_at=created_at or datetime.now(tz=UTC),
+    lock = release_lock_factory(fingerprint) if release_lock_factory else nullcontext()
+    with lock:
+        existing_path = release_manifest_path(
+            rag_data_root=rag_data_root, kb_id=kb_id, release_id=release_id
         )
-    except Exception:
-        if collection_manager.collection_exists():
-            collection_manager.client.delete_collection(collection_name)
         if existing_path.exists():
-            existing_path.unlink()
-        raise
+            release = read_release_manifest(existing_path)
+        else:
+            collection_manager = collection_manager_factory(collection_name)
+            try:
+                release = materialize_release_collection(
+                    kb_id=kb_id,
+                    release_id=release_id,
+                    collection_name=collection_name,
+                    release_fingerprint=fingerprint,
+                    catalog_digest=catalog_digest,
+                    build_config_digest=build_digest,
+                    source_declaration_digest=source_declaration_digest,
+                    source_snapshot_id=snapshot_id,
+                    build_config=build_config,
+                    bundles=bundles,
+                    collection_manager=collection_manager,
+                    embedding_client=embedding_client,
+                    sparse_encoder_client=sparse_encoder_client,
+                    rag_data_root=rag_data_root,
+                    source_adapter_versions=adapter_versions,
+                    source_manifest_digests=manifest_digests,
+                    qdrant_upsert_batch_size=qdrant_upsert_batch_size,
+                    created_at=created_at or datetime.now(tz=UTC),
+                )
+            except Exception:
+                if collection_manager.collection_exists():
+                    collection_manager.client.delete_collection(collection_name)
+                if existing_path.exists():
+                    existing_path.unlink()
+                raise
+        return register_release(release) if register_release else release
 
 
 def qdrant_collection_manager_factory(*, host: str, port: int):

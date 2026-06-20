@@ -8,7 +8,7 @@ inject fakes instead of a real database.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+from typing import ContextManager, Protocol
 from uuid import UUID
 
 from rag.control_plane.models import AliasDeployment, RagRelease, ReleaseBuildAttempt
@@ -66,6 +66,10 @@ class ReleaseRepository(Protocol):
 
     def get_by_fingerprint(self, release_fingerprint: str) -> RagRelease | None:
         """Return the release with this exact full fingerprint, if any."""
+        ...
+
+    def release_lock(self, release_fingerprint: str) -> ContextManager[None]:
+        """Serialize materialization/registration for one full release fingerprint."""
         ...
 
     def find_reusable(

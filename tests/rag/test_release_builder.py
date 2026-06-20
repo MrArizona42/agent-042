@@ -9,6 +9,7 @@ declarative alias workflow plan.
 from __future__ import annotations
 
 import tomllib
+from contextlib import contextmanager
 from pathlib import Path
 from textwrap import dedent
 
@@ -206,6 +207,45 @@ def test_build_release_reuses_identical_release_without_rebuilding(
 
     assert first.id == second.id
     assert first.manifest_id == second.manifest_id
+
+
+def test_build_release_holds_fingerprint_lock_through_registration(
+    tmp_path: Path, qdrant_client
+) -> None:
+    _setup_source_manifest(tmp_path)
+    catalog_cfg = _catalog_config()
+    events: list[tuple[str, str]] = []
+
+    @contextmanager
+    def release_lock(fingerprint: str):
+        events.append(("lock", fingerprint))
+        try:
+            yield
+        finally:
+            events.append(("unlock", fingerprint))
+
+    def register(release):
+        events.append(("register", release.release_fingerprint))
+        return release
+
+    release = build_release(
+        kb_id="pytorch_reference",
+        build_config=_build_config(catalog_cfg),
+        catalog_digest="sha256:" + "a" * 64,
+        catalog_cfg=catalog_cfg,
+        rag_data_root=tmp_path,
+        collection_manager_factory=_manager_factory(qdrant_client),
+        embedding_client=_EmbeddingClient(),
+        adapter_registry=_registry(),
+        release_lock_factory=release_lock,
+        register_release=register,
+    )
+
+    assert events == [
+        ("lock", release.release_fingerprint),
+        ("register", release.release_fingerprint),
+        ("unlock", release.release_fingerprint),
+    ]
 
 
 def test_build_release_different_chunking_produces_different_release_and_isolated_nodes(
