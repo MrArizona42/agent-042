@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from llama_index.core.llms import MockLLM
 from llama_index.core.schema import TextNode
 from qdrant_client import QdrantClient
@@ -23,6 +24,7 @@ from tests.rag.control_plane_fakes import FakeAliasDeploymentRepository, FakeRel
 
 
 class _Embedding:
+    model = "test-embedding"
     dimension = 3
 
     @staticmethod
@@ -261,6 +263,36 @@ def test_runtime_uses_default_alias_and_returns_native_nodes(tmp_path: Path) -> 
     assert result.diagnostics["no_hit"] is False
 
 
+def test_runtime_rejects_live_embedding_provider_model_mismatch(tmp_path: Path) -> None:
+    client = QdrantClient(":memory:")
+    _, deployment_repo, release_repo = _deployed(
+        client=client,
+        root=tmp_path,
+        collection_name="rag__pytorch_reference__dense_mismatch",
+        capability="dense",
+        alias="champion",
+        strategy="dense",
+    )
+    embedding = _Embedding()
+    embedding.model = "provider-drifted-model"
+
+    with catalog_override(_catalog()):
+        runtime = RagRuntime(
+            settings=_settings(),
+            embedding_service=embedding,
+            qdrant_client=client,
+            sparse_encoder_factory=_Sparse,
+            deployment_repo=deployment_repo,
+            release_repo=release_repo,
+        )
+        try:
+            with pytest.raises(RuntimeError, match="Embedding model mismatch"):
+                runtime.resolve_alias_profile(
+                    kb_id="pytorch_reference",
+                    alias="champion",
+                )
+        finally:
+            runtime.close()
 def test_runtime_allows_dense_alias_on_hybrid_collection(tmp_path: Path) -> None:
     client = QdrantClient(":memory:")
     _, deployment_repo, release_repo = _deployed(

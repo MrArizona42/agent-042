@@ -67,7 +67,6 @@ class LlamaIndexRuntimeResolver:
         *,
         qdrant_client: QdrantClient,
         embedding_service,
-        embedding_model: str,
         qdrant_batch_size: int,
         sparse_encoder_factory: Callable[[], object],
         release_repo: ReleaseRepository,
@@ -77,7 +76,6 @@ class LlamaIndexRuntimeResolver:
         self.qdrant_client = qdrant_client
         self.qdrant_aclient = qdrant_aclient
         self.embedding_service = embedding_service
-        self.embedding_model = embedding_model
         self.qdrant_batch_size = qdrant_batch_size
         self._sparse_encoder_factory = sparse_encoder_factory
         self._release_repo = release_repo
@@ -156,11 +154,12 @@ class LlamaIndexRuntimeResolver:
             )
             return None
 
-        if release.build_config.dense_encoder.model != self.embedding_model:
+        provider_model = getattr(self.embedding_service, "model", None)
+        if release.build_config.dense_encoder.model != provider_model:
             self._fail(
                 f"Embedding model mismatch for '{release.collection_name}': "
                 f"release={release.build_config.dense_encoder.model}, "
-                f"runtime={self.embedding_model}",
+                f"provider={provider_model}",
                 strict=strict,
             )
             return None
@@ -207,6 +206,6 @@ class LlamaIndexRuntimeResolver:
             vector_store,
             embed_model=ProjectEmbedding(
                 embedding_client=self.embedding_service,
-                model_name=self.embedding_model,
+                model_name=self.embedding_service.model,
             ),
         )

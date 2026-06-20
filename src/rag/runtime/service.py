@@ -135,7 +135,6 @@ class RagRuntime:
             qdrant_client=client,
             qdrant_aclient=aclient,
             embedding_service=self.embedding_service,
-            embedding_model=self.rag_settings.embedding_model,
             qdrant_batch_size=self.rag_settings.build.qdrant_upsert_batch_size,
             sparse_encoder_factory=self._sparse_encoder_factory,
             release_repo=self._release_repo,
