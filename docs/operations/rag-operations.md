@@ -113,7 +113,6 @@ assets/rag_data/
 
   knowledge_bases/<kb_id>/
     releases/<release_id>.json
-    manifests/<collection_name>.json   # legacy v1 attestations only
 ```
 
 `raw/`, `extracted/`, and `chunks/` are resumable caches containing native
@@ -369,8 +368,7 @@ superseded deployments per (kb_id, alias) as a rollback buffer, marks a
 release retired in Postgres before deleting its collection, and leaves
 release manifests on disk untouched after retirement.
 
-Inspect one collection's attestation from the server (legacy v1 collections
-only; releases carry their attestation in the release manifest instead):
+Inspect one collection's release-v2 attestation from the server:
 
 ```bash
 curl -s "$QDRANT_URL/collections/$COLLECTION" \

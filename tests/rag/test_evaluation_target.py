@@ -1,13 +1,9 @@
 """Tests for rag.evaluation.target.materialize_benchmark_target.
 
-This benchmark-corpus mirroring path had no test coverage before phase 5;
-phase 5's applied-state runtime change broke its profile-manifest lookup
-(parameter_state.collection_name stopped having a corresponding old-style
-IndexManifest on disk) and its provenance field access (parameter_state.
-attestation is now None on the deployment-resolved path). This test proves
-the phase 5 fix -- reading the chunking profile from the resolved release's
-build_config instead of an IndexManifest file -- actually works. Release-
-aware benchmark *building* (not just profile mirroring) is phase 6.
+The benchmark target mirrors the applied release build and retrieval profile.
+Disposable benchmark corpora use the same release-v2 manifest and attestation
+contract as durable KB releases, without registering the temporary release in
+Postgres.
 """
 
 from __future__ import annotations
@@ -16,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from llama_index.core.schema import Document
 from qdrant_client import QdrantClient
 
 from app_config.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
@@ -143,3 +140,35 @@ def test_materialize_benchmark_target_with_no_documents_mirrors_release_chunking
     assert target.build_profile == {"strategy": "sentence", "chunk_size": 256, "chunk_overlap": 32}
     assert target.parameter_state.manifest_id == release.manifest_id
     assert target.state.collection_name == release.collection_name
+
+    with catalog_override(catalog):
+        disposable = materialize_benchmark_target(
+            runtime=runtime,
+            source_instance_id="pytorch_reference.qa_benchmark",
+            kb=kb,
+            alias="champion",
+            artifacts=BenchmarkPreparedArtifacts(
+                documents=[
+                    Document(
+                        text="A benchmark-owned document about torch tensors.",
+                        metadata={"document_id": "benchmark-doc-1"},
+                    )
+                ]
+            ),
+            rag_data_root=tmp_path,
+        )
+
+    assert disposable.state.release.id.startswith("evalrel_")
+    assert disposable.collection_manager is not None
+    attestation = disposable.collection_manager.read_release_attestation()
+    assert attestation is not None
+    assert attestation.schema_version == 2
+    assert attestation.release_id == disposable.state.release.id
+    temporary_collection = disposable.state.collection_name
+    temporary_manifest = disposable.manifest_artifact
+
+    disposable.close()
+
+    assert not client.collection_exists(temporary_collection)
+    assert temporary_manifest is not None
+    assert not temporary_manifest.exists()

@@ -193,10 +193,12 @@ suites = ["retrieval_quality"]
         state = SimpleNamespace(
             qdrant_alias="rag__kb__champion",
             collection_name="eval__kb__one",
-            attestation=SimpleNamespace(
-                manifest_id="sha256:manifest",
-                embedding_model="embedding",
-                retrieval_capability=SimpleNamespace(value="dense"),
+            manifest_id="sha256:manifest",
+            retrieval_capability="dense",
+            release=SimpleNamespace(
+                build_config=SimpleNamespace(
+                    dense_encoder=SimpleNamespace(model="embedding")
+                )
             ),
         )
         parameter_state = SimpleNamespace(
@@ -332,10 +334,12 @@ suites = ["retrieval_quality"]
         state = SimpleNamespace(
             qdrant_alias="rag__kb__champion",
             collection_name="eval__kb__one",
-            attestation=SimpleNamespace(
-                manifest_id="sha256:manifest",
-                embedding_model="embedding",
-                retrieval_capability=SimpleNamespace(value="dense"),
+            manifest_id="sha256:manifest",
+            retrieval_capability="dense",
+            release=SimpleNamespace(
+                build_config=SimpleNamespace(
+                    dense_encoder=SimpleNamespace(model="embedding")
+                )
             ),
         )
         parameter_state = SimpleNamespace(
@@ -462,10 +466,12 @@ suites = ["context_quality"]
         state = SimpleNamespace(
             qdrant_alias="rag__kb__champion",
             collection_name="eval__kb__one",
-            attestation=SimpleNamespace(
-                manifest_id="sha256:manifest",
-                embedding_model="embedding",
-                retrieval_capability=SimpleNamespace(value="dense"),
+            manifest_id="sha256:manifest",
+            retrieval_capability="dense",
+            release=SimpleNamespace(
+                build_config=SimpleNamespace(
+                    dense_encoder=SimpleNamespace(model="embedding")
+                )
             ),
         )
         parameter_state = SimpleNamespace(

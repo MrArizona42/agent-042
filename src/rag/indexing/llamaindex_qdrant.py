@@ -16,7 +16,7 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from rag.contracts import CollectionAttestation, ReleaseAttestation
+from rag.contracts import ReleaseAttestation
 from rag.indexing.llamaindex_embeddings import ProjectSparseEncoder
 
 DENSE_VECTOR_NAME = "dense"
@@ -123,27 +123,6 @@ class QdrantCollectionManager:
                     return params.size
             return None
         return vectors.size if isinstance(vectors.size, int) else None
-
-    def write_attestation(self, attestation: CollectionAttestation) -> None:
-        """Persist runtime validation data as real Qdrant collection metadata."""
-        if not self.collection_exists():
-            raise RuntimeError(f"Collection '{self.collection_name}' does not exist")
-        self.client.update_collection(
-            collection_name=self.collection_name,
-            metadata={
-                "attestation": attestation.model_dump(mode="json", exclude_none=True),
-            },
-        )
-
-    def read_attestation(self) -> CollectionAttestation | None:
-        """Read `.config.metadata.attestation` from Qdrant collection info."""
-        if not self.collection_exists():
-            return None
-        metadata = self.client.get_collection(self.collection_name).config.metadata or {}
-        payload: Any = metadata.get("attestation")
-        if payload is None:
-            return None
-        return CollectionAttestation.model_validate(payload)
 
     def write_release_attestation(self, attestation: ReleaseAttestation) -> None:
         """Persist schema-version-2 release attestation as Qdrant collection metadata."""

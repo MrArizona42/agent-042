@@ -100,9 +100,9 @@ def _retrieval_observation(
         alias=target.alias,
         qdrant_alias=target.state.qdrant_alias,
         collection_name=target.state.collection_name,
-        manifest_id=target.state.attestation.manifest_id,
+        manifest_id=target.state.manifest_id,
         retrieval_strategy=target.alias_config.retrieval_strategy,
-        retrieval_capability=target.state.attestation.retrieval_capability.value,
+        retrieval_capability=target.state.retrieval_capability,
         top_k=target.alias_config.top_k,
         score_threshold=target.alias_config.score_threshold,
         reranker=target.alias_config.reranker,
@@ -321,8 +321,8 @@ def run_benchmark(
                     "knowledge_base": kb.name,
                     "qdrant_alias": target.state.qdrant_alias,
                     "qdrant_collection": target.state.collection_name,
-                    "rag_manifest_id": target.state.attestation.manifest_id,
-                    "embedding_model": target.state.attestation.embedding_model,
+                    "rag_manifest_id": target.state.manifest_id,
+                    "embedding_model": target.state.release.build_config.dense_encoder.model,
                     "chunking_strategy": str(chunking.get("strategy") or "") or None,
                     "chunk_size": chunking.get("chunk_size"),
                     "chunk_overlap": chunking.get("chunk_overlap"),
@@ -346,7 +346,7 @@ def run_benchmark(
                         "parameter_source_manifest_id": target.parameter_state.manifest_id,
                         "retrieval_strategy": target.alias_config.retrieval_strategy,
                         "retrieval_capability": (
-                            target.state.attestation.retrieval_capability.value
+                            target.state.retrieval_capability
                         ),
                         "prompt_identity": (
                             DEFAULT_RAG_QUERY_PROMPTS.identity.model_dump(mode="json")

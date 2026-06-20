@@ -14,13 +14,11 @@ from llama_index.core.schema import Document, NodeWithScore, TextNode
 
 from app_config.catalog import AliasConfig, KBConfig
 from rag.contracts import DEFAULT_RAG_QUERY_PROMPTS, ProjectQueryPrompts
-from rag.contracts.manifests import manifest_path
+from rag.contracts.manifests import release_manifest_path
+from rag.control_plane.fingerprints import build_config_digest
 from rag.evaluation.models import BenchmarkPreparedArtifacts
 from rag.indexing.llamaindex_qdrant import QdrantCollectionManager
-from rag.indexing.materialize import (
-    materialize_kb_collection_llamaindex,
-    retrieval_capability_for_strategy,
-)
+from rag.indexing.materialize import materialize_release_collection
 from rag.runtime.engines import RuntimeRetriever, build_runtime_retriever
 from rag.runtime.resolver import RuntimeAliasState
 from rag.runtime.service import to_flat_alias_config
@@ -160,33 +158,35 @@ def materialize_benchmark_target(
         document_count=len(artifacts.documents),
         node_count=len(nodes),
     )
-    capability = retrieval_capability_for_strategy(alias_config.retrieval_strategy)
+    fingerprint = f"sha256:{hashlib.sha256((corpus_digest + collection_name).encode()).hexdigest()}"
+    release_id = f"evalrel_{fingerprint.removeprefix('sha256:')[:16]}"
     try:
-        result = materialize_kb_collection_llamaindex(
+        release = materialize_release_collection(
             kb_id=kb.name,
+            release_id=release_id,
             collection_name=collection_name,
+            release_fingerprint=fingerprint,
+            catalog_digest=parameter_state.release.catalog_digest,
+            build_config_digest=build_config_digest(build_config),
+            source_declaration_digest=corpus_digest,
+            source_snapshot_id=corpus_digest,
+            build_config=build_config,
             bundles=[bundle],
             collection_manager=manager,
             embedding_client=runtime.embedding_service,
-            embedding_model=build_config.dense_encoder.model,
-            retrieval_capability=capability,
             rag_data_root=rag_data_root,
-            sparse_encoder_model=(
-                build_config.sparse_encoder.model
-                if capability == "hybrid" and build_config.sparse_encoder is not None
-                else None
+            source_adapter_versions={source_instance_id: "benchmark-prepared"},
+            source_manifest_digests={source_instance_id: corpus_digest},
+            sparse_encoder_client=(
+                runtime.sparse_encoder() if build_config.sparse_encoder is not None else None
             ),
-            sparse_encoder_client=(runtime.sparse_encoder() if capability == "hybrid" else None),
             qdrant_upsert_batch_size=runtime.rag_settings.build.qdrant_upsert_batch_size,
-            benchmark_scope=source_instance_id,
         )
     except Exception:
         if manager.collection_exists():
             manager.client.delete_collection(collection_name)
-        temp_manifest = manifest_path(
-            rag_data_root=rag_data_root,
-            kb_id=kb.name,
-            collection_name=collection_name,
+        temp_manifest = release_manifest_path(
+            rag_data_root=rag_data_root, kb_id=kb.name, release_id=release_id
         )
         if temp_manifest.is_file():
             temp_manifest.unlink()
@@ -196,8 +196,9 @@ def materialize_benchmark_target(
         alias=alias,
         qdrant_alias=parameter_state.qdrant_alias,
         collection_name=collection_name,
-        attestation=result.manifest.to_attestation(),
         vector_size=runtime.embedding_service.dimension,
+        release=release,
+        retrieval_config=parameter_state.retrieval_config,
     )
     index = runtime.resolver.open_index(state, strategy=alias_config.retrieval_strategy)
     reranker = runtime.reranker(alias_config.reranker)
@@ -215,5 +216,7 @@ def materialize_benchmark_target(
         parameter_state=parameter_state,
         build_profile=build_profile,
         collection_manager=manager,
-        manifest_artifact=Path(result.manifest_path),
+        manifest_artifact=release_manifest_path(
+            rag_data_root=rag_data_root, kb_id=kb.name, release_id=release.id
+        ),
     )

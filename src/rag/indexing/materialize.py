@@ -1,44 +1,29 @@
-"""Materialize source nodes through LlamaIndex and promote attested collections."""
+"""Materialize source nodes as immutable LlamaIndex-backed releases."""
 
 from __future__ import annotations
 
-import hashlib
-import json
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.vector_stores.qdrant import QdrantVectorStore
-from pydantic import BaseModel, ConfigDict, Field
 from qdrant_client.models import SparseVector
 
 from app_config.catalog.schema import AliasBuildConfig
-from rag.contracts import (
-    CollectionAttestation,
-    IndexManifest,
-    ReleaseAttestation,
-    RetrievalCapability,
-)
+from rag.contracts import ReleaseAttestation
 from rag.contracts.manifests import (
-    manifest_path,
     release_manifest_path,
     release_to_attestation,
     with_release_manifest_id,
-    write_index_manifest,
     write_release_manifest,
 )
 from rag.control_plane.models import RagRelease
 from rag.indexing.llamaindex_embeddings import ProjectEmbedding, ProjectSparseEncoder
 from rag.sources.bundles import SourceNodeBundle
-from rag.sources.chunks import LLAMAINDEX_SENTENCE_SPLITTER, read_chunk_artifact
 
 RetrievalStrategy = Literal["dense", "hybrid", "sparse"]
 SourceRetrievalCapability = Literal["dense", "hybrid"]
-
-_logger = logging.getLogger(__name__)
-
 
 class EmbeddingClient(Protocol):
     """Dense embedding client contract used by source materialization."""
@@ -86,14 +71,6 @@ class CollectionManager(Protocol):
         """Return the LlamaIndex store for this collection."""
         ...
 
-    def write_attestation(self, attestation: CollectionAttestation) -> None:
-        """Write collection-level attestation metadata."""
-        ...
-
-    def read_attestation(self) -> CollectionAttestation | None:
-        """Read collection-level attestation metadata."""
-        ...
-
     def write_release_attestation(self, attestation: ReleaseAttestation) -> None:
         """Write schema-version-2 release attestation metadata."""
         ...
@@ -109,52 +86,6 @@ class CollectionManager(Protocol):
     def update_alias(self, alias_name: str, collection_name: str) -> None:
         """Create or update an alias."""
         ...
-
-
-class MaterializationSummary(BaseModel):
-    """Summary for one Qdrant materialization."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kb_id: str
-    collection_name: str
-    document_count: int = Field(ge=0)
-    chunk_count: int = Field(ge=0)
-    retrieval_capability: RetrievalCapability
-    vector_size: int = Field(gt=0)
-    sparse_enabled: bool
-    qdrant_upsert_batch_size: int = Field(gt=0)
-
-
-class MaterializationResult(BaseModel):
-    """Materialization summary plus the written manifest."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    summary: MaterializationSummary
-    manifest: IndexManifest
-    manifest_path: str
-
-
-class AliasPromotionResult(BaseModel):
-    """Result of promoting a collection behind an alias."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    alias_name: str
-    collection_name: str
-    manifest_id: str
-
-
-def collection_name_for_build(
-    *,
-    kb_id: str,
-    created_at: datetime | None = None,
-) -> str:
-    """Return a conventional timestamped physical collection name."""
-    created_at = created_at or datetime.now(tz=UTC)
-    stamp = created_at.strftime("%Y%m%d_%H%M%S")
-    return f"rag__{kb_id}__{stamp}"
 
 
 def qdrant_alias_name(*, kb_id: str, alias: str) -> str:
@@ -178,52 +109,9 @@ def validate_strategy_supported(
     )
 
 
-def retrieval_capability_for_strategy(
-    retrieval_strategy: RetrievalStrategy,
-) -> SourceRetrievalCapability:
-    """Return the minimum physical collection capability for a retrieval strategy."""
-    if retrieval_strategy in {"hybrid", "sparse"}:
-        return "hybrid"
-    return "dense"
-
-
-def source_snapshot_id(bundles: list[SourceNodeBundle]) -> str:
-    """Hash node artifact identities and checksums into a source snapshot id."""
-    payload = [
-        {
-            "kb_id": bundle.kb_id,
-            "source_instance_id": bundle.source_instance_id,
-            "node_artifact_checksums": bundle.node_artifact_checksums,
-        }
-        for bundle in bundles
-    ]
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
-
-
 def _all_nodes(bundles: list[SourceNodeBundle]):
     for bundle in bundles:
         yield from bundle.nodes
-
-
-def _chunking_config(bundles: list[SourceNodeBundle]) -> dict[str, object]:
-    config: dict[str, object] = {
-        "strategy": LLAMAINDEX_SENTENCE_SPLITTER,
-        "source_instance_ids": [bundle.source_instance_id for bundle in bundles],
-    }
-    for bundle in bundles:
-        for artifact_path in bundle.node_artifact_paths:
-            path = Path(artifact_path)
-            if path.exists():
-                try:
-                    artifact = read_chunk_artifact(path)
-                    config["chunk_size"] = artifact.chunking.chunk_size
-                    config["chunk_overlap"] = artifact.chunking.chunk_overlap
-                    config["method"] = artifact.chunking.method
-                except Exception as exc:
-                    _logger.debug("Could not read chunking config from %s: %s", path, exc)
-                return config
-    return config
 
 
 def _validate_bundles(
@@ -295,128 +183,6 @@ def _write_nodes_to_qdrant(
     )
 
 
-def materialize_kb_collection_llamaindex(
-    *,
-    kb_id: str,
-    collection_name: str,
-    bundles: list[SourceNodeBundle],
-    collection_manager: CollectionManager,
-    embedding_client: EmbeddingClient,
-    embedding_model: str,
-    retrieval_capability: SourceRetrievalCapability,
-    rag_data_root: Path | str,
-    target_alias: str | None = None,
-    sparse_encoder_model: str | None = None,
-    sparse_encoder_client: SparseEmbeddingClient | None = None,
-    qdrant_upsert_batch_size: int = 128,
-    force_recreate: bool = False,
-    build_config_ref: str | None = None,
-    build_config_digest: str | None = None,
-    build_profile_digest: str | None = None,
-    source_adapter_versions: dict[str, str] | None = None,
-    source_manifest_digests: dict[str, str] | None = None,
-    benchmark_scope: str | None = None,
-    created_at: datetime | None = None,
-) -> MaterializationResult:
-    """Materialize native nodes through LlamaIndex and attest the collection."""
-    nodes = _validate_bundles(
-        kb_id=kb_id,
-        collection_name=collection_name,
-        bundles=bundles,
-        collection_manager=collection_manager,
-        retrieval_capability=retrieval_capability,
-        sparse_encoder_client=sparse_encoder_client,
-        sparse_encoder_model=sparse_encoder_model,
-    )
-    _write_nodes_to_qdrant(
-        nodes=nodes,
-        collection_manager=collection_manager,
-        embedding_client=embedding_client,
-        embedding_model=embedding_model,
-        retrieval_capability=retrieval_capability,
-        sparse_encoder_client=sparse_encoder_client,
-        qdrant_upsert_batch_size=qdrant_upsert_batch_size,
-        force_recreate=force_recreate,
-    )
-
-    created_at = created_at or datetime.now(tz=UTC)
-    manifest = IndexManifest(
-        kb_id=kb_id,
-        collection_name=collection_name,
-        alias=target_alias,
-        source_snapshot_id=source_snapshot_id(bundles),
-        source_manifest_digests=source_manifest_digests or {},
-        source_adapter_versions=source_adapter_versions or {},
-        document_count=sum(bundle.document_count for bundle in bundles),
-        chunk_count=len(nodes),
-        embedding_model=embedding_model,
-        vector_dimension=embedding_client.dimension,
-        sparse_encoder=sparse_encoder_model if retrieval_capability == "hybrid" else None,
-        retrieval_capability=RetrievalCapability(retrieval_capability),
-        chunking_config=_chunking_config(bundles),
-        extraction_config={},
-        build_config_ref=build_config_ref,
-        build_config_digest=build_config_digest,
-        build_profile_digest=build_profile_digest,
-        benchmark_scope=benchmark_scope,
-        created_at=created_at,
-    )
-    path = manifest_path(
-        rag_data_root=rag_data_root,
-        kb_id=kb_id,
-        collection_name=collection_name,
-    )
-    manifest = write_index_manifest(path, manifest)
-    collection_manager.write_attestation(manifest.to_attestation())
-
-    summary = MaterializationSummary(
-        kb_id=kb_id,
-        collection_name=collection_name,
-        document_count=sum(bundle.document_count for bundle in bundles),
-        chunk_count=len(nodes),
-        retrieval_capability=RetrievalCapability(retrieval_capability),
-        vector_size=embedding_client.dimension,
-        sparse_enabled=retrieval_capability == "hybrid",
-        qdrant_upsert_batch_size=qdrant_upsert_batch_size,
-    )
-    return MaterializationResult(
-        summary=summary,
-        manifest=manifest,
-        manifest_path=path.as_posix(),
-    )
-
-
-def promote_materialized_alias(
-    *,
-    kb_id: str,
-    alias: str,
-    collection_name: str,
-    collection_manager: CollectionManager,
-) -> AliasPromotionResult:
-    """Point a conventional KB alias at an attested materialized collection."""
-    if not collection_manager.collection_exists():
-        raise RuntimeError(f"Collection '{collection_name}' does not exist")
-    attestation = collection_manager.read_attestation()
-    if attestation is None:
-        raise RuntimeError(f"Collection '{collection_name}' has no attestation metadata")
-    if attestation.kb_id != kb_id:
-        raise RuntimeError(
-            f"Collection '{collection_name}' belongs to '{attestation.kb_id}', not '{kb_id}'"
-        )
-    if attestation.collection_name != collection_name:
-        raise RuntimeError(
-            f"Collection attestation names '{attestation.collection_name}', not '{collection_name}'"
-        )
-
-    alias_name = qdrant_alias_name(kb_id=kb_id, alias=alias)
-    collection_manager.update_alias(alias_name, collection_name)
-    return AliasPromotionResult(
-        alias_name=alias_name,
-        collection_name=collection_name,
-        manifest_id=attestation.manifest_id,
-    )
-
-
 def materialize_release_collection(
     *,
     kb_id: str,
@@ -441,12 +207,10 @@ def materialize_release_collection(
 ) -> RagRelease:
     """Materialize an immutable, content-identified release through LlamaIndex.
 
-    Unlike `materialize_kb_collection_llamaindex`, the release identity
-    (release_id, collection_name, fingerprint, digests) is computed by the
-    caller from the resolved alias build configuration *before* this function
-    runs, since it determines the physical collection name. This function
-    only writes the Qdrant collection, the immutable release manifest, and
-    the schema-version-2 attestation, then returns the complete `RagRelease`.
+    Release identity is computed by the caller from the resolved alias build
+    configuration before this function runs, since it determines the physical
+    collection name. This function writes the Qdrant collection, immutable
+    release manifest, and schema-version-2 attestation.
     """
     retrieval_capability: SourceRetrievalCapability = (
         "hybrid" if build_config.sparse_encoder is not None else "dense"

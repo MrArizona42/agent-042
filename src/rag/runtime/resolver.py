@@ -11,7 +11,7 @@ from llama_index.core import VectorStoreIndex
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app_config.catalog.schema import AliasRetrievalConfig
-from rag.contracts import CollectionAttestation, compare_release_attestation
+from rag.contracts import compare_release_attestation
 from rag.control_plane.models import AliasDeployment, RagRelease
 from rag.control_plane.repositories import ReleaseRepository
 from rag.indexing.llamaindex_embeddings import ProjectEmbedding, ProjectSparseEncoder
@@ -23,40 +23,24 @@ RetrievalStrategy = Literal["dense", "hybrid", "sparse"]
 
 @dataclass(frozen=True, slots=True)
 class RuntimeAliasState:
-    """A validated, queryable alias target.
-
-    Carries two shapes because two different code paths construct it: the
-    applied-state resolver below (deployment/release, the production KB
-    serving path) and `rag.evaluation.target`'s disposable benchmark
-    collections (which build one by hand from the old attestation-v1
-    materialize path, since release-aware benchmark mirroring is phase 6).
-    Use the `manifest_id`/`retrieval_capability` properties rather than the
-    raw fields so callers don't need to know which path produced a state.
-    """
+    """A validated, queryable release target and its applied retrieval configuration."""
 
     kb_id: str
     alias: str
     collection_name: str
     vector_size: int
+    release: RagRelease
+    retrieval_config: AliasRetrievalConfig
     qdrant_alias: str | None = None
-    attestation: CollectionAttestation | None = None
     deployment_id: UUID | None = None
-    release: RagRelease | None = None
-    retrieval_config: AliasRetrievalConfig | None = None
 
     @property
     def manifest_id(self) -> str:
-        if self.release is not None:
-            return self.release.manifest_id
-        assert self.attestation is not None
-        return self.attestation.manifest_id
+        return self.release.manifest_id
 
     @property
     def retrieval_capability(self) -> str:
-        if self.release is not None:
-            return "hybrid" if self.release.build_config.sparse_encoder is not None else "dense"
-        assert self.attestation is not None
-        return self.attestation.retrieval_capability.value
+        return "hybrid" if self.release.build_config.sparse_encoder is not None else "dense"
 
 
 class LlamaIndexRuntimeResolver:
