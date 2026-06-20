@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 from pydantic import BaseModel, ConfigDict
 
+from app_config.catalog import materialize_catalog
 from rag.cli.factories import RagContext, load_catalog_config
 from rag.cli.output import EXIT_OK, EXIT_USAGE_ERROR, emit
 
@@ -27,6 +28,7 @@ def validate(ctx: typer.Context) -> None:
     rag_ctx: RagContext = ctx.obj
     try:
         catalog_cfg = load_catalog_config(rag_ctx)
+        materialize_catalog(catalog_cfg)
     except Exception as exc:
         result = CatalogValidationResult(
             catalog_path=str(rag_ctx.catalog_path), valid=False, error=str(exc)

@@ -77,6 +77,21 @@ def test_validate_fails_for_missing_catalog_file(tmp_path: Path) -> None:
     assert result.exit_code == 2
 
 
+def test_validate_fails_when_default_alias_is_not_declared(tmp_path: Path) -> None:
+    catalog_path = _write_catalog(tmp_path / "catalog.toml")
+    text = catalog_path.read_text(encoding="utf-8").replace(
+        'default_alias = "champion"', 'default_alias = "missing"'
+    )
+    catalog_path.write_text(text, encoding="utf-8")
+
+    result = runner.invoke(app, ["--catalog", str(catalog_path), "catalog", "validate"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload["valid"] is False
+    assert "default_alias 'missing' is not a declared alias" in payload["error"]
+
+
 def test_help_does_not_require_a_catalog_path() -> None:
     result = runner.invoke(app, ["catalog", "validate", "--help"])
 
