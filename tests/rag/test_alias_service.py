@@ -493,7 +493,7 @@ class TestEvaluationGate:
             tmp_path=tmp_path,
             qdrant_client=qdrant_client,
             catalog_cfg=catalog_cfg,
-            evaluation_coverage_checker=lambda release_id, retrieval_digest: True,
+            evaluation_coverage_checker=lambda kb_id, release_id, retrieval_digest: True,
         )
         challenger = service.apply(AliasApplyRequest(kb_id="pytorch_reference", alias="challenger"))
 
@@ -513,7 +513,7 @@ class TestEvaluationGate:
             tmp_path=tmp_path,
             qdrant_client=qdrant_client,
             catalog_cfg=catalog_cfg,
-            evaluation_coverage_checker=lambda release_id, retrieval_digest: False,
+            evaluation_coverage_checker=lambda kb_id, release_id, retrieval_digest: False,
         )
         service.apply(AliasApplyRequest(kb_id="pytorch_reference", alias="challenger"))
 

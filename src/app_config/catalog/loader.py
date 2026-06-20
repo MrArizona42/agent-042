@@ -84,7 +84,7 @@ def materialize_catalog(
     return task_catalog, kb_index
 
 
-def _read_catalog_config(path: Path | str) -> CatalogConfig:
+def read_catalog_config(path: Path | str) -> CatalogConfig:
     path = Path(path)
 
     if not path.exists():
@@ -102,14 +102,14 @@ def _read_catalog_config(path: Path | str) -> CatalogConfig:
 
 def load_catalog(path: Path | str) -> tuple[dict[str, TaskConfig], dict[str, KBConfig]]:
     """Load the catalog from a TOML file."""
-    return materialize_catalog(_read_catalog_config(path))
+    return materialize_catalog(read_catalog_config(path))
 
 
 def load_catalog_with_source_index(
     path: Path | str,
 ) -> tuple[dict[str, TaskConfig], dict[str, KBConfig], SourceInstanceIndex]:
     """Load the catalog along with its merged source-instance index."""
-    catalog_cfg = _read_catalog_config(path)
+    catalog_cfg = read_catalog_config(path)
     task_catalog, kb_index = materialize_catalog(catalog_cfg)
     source_index = build_source_instance_index(catalog_cfg)
     return task_catalog, kb_index, source_index

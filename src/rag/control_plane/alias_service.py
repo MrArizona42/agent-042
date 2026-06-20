@@ -86,7 +86,7 @@ class AliasService:
         sparse_encoder_client_factory: Callable[[], object] | None = None,
         reranker_client_factory: Callable[[str], object] | None = None,
         adapter_registry: SourceAdapterRegistry | None = None,
-        evaluation_coverage_checker: Callable[[str, str], bool] | None = None,
+        evaluation_coverage_checker: Callable[[str, str, str], bool] | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._catalog_cfg = catalog_cfg
@@ -388,7 +388,7 @@ class AliasService:
             return
         retrieval_digest = fp.retrieval_config_digest(alias_cfg.retrieve)
         evaluated = (
-            self._evaluation_coverage_checker(release.id, retrieval_digest)
+            self._evaluation_coverage_checker(request.kb_id, release.id, retrieval_digest)
             if self._evaluation_coverage_checker is not None
             else False
         )

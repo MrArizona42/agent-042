@@ -14,6 +14,7 @@ from app_config.catalog.loader import (
     load_catalog,
     load_catalog_with_source_index,
     materialize_catalog,
+    read_catalog_config,
 )
 from app_config.catalog.models import AdapterConfig, AliasConfig, KBConfig, TaskConfig
 from app_config.catalog.paths import CatalogPathSettings, resolve_catalog_path
@@ -69,6 +70,7 @@ __all__ = [
     "load_catalog_with_source_index",
     "load_source_instance_index",
     "materialize_catalog",
+    "read_catalog_config",
     "resolve_corpus_source_instance_ids",
     "resolve_catalog_path",
     "set_catalog_override",

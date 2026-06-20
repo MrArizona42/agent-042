@@ -18,6 +18,9 @@ dependencies = [
     "python-dotenv>=1.0.1",
 ]
 
+[project.scripts]
+rag = "rag.cli.app:main"
+
 [project.optional-dependencies]
 gateway = [
     "fastapi>=0.128.0",

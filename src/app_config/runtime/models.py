@@ -354,6 +354,13 @@ class RagSettings(BaseModel):
     reranker_model: str = Field(
         description="Cross-encoder model loaded by the reranker service",
     )
+    data_root: Path = Field(
+        default=Path("assets/rag_data"),
+        description=(
+            "Root directory for RAG artifacts (source caches, chunks, release "
+            "manifests); relative paths resolve from the current working directory"
+        ),
+    )
 
 
 class AuthSettings(BaseModel):
