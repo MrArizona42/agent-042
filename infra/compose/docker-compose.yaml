@@ -1311,14 +1311,13 @@ services:
 
   # =====================
   # RAG Operations Runner
-  # One-shot shell/CLI entry point for manual RAG lifecycle operations.
+  # One-shot shell/CLI entry point for manual RAG control-plane operations.
   # Uses the same dependency image and mounted project/data roots as the
   # Airflow worker, but does not run a worker process by default.
   #
   # Example:
   #   docker compose --profile ops --env-file .env -f infra/compose/docker-compose.yaml run --rm rag-ops \
-  #     python -m rag.sources.cli build-source --catalog catalog.toml \
-  #     --kb pytorch_reference --source docs --rag-data-root assets/rag_data --limit 1
+  #     python -m rag.cli.app alias apply pytorch_reference challenger
   # =====================
   rag-ops:
     profiles: ["ops"]
@@ -1326,7 +1325,7 @@ services:
     build: *rag-ops-build
     working_dir: /opt/airflow/project
     entrypoint: []
-    command: ["python", "-m", "rag.sources.cli", "--help"]
+    command: ["python", "-m", "rag.cli.app", "--help"]
     environment:
       <<: *airflow-common-env
       PYTHONPATH: /opt/airflow/project:/opt/airflow/project/src

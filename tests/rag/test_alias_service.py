@@ -305,6 +305,55 @@ class TestNoDriftAndRetrievalOnly:
         assert second.action == "no_drift"
         assert second.deployment.id == first.deployment.id
 
+    def test_refresh_sources_re_fetches_even_without_drift(self, tmp_path, qdrant_client):
+        _setup_source_manifest(tmp_path)
+        fetch_count = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            fetch_count["n"] += 1
+            page_id = request.url.path.rsplit("/", 1)[-1].removesuffix(".html")
+            content = (
+                f"<html><body><h1>{page_id.title()}</h1>"
+                f"<p>{page_id} body text. More useful text for chunking.</p></body></html>"
+            ).encode("utf-8")
+            return httpx.Response(
+                200, content=content, headers={"content-type": "text/html"}, request=request
+            )
+
+        registry = SourceAdapterRegistry()
+        registry.register(
+            ManifestSourceAdapter(
+                adapter_id="generic.http_html",
+                version="1",
+                default_uri_prefix="http_html",
+                _fetcher_factory=lambda: HtmlDocsFetcher(
+                    client=httpx.Client(
+                        transport=httpx.MockTransport(handler), follow_redirects=True
+                    )
+                ),
+                _extractor_factory=HtmlDocsExtractor,
+            )
+        )
+        service = _service(
+            tmp_path=tmp_path, qdrant_client=qdrant_client, catalog_cfg=_catalog_config()
+        )
+        service._adapter_registry = registry
+        service.apply(AliasApplyRequest(kb_id="pytorch_reference", alias="challenger"))
+        fetched_after_first_apply = fetch_count["n"]
+        assert fetched_after_first_apply > 0
+
+        result = service.apply(
+            AliasApplyRequest(kb_id="pytorch_reference", alias="challenger", refresh_sources=True)
+        )
+
+        assert fetch_count["n"] > fetched_after_first_apply
+        # Content didn't actually change, so build_release() resolves the
+        # same release by fingerprint and _activate() finds the deployment
+        # already matches it exactly -- "no_drift" is the accurate label,
+        # not a sign refresh_sources had no effect (the assertion above is
+        # what actually proves the re-fetch happened).
+        assert result.action == "no_drift"
+
     def test_diff_reports_no_drift_after_apply(self, tmp_path, qdrant_client):
         _setup_source_manifest(tmp_path)
         service = _service(

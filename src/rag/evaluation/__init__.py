@@ -1,4 +1,4 @@
-"""RAG evaluation contracts, metrics, runners, and promotion gates."""
+"""RAG evaluation contracts, metrics, and runners."""
 
 from rag.evaluation.models import (
     AnswerEvalObservation,
@@ -6,7 +6,6 @@ from rag.evaluation.models import (
     BenchmarkLabel,
     BenchmarkPreparedArtifacts,
     GenerationObservation,
-    PromotionDecision,
     Qrel,
     RetrievalEvalObservation,
     RetrievedChunk,
@@ -23,7 +22,6 @@ __all__ = [
     "BenchmarkLabel",
     "BenchmarkPreparedArtifacts",
     "GenerationObservation",
-    "PromotionDecision",
     "ProjectRetrievalEvalResult",
     "ProjectRetrieverEvaluator",
     "Qrel",

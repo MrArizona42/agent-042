@@ -27,7 +27,9 @@ are attached to the metric result that was computed from them.
 | `base_model` | Gateway default model at eval time. |
 | `adapter_name`, `adapter_version`, `lora_alias` | LoRA adapter metadata, when used. |
 | `rag_enabled`, `rag_alias`, `knowledge_base` | RAG configuration used by the run. |
-| `qdrant_alias`, `qdrant_collection`, `rag_manifest_id` | Resolved RAG collection metadata. |
+| `qdrant_alias`, `qdrant_collection`, `rag_manifest_id` | Resolved RAG collection metadata. `rag_manifest_id` is the legacy v1 attestation id; disposable benchmark collections still use it. |
+| `rag_release_id`, `alias_deployment_id` | The content-addressed release and Postgres alias deployment the run was evaluated against. |
+| `build_config_digest`, `retrieval_config_digest` | Fingerprints of the build/retrieval config in effect for this run; join key for detecting whether a benchmark needs to be rerun after a catalog change. |
 | `embedding_model`, `chunking_strategy`, `retrieval_top_k` | Retrieval configuration metadata when available. |
 | `judge_backend`, `judge_model` | LLM-as-judge backend used for judge metrics. |
 | `temperature`, `max_tokens` | Generation settings used during prediction fetch. |

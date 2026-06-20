@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rag.contracts.manifests import manifest_path
+from rag.contracts.manifests import manifest_path, release_manifest_path
 from rag.contracts.metadata import source_document
-from rag.lifecycle.commands import build_run_path
 from rag.sources.artifacts import extracted_artifact_path
 from rag.sources.cache import source_cache_paths
 from rag.sources.chunks import chunk_artifact_path
@@ -60,22 +59,21 @@ def test_extracted_and_chunk_artifact_paths_are_source_instance_scoped(tmp_path:
     )
 
 
-def test_manifest_and_build_run_paths_are_knowledge_base_scoped(tmp_path: Path) -> None:
+def test_manifest_and_release_manifest_paths_are_knowledge_base_scoped(tmp_path: Path) -> None:
     manifest = manifest_path(
         rag_data_root=tmp_path,
         kb_id="pytorch_reference",
         collection_name="rag__pytorch_reference__20260101_000000",
     )
-    run = build_run_path(
+    release = release_manifest_path(
         rag_data_root=tmp_path,
         kb_id="pytorch_reference",
-        run_id="rag_build_pytorch_reference_20260101_000000",
+        release_id="ragrel_pytorch_reference_abc123",
     )
 
     assert manifest.as_posix().endswith(
         "knowledge_bases/pytorch_reference/manifests/rag__pytorch_reference__20260101_000000.json"
     )
-    assert run.as_posix().endswith(
-        "knowledge_bases/pytorch_reference/metadata/build_runs/"
-        "rag_build_pytorch_reference_20260101_000000.json"
+    assert release.as_posix().endswith(
+        "knowledge_bases/pytorch_reference/releases/ragrel_pytorch_reference_abc123.json"
     )

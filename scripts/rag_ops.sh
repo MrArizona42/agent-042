@@ -4,35 +4,21 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/rag_ops.sh python -m rag.sources.cli <args...>
+  bash scripts/rag_ops.sh python -m rag.cli.app <args...>
 
 Examples:
-  bash current/scripts/rag_ops.sh python -m rag.sources.cli build-source \
-    --catalog catalog.toml \
-    --kb pytorch_reference \
-    --source docs \
-    --rag-data-root assets/rag_data \
-    --limit 1
+  bash scripts/rag_ops.sh python -m rag.cli.app catalog validate
 
-  bash current/scripts/rag_ops.sh python -m rag.sources.cli collect-bundle \
-    --catalog catalog.toml \
-    --kb pytorch_reference \
-    --source docs \
-    --rag-data-root assets/rag_data \
-    --limit 1
+  bash scripts/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
 
-  bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize \
-    --catalog catalog.toml \
-    --kb pytorch_reference \
-    --source docs \
-    --alias-config challenger \
-    --rag-data-root assets/rag_data \
-    --limit 1
+  bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
 
-  bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias \
-    --kb pytorch_reference \
-    --alias challenger \
-    --collection <collection_name>
+  bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion \
+    --allow-build-default --allow-unevaluated
+
+  bash scripts/rag_ops.sh python -m rag.cli.app release list --kb pytorch_reference
+
+  bash scripts/rag_ops.sh python -m rag.cli.app benchmark run --kb pytorch_reference --alias challenger
 EOF
 }
 

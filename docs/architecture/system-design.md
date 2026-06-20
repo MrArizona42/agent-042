@@ -338,22 +338,33 @@ Source/build lifecycle is split across production modules:
 - `src/rag/sources/` — generic source manifests, fetch/extract/chunk artifacts,
   source builds, benchmark preparation, and source bundle collection;
 - `src/rag/indexing/` — LlamaIndex Qdrant materialization, collection metadata,
-  collection manifests, and project-owned alias promotion;
-- `src/rag/lifecycle/` — shared `BuildRequest` / `BuildRun` stage wrappers used
-  by CLI and Airflow.
+  collection manifests, and immutable release attestation;
+- `src/rag/control_plane/` — content-addressed release builder
+  (`release_builder.py`), fingerprint helpers (`fingerprints.py`), the
+  Postgres-backed release/deployment registry (`repositories.py`,
+  `postgres.py`), and `AliasService` (`alias_service.py`), the diff/apply
+  reconciliation engine;
+- `src/rag/cli/` — the `rag` Typer CLI (`catalog`, `alias`, `release`,
+  `benchmark`, `source` command groups), the only supported operator
+  entrypoint.
 
-The data flow is:
+The data flow for `rag alias apply` is:
 
 ```text
-source instance manifest
-  -> fetch raw artifacts
+catalog.toml alias declaration (build + retrieve config)
+  -> AliasService.diff(): compare against Postgres applied state
+  -> on drift: fetch raw artifacts (cache permitting)
   -> extract LlamaIndex Document artifacts
   -> parse native TextNode artifacts
   -> collect SourceNodeBundle
-  -> VectorStoreIndex + LlamaIndex QdrantVectorStore
-  -> write artifact manifest + collection metadata attestation
-  -> optional alias promotion
+  -> VectorStoreIndex + LlamaIndex QdrantVectorStore, named by content fingerprint
+  -> write immutable release manifest + insert rag_releases row
+  -> insert/activate rag_alias_deployments row, update the Qdrant alias
 ```
+
+A release is reused across this flow whenever its build config and source
+declaration fingerprint match an existing, non-retired `rag_releases` row —
+fetching/materializing only happens on an actual cache or fingerprint miss.
 
 Политика артефактов:
 
@@ -381,45 +392,79 @@ assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/
 Benchmark results are not stored as report files; Postgres `eval_runs` and
 `eval_samples.detail` are the source of truth.
 
-### 5.5 Alias-based управление коллекциями (паттерн champion / challenger)
+### 5.5 Declarative alias control plane (desired vs. applied state, паттерн champion / challenger)
 
-Ключевой механизм для управления качеством RAG — система aliases поверх коллекций Qdrant. Одновременно могут существовать несколько физических коллекций для одного KB. Физическая коллекция не содержит имени alias, например `rag__pytorch_reference__20260605_120000`. Qdrant alias `rag__pytorch_reference__champion` указывает на текущую production-версию, а `rag__pytorch_reference__challenger` — на кандидатную настройку или A/B вариант.
+Ключевой механизм для управления качеством RAG — declarative reconciliation
+между `catalog.toml` (desired state) и Postgres (`rag_releases`,
+`rag_alias_deployments` — applied state), по аналогии с Terraform/Kubernetes.
+Qdrant alias — лишь зеркало applied state, не источник истины: runtime
+resolution и cleanup решают liveness через Postgres, а не через то, на что
+сейчас указывает Qdrant alias.
+
+Физическая коллекция — immutable, content-addressed release:
+`rag__<kb_id>__<16-hex fingerprint>` (не timestamp). Тот же fingerprint
+(build config + source declaration + source snapshot) всегда резолвится в тот
+же `release_id`/collection name, поэтому одна и та же release может быть
+переиспользована несколькими alias'ами без пересборки.
 
 ```
-Qdrant Collections:
-  rag__pytorch_reference__20260605_120000  ◄── alias "rag__pytorch_reference__champion"
-  rag__pytorch_reference__20260605_153000  ◄── alias "rag__pytorch_reference__challenger"
+rag_releases (Postgres):
+  ragrel_pytorch_reference_<fp1>  ── collection rag__pytorch_reference__<fp1>
+  ragrel_pytorch_reference_<fp2>  ── collection rag__pytorch_reference__<fp2>
 
-После валидации challenger:
-  rag__pytorch_reference__20260605_120000
-  rag__pytorch_reference__20260605_153000  ◄── alias "rag__pytorch_reference__champion"
+rag_alias_deployments (Postgres, applied state):
+  (pytorch_reference, champion)   -> active   -> ragrel_pytorch_reference_<fp1>
+  (pytorch_reference, challenger) -> active   -> ragrel_pytorch_reference_<fp2>
+
+Qdrant aliases (mirror, updated by AliasService._activate()):
+  rag__pytorch_reference__champion   -> rag__pytorch_reference__<fp1>
+  rag__pytorch_reference__challenger -> rag__pytorch_reference__<fp2>
 ```
 
-Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В catalog каждый KB alias задаёт профиль retrieval-параметров (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Runtime валидирует alias config against Qdrant attestation перед retrieval.
+Activation (`AliasService.apply()`) сначала пишет/обновляет
+`rag_alias_deployments`, затем обновляет Qdrant alias — атомарная для
+runtime операция (Postgres решает what serves traffic), не требующая
+перезапуска Gateway. В catalog каждый alias задаёт `build` (chunking,
+dense/sparse encoder) и `retrieve` (`top_k`, `score_threshold`,
+`strategy`, `reranker`) профили. Runtime резолвит alias через активный
+deployment, не через collection metadata attestation.
 
-Совместимость alias config и collection capability:
+Совместимость alias `retrieve.strategy` и release capability:
 
-- dense-запрос к dense collection — разрешён;
-- dense-запрос к hybrid collection — разрешён;
-- hybrid-запрос к hybrid collection — разрешён;
-- hybrid-запрос к dense collection — отклоняется runtime'ом.
+- dense-запрос к dense release — разрешён;
+- dense-запрос к hybrid release — разрешён;
+- hybrid/sparse-запрос к hybrid release — разрешён;
+- hybrid/sparse-запрос к dense-only release — отклоняется `AliasService`
+  при apply (`AliasApplyError`), retrieval не достигается.
 
 UI может использовать `default_alias`; API/eval могут явно запросить любой
 declared alias KB. Это даёт основу для champion/challenger сравнений и будущих
-A/B тестов.
+A/B тестов. `default_alias` защищён evaluation-coverage gate: apply
+отказывается собрать/активировать неоцененный release для default alias без
+явного `--allow-build-default`/`--allow-unevaluated`.
 
-**Lifecycle коллекции:**
+**Reconciliation workflow:**
 
-1. **Source build** (`python -m rag.sources.cli build-source`) — fetch/extract/chunk для corpus source instances.
-2. **Materialize** (`python -m rag.sources.cli materialize --alias-config ...`) — индексация bundle в новую Qdrant collection и запись manifest + attestation.
-3. **Inspection** — direct Qdrant notebook или CLI summary проверяют aliases, collection metadata, sample points.
-4. **Alias promotion** (`python -m rag.sources.cli promote-alias`) — переключение `rag__<kb>__<alias>` на attested collection.
-5. **Cleanup** (`dags/rag_collection_cleanup.py`) — удаление устаревших коллекций без активных aliases.
+1. **Diff** (`rag alias diff <kb> <alias>`) — desired (catalog digest) vs.
+   applied (Postgres digest) comparison, без side effects.
+2. **Apply** (`rag alias apply <kb> <alias>`) — резолвит/собирает (fetch при
+   cache miss или `--refresh-sources`) release через `AliasService`,
+   проверяет provider identity и retrieval compatibility, активирует
+   deployment, обновляет Qdrant alias.
+3. **Benchmark** (`rag benchmark run ...`) — прогон attached benchmarks
+   против активного release alias'а; результаты пишутся в `eval_runs`/
+   `eval_samples` с `rag_release_id`/`alias_deployment_id`.
+4. **Inspection** (`rag release list/show`, `rag alias status`) — сравнение
+   declared/applied state, без прямого обращения к Qdrant.
+5. **Cleanup** (`dags/rag_collection_cleanup.py`, `@daily`) — retire release
+   в Postgres перед удалением её Qdrant collection; никогда не удаляет
+   collection без соответствующей retired `rag_releases` строки.
 
 LlamaIndex-built collections are serving-compatible: runtime resolves the
-physical collection, validates collection metadata, reopens
+active deployment's release, validates provider identity, reopens
 `VectorStoreIndex.from_vector_store()`, and queries native nodes. Alias
-promotion remains a project-owned atomic Qdrant operation.
+activation remains a project-owned, Postgres-then-Qdrant operation inside
+`AliasService`.
 
 ### 5.6 Runtime retrieval и observability
 
@@ -707,20 +752,26 @@ Python-конфигурация реализована через `pydantic-sett
 - Возвращает путь к `training_summary.json` через XCom.
 - Не выполняет регистрацию и продвижение — это ручной шаг в `lora_ops.ipynb`.
 
-**`rag_lifecycle.py`** — generic RAG lifecycle DAG.
-- Запускает те же CLI entrypoints, что и `rag-ops`: `build-source`, `materialize`,
-  optional `promote-alias`.
-- Параметризуется через `kb`, `source`, `alias_config`, optional `promote_alias`,
-  `build_run_id`, `dry_run`, and DVC sync settings.
-- Может выполнить optional `sync_dvc` между materialization и promotion для
-  generated RAG artifacts.
-- Airflow остаётся orchestration layer; shared lifecycle state lives in
-  `src/rag/lifecycle/`, source build code in `src/rag/sources/`, and
-  materialization/promotion code in `src/rag/indexing/`.
+**`rag_alias_apply.py`** — make one KB alias match its `catalog.toml`
+declaration.
+- Вызывает `AliasService.apply()` напрямую через те же factories, что и `rag`
+  CLI — не через subprocess/CLI-процесс.
+- Параметризуется через `kb_id`, `alias`, optional `release_id`,
+  `refresh_sources`, `allow_unevaluated`, `allow_build_default`, и
+  DVC sync settings (`sync_dvc`, `dvc_base_branch`, `dvc_bot_branch`).
+- Optional follow-up `sync_dvc` task синхронизирует generated source-instance
+  artifacts через DVC после успешного apply.
+- Airflow остаётся orchestration layer; reconciliation logic живёт в
+  `src/rag/control_plane/`, source build code in `src/rag/sources/`, and
+  materialization code in `src/rag/indexing/`.
 
 **`eval_dags.py`** — оценка качества (подробнее в разделе 9).
 
-**`rag_collection_cleanup.py`** — удаление Qdrant-коллекций без активных aliases.
+**`rag_collection_cleanup.py`** — release/deployment-aware cleanup: marks a
+release retired in Postgres (`rag_releases.retired_at`) when it has no
+active/pending/recently-superseded `rag_alias_deployments` row, then deletes
+its Qdrant collection. Never deletes a collection with no matching
+`rag_releases` row at all (it may still be mid-build).
 
 ### 8.2 Operator Notebooks (JupyterLab)
 
@@ -734,9 +785,9 @@ JupyterLab — точка входа для ручных операций опе
 | `experiments/misc_ops/prefetch_assets.ipynb` | Загрузка моделей и датасетов |
 | `experiments/misc_ops/postgres_diagnostics.ipynb` | Диагностика БД |
 
-RAG production lifecycle and diagnostics use `python -m rag.sources.cli` in
-the `rag-ops` container or Airflow `rag_lifecycle`. Direct collection metadata,
-alias, point, and snapshot inspection uses the Qdrant API/dashboard.
+RAG production operations and diagnostics use `python -m rag.cli.app` in
+the `rag-ops` container or Airflow `rag_alias_apply`. Direct collection
+metadata, alias, point, and snapshot inspection uses the Qdrant API/dashboard.
 
 ### 8.3 Версионирование данных (DVC)
 

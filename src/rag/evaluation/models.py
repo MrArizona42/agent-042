@@ -201,22 +201,3 @@ class AnswerEvalObservation(BaseModel):
         if not value.strip():
             raise ValueError("value must be non-empty")
         return value.strip()
-
-
-class PromotionDecision(BaseModel):
-    """Outcome of evaluating a candidate collection against promotion gates."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    candidate: str
-    promote: bool
-    passed_gates: list[str] = Field(default_factory=list)
-    failed_gates: list[str] = Field(default_factory=list)
-    gate_details: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("candidate")
-    @classmethod
-    def _required_strings_must_not_be_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("value must be non-empty")
-        return value.strip()

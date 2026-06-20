@@ -59,6 +59,7 @@ class AliasApplyRequest(BaseModel):
     release_id: str | None = None
     allow_unevaluated: bool = False
     allow_build_default: bool = False
+    refresh_sources: bool = False
 
 
 class AliasApplyResult(BaseModel):
@@ -216,12 +217,16 @@ class AliasService:
                 f"provider identity mismatch, refusing to apply: {diff.provider_mismatches}"
             )
 
-        if not diff.build_drift and not diff.source_declaration_drift and not diff.retrieval_drift:
+        no_drift = (
+            not diff.build_drift and not diff.source_declaration_drift and not diff.retrieval_drift
+        )
+        if no_drift and not request.refresh_sources:
             active = self._deployment_repo.get_active(kb_id=request.kb_id, alias=request.alias)
             release = self._release_repo.get(active.release_id)
             return AliasApplyResult(deployment=active, release=release, action="no_drift")
 
-        if not diff.build_drift and not diff.source_declaration_drift:
+        retrieval_only_drift = not diff.build_drift and not diff.source_declaration_drift
+        if retrieval_only_drift and not request.refresh_sources:
             active = self._deployment_repo.get_active(kb_id=request.kb_id, alias=request.alias)
             release = self._release_repo.get(active.release_id)
             return self._activate(
@@ -287,17 +292,24 @@ class AliasService:
                 )
             return release, False
 
-        candidates = self._release_repo.find_reusable(
-            build_config_digest=diff.desired_build_config_digest,
-            source_declaration_digest=desired_source_declaration_digest,
-        )
-        if len(candidates) > 1:
-            raise AliasApplyError(
-                "multiple releases match the desired build and source state "
-                f"({sorted(c.id for c in candidates)}); disambiguate with an explicit release_id"
+        # refresh_sources is the explicit, expensive escape hatch that always
+        # re-fetches: skip the cheap digest-only reuse lookup below (which
+        # never touches remote content) and let build_release() re-fetch,
+        # then fall back on its own filesystem fingerprint match if nothing
+        # actually changed.
+        if not request.refresh_sources:
+            candidates = self._release_repo.find_reusable(
+                build_config_digest=diff.desired_build_config_digest,
+                source_declaration_digest=desired_source_declaration_digest,
             )
-        if len(candidates) == 1:
-            return candidates[0], False
+            if len(candidates) > 1:
+                raise AliasApplyError(
+                    "multiple releases match the desired build and source state "
+                    f"({sorted(c.id for c in candidates)}); disambiguate with an "
+                    "explicit release_id"
+                )
+            if len(candidates) == 1:
+                return candidates[0], False
 
         if is_default_alias and not request.allow_build_default:
             raise AliasApplyError(
@@ -311,6 +323,7 @@ class AliasService:
             alias=alias,
             alias_cfg=alias_cfg,
             catalog_digest=diff.desired_catalog_digest,
+            refresh_sources=request.refresh_sources,
         )
         return release, True
 
@@ -321,6 +334,7 @@ class AliasService:
         alias: str,
         alias_cfg: CatalogAliasConfig,
         catalog_digest: str,
+        refresh_sources: bool = False,
     ) -> RagRelease:
         build_digest = fp.build_config_digest(alias_cfg.build)
         retrieval_digest = fp.retrieval_config_digest(alias_cfg.retrieve)
@@ -355,6 +369,9 @@ class AliasService:
                 embedding_client=self._embedding_client_factory(),
                 sparse_encoder_client=sparse_client,
                 adapter_registry=self._adapter_registry,
+                force_fetch=refresh_sources,
+                force_extract=refresh_sources,
+                force_chunk=refresh_sources,
             )
         except Exception as exc:
             self._release_build_repo.mark_failed(

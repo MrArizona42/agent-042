@@ -53,6 +53,14 @@ def apply(
         "--allow-build-default",
         help="Bootstrap override: allow building a new release directly for the default alias.",
     ),
+    refresh_sources: bool = typer.Option(
+        False,
+        "--refresh-sources",
+        help=(
+            "Re-fetch source content before deciding whether a rebuild is needed. "
+            "Expensive; stays explicit rather than happening on every apply."
+        ),
+    ),
 ) -> None:
     """Make this KB alias match its catalog declaration."""
     rag_ctx: RagContext = ctx.obj
@@ -65,6 +73,7 @@ def apply(
                 release_id=release_id,
                 allow_unevaluated=allow_unevaluated,
                 allow_build_default=allow_build_default,
+                refresh_sources=refresh_sources,
             )
         )
     except Exception as exc:
