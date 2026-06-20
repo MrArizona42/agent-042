@@ -55,7 +55,12 @@ def _write_catalog(path: Path) -> Path:
     return path
 
 
-def _diff(*, build_drift: bool, retrieval_drift: bool = False) -> AliasDiff:
+def _diff(
+    *,
+    build_drift: bool,
+    retrieval_drift: bool = False,
+    provider_mismatches: list[str] | None = None,
+) -> AliasDiff:
     return AliasDiff(
         kb_id="pytorch_reference",
         alias="champion",
@@ -67,7 +72,7 @@ def _diff(*, build_drift: bool, retrieval_drift: bool = False) -> AliasDiff:
         build_drift=build_drift,
         retrieval_drift=retrieval_drift,
         source_declaration_drift=False,
-        provider_mismatches=[],
+        provider_mismatches=provider_mismatches or [],
         reusable_release_ids=[],
     )
 
@@ -134,6 +139,23 @@ def test_diff_exits_zero_when_no_drift(tmp_path, monkeypatch):
 def test_diff_exits_one_when_drift_exists(tmp_path, monkeypatch):
     catalog_path = _write_catalog(tmp_path / "catalog.toml")
     fake = _FakeAliasService(diff_result=_diff(build_drift=True))
+    monkeypatch.setattr(alias_cli, "build_alias_service", lambda ctx: fake)
+
+    result = runner.invoke(
+        app, ["--catalog", str(catalog_path), "alias", "diff", "pytorch_reference", "champion"]
+    )
+
+    assert result.exit_code == 1
+
+
+def test_diff_exits_one_when_provider_identity_mismatches(tmp_path, monkeypatch):
+    catalog_path = _write_catalog(tmp_path / "catalog.toml")
+    fake = _FakeAliasService(
+        diff_result=_diff(
+            build_drift=False,
+            provider_mismatches=["dense encoder provider mismatch"],
+        )
+    )
     monkeypatch.setattr(alias_cli, "build_alias_service", lambda ctx: fake)
 
     result = runner.invoke(
@@ -275,6 +297,20 @@ def test_status_exits_two_for_unknown_kb(tmp_path):
     result = runner.invoke(app, ["--catalog", str(catalog_path), "alias", "status", "nope"])
 
     assert result.exit_code == 2
+
+
+def test_status_exits_four_when_an_alias_check_fails(tmp_path, monkeypatch):
+    catalog_path = _write_catalog(tmp_path / "catalog.toml")
+    fake = _FakeAliasService(diff_error=RuntimeError("database unavailable"))
+    monkeypatch.setattr(alias_cli, "build_alias_service", lambda ctx, catalog_cfg=None: fake)
+
+    result = runner.invoke(
+        app, ["--catalog", str(catalog_path), "alias", "status", "pytorch_reference"]
+    )
+
+    assert result.exit_code == 4
+    payload = json.loads(result.stdout)
+    assert payload[0]["error"] == "database unavailable"
 
 
 def test_nested_help_works_without_any_settings(tmp_path):

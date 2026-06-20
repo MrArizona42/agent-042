@@ -7,7 +7,7 @@ from typing import Optional
 import typer
 
 from rag.cli.factories import RagContext, build_alias_service, load_catalog_config
-from rag.cli.output import EXIT_DRIFT, EXIT_OK, emit, exit_code_for
+from rag.cli.output import EXIT_DRIFT, EXIT_INFRA_ERROR, EXIT_OK, emit, exit_code_for
 from rag.control_plane.alias_service import AliasApplyRequest, AliasDiffRequest
 
 app = typer.Typer(help="Alias diff and apply: desired vs applied state.")
@@ -29,7 +29,12 @@ def diff(
         raise typer.Exit(exit_code_for(exc)) from None
 
     emit(result, as_json=rag_ctx.as_json)
-    has_drift = result.build_drift or result.retrieval_drift or result.source_declaration_drift
+    has_drift = (
+        result.build_drift
+        or result.retrieval_drift
+        or result.source_declaration_drift
+        or bool(result.provider_mismatches)
+    )
     raise typer.Exit(EXIT_DRIFT if has_drift else EXIT_OK)
 
 
@@ -100,16 +105,23 @@ def status(
     service = build_alias_service(rag_ctx, catalog_cfg=catalog_cfg)
     results = []
     has_drift = False
+    has_errors = False
     for alias_name in kb_cfg.aliases:
         try:
             result = service.diff(AliasDiffRequest(kb_id=kb_id, alias=alias_name))
         except Exception as exc:
             results.append({"kb_id": kb_id, "alias": alias_name, "error": str(exc)})
+            has_errors = True
             continue
         results.append(result)
         has_drift = has_drift or (
-            result.build_drift or result.retrieval_drift or result.source_declaration_drift
+            result.build_drift
+            or result.retrieval_drift
+            or result.source_declaration_drift
+            or bool(result.provider_mismatches)
         )
 
     emit(results, as_json=rag_ctx.as_json)
+    if has_errors:
+        raise typer.Exit(EXIT_INFRA_ERROR)
     raise typer.Exit(EXIT_DRIFT if has_drift else EXIT_OK)
