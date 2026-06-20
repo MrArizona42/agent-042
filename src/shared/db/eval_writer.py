@@ -36,6 +36,55 @@ def write_evaluation_results(
         engine.dispose()
 
 
+def _orm_row_payload(row: EvalRun | EvalSample) -> dict[str, Any]:
+    return {column.name: getattr(row, column.name) for column in row.__table__.columns}
+
+
+def list_evaluation_runs(
+    *, db_url: str, knowledge_base: str, limit: int = 100
+) -> list[dict[str, Any]]:
+    """Return recent persisted RAG metric runs for one knowledge base."""
+    db_url = require_db_url(db_url, purpose="Evaluation history")
+    engine = create_engine(to_sync_url(db_url))
+    try:
+        with Session(engine) as session:
+            rows = session.scalars(
+                select(EvalRun)
+                .where(EvalRun.task == "rag", EvalRun.knowledge_base == knowledge_base)
+                .order_by(EvalRun.created_at.desc())
+                .limit(limit)
+            ).all()
+            return [_orm_row_payload(row) for row in rows]
+    finally:
+        engine.dispose()
+
+
+def get_evaluation_run(*, db_url: str, eval_run_id: str) -> dict[str, Any] | None:
+    """Return one persisted metric run and its ordered sample observations."""
+    try:
+        run_id = uuid.UUID(eval_run_id)
+    except ValueError:
+        return None
+    db_url = require_db_url(db_url, purpose="Evaluation history")
+    engine = create_engine(to_sync_url(db_url))
+    try:
+        with Session(engine) as session:
+            run = session.get(EvalRun, run_id)
+            if run is None:
+                return None
+            samples = session.scalars(
+                select(EvalSample)
+                .where(EvalSample.eval_run_id == run_id)
+                .order_by(EvalSample.sample_idx)
+            ).all()
+            return {
+                "run": _orm_row_payload(run),
+                "samples": [_orm_row_payload(sample) for sample in samples],
+            }
+    finally:
+        engine.dispose()
+
+
 def _coverage_from_rows(
     rows: Sequence[tuple[str, str, str | None]],
     *,

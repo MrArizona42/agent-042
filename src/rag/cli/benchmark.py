@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Optional
 
 import typer
@@ -13,7 +12,7 @@ from rag.cli.factories import RagContext, load_catalog_config
 from rag.cli.output import EXIT_OK, EXIT_USAGE_ERROR, emit, exit_code_for
 from rag.evaluation.runner import BenchmarkRunSummary, run_benchmark
 from rag.runtime import RagRuntime
-from rag.sources.benchmark_prep import metadata_artifact_path
+from shared.db.eval_writer import get_evaluation_run, list_evaluation_runs
 
 app = typer.Typer(help="Release-aware benchmark execution.")
 
@@ -90,20 +89,12 @@ def list_benchmarks(
     ctx: typer.Context,
     kb_id: str = typer.Option(..., "--kb", help="Knowledge base id."),
 ) -> None:
-    """List benchmark source instances attached to a KB."""
+    """List recent persisted benchmark metric runs for a KB."""
     rag_ctx: RagContext = ctx.obj
-    catalog_cfg = load_catalog_config(rag_ctx)
-    source_index = build_source_instance_index(catalog_cfg)
-    instances = source_index.benchmark_for_kb(kb_id)
-    payload = [
-        {
-            "source_instance_id": instance.id,
-            "knowledge_base": instance.knowledge_base,
-            "adapter": f"{instance.adapter.id}@{instance.adapter.version}",
-            "suites": list(instance.benchmark.suites) if instance.benchmark else [],
-        }
-        for instance in instances
-    ]
+    payload = list_evaluation_runs(
+        db_url=get_settings().auth.agent042_db_url,
+        knowledge_base=kb_id,
+    )
     emit(payload, as_json=rag_ctx.as_json)
     raise typer.Exit(EXIT_OK)
 
@@ -111,17 +102,20 @@ def list_benchmarks(
 @app.command("show")
 def show(
     ctx: typer.Context,
-    source_instance_id: str = typer.Argument(..., help="Benchmark source instance id."),
+    eval_run_id: str = typer.Argument(..., help="Evaluation run id."),
 ) -> None:
-    """Show the prepared-artifact metadata for one benchmark source instance."""
+    """Show one persisted benchmark metric run and its samples."""
     rag_ctx: RagContext = ctx.obj
-    path = metadata_artifact_path(rag_ctx.data_root, source_instance_id)
-    if not path.is_file():
+    payload = get_evaluation_run(
+        db_url=get_settings().auth.agent042_db_url,
+        eval_run_id=eval_run_id,
+    )
+    if payload is None:
         emit(
-            {"error": f"Benchmark '{source_instance_id}' is not prepared"},
+            {"error": f"Evaluation run '{eval_run_id}' not found"},
             as_json=rag_ctx.as_json,
         )
         raise typer.Exit(EXIT_USAGE_ERROR)
 
-    emit(json.loads(path.read_text(encoding="utf-8")), as_json=rag_ctx.as_json)
+    emit(payload, as_json=rag_ctx.as_json)
     raise typer.Exit(EXIT_OK)

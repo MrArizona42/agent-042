@@ -139,8 +139,19 @@ def test_run_with_kb_runs_every_attached_benchmark(tmp_path, monkeypatch):
     assert calls == ["pytorch_reference.qa_benchmark"]
 
 
-def test_list_returns_benchmark_source_instances(tmp_path):
+def test_list_returns_persisted_evaluation_runs(tmp_path, monkeypatch):
     catalog_path = _write_catalog(tmp_path / "catalog.toml")
+    monkeypatch.setattr(
+        benchmark_cli,
+        "list_evaluation_runs",
+        lambda **kwargs: [
+            {
+                "id": "1aa97378-dca6-4f32-8148-426b8e17b78b",
+                "knowledge_base": kwargs["knowledge_base"],
+                "metric_name": "document_hit_rate",
+            }
+        ],
+    )
 
     result = runner.invoke(
         app, ["--catalog", str(catalog_path), "benchmark", "list", "--kb", "pytorch_reference"]
@@ -148,12 +159,40 @@ def test_list_returns_benchmark_source_instances(tmp_path):
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload[0]["source_instance_id"] == "pytorch_reference.qa_benchmark"
+    assert payload[0]["knowledge_base"] == "pytorch_reference"
+    assert payload[0]["metric_name"] == "document_hit_rate"
 
 
-def test_show_exits_two_when_not_prepared(tmp_path):
+def test_show_exits_two_when_run_does_not_exist(tmp_path, monkeypatch):
+    monkeypatch.setattr(benchmark_cli, "get_evaluation_run", lambda **kwargs: None)
     result = runner.invoke(
-        app, ["--data-root", str(tmp_path), "benchmark", "show", "pytorch_reference.qa_benchmark"]
+        app,
+        [
+            "--data-root",
+            str(tmp_path),
+            "benchmark",
+            "show",
+            "1aa97378-dca6-4f32-8148-426b8e17b78b",
+        ],
     )
 
     assert result.exit_code == 2
+
+
+def test_show_returns_run_and_samples(tmp_path, monkeypatch):
+    run_id = "1aa97378-dca6-4f32-8148-426b8e17b78b"
+    monkeypatch.setattr(
+        benchmark_cli,
+        "get_evaluation_run",
+        lambda **kwargs: {
+            "run": {"id": kwargs["eval_run_id"], "metric_name": "document_hit_rate"},
+            "samples": [{"sample_idx": 0, "sample_id": "case-1"}],
+        },
+    )
+
+    result = runner.invoke(app, ["benchmark", "show", run_id])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["run"]["id"] == run_id
+    assert payload["samples"][0]["sample_id"] == "case-1"
