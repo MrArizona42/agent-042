@@ -229,6 +229,11 @@ class AliasService:
         if retrieval_only_drift and not request.refresh_sources:
             active = self._deployment_repo.get_active(kb_id=request.kb_id, alias=request.alias)
             release = self._release_repo.get(active.release_id)
+            self._validate_retrieval_compatibility(release=release, alias_cfg=alias_cfg)
+            if is_default_alias:
+                self._enforce_default_alias_evaluation_gate(
+                    release=release, alias_cfg=alias_cfg, request=request
+                )
             return self._activate(
                 kb_id=request.kb_id,
                 alias=request.alias,
@@ -246,12 +251,7 @@ class AliasService:
             is_default_alias=is_default_alias,
         )
 
-        needs_sparse = alias_cfg.retrieve.strategy in ("hybrid", "sparse")
-        if needs_sparse and release.build_config.sparse_encoder is None:
-            raise AliasApplyError(
-                f"retrieve.strategy '{alias_cfg.retrieve.strategy}' is incompatible with "
-                f"release '{release.id}', which has no sparse encoder"
-            )
+        self._validate_retrieval_compatibility(release=release, alias_cfg=alias_cfg)
 
         if is_default_alias:
             self._enforce_default_alias_evaluation_gate(
@@ -266,6 +266,17 @@ class AliasService:
             diff=diff,
             action="built_release" if built else "reused_release",
         )
+
+    @staticmethod
+    def _validate_retrieval_compatibility(
+        *, release: RagRelease, alias_cfg: CatalogAliasConfig
+    ) -> None:
+        needs_sparse = alias_cfg.retrieve.strategy in ("hybrid", "sparse")
+        if needs_sparse and release.build_config.sparse_encoder is None:
+            raise AliasApplyError(
+                f"retrieve.strategy '{alias_cfg.retrieve.strategy}' is incompatible with "
+                f"release '{release.id}', which has no sparse encoder"
+            )
 
     def _resolve_release_for_apply(
         self,

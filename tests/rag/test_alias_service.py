@@ -533,6 +533,75 @@ class TestRetrievalStrategyCompatibility:
 
 
 class TestEvaluationGate:
+    def test_default_alias_retrieval_only_drift_requires_matching_evaluation(
+        self, tmp_path, qdrant_client
+    ):
+        _setup_source_manifest(tmp_path)
+        catalog_cfg = _catalog_config(challenger_strategy="dense", challenger_reranker=None)
+        service = _service(
+            tmp_path=tmp_path,
+            qdrant_client=qdrant_client,
+            catalog_cfg=catalog_cfg,
+            evaluation_coverage_checker=lambda kb_id, release_id, retrieval_digest: False,
+        )
+        first = service.apply(
+            AliasApplyRequest(
+                kb_id="pytorch_reference",
+                alias="champion",
+                allow_build_default=True,
+                allow_unevaluated=True,
+            )
+        )
+        kb = service._catalog_cfg.knowledge_bases[0]
+        champion = kb.aliases["champion"]
+        kb.aliases["champion"] = champion.model_copy(
+            update={"retrieve": champion.retrieve.model_copy(update={"top_k": 10})}
+        )
+
+        with pytest.raises(AliasApplyError, match="evaluation coverage"):
+            service.apply(AliasApplyRequest(kb_id="pytorch_reference", alias="champion"))
+
+        active = service._deployment_repo.get_active(
+            kb_id="pytorch_reference", alias="champion"
+        )
+        assert active.id == first.deployment.id
+        assert active.retrieval_config.top_k == 5
+
+    def test_default_alias_retrieval_only_drift_accepts_explicit_override(
+        self, tmp_path, qdrant_client
+    ):
+        _setup_source_manifest(tmp_path)
+        catalog_cfg = _catalog_config(challenger_strategy="dense", challenger_reranker=None)
+        service = _service(
+            tmp_path=tmp_path,
+            qdrant_client=qdrant_client,
+            catalog_cfg=catalog_cfg,
+            evaluation_coverage_checker=lambda kb_id, release_id, retrieval_digest: False,
+        )
+        first = service.apply(
+            AliasApplyRequest(
+                kb_id="pytorch_reference",
+                alias="champion",
+                allow_build_default=True,
+                allow_unevaluated=True,
+            )
+        )
+        kb = service._catalog_cfg.knowledge_bases[0]
+        champion = kb.aliases["champion"]
+        kb.aliases["champion"] = champion.model_copy(
+            update={"retrieve": champion.retrieve.model_copy(update={"top_k": 10})}
+        )
+
+        result = service.apply(
+            AliasApplyRequest(
+                kb_id="pytorch_reference", alias="champion", allow_unevaluated=True
+            )
+        )
+
+        assert result.action == "retrieval_only"
+        assert result.release.id == first.release.id
+        assert result.deployment.retrieval_config.top_k == 10
+
     def test_default_alias_apply_succeeds_when_evaluation_coverage_exists(
         self, tmp_path, qdrant_client
     ):
