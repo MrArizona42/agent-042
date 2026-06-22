@@ -293,6 +293,8 @@ def test_runtime_rejects_live_embedding_provider_model_mismatch(tmp_path: Path) 
                 )
         finally:
             runtime.close()
+
+
 def test_runtime_allows_dense_alias_on_hybrid_collection(tmp_path: Path) -> None:
     client = QdrantClient(":memory:")
     _, deployment_repo, release_repo = _deployed(

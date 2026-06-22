@@ -196,9 +196,7 @@ suites = ["retrieval_quality"]
             manifest_id="sha256:manifest",
             retrieval_capability="dense",
             release=SimpleNamespace(
-                build_config=SimpleNamespace(
-                    dense_encoder=SimpleNamespace(model="embedding")
-                )
+                build_config=SimpleNamespace(dense_encoder=SimpleNamespace(model="embedding"))
             ),
         )
         parameter_state = SimpleNamespace(
@@ -337,9 +335,7 @@ suites = ["retrieval_quality"]
             manifest_id="sha256:manifest",
             retrieval_capability="dense",
             release=SimpleNamespace(
-                build_config=SimpleNamespace(
-                    dense_encoder=SimpleNamespace(model="embedding")
-                )
+                build_config=SimpleNamespace(dense_encoder=SimpleNamespace(model="embedding"))
             ),
         )
         parameter_state = SimpleNamespace(
@@ -469,9 +465,7 @@ suites = ["context_quality"]
             manifest_id="sha256:manifest",
             retrieval_capability="dense",
             release=SimpleNamespace(
-                build_config=SimpleNamespace(
-                    dense_encoder=SimpleNamespace(model="embedding")
-                )
+                build_config=SimpleNamespace(dense_encoder=SimpleNamespace(model="embedding"))
             ),
         )
         parameter_state = SimpleNamespace(

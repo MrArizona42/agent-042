@@ -18,7 +18,6 @@ from rag.sources.cache import (
     write_json_immutable,
 )
 
-
 DEFAULT_FETCH_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "

@@ -568,9 +568,7 @@ class TestEvaluationGate:
         with pytest.raises(AliasApplyError, match="evaluation coverage"):
             service.apply(AliasApplyRequest(kb_id="pytorch_reference", alias="champion"))
 
-        active = service._deployment_repo.get_active(
-            kb_id="pytorch_reference", alias="champion"
-        )
+        active = service._deployment_repo.get_active(kb_id="pytorch_reference", alias="champion")
         assert active.id == first.deployment.id
         assert active.retrieval_config.top_k == 5
 
@@ -600,9 +598,7 @@ class TestEvaluationGate:
         )
 
         result = service.apply(
-            AliasApplyRequest(
-                kb_id="pytorch_reference", alias="champion", allow_unevaluated=True
-            )
+            AliasApplyRequest(kb_id="pytorch_reference", alias="champion", allow_unevaluated=True)
         )
 
         assert result.action == "retrieval_only"

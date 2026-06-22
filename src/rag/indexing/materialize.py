@@ -25,6 +25,7 @@ from rag.sources.bundles import SourceNodeBundle
 RetrievalStrategy = Literal["dense", "hybrid", "sparse"]
 SourceRetrievalCapability = Literal["dense", "hybrid"]
 
+
 class EmbeddingClient(Protocol):
     """Dense embedding client contract used by source materialization."""
 

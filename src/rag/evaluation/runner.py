@@ -345,9 +345,7 @@ def run_benchmark(
                         "parameter_source_collection": target.parameter_state.collection_name,
                         "parameter_source_manifest_id": target.parameter_state.manifest_id,
                         "retrieval_strategy": target.alias_config.retrieval_strategy,
-                        "retrieval_capability": (
-                            target.state.retrieval_capability
-                        ),
+                        "retrieval_capability": (target.state.retrieval_capability),
                         "prompt_identity": (
                             DEFAULT_RAG_QUERY_PROMPTS.identity.model_dump(mode="json")
                             if "generation_quality" in instance.benchmark.suites
