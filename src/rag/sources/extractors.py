@@ -1,38 +1,34 @@
-"""Source extraction helpers producing RAG domain contracts."""
+"""Raw source extraction into LlamaIndex documents."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from bs4 import BeautifulSoup
+from llama_index.core import Document
 from pypdf import PdfReader
 
-from rag.domain import DocumentSection, ExtractedDocument
 from rag.sources.fetchers import SourceFetchResult
 
 
 class SourceExtractor(Protocol):
-    """Extract source text from a fetched raw artifact."""
+    """Extract one fetched raw artifact into a LlamaIndex document."""
 
-    def extract(self, fetch_result: SourceFetchResult) -> ExtractedDocument:
-        """Extract a domain document from a fetched source."""
-        ...
+    def extract(self, fetch_result: SourceFetchResult) -> Document: ...
 
 
 class HtmlDocsExtractor:
-    """Extract text and heading sections from cached HTML documentation."""
-
     extraction_method = "html_bs4"
 
-    def extract(self, fetch_result: SourceFetchResult) -> ExtractedDocument:
-        source_document = fetch_result.source_document
+    def extract(self, fetch_result: SourceFetchResult) -> Document:
+        source = fetch_result.source_document
         html = Path(fetch_result.raw_path).read_text(encoding="utf-8", errors="replace")
         soup = BeautifulSoup(html, "lxml")
         for element in soup(["script", "style", "noscript"]):
             element.decompose()
 
-        sections: list[DocumentSection] = []
+        sections: list[dict[str, Any]] = []
         current_title: str | None = None
         current_level: int | None = None
         current_parts: list[str] = []
@@ -42,12 +38,13 @@ class HtmlDocsExtractor:
             text = "\n".join(part for part in current_parts if part.strip()).strip()
             if text:
                 sections.append(
-                    DocumentSection(
-                        title=current_title,
-                        text=text,
-                        level=current_level,
-                        ordinal=len(sections),
-                    )
+                    {
+                        "title": current_title,
+                        "text": text,
+                        "level": current_level,
+                        "ordinal": len(sections),
+                        "metadata": {},
+                    }
                 )
             current_parts = []
 
@@ -65,64 +62,72 @@ class HtmlDocsExtractor:
                 current_parts.append(text)
         flush_section()
 
-        full_text = "\n\n".join(section.text for section in sections).strip()
+        full_text = "\n\n".join(str(section["text"]) for section in sections).strip()
         if not full_text:
             full_text = " ".join(body.get_text(" ", strip=True).split())
-
-        return ExtractedDocument(
-            id=source_document.id,
-            source_document_id=source_document.id,
+        return _extracted_document(
+            source,
             text=full_text,
             sections=sections,
             extraction_method=self.extraction_method,
-            metadata={
-                "title": source_document.title,
-                "uri": source_document.uri,
-                "raw_path": fetch_result.raw_path.as_posix(),
-                "checksum": fetch_result.checksum,
-            },
+            raw_path=fetch_result.raw_path,
+            checksum=fetch_result.checksum,
         )
 
 
 class ArxivPdfExtractor:
-    """Extract plain text from a cached ArXiv PDF."""
-
     extraction_method = "pdf_pypdf"
 
-    def extract(self, fetch_result: SourceFetchResult) -> ExtractedDocument:
-        source_document = fetch_result.source_document
+    def extract(self, fetch_result: SourceFetchResult) -> Document:
+        source = fetch_result.source_document
         warnings: list[str] = []
-        reader = PdfReader(str(fetch_result.raw_path))
-        page_texts: list[str] = []
-        sections: list[DocumentSection] = []
-        for page_index, page in enumerate(reader.pages):
-            text = page.extract_text() or ""
-            text = text.strip()
+        sections: list[dict[str, Any]] = []
+        for page_index, page in enumerate(PdfReader(str(fetch_result.raw_path)).pages):
+            text = (page.extract_text() or "").strip()
             if not text:
                 warnings.append(f"Page {page_index + 1} produced no text")
                 continue
-            page_texts.append(text)
             sections.append(
-                DocumentSection(
-                    title=f"Page {page_index + 1}",
-                    text=text,
-                    level=1,
-                    ordinal=page_index,
-                )
+                {
+                    "title": f"Page {page_index + 1}",
+                    "text": text,
+                    "level": 1,
+                    "ordinal": page_index,
+                    "metadata": {},
+                }
             )
 
-        full_text = "\n\n".join(page_texts).strip()
-        return ExtractedDocument(
-            id=source_document.id,
-            source_document_id=source_document.id,
-            text=full_text or source_document.title,
+        full_text = "\n\n".join(str(section["text"]) for section in sections).strip()
+        return _extracted_document(
+            source,
+            text=full_text or str(source.metadata["title"]),
             sections=sections,
             extraction_method=self.extraction_method,
             extraction_warnings=warnings,
-            metadata={
-                "title": source_document.title,
-                "uri": source_document.uri,
-                "raw_path": fetch_result.raw_path.as_posix(),
-                "checksum": fetch_result.checksum,
-            },
+            raw_path=fetch_result.raw_path,
+            checksum=fetch_result.checksum,
         )
+
+
+def _extracted_document(
+    source: Document,
+    *,
+    text: str,
+    sections: list[dict[str, Any]],
+    extraction_method: str,
+    raw_path: Path,
+    checksum: str,
+    extraction_warnings: list[str] | None = None,
+) -> Document:
+    return Document(
+        text=text,
+        id_=source.id_,
+        metadata={
+            **source.metadata,
+            "sections": sections,
+            "extraction_method": extraction_method,
+            "extraction_warnings": extraction_warnings or [],
+            "raw_path": raw_path.as_posix(),
+            "checksum": checksum,
+        },
+    )

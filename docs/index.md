@@ -9,8 +9,9 @@ in the repository root: [README.md](../README.md).
   component relationships.
 - [Deployment And Operations](../infra/README.md): server layout, `.env`,
   Docker Compose, shared roots, ports, and operational setup.
-- [RAG Operations](operations/rag-operations.md): build, materialize, promote,
-  inspect, and roll back RAG collections.
+- [RAG Operations](operations/rag-operations.md): canonical operator runbook
+  for validation, source builds, materialization, benchmarks, promotion,
+  inspection, failure recovery, legacy migration, and rollback.
 - [Observability, Evaluation, And Analytics Workflow](analytics/observability-evaluation-workflow.md):
   one-request diagnostics and the overall control loop.
 - [Observability](analytics/observability.md): logs, traces, Grafana Explore,
@@ -27,6 +28,14 @@ in the repository root: [README.md](../README.md).
   complete and Phase 2 RAG quality work is next.
 - [Experiment Planning](planning/experiments.md): inference, RAG, LoRA, and
   operating-limit experiment plans.
+- [RAG LlamaIndex Transition Implementation Plan](planning/rag-llamaindex-transition-plan.md):
+  concrete migration plan for replacing custom RAG mechanics with LlamaIndex
+  after the source-instance catalog, benchmark, and DB boundaries documented in
+  the main architecture, operations, and evaluation docs.
+- [Declarative RAG Alias Workflow Implementation Plan](planning/rag-declarative-alias-workflow-plan.md):
+  control-plane refactor for alias-owned build/retrieval desired state,
+  immutable releases, applied deployments, benchmark identity, and the unified
+  Typer operator CLI.
 
 ## Documentation Ownership
 

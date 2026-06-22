@@ -19,7 +19,7 @@ from tests.catalog_samples import (
 
 @pytest.fixture(autouse=True)
 def _reset_kb_catalog():
-    import shared.config as cfg
+    import app_config.runtime as cfg
 
     cfg.clear_knowledge_base_caches()
     yield
@@ -37,7 +37,7 @@ class TestAliasConfigValidation:
     def test_missing_top_k_raises(self):
         from pydantic import ValidationError
 
-        from shared.catalog import AliasConfig
+        from app_config.catalog import AliasConfig
 
         with pytest.raises(ValidationError, match="top_k"):
             AliasConfig(
@@ -48,13 +48,13 @@ class TestAliasConfigValidation:
     def test_missing_score_threshold_raises(self):
         from pydantic import ValidationError
 
-        from shared.catalog import AliasConfig
+        from app_config.catalog import AliasConfig
 
         with pytest.raises(ValidationError, match="score_threshold"):
             AliasConfig(top_k=5, reranker=None)
 
     def test_missing_reranker_defaults_to_off(self):
-        from shared.catalog import AliasConfig
+        from app_config.catalog import AliasConfig
 
         cfg = AliasConfig(
             top_k=5,
@@ -66,7 +66,7 @@ class TestAliasConfigValidation:
         assert cfg.reranker is None
 
     def test_complete_alias_config_ok(self):
-        from shared.catalog import AliasConfig
+        from app_config.catalog import AliasConfig
 
         cfg = AliasConfig(
             top_k=5,
@@ -79,7 +79,7 @@ class TestAliasConfigValidation:
         assert cfg.reranker is None
 
     def test_sparse_alias_config_ok(self):
-        from shared.catalog import AliasConfig
+        from app_config.catalog import AliasConfig
 
         cfg = AliasConfig(
             top_k=5,
@@ -94,7 +94,7 @@ class TestAliasConfigValidation:
 
 class TestAdapterConfigValidation:
     def test_disabled_adapter_allows_empty_strings(self):
-        from shared.catalog import AdapterConfig
+        from app_config.catalog import AdapterConfig
 
         cfg = AdapterConfig(name="", alias="", enabled=False)
 
@@ -105,7 +105,7 @@ class TestAdapterConfigValidation:
     def test_enabled_adapter_requires_name(self):
         from pydantic import ValidationError
 
-        from shared.catalog import AdapterConfig
+        from app_config.catalog import AdapterConfig
 
         with pytest.raises(ValidationError, match="enabled adapter"):
             AdapterConfig(name="", alias="champion", enabled=True)
@@ -113,7 +113,7 @@ class TestAdapterConfigValidation:
     def test_enabled_adapter_requires_alias(self):
         from pydantic import ValidationError
 
-        from shared.catalog import AdapterConfig
+        from app_config.catalog import AdapterConfig
 
         with pytest.raises(ValidationError, match="enabled adapter"):
             AdapterConfig(name="lora-chat", alias="", enabled=True)
@@ -128,7 +128,7 @@ class TestKBConfigDefaultAlias:
     def test_default_alias_must_be_declared(self):
         from pydantic import ValidationError
 
-        from shared.catalog import KBConfig
+        from app_config.catalog import KBConfig
 
         with pytest.raises(ValidationError, match="default_alias"):
             KBConfig(
@@ -144,11 +144,11 @@ class TestKBConfigDefaultAlias:
                     },
                 },
                 update_strategy="replace",
-                selection_description="Selection text",
+                description="Selection text",
             )
 
     def test_valid_default_alias_ok(self):
-        from shared.catalog import KBConfig
+        from app_config.catalog import KBConfig
 
         cfg = KBConfig(
             name="test_kb",
@@ -163,16 +163,18 @@ class TestKBConfigDefaultAlias:
                 },
             },
             update_strategy="replace",
-            selection_description="Selection text",
+            description="Selection text",
         )
         assert cfg.default_alias == "champion"
+        assert cfg.selection_description == "Selection text"
+        assert cfg.label == "Selection text"
 
-    def test_selection_description_is_required(self):
+    def test_description_is_required(self):
         from pydantic import ValidationError
 
-        from shared.catalog import KBConfig
+        from app_config.catalog import KBConfig
 
-        with pytest.raises(ValidationError, match="selection_description"):
+        with pytest.raises(ValidationError, match="description"):
             KBConfig(
                 name="test_kb",
                 default_alias="champion",
@@ -191,28 +193,28 @@ class TestKBConfigDefaultAlias:
 
 class TestTaskConfigValidation:
     def test_task_config_allows_empty_knowledge_bases(self):
-        from shared.catalog import TaskConfig
+        from app_config.catalog import TaskConfig
 
         cfg = TaskConfig(
             task="summarize",
-            label="Summarization",
-            routing_description="Summarize user-provided content.",
+            description="Summarize user-provided content.",
             adapter={"name": "", "alias": "", "enabled": False},
             knowledge_bases=[],
         )
 
         assert cfg.task == "summarize"
         assert cfg.knowledge_bases == []
+        assert cfg.routing_description == "Summarize user-provided content."
+        assert cfg.label == "Summarize user-provided content."
 
-    def test_task_config_requires_routing_description(self):
+    def test_task_config_requires_description(self):
         from pydantic import ValidationError
 
-        from shared.catalog import TaskConfig
+        from app_config.catalog import TaskConfig
 
-        with pytest.raises(ValidationError, match="routing_description"):
+        with pytest.raises(ValidationError, match="description"):
             TaskConfig(
                 task="chat",
-                label="General knowledge",
                 knowledge_bases=[],
             )
 
@@ -224,19 +226,19 @@ class TestTaskConfigValidation:
 
 class TestRegistryReferenceValidation:
     def test_unknown_kb_ref_is_rejected(self, tmp_path: Path):
-        from shared.catalog import load_catalog
+        from app_config.catalog import load_catalog
 
         path = tmp_path / "invalid.toml"
         path.write_text(
             "\n".join(
                 [
-                    "schema_version = 2",
+                    "schema_version = 4",
                     "",
                     "[[tasks]]",
                     'id = "chat"',
-                    'routing_description = "General chat about ML research."',
-                    'kb_refs = ["missing_kb"]',
-                    "adapter = { enabled = false }",
+                    'description = "General chat about ML research."',
+                    'knowledge_bases = ["missing_kb"]',
+                    "lora_adapter = { enabled = false }",
                     "",
                 ]
             ),
@@ -247,19 +249,26 @@ class TestRegistryReferenceValidation:
             load_catalog(path)
 
     def test_source_instance_unknown_kb_is_rejected(self, tmp_path: Path):
-        from shared.catalog import load_catalog
+        from app_config.catalog import load_catalog
 
         path = tmp_path / "invalid.toml"
         path.write_text(
             "\n".join(
                 [
-                    "schema_version = 2",
+                    "schema_version = 4",
                     "",
-                    "[[sources]]",
-                    'type = "html_docs"',
-                    'kb = "missing_kb"',
-                    'id = "docs"',
-                    'manifest = "assets/rag_data/missing/sources.toml"',
+                    "[[source_adapters]]",
+                    'id = "generic.http_html"',
+                    'version = "1"',
+                    'description = "d"',
+                    'factory = "rag.adapters.sources:make_http_html_adapter"',
+                    "",
+                    "[[source_instances]]",
+                    'id = "missing_kb.docs"',
+                    'description = "d"',
+                    'role = "corpus"',
+                    'knowledge_base = "missing_kb"',
+                    'adapter = { id = "generic.http_html", version = "1" }',
                 ]
             ),
             encoding="utf-8",
@@ -269,48 +278,67 @@ class TestRegistryReferenceValidation:
             load_catalog(path)
 
     def test_source_instance_id_is_unique_within_kb(self, tmp_path: Path):
-        from shared.catalog import load_catalog
+        from app_config.catalog import load_catalog
 
         path = tmp_path / "invalid.toml"
         path.write_text(
             "\n".join(
                 [
-                    "schema_version = 2",
+                    "schema_version = 4",
                     "",
                     "[[knowledge_bases]]",
                     'id = "pytorch_reference"',
+                    'description = "PyTorch API reference."',
                     'default_alias = "champion"',
-                    'selection_description = "PyTorch API reference."',
                     "",
-                    "[knowledge_bases.aliases.champion]",
+                    "[knowledge_bases.aliases.champion.build.chunking]",
+                    'strategy = "sentence"',
+                    "chunk_size = 512",
+                    "chunk_overlap = 64",
+                    "",
+                    "[knowledge_bases.aliases.champion.build.dense_encoder]",
+                    'model = "sentence-transformers/all-MiniLM-L6-v2"',
+                    "dimension = 384",
+                    "",
+                    "[knowledge_bases.aliases.champion.retrieve]",
                     "top_k = 5",
                     "score_threshold = 0.35",
-                    'retrieval_strategy = "dense"',
+                    'strategy = "dense"',
                     "reranker_multiplier = 1",
                     "",
-                    "[[sources]]",
-                    'type = "html_docs"',
-                    'kb = "pytorch_reference"',
-                    'id = "docs"',
-                    'manifest = "assets/rag_data/pytorch_reference/docs.sources.toml"',
+                    "[[source_adapters]]",
+                    'id = "generic.http_html"',
+                    'version = "1"',
+                    'description = "d"',
+                    'factory = "rag.adapters.sources:make_http_html_adapter"',
                     "",
-                    "[[sources]]",
-                    'type = "html_docs"',
-                    'kb = "pytorch_reference"',
-                    'id = "docs"',
-                    'manifest = "assets/rag_data/pytorch_reference/tutorials.sources.toml"',
+                    "[[source_instances]]",
+                    'id = "pytorch_reference.docs"',
+                    'description = "d"',
+                    'role = "corpus"',
+                    'knowledge_base = "pytorch_reference"',
+                    'adapter = { id = "generic.http_html", version = "1" }',
+                    "",
+                    "[[source_instances]]",
+                    'id = "pytorch_reference.docs"',
+                    'description = "d"',
+                    'role = "corpus"',
+                    'knowledge_base = "pytorch_reference"',
+                    'adapter = { id = "generic.http_html", version = "1" }',
                 ]
             ),
             encoding="utf-8",
         )
 
-        with pytest.raises(ValueError, match="Duplicate source id 'docs' for KB"):
+        with pytest.raises(
+            ValueError, match="Duplicate source instance id 'pytorch_reference.docs'"
+        ):
             load_catalog(path)
 
 
 class TestKnowledgeBaseRegistryResolution:
     def test_gateway_settings_expose_grouped_sections(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.setenv("PLATFORM__VLLM_BASE_URL", "http://platform-vllm:8000")
 
@@ -329,7 +357,7 @@ class TestKnowledgeBaseRegistryResolution:
             _ = settings.rag.knowledge_bases_path
 
     def test_load_settings_merges_runtime_toml_with_explicit_overrides(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.setenv("GATEWAY__URL", "http://gateway-from-env:9001")
         monkeypatch.setenv("GATEWAY__BUDGET__MODEL_MAX_TOKENS", "4096")
@@ -349,7 +377,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.gateway.budget.min_response_budget == 1024
 
     def test_runtime_env_names_do_not_override_toml_values(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.setenv("GATEWAY__CORS_ALLOW_ORIGINS", "https://a.example, https://b.example")
         monkeypatch.setenv("ADAPTER_REGISTRY__SYNC_ALIASES", "champion,shadow")
@@ -360,7 +388,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.adapter_registry.sync_aliases == ("champion", "challenger")
 
     def test_runtime_path_is_required(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.delenv("CONFIG__RUNTIME_PATH", raising=False)
 
@@ -370,7 +398,7 @@ class TestKnowledgeBaseRegistryResolution:
     def test_missing_runtime_toml_field_is_validation_error(self, tmp_path: Path):
         from pydantic import ValidationError
 
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         path = tmp_path / "runtime.toml"
         path.write_text("schema_version = 1\n", encoding="utf-8")
@@ -381,7 +409,7 @@ class TestKnowledgeBaseRegistryResolution:
     def test_runtime_toml_rejects_vllm_launch_settings(self, tmp_path: Path):
         from pydantic import ValidationError
 
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         path = tmp_path / "runtime.toml"
         path.write_text(
@@ -396,7 +424,7 @@ class TestKnowledgeBaseRegistryResolution:
     def test_runtime_toml_rejects_derived_or_env_only_keys(self, tmp_path: Path):
         from pydantic import ValidationError
 
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         path = tmp_path / "runtime.toml"
         runtime_toml = Path("runtime.toml").read_text(encoding="utf-8")
@@ -411,7 +439,7 @@ class TestKnowledgeBaseRegistryResolution:
             load_settings(runtime_path=path)
 
     def test_config_catalog_path_env_sets_catalog_settings(self, tmp_path: Path, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         catalog_path = tmp_path / "catalog.toml"
         monkeypatch.setenv("CONFIG__CATALOG_PATH", str(catalog_path))
@@ -421,7 +449,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.catalog.path == catalog_path
 
     def test_config_catalog_path_env_is_required(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.delenv("CONFIG__CATALOG_PATH", raising=False)
 
@@ -429,7 +457,7 @@ class TestKnowledgeBaseRegistryResolution:
             load_settings()
 
     def test_legacy_flat_env_names_are_ignored(self, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         monkeypatch.delenv("PLATFORM__VLLM_BASE_URL", raising=False)
         monkeypatch.setenv("VLLM_BASE_URL", "http://legacy-vllm:8000")
@@ -439,8 +467,8 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.platform.vllm_base_url == "http://vllm:8000"
 
     def test_catalog_settings_own_catalog_path(self):
-        from shared.catalog import resolve_catalog_path
-        from shared.config import CatalogConfig
+        from app_config.catalog import resolve_catalog_path
+        from app_config.runtime import CatalogConfig
 
         settings = CatalogConfig(path="configs/catalog.toml")
 
@@ -448,8 +476,8 @@ class TestKnowledgeBaseRegistryResolution:
         assert resolve_catalog_path(settings) == Path.cwd() / "configs/catalog.toml"
 
     def test_get_catalog_prefers_catalog_settings_path(self, tmp_path: Path, monkeypatch):
-        import shared.config as cfg
-        from shared.catalog import get_catalog, get_kb_names
+        import app_config.runtime as cfg
+        from app_config.catalog import get_catalog, get_kb_names
 
         path = write_code_only_catalog(tmp_path / "catalog.toml")
 
@@ -464,8 +492,8 @@ class TestKnowledgeBaseRegistryResolution:
     def test_clear_knowledge_base_caches_refreshes_registry_settings_path(
         self, tmp_path: Path, monkeypatch
     ):
-        import shared.config as cfg
-        from shared.catalog import get_kb_names
+        import app_config.runtime as cfg
+        from app_config.catalog import get_kb_names
 
         first = write_chat_only_catalog(tmp_path / "catalog-first.toml")
         second = write_code_only_catalog(tmp_path / "catalog-second.toml")
@@ -479,7 +507,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert get_kb_names() == ["pytorch_reference"]
 
     def test_legacy_catalog_env_names_are_ignored(self, tmp_path: Path, monkeypatch):
-        from shared.config import load_settings
+        from app_config.runtime import load_settings
 
         path = write_chat_only_catalog(tmp_path / "catalog.toml")
 
@@ -490,7 +518,7 @@ class TestKnowledgeBaseRegistryResolution:
         assert settings.catalog.path != path
 
     def test_in_memory_catalog_override_bypasses_disk_loading(self):
-        from shared.catalog import (
+        from app_config.catalog import (
             AdapterConfig,
             KBConfig,
             TaskConfig,
@@ -511,12 +539,12 @@ class TestKnowledgeBaseRegistryResolution:
                     "reranker_multiplier": 4,
                 }
             },
-            selection_description="Research papers and theory.",
+            description="Research papers and theory.",
         )
         catalog = {
             "chat": TaskConfig(
                 task="chat",
-                routing_description="General chat about ML research.",
+                description="General chat about ML research.",
                 adapter=AdapterConfig(name="", alias="", enabled=False),
                 knowledge_bases=[ml_papers_core],
             )
@@ -529,8 +557,8 @@ class TestKnowledgeBaseRegistryResolution:
         assert get_kb_names() != ["ml_papers_core"]
 
     def test_get_catalog_reloads_when_settings_path_changes(self, tmp_path: Path):
-        from shared.catalog import get_catalog, get_kb_names
-        from shared.config import CatalogConfig
+        from app_config.catalog import get_catalog, get_kb_names
+        from app_config.runtime import CatalogConfig
 
         first = write_chat_only_catalog(tmp_path / "kb-first.toml")
 
@@ -544,50 +572,77 @@ class TestKnowledgeBaseRegistryResolution:
         assert get_kb_names(settings=CatalogConfig(path=str(second))) == ["pytorch_reference"]
 
     def test_load_catalog_from_canonical_toml(self, tmp_path: Path):
-        from shared.catalog import load_catalog
+        from app_config.catalog import load_catalog
 
         path = tmp_path / "catalog.toml"
         path.write_text(
             "\n".join(
                 [
-                    "schema_version = 2",
+                    "schema_version = 4",
                     "",
                     "[[tasks]]",
                     'id = "chat"',
-                    'label = "General knowledge"',
-                    'routing_description = "General chat about ML research."',
-                    'kb_refs = ["ml_papers_core"]',
-                    "adapter = { enabled = false }",
+                    'description = "General chat about ML research."',
+                    'knowledge_bases = ["ml_papers_core"]',
+                    "lora_adapter = { enabled = false }",
                     "",
                     "[[tasks]]",
                     'id = "code"',
-                    'routing_description = "Programming help for ML systems."',
-                    'kb_refs = ["ml_papers_core"]',
-                    "adapter = { enabled = false }",
+                    'description = "Programming help for ML systems."',
+                    'knowledge_bases = ["ml_papers_core"]',
+                    "lora_adapter = { enabled = false }",
                     "",
                     "[[knowledge_bases]]",
                     'id = "ml_papers_core"',
+                    'description = "Research papers and theory."',
                     'default_alias = "champion"',
-                    'selection_description = "Research papers and theory."',
                     "",
-                    "[knowledge_bases.aliases.champion]",
+                    "[knowledge_bases.aliases.champion.build.chunking]",
+                    'strategy = "sentence"',
+                    "chunk_size = 512",
+                    "chunk_overlap = 64",
+                    "",
+                    "[knowledge_bases.aliases.champion.build.dense_encoder]",
+                    'model = "sentence-transformers/all-MiniLM-L6-v2"',
+                    "dimension = 384",
+                    "",
+                    "[knowledge_bases.aliases.champion.retrieve]",
                     "top_k = 5",
                     "score_threshold = 0.35",
-                    'retrieval_strategy = "dense"',
+                    'strategy = "dense"',
                     "reranker_multiplier = 1",
                     "",
-                    "[knowledge_bases.aliases.challenger]",
+                    "[knowledge_bases.aliases.challenger.build.chunking]",
+                    'strategy = "sentence"',
+                    "chunk_size = 512",
+                    "chunk_overlap = 64",
+                    "",
+                    "[knowledge_bases.aliases.challenger.build.dense_encoder]",
+                    'model = "sentence-transformers/all-MiniLM-L6-v2"',
+                    "dimension = 384",
+                    "",
+                    "[knowledge_bases.aliases.challenger.build.sparse_encoder]",
+                    'model = "Qdrant/bm25"',
+                    "",
+                    "[knowledge_bases.aliases.challenger.retrieve]",
                     "top_k = 5",
                     "score_threshold = 0.01",
-                    'retrieval_strategy = "hybrid"',
+                    'strategy = "hybrid"',
                     'reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2"',
                     "reranker_multiplier = 4",
                     "",
-                    "[[sources]]",
-                    'type = "arxiv_paper"',
-                    'kb = "ml_papers_core"',
-                    'id = "papers"',
-                    'manifest = "assets/rag_data/ml_papers_core/sources.toml"',
+                    "[[source_adapters]]",
+                    'id = "generic.arxiv_paper"',
+                    'version = "1"',
+                    'description = "d"',
+                    'factory = "rag.adapters.sources:make_arxiv_paper_adapter"',
+                    "",
+                    "[[source_instances]]",
+                    'id = "ml_papers_core.papers"',
+                    'description = "d"',
+                    'role = "corpus"',
+                    'knowledge_base = "ml_papers_core"',
+                    'adapter = { id = "generic.arxiv_paper", version = "1" }',
                 ]
             ),
             encoding="utf-8",
@@ -613,7 +668,7 @@ class TestKnowledgeBaseRegistryResolution:
 class TestValidateKbAlias:
     @pytest.fixture()
     def _loaded_registry(self, tmp_path: Path):
-        from shared.catalog import catalog_override, load_catalog
+        from app_config.catalog import catalog_override, load_catalog
 
         path = write_chat_only_catalog(tmp_path / "kb.toml")
         catalog, index = load_catalog(path)
@@ -621,24 +676,24 @@ class TestValidateKbAlias:
             yield
 
     def test_unknown_kb_raises_valueerror(self, _loaded_registry):
-        from shared.catalog import validate_kb_alias
+        from app_config.catalog import validate_kb_alias
 
         with pytest.raises(ValueError, match="not found"):
             validate_kb_alias("nonexistent", "champion")
 
     def test_unknown_alias_raises_valueerror(self, _loaded_registry):
-        from shared.catalog import validate_kb_alias
+        from app_config.catalog import validate_kb_alias
 
         with pytest.raises(ValueError, match="not valid"):
             validate_kb_alias("ml_papers_core", "nonexistent")
 
     def test_valid_kb_and_alias_passes(self, _loaded_registry):
-        from shared.catalog import validate_kb_alias
+        from app_config.catalog import validate_kb_alias
 
         validate_kb_alias("ml_papers_core", "champion")  # no exception
 
     def test_kb_only_validation(self, _loaded_registry):
-        from shared.catalog import validate_kb_alias
+        from app_config.catalog import validate_kb_alias
 
         validate_kb_alias("ml_papers_core")  # alias=None is fine
 
@@ -650,7 +705,7 @@ class TestValidateKbAlias:
 
 class TestQueryBuildCompatibility:
     def test_dense_query_accepts_dense_collection(self):
-        from rag.sources.materialize import validate_strategy_supported
+        from rag.indexing.materialize import validate_strategy_supported
 
         validate_strategy_supported(
             retrieval_strategy="dense",
@@ -658,7 +713,7 @@ class TestQueryBuildCompatibility:
         )
 
     def test_dense_query_accepts_hybrid_collection(self):
-        from rag.sources.materialize import validate_strategy_supported
+        from rag.indexing.materialize import validate_strategy_supported
 
         validate_strategy_supported(
             retrieval_strategy="dense",
@@ -666,7 +721,7 @@ class TestQueryBuildCompatibility:
         )
 
     def test_hybrid_query_accepts_hybrid_collection(self):
-        from rag.sources.materialize import validate_strategy_supported
+        from rag.indexing.materialize import validate_strategy_supported
 
         validate_strategy_supported(
             retrieval_strategy="hybrid",
@@ -674,7 +729,7 @@ class TestQueryBuildCompatibility:
         )
 
     def test_hybrid_query_rejects_dense_collection(self):
-        from rag.sources.materialize import validate_strategy_supported
+        from rag.indexing.materialize import validate_strategy_supported
 
         with pytest.raises(ValueError, match="not supported"):
             validate_strategy_supported(

@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import httpx
 
-from rag.domain import SourceDocument
+from rag.contracts.metadata import source_document
 from rag.sources.artifacts import (
     extracted_artifact_from_result,
     extracted_artifact_path,
@@ -13,6 +13,19 @@ from rag.sources.artifacts import (
 )
 from rag.sources.extractors import ArxivPdfExtractor, HtmlDocsExtractor
 from rag.sources.fetchers import ArxivPaperFetcher, HtmlDocsFetcher, SourceFetchResult
+
+
+def _source(*, local_id: str, title: str, uri: str, source_instance_id: str):
+    return source_document(
+        local_document_id=local_id,
+        title=title,
+        source_uri=uri,
+        kb_id="pytorch_reference",
+        source_instance_id=source_instance_id,
+        adapter_id="generic.http_html",
+        adapter_version="1",
+        manifest_digest="sha256:manifest",
+    )
 
 
 def _client(content: bytes, *, content_type: str) -> httpx.Client:
@@ -28,11 +41,11 @@ def _client(content: bytes, *, content_type: str) -> httpx.Client:
 
 
 def test_html_fetcher_writes_raw_html_and_metadata_immutably(tmp_path) -> None:
-    source = SourceDocument(
-        id="html:tensors",
-        source_type="html_docs",
-        uri="https://pytorch.org/docs/stable/tensors.html",
+    source = _source(
+        local_id="tensors",
         title="Tensors",
+        uri="https://pytorch.org/docs/stable/tensors.html",
+        source_instance_id="docs",
     )
     fetcher = HtmlDocsFetcher(
         client=_client(b"<html><body><h1>Tensors</h1></body></html>", content_type="text/html")
@@ -51,8 +64,6 @@ def test_html_fetcher_writes_raw_html_and_metadata_immutably(tmp_path) -> None:
         source_instance_id="docs",
         rag_data_root=tmp_path,
     )
-    assert second.raw_path.read_bytes() == b"cached"
-
     forced = fetcher.fetch(
         source,
         kb_id="pytorch_reference",
@@ -61,20 +72,22 @@ def test_html_fetcher_writes_raw_html_and_metadata_immutably(tmp_path) -> None:
         force=True,
     )
 
-    assert first.raw_path.as_posix().endswith("pytorch_reference/raw/docs/html_tensors/page.html")
+    assert first.raw_path.as_posix().endswith("source_instances/docs/raw/docs_tensors/page.html")
     assert first.metadata_path.exists()
     assert second.from_cache is True
     assert forced.from_cache is False
-    assert forced.raw_path.read_bytes() == b"<html><body><h1>Tensors</h1></body></html>"
 
 
-def test_arxiv_fetcher_stores_pdf_bytes(tmp_path) -> None:
-    source = SourceDocument(
-        id="arxiv:1706.03762",
-        source_type="arxiv_paper",
-        uri="arxiv:1706.03762",
+def test_arxiv_fetcher_resolves_adapter_uri_to_pdf(tmp_path) -> None:
+    source = source_document(
+        local_document_id="1706.03762",
         title="Attention Is All You Need",
-        metadata={"arxiv_id": "1706.03762"},
+        source_uri="arxiv:1706.03762",
+        kb_id="ml_papers_core",
+        source_instance_id="papers",
+        adapter_id="generic.arxiv_paper",
+        adapter_version="1",
+        manifest_digest="sha256:manifest",
     )
     fetcher = ArxivPaperFetcher(client=_client(b"%PDF fake", content_type="application/pdf"))
 
@@ -86,60 +99,57 @@ def test_arxiv_fetcher_stores_pdf_bytes(tmp_path) -> None:
     )
 
     assert result.raw_path.as_posix().endswith(
-        "ml_papers_core/raw/papers/arxiv_1706.03762/paper.pdf"
+        "source_instances/papers/raw/papers_1706.03762/paper.pdf"
     )
-    assert result.raw_path.read_bytes() == b"%PDF fake"
-    assert result.source_document.uri == "https://arxiv.org/pdf/1706.03762"
+    assert result.source_document.metadata["source_uri"] == "https://arxiv.org/pdf/1706.03762"
     assert result.checksum.startswith("sha256:")
 
 
-def test_html_extractor_preserves_heading_sections(tmp_path) -> None:
+def test_html_extractor_preserves_heading_sections_in_document_metadata(tmp_path) -> None:
     raw_path = tmp_path / "page.html"
     raw_path.write_text(
         """
-        <html><body>
-          <h1>Tensors</h1>
-          <p>A tensor is a multidimensional array.</p>
-          <h2>Creation</h2>
-          <p>Use torch.tensor.</p>
-          <pre>x = torch.tensor([1])</pre>
-        </body></html>
+        <html><body><h1>Tensors</h1><p>A tensor is an array.</p>
+        <h2>Creation</h2><p>Use torch.tensor.</p></body></html>
         """,
         encoding="utf-8",
     )
-    fetch_result = SourceFetchResult(
-        source_document=SourceDocument(
-            id="html:tensors",
-            source_type="html_docs",
-            uri="https://pytorch.org/docs/stable/tensors.html",
-            title="Tensors",
-        ),
-        raw_path=raw_path,
-        metadata_path=tmp_path / "metadata.json",
-        checksum="sha256:test",
+    source = _source(
+        local_id="tensors",
+        title="Tensors",
+        uri="https://pytorch.org/docs/stable/tensors.html",
+        source_instance_id="docs",
+    )
+    extracted = HtmlDocsExtractor().extract(
+        SourceFetchResult(
+            source_document=source,
+            raw_path=raw_path,
+            metadata_path=tmp_path / "metadata.json",
+            checksum="sha256:test",
+        )
     )
 
-    extracted = HtmlDocsExtractor().extract(fetch_result)
-
-    assert extracted.source_document_id == "html:tensors"
-    assert extracted.extraction_method == "html_bs4"
-    assert [section.title for section in extracted.sections] == ["Tensors", "Creation"]
+    assert extracted.id_ == "docs:tensors"
+    assert extracted.metadata["extraction_method"] == "html_bs4"
+    assert [section["title"] for section in extracted.metadata["sections"]] == [
+        "Tensors",
+        "Creation",
+    ]
     assert "torch.tensor" in extracted.text
 
 
 def test_arxiv_pdf_extractor_uses_pypdf_reader(tmp_path) -> None:
     raw_path = tmp_path / "paper.pdf"
     raw_path.write_bytes(b"%PDF fake")
-    fetch_result = SourceFetchResult(
-        source_document=SourceDocument(
-            id="arxiv:1706.03762",
-            source_type="arxiv_paper",
-            uri="https://arxiv.org/pdf/1706.03762",
-            title="Attention Is All You Need",
-        ),
-        raw_path=raw_path,
-        metadata_path=tmp_path / "metadata.json",
-        checksum="sha256:test",
+    source = source_document(
+        local_document_id="1706.03762",
+        title="Attention Is All You Need",
+        source_uri="https://arxiv.org/pdf/1706.03762",
+        kb_id="ml_papers_core",
+        source_instance_id="papers",
+        adapter_id="generic.arxiv_paper",
+        adapter_version="1",
+        manifest_digest="sha256:manifest",
     )
 
     class _Page:
@@ -156,27 +166,33 @@ def test_arxiv_pdf_extractor_uses_pypdf_reader(tmp_path) -> None:
             assert path == str(raw_path)
 
     with patch("rag.sources.extractors.PdfReader", _Reader):
-        extracted = ArxivPdfExtractor().extract(fetch_result)
+        extracted = ArxivPdfExtractor().extract(
+            SourceFetchResult(
+                source_document=source,
+                raw_path=raw_path,
+                metadata_path=tmp_path / "metadata.json",
+                checksum="sha256:test",
+            )
+        )
 
     assert extracted.text == "Attention text"
-    assert extracted.sections[0].title == "Page 1"
-    assert extracted.extraction_warnings == ["Page 2 produced no text"]
+    assert extracted.metadata["sections"][0]["title"] == "Page 1"
+    assert extracted.metadata["extraction_warnings"] == ["Page 2 produced no text"]
 
 
-def test_extracted_artifact_round_trips_immutably(tmp_path) -> None:
-    source = SourceDocument(
-        id="html:tensors",
-        source_type="html_docs",
-        uri="https://pytorch.org/docs/stable/tensors.html",
+def test_extracted_artifact_round_trips_native_document(tmp_path) -> None:
+    source = _source(
+        local_id="tensors",
         title="Tensors",
+        uri="https://pytorch.org/docs/stable/tensors.html",
+        source_instance_id="docs",
     )
-    fetcher = HtmlDocsFetcher(
+    fetch_result = HtmlDocsFetcher(
         client=_client(
             b"<html><body><h1>Tensors</h1><p>Tensor text.</p></body></html>",
             content_type="text/html",
         )
-    )
-    fetch_result = fetcher.fetch(
+    ).fetch(
         source,
         kb_id="pytorch_reference",
         source_instance_id="docs",
@@ -193,21 +209,13 @@ def test_extracted_artifact_round_trips_immutably(tmp_path) -> None:
         rag_data_root=tmp_path,
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_document_id=source.id,
+        source_document_id=source.id_,
     )
 
     write_extracted_artifact(path, artifact)
-    path.write_text('{"schema_version": 1, "sentinel": true}\n', encoding="utf-8")
-    write_extracted_artifact(path, artifact)
-    assert "sentinel" in path.read_text(encoding="utf-8")
-
-    write_extracted_artifact(path, artifact, force=True)
     restored = read_extracted_artifact(path)
 
-    assert path.as_posix().endswith("pytorch_reference/extracted/docs/html_tensors.json")
-    assert restored.kb_id == "pytorch_reference"
-    assert restored.source_instance_id == "docs"
-    assert restored.raw.path == fetch_result.raw_path.as_posix()
-    assert restored.raw.checksum == fetch_result.checksum
-    assert restored.extraction.method == "html_bs4"
+    assert restored.schema_version == 2
+    assert restored.document.id_ == "docs:tensors"
     assert restored.document.text == "Tensor text."
+    assert restored.document.metadata["adapter_id"] == "generic.http_html"

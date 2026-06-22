@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from app_config.runtime import BudgetSettings
 from gateway.services.budget import (
     BudgetValidationError,
     compute_effective_history_budget,
@@ -11,7 +12,6 @@ from gateway.services.budget import (
     trim_history_pairs,
     trim_rag_chunks,
 )
-from shared.config import BudgetSettings
 
 
 @dataclass(frozen=True)

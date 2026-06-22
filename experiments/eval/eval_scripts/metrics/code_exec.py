@@ -44,7 +44,7 @@ _CODE_START_TOKENS = (
 
 
 def _sandbox_url() -> str:
-    from shared.config import get_settings
+    from app_config.runtime import get_settings
 
     return get_settings().network.internal_url("code_sandbox").rstrip("/")
 

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from llama_index.core.schema import NodeWithScore
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.domain import RetrievalHit
+from rag.contracts import PromptIdentity
 
 
 class RagRuntimeSource(BaseModel):
@@ -33,9 +34,20 @@ class RagRuntimeResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    hits: list[RetrievalHit] = Field(default_factory=list)
+    nodes: list[NodeWithScore] = Field(default_factory=list)
     skipped_sources: list[RuntimeSkippedSource] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     provenance: list[dict[str, Any]] = Field(default_factory=list)
     timings_ms: dict[str, float] = Field(default_factory=dict)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+
+class RagQueryResult(BaseModel):
+    """Answer synthesis result with native source nodes and prompt identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str
+    source_nodes: list[NodeWithScore] = Field(default_factory=list)
+    prompt_identity: PromptIdentity
+    provenance: dict[str, Any] = Field(default_factory=dict)

@@ -18,9 +18,9 @@ the serving envelope that RAG experiments must fit inside.
 
 ## Documents
 
-0. [RAG Pipeline Isolation](rag-pipeline-isolation.md)
-   - Splits production platform code, production data pipelines, and
-     exploratory notebooks before RAG experiments multiply.
+0. [RAG LlamaIndex Transition](rag-llamaindex-transition-plan.md)
+   - Moves document, node, indexing, retrieval, and evaluation mechanics to
+     LlamaIndex while preserving project catalog and policy boundaries.
 1. [Inference Baseline](inference-baseline.md)
    - Defines the model, quantization, context, token budget, and concurrency
      envelope used by later RAG experiments.

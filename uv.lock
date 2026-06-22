@@ -63,6 +63,11 @@ airflow-worker = [
     { name = "httpx", marker = "python_full_version < '3.13'" },
     { name = "langchain-text-splitters", marker = "python_full_version < '3.13'" },
     { name = "llama-index-core", marker = "python_full_version < '3.13'" },
+    { name = "llama-index-llms-openai", marker = "python_full_version < '3.13'" },
+    { name = "llama-index-llms-openai-like", marker = "python_full_version < '3.13'" },
+    { name = "llama-index-readers-file", marker = "python_full_version < '3.13'" },
+    { name = "llama-index-readers-papers", marker = "python_full_version < '3.13'" },
+    { name = "llama-index-vector-stores-qdrant", marker = "python_full_version < '3.13'" },
     { name = "lxml", marker = "python_full_version < '3.13'" },
     { name = "mlflow-skinny", marker = "python_full_version < '3.13'" },
     { name = "numpy", marker = "python_full_version < '3.13'" },
@@ -74,6 +79,7 @@ airflow-worker = [
     { name = "requests", marker = "python_full_version < '3.13'" },
     { name = "rouge-score", marker = "python_full_version < '3.13'" },
     { name = "sentencepiece", marker = "python_full_version < '3.13'" },
+    { name = "typer", marker = "python_full_version < '3.13'" },
 ]
 airflow-worker-gpu = [
     { name = "arxiv", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -86,6 +92,11 @@ airflow-worker-gpu = [
     { name = "hydra-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "langchain-text-splitters", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "llama-index-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-llms-openai", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-llms-openai-like", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-readers-file", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-readers-papers", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-vector-stores-qdrant", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "lxml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "mlflow-skinny", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "numpy", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -102,6 +113,7 @@ airflow-worker-gpu = [
     { name = "sentencepiece", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "torch", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "transformers", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "typer", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 embeddings = [
     { name = "fastapi", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -123,6 +135,9 @@ gateway = [
     { name = "httpx", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "langchain-text-splitters", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "llama-index-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-llms-openai", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-llms-openai-like", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-vector-stores-qdrant", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "lxml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "opentelemetry-instrumentation-celery", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -149,11 +164,16 @@ rag = [
     { name = "beautifulsoup4", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "langchain-text-splitters", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "llama-index-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-llms-openai-like", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-readers-file", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-readers-papers", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-vector-stores-qdrant", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "lxml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "pypdf", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "qdrant-client", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "requests", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
     { name = "sentence-transformers", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "typer", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
 ]
 reranker = [
     { name = "fastapi", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
@@ -273,6 +293,23 @@ requires-dist = [
     { name = "llama-index-core", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.12.0" },
     { name = "llama-index-core", marker = "extra == 'gateway'", specifier = ">=0.12.0" },
     { name = "llama-index-core", marker = "extra == 'rag'", specifier = ">=0.12.0" },
+    { name = "llama-index-llms-openai", marker = "extra == 'airflow-worker'", specifier = ">=0.5.0" },
+    { name = "llama-index-llms-openai", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.5.0" },
+    { name = "llama-index-llms-openai", marker = "extra == 'gateway'", specifier = ">=0.5.0" },
+    { name = "llama-index-llms-openai-like", marker = "extra == 'airflow-worker'", specifier = ">=0.5.0" },
+    { name = "llama-index-llms-openai-like", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.5.0" },
+    { name = "llama-index-llms-openai-like", marker = "extra == 'gateway'", specifier = ">=0.5.0" },
+    { name = "llama-index-llms-openai-like", marker = "extra == 'rag'", specifier = ">=0.5.0" },
+    { name = "llama-index-readers-file", marker = "extra == 'airflow-worker'", specifier = ">=0.6.0" },
+    { name = "llama-index-readers-file", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.6.0" },
+    { name = "llama-index-readers-file", marker = "extra == 'rag'", specifier = ">=0.6.0" },
+    { name = "llama-index-readers-papers", marker = "extra == 'airflow-worker'", specifier = ">=0.5.0" },
+    { name = "llama-index-readers-papers", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.5.0" },
+    { name = "llama-index-readers-papers", marker = "extra == 'rag'", specifier = ">=0.5.0" },
+    { name = "llama-index-vector-stores-qdrant", marker = "extra == 'airflow-worker'", specifier = ">=0.10.1" },
+    { name = "llama-index-vector-stores-qdrant", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.10.1" },
+    { name = "llama-index-vector-stores-qdrant", marker = "extra == 'gateway'", specifier = ">=0.10.1" },
+    { name = "llama-index-vector-stores-qdrant", marker = "extra == 'rag'", specifier = ">=0.10.1" },
     { name = "lxml", marker = "extra == 'airflow-worker'", specifier = ">=5.3.0" },
     { name = "lxml", marker = "extra == 'airflow-worker-gpu'", specifier = ">=5.3.0" },
     { name = "lxml", marker = "extra == 'gateway'", specifier = ">=5.3.0" },
@@ -356,6 +393,9 @@ requires-dist = [
     { name = "torch", marker = "extra == 'training'", specifier = ">=2.9.0" },
     { name = "transformers", marker = "extra == 'airflow-worker-gpu'", specifier = ">=4.57.3" },
     { name = "transformers", marker = "extra == 'training'", specifier = ">=4.57.3" },
+    { name = "typer", marker = "extra == 'airflow-worker'", specifier = ">=0.21.1" },
+    { name = "typer", marker = "extra == 'airflow-worker-gpu'", specifier = ">=0.21.1" },
+    { name = "typer", marker = "extra == 'rag'", specifier = ">=0.21.1" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'embeddings'", specifier = ">=0.35.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'gateway'", specifier = ">=0.35.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'reranker'", specifier = ">=0.35.0" },
@@ -1261,6 +1301,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/43/fa/6d96a0978d19e17b68d634497769987b16c8f4cd0a7a05048bec693caa6b/decorator-5.2.1.tar.gz", hash = "sha256:65f266143752f734b0a7cc83c46f4618af75b8c5911b00ccb61d0ac9b6da0360", size = 56711, upload-time = "2025-02-24T04:41:34.073Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4e/8c/f3147f5c4b73e7550fe5f9352eaa956ae838d5c51eb58e7a25b9f3e2643b/decorator-5.2.1-py3-none-any.whl", hash = "sha256:d316bb415a2d9e2d2b3abcc4084c6502fc09240e292cd76a76afc106a1c8e04a", size = 9190, upload-time = "2025-02-24T04:41:32.565Z" },
+]
+
+[[package]]
+name = "defusedxml"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69", size = 75520, upload-time = "2021-03-08T10:59:26.269Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/6c/aa3f2f849e01cb6a001cd8554a88d4c77c5c1a31c95bdf1cf9301e6d9ef4/defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61", size = 25604, upload-time = "2021-03-08T10:59:24.45Z" },
 ]
 
 [[package]]
@@ -2429,6 +2478,51 @@ wheels = [
 ]
 
 [[package]]
+name = "jiter"
+version = "0.15.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/b5/55f06bb281d92fb3cc86d14e1def2bd908bb77693183e7cb1f5a3c388b0c/jiter-0.15.0.tar.gz", hash = "sha256:4251acc80e2b7c9b7b8823456ea0fceeb0734dac2df7636d3c711b38476b5a76", size = 166640, upload-time = "2026-05-19T10:09:48.361Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/44/53/4f6bddbcde3c71e56d0aa1337ec95950f3d27dd4153e25aadf0feac71751/jiter-0.15.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:0e90a1c315a0226ec822d973817967f9223b7701546c8c2a7913e7ab0926294d", size = 308793, upload-time = "2026-05-19T10:07:35.25Z" },
+    { url = "https://files.pythonhosted.org/packages/01/84/c01099b59a285a1ebba64ae93f62bfa036675340fd1b0045ae65890a0442/jiter-0.15.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:8c9004af7c8d67cce7f1aae1026fb55607f4aa600710d08ede3a3ce4aeefe7e0", size = 309570, upload-time = "2026-05-19T10:07:36.919Z" },
+    { url = "https://files.pythonhosted.org/packages/58/64/8fb7f9d45bb98190355454cd04dad8d8f27223d6bd52f83af07f637168a6/jiter-0.15.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c210f8b35dc6f30aafd4b4365ca89b9d1189f21ab49b8e68fa6322a847aef138", size = 336783, upload-time = "2026-05-19T10:07:38.694Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/b6/f5739011d009b3a30f6a53c5240979030ba29ae46a8c67e3a15759f7c37d/jiter-0.15.0-cp312-cp312-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:5f30bae8bc1c2d613e28e5af3e8cceb09b742f1c8a8a5f839fb67afaffc03b61", size = 363555, upload-time = "2026-05-19T10:07:40.832Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/12/98a9d9f766665e8a3b6252454e17cb0c464606a28cf2fa09399b003345fa/jiter-0.15.0-cp312-cp312-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:c60e71b6d10cfc284c9bf36bd885e8d44c46f688ce50aa91b5edd90181dea687", size = 452255, upload-time = "2026-05-19T10:07:42.62Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/d5/60f972840f79c5e7544fce567c56f1e4e50468f996baba3e78d823dd62a6/jiter-0.15.0-cp312-cp312-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:0ab068bce62a45aa3e7367eceaffb5dde60b7eb853be8dece45132e3d0ff4879", size = 373559, upload-time = "2026-05-19T10:07:44.201Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/cf/d46ef1234ba335aabc2f013210db8e0821a22f5e644a2e9449df199ecc23/jiter-0.15.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fa248c9eb220197d363f688818dac2fd4b2f0cd7d843ca7105d652034823427d", size = 346055, upload-time = "2026-05-19T10:07:46.005Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/63/4d2749d8d54d230bad9b3a6b0d00cc28c6ff6b2fdffc26a8ccf76cc5a974/jiter-0.15.0-cp312-cp312-manylinux_2_31_riscv64.whl", hash = "sha256:2a77aadd57cac1682e4401a72724d2796d89a4ba129b1a5812aa94ee480826eb", size = 351406, upload-time = "2026-05-19T10:07:47.855Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/b9/9965b990035d8773328e0a8c8b457a87bf2b19f6c4126d9d99296be5d16a/jiter-0.15.0-cp312-cp312-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:2ae901f3a55bfafdde31d289590fa25e3245735a2b1e8c7cc15871710a002871", size = 389357, upload-time = "2026-05-19T10:07:49.665Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/55/9ddf903deda1413e87fed792f416b7123daee5b8efbad6a202a7421c36a5/jiter-0.15.0-cp312-cp312-musllinux_1_1_aarch64.whl", hash = "sha256:f0b271b462769543716f92d3a4f90527df6ef5ed05ee95ec4137f513e21e1b77", size = 517263, upload-time = "2026-05-19T10:07:51.537Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/76/a0c40ad064d3a20a4fde231e35d56e9a01ce82164278180e82d5daf85469/jiter-0.15.0-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:2fb6a5d26af81fc0f00f9360a891e05cf755e149bba391c4d563adc54812973d", size = 548646, upload-time = "2026-05-19T10:07:53.196Z" },
+    { url = "https://files.pythonhosted.org/packages/23/4f/eca9b954942916ba2f453891b8593ab444cd872396fe66a3936616f236f3/jiter-0.15.0-cp312-cp312-win32.whl", hash = "sha256:c2f6bb8b5216ab9e7873bc08b5d7bef2b8abbb578a3069bf1cd14a45d71d771d", size = 206427, upload-time = "2026-05-19T10:07:55.307Z" },
+    { url = "https://files.pythonhosted.org/packages/95/bf/8ead82a87495149542748e828d153fd232a512a22c83b02c4815c1a9c7d8/jiter-0.15.0-cp312-cp312-win_amd64.whl", hash = "sha256:40b2c7e92c44a84d748d21706c68dc6ff8161d80b59c99d774721a0d2317d7c7", size = 197300, upload-time = "2026-05-19T10:07:56.651Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/e4/9b8a78fb2d894471bc344e37f1949bdd784bd914d031dba0ba3a40c71dd7/jiter-0.15.0-cp312-cp312-win_arm64.whl", hash = "sha256:cc0bc345cf2df9d1c00ac443f50d543c1ccfa8b0422cb85b1ab70d681c0b255b", size = 192702, upload-time = "2026-05-19T10:07:58.307Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/f4/f708c900ecee41b2025ef8413d5351e5649eb2125c506f6720cc69b06f5c/jiter-0.15.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:1c11465f97e2abf45a014b83b730222f8f1c5335e802c7055a67d50de6f1f4e3", size = 307829, upload-time = "2026-05-19T10:07:59.704Z" },
+    { url = "https://files.pythonhosted.org/packages/86/59/db537c0949e83668c38481d426b9f2fd5ab758c4ee53a811dd0a510626a0/jiter-0.15.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:d1e7b1776f0797956c509e123d0952d10d293a9492dea9f288ab9570ec01d1a5", size = 308445, upload-time = "2026-05-19T10:08:01.184Z" },
+    { url = "https://files.pythonhosted.org/packages/37/38/ea0e13b18c30ef951da0d47d39e7fa9edb82a93a62990ffbd7cea9b622d4/jiter-0.15.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:351a341c2105aa430b7047e30f1bf7975f6313b00165d3fc07be2edaf741f279", size = 336181, upload-time = "2026-05-19T10:08:02.688Z" },
+    { url = "https://files.pythonhosted.org/packages/58/fc/2303901b16c4ba05865588990a420c0b4156270b44379c20931544a1d962/jiter-0.15.0-cp313-cp313-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:4ab395feec8d249ec4044e228e98a7033f043426a265df439dc3698823f0a4e4", size = 362985, upload-time = "2026-05-19T10:08:04.394Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/6f/11bace093c52e7d4d26c8e606ccd7ae8c972189622469ec0d9e28161e28b/jiter-0.15.0-cp313-cp313-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:a2a438005b6f22d0273413484d6094d7c2c5d10ec1b3a3bf128e0d1d3ba53258", size = 453292, upload-time = "2026-05-19T10:08:05.967Z" },
+    { url = "https://files.pythonhosted.org/packages/22/db/987f2f086ca4d7a6582eb4ccd513f9b26b42d9e4243a087609a3137a8fc7/jiter-0.15.0-cp313-cp313-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:f18f85e4218d1b40f000f42a92239a7a61a902cd42c65e6c360dbd17dcb20894", size = 373501, upload-time = "2026-05-19T10:08:07.857Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/7c/89fbcabb2739b7a5b8dc959a1b6c5761f6484f5fed3486854b3c789bb1de/jiter-0.15.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d1aa62e277fc1cbd80e6deacae6f4d983b41b3d7728e0645c5d741a6149bba45", size = 344683, upload-time = "2026-05-19T10:08:09.431Z" },
+    { url = "https://files.pythonhosted.org/packages/30/6f/6cca7692e7dddfec6d8d76c54dc97f2af2a41df4ac0674b999df1f09a5f3/jiter-0.15.0-cp313-cp313-manylinux_2_31_riscv64.whl", hash = "sha256:6550fa135c7deb8ead6af49ed7ff648532ea8334a1447fe34a36315ef79c5c29", size = 350892, upload-time = "2026-05-19T10:08:11.352Z" },
+    { url = "https://files.pythonhosted.org/packages/39/14/0338d6190cb8e6d22e677ab1d4eabd4117f67cca70c54cd04b82ff64e068/jiter-0.15.0-cp313-cp313-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:066f8f33f18b2419cd8213b2436fa7fbc9c499f315971cfa3ce1f9820c001b1b", size = 388723, upload-time = "2026-05-19T10:08:12.912Z" },
+    { url = "https://files.pythonhosted.org/packages/90/31/cc19f4a1bdb6afb09ce6a2f2615aa8d44d994eba0d8e6105ed1af920e736/jiter-0.15.0-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:75e8a04e91432dde9f1838373cf93d23726c79d3e908d319acf0e796f85592e7", size = 516648, upload-time = "2026-05-19T10:08:14.808Z" },
+    { url = "https://files.pythonhosted.org/packages/49/9f/833c541512cd091b63c10c0381973dfe11bc7a503a818c16384417e0c81e/jiter-0.15.0-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:a97261f1fccb8e50ecd2890a96e46efdc3f57c80a197324c6777827231eca712", size = 547382, upload-time = "2026-05-19T10:08:16.927Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/11/e7b70e91f90bc4477e8eee9e8a5f7cf3cb41b4525d6394dc98a714eb8f7f/jiter-0.15.0-cp313-cp313-win32.whl", hash = "sha256:c77496cb10bd7549690fbbab3e5ec05857b83e49276f4a9423a766ddd2afcd4c", size = 205845, upload-time = "2026-05-19T10:08:18.401Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/23/5c20d9ad6f02c493e4023e5d2d09e1c1f15fe2753c9102c544aff068a88e/jiter-0.15.0-cp313-cp313-win_amd64.whl", hash = "sha256:b15741f501469009ae0ae90b7147958a664a7dede40aa7ff174a8a4645f546d0", size = 196842, upload-time = "2026-05-19T10:08:20.131Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/11/1eb400ef248e8c925fd883fbe325daf5e42cd1b0d308539dd332bd4f7ffc/jiter-0.15.0-cp313-cp313-win_arm64.whl", hash = "sha256:5d6a60072b44c3c2b797a7ddcbcbbf2b34ea3cfd4721580fbfd2a09d9d9b84ba", size = 192212, upload-time = "2026-05-19T10:08:21.807Z" },
+    { url = "https://files.pythonhosted.org/packages/8a/60/2fd8d7c79da8acf9b7b277c7616847773779356b92acfc9bb158452174da/jiter-0.15.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:ef1fd24d9413f6209e00d3d5a453e67acfe004a25cc6c8e8484faed4311ab9e8", size = 315065, upload-time = "2026-05-19T10:08:23.218Z" },
+    { url = "https://files.pythonhosted.org/packages/46/f4/008fb7d65e8ac2abf00811651a661e025c4ba80bbc6f378450384ddd3aed/jiter-0.15.0-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:144f8e72cb53dab146347b91cceac01f5481237f2b93b4a339a1ee8f8878b67c", size = 339444, upload-time = "2026-05-19T10:08:24.701Z" },
+    { url = "https://files.pythonhosted.org/packages/00/55/90b0c7b9c6896c0f2a591dd36d36b71d22e09674bfef178fa03ba3f81499/jiter-0.15.0-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:553fcac2ef2cb990877f9fc0833b8b629a3e6a5670b6b5fd58219b41a653ddc4", size = 347779, upload-time = "2026-05-19T10:08:26.408Z" },
+    { url = "https://files.pythonhosted.org/packages/51/6b/69666cec5000fd57734c118437394516c749ae8dbeea9fb66d6fef9c4775/jiter-0.15.0-cp313-cp313t-win_amd64.whl", hash = "sha256:774f93f65031856bf14ad9f59bdcab8b8cad501e5ceabd51ba3525f76937a25b", size = 200395, upload-time = "2026-05-19T10:08:28.055Z" },
+    { url = "https://files.pythonhosted.org/packages/39/04/a6aa62cd27e8149b0d28df5561f10f6cceaf7935a9ccf3f1c5a05f9a0cd8/jiter-0.15.0-cp313-cp313t-win_arm64.whl", hash = "sha256:f1e1754960f38ec40613a07e5e372df67acb3b890fb383b6fb3de3e49ddbf3c7", size = 190516, upload-time = "2026-05-19T10:08:29.35Z" },
+    { url = "https://files.pythonhosted.org/packages/73/38/505941b2b092fd5bbbd60a52a880db1173f1690ae6751bed3af1c9ddcb4e/jiter-0.15.0-graalpy312-graalpy250_312_native-macosx_10_12_x86_64.whl", hash = "sha256:631f13a3d04e97d4e083993b10f4b99530e3a10d953e2eb5e196b7dc7f812ce0", size = 303769, upload-time = "2026-05-19T10:09:42.203Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/95/a06692b29e77473f286e1ec1f426d3ca44d7b5843be8ad21d7a5f3fcdcc0/jiter-0.15.0-graalpy312-graalpy250_312_native-macosx_11_0_arm64.whl", hash = "sha256:b6c0ffae686c39bf3737be60793783267628783ea42545632c10b291105aee45", size = 305128, upload-time = "2026-05-19T10:09:43.657Z" },
+    { url = "https://files.pythonhosted.org/packages/23/85/7270d7ad41d6061a25b950c6bf91d638bd9aacb113200a8c8d57a055fd67/jiter-0.15.0-graalpy312-graalpy250_312_native-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1d54fb5b31dea401a41af3f8a7d2512e9b6a6a005491e6166c7e4ffab9639a9c", size = 340459, upload-time = "2026-05-19T10:09:45.452Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/8d/302cb2057b7513327b4d575cff6b1d066ee6431a5357fc3f8867cd684406/jiter-0.15.0-graalpy312-graalpy250_312_native-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:54d5d6090cdc1b7c9e780dfb04949a990adb1e301a2fc0bbcee7de4638d33f9a", size = 344469, upload-time = "2026-05-19T10:09:46.864Z" },
+]
+
+[[package]]
 name = "jmespath"
 version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2706,6 +2800,77 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4e/d0/671b23ccff255c9bce132a84ffd5a6f4541ceefdeab9c1786b08c9722f2e/llama_index_instrumentation-0.5.0.tar.gz", hash = "sha256:eeb724648b25d149de882a5ac9e21c5acb1ce780da214bda2b075341af29ad8e", size = 43831, upload-time = "2026-03-12T20:17:06.742Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c3/45/6dcaccef44e541ffa138e4b45e33e0d40ab2a7d845338483954fcf77bc75/llama_index_instrumentation-0.5.0-py3-none-any.whl", hash = "sha256:aaab83cddd9dd434278891012d8995f47a3bc7ed1736a371db90965348c56a21", size = 16444, upload-time = "2026-03-12T20:17:05.957Z" },
+]
+
+[[package]]
+name = "llama-index-llms-openai"
+version = "0.7.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "llama-index-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "openai", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b2/85/f07466d0f5c3f1e1f295a60f2d2e9d32163635ba39ae2fda22ce2fbac1c9/llama_index_llms_openai-0.7.9.tar.gz", hash = "sha256:f54a24b717134c86e724007057a06a84394f019d1f01e918b624894e208a86df", size = 27564, upload-time = "2026-05-29T15:32:37.141Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/62/c2/cfa341cff00154b58abed3fc559fb43c2531d5dd70eefb75f230704d4c3c/llama_index_llms_openai-0.7.9-py3-none-any.whl", hash = "sha256:0bc8f59faddf8dbc9f90c5576127ab2fa6d368be5078885dc7e611af129b5a79", size = 28648, upload-time = "2026-05-29T15:32:35.997Z" },
+]
+
+[[package]]
+name = "llama-index-llms-openai-like"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "llama-index-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-llms-openai", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3b/a3/16410b28d131aa113ada79f856b78cb68a8e92a1e27255ea9c36c27a5dec/llama_index_llms_openai_like-0.7.2.tar.gz", hash = "sha256:ed9ff73f975dce470f98ac61c982151ba78eedfa3fb9b03894bc1d1312b213ff", size = 5389, upload-time = "2026-04-23T23:05:32.525Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/0c/fdddaee5391d915d3d568d2d8dbdb7c95647e65bb94d4ddb31d47cef5daf/llama_index_llms_openai_like-0.7.2-py3-none-any.whl", hash = "sha256:1f45a7b1cec8fb3f5997684327ffe6c19f93e789c2fff35dc5522465850faf0b", size = 6602, upload-time = "2026-04-23T23:05:31.708Z" },
+]
+
+[[package]]
+name = "llama-index-readers-file"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "beautifulsoup4", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "defusedxml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pandas", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pypdf", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "striprtf", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/29/b9/5d5ecb81febd544a04b38f4ef7d3a69ec0625204f3c0f3d8200b70f16c2d/llama_index_readers_file-0.6.0.tar.gz", hash = "sha256:ff366d6ff5ecb7119275ac859310d8b672d8b6b3261afae02f4084fce9076bd0", size = 32537, upload-time = "2026-03-12T20:34:32.309Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7e/ab/ff4b2e14a63708abc0115ccb13e41b324972c0346d9b82d1fb8dbb77873a/llama_index_readers_file-0.6.0-py3-none-any.whl", hash = "sha256:1026d94f2d5902152373bc2c3b7caa7e216d956620b22d510e516850b6a7440d", size = 51830, upload-time = "2026-03-12T20:34:33.315Z" },
+]
+
+[[package]]
+name = "llama-index-readers-papers"
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "arxiv", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "defusedxml", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/40/50/ad3afd7d2d60d3dff479d0e6df0bdf89ce117665935083f46b0874b8bd6c/llama_index_readers_papers-0.5.0.tar.gz", hash = "sha256:f3920e78005bfb817fe48d46d711b0ecc6477de30527656113cb072527b8c5dc", size = 6055, upload-time = "2026-03-12T20:37:12.846Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/52/9d685c3a3bdf1d693b30972bb8a76d0c43f5305ec81c20083dfc2c8b82d6/llama_index_readers_papers-0.5.0-py3-none-any.whl", hash = "sha256:8538b704d1ba2ce0deba203e877651373d2984c1604d0cd951fdea3787fbc42e", size = 6750, upload-time = "2026-03-12T20:37:12.105Z" },
+]
+
+[[package]]
+name = "llama-index-vector-stores-qdrant"
+version = "0.10.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "grpcio", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "llama-index-core", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "qdrant-client", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ec/9c/7df54b10e6f7d7b3fde3853d25f0c0ec6e701e9dea35359d316e5ea6d942/llama_index_vector_stores_qdrant-0.10.1.tar.gz", hash = "sha256:fef4ca8411c3e33636aabcf883941fde7a9d6deaa45254ee80627f2d0ffbf551", size = 14731, upload-time = "2026-05-04T15:17:50.368Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/9d/32ac29c621db5e635cd248ef824cf49ea934c52085d19c409d6aea4d4167/llama_index_vector_stores_qdrant-0.10.1-py3-none-any.whl", hash = "sha256:90e8c0c0cd96309a9dd84a29cfe77aa6b3ef2f2596f0a0360eaaa8e3a004f1ff", size = 15000, upload-time = "2026-05-04T15:17:51.117Z" },
 ]
 
 [[package]]
@@ -3466,6 +3631,25 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d4/6c/a6c5aea47dc95fca7728f8a5af67c184ec9e7d4e7882125c7062e4bba8dd/onnxruntime-1.25.1-cp313-cp313-win_arm64.whl", hash = "sha256:84f8963d70e00167bae273ab7e80e9795bfc5eb94f6b23236a99c5c11af00844", size = 12634117, upload-time = "2026-04-27T22:00:29.15Z" },
     { url = "https://files.pythonhosted.org/packages/a8/8a/3b65e7911eec86c125e3d6f43d690a6f68671500543c0390ecd6eb59b771/onnxruntime-1.25.1-cp313-cp313t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:03e800b3a4b48d9f3a2d23aacc4fa95486a3b406b14e51d1a9b8b6981d9adf9c", size = 15882935, upload-time = "2026-04-27T21:59:44.912Z" },
     { url = "https://files.pythonhosted.org/packages/3c/bb/410a760694f8ae7bbfc5fa81ccbeb7da241e6d520ee02a333a439cf462a2/onnxruntime-1.25.1-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:fd83ef5c10cfc051a1cb465db692d57b996a1bc75a2a97b161398e29cdbc47ff", size = 18021727, upload-time = "2026-04-27T22:00:13.846Z" },
+]
+
+[[package]]
+name = "openai"
+version = "2.43.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "distro", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "httpx", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "jiter", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "pydantic", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "sniffio", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "tqdm", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-042-airflow' and extra == 'extra-9-agent-042-training') or (extra == 'extra-9-agent-042-airflow-worker' and extra == 'extra-9-agent-042-training')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f3/fa/88d0c58a0c58df7e6758e66b99c5d028d5e0bb49f8812d7203940cd9dbf1/openai-2.43.0.tar.gz", hash = "sha256:e74d238200a26868977002190fb6631613480a93dfe0c9c982e77021ed60a017", size = 785369, upload-time = "2026-06-17T17:06:56.06Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/d2/ba767f4bbb30776c03d40906a2d3afad716a165ffa1771fc23b8992f7920/openai-2.43.0-py3-none-any.whl", hash = "sha256:65a670b54fadf2268c9e1330133373c963eb779ee969e5cbad419ec2c21dce97", size = 1355077, upload-time = "2026-06-17T17:06:53.614Z" },
 ]
 
 [[package]]
@@ -5130,6 +5314,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/43/20/434aaceccc6e1912671d869926103051330437adba72d538d787a07727ef/streamlit-1.52.2.tar.gz", hash = "sha256:64a4dda8bc5cdd37bfd490e93bb53da35aaef946fcfc283a7980dacdf165108b", size = 8584178, upload-time = "2025-12-17T17:07:59.642Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c0/95/6b7873f0267973ebd55ba9cd33a690b35a116f2779901ef6185a0e21864d/streamlit-1.52.2-py3-none-any.whl", hash = "sha256:a16bb4fbc9781e173ce9dfbd8ffb189c174f148f9ca4fb8fa56423e84e193fc8", size = 9025937, upload-time = "2025-12-17T17:07:57.67Z" },
+]
+
+[[package]]
+name = "striprtf"
+version = "0.0.26"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/20/3d419008265346452d09e5dadfd5d045b64b40d8fc31af40588e6c76997a/striprtf-0.0.26.tar.gz", hash = "sha256:fdb2bba7ac440072d1c41eab50d8d74ae88f60a8b6575c6e2c7805dc462093aa", size = 6258, upload-time = "2023-07-20T14:30:36.29Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/cf/0fea4f4ba3fc2772ac2419278aa9f6964124d4302117d61bc055758e000c/striprtf-0.0.26-py3-none-any.whl", hash = "sha256:8c8f9d32083cdc2e8bfb149455aa1cc5a4e0a035893bedc75db8b73becb3a1bb", size = 6914, upload-time = "2023-07-20T14:30:35.338Z" },
 ]
 
 [[package]]

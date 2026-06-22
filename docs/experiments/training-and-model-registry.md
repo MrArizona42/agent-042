@@ -33,9 +33,6 @@ python -m experiments.training.train_adapter.start_train \
 * `./training/conf` - Hydra конфиги
 * `./training` - Обучение адаптера
 * `./training/lora_ops.ipynb` - Операции с LoRA (регистрация, промоушен, синхронизация)
-* `./rag` - RAG operator notebooks для Qdrant diagnostics и observability
-* `./rag/rag_ops.ipynb` - Прямые Qdrant операции: collections, aliases, attestations, samples, cleanup checks
-* `./rag/sandboxes/` - notebook-only experimental forks, которые не импортируются production-кодом
 * `./eval` - Оценка моделей
 * `./eval/eval_results.ipynb` - Результаты оценки (сравнение, отчёты)
 * `./eval/debug_eval.ipynb` - Отладка пайплайна оценки
@@ -43,20 +40,19 @@ python -m experiments.training.train_adapter.start_train \
 
 ## RAG operator path
 
-- Production-safe lifecycle код для RAG живёт в `src/rag/sources/` и запускается через
-  `python -m rag.sources.cli`.
-- На сервере используйте `bash current/scripts/rag_ops.sh ...`, чтобы выполнить команду в
+- Production-safe код для RAG разделён между `src/rag/sources/`,
+  `src/rag/indexing/`, `src/rag/control_plane/` (releases, alias diff/apply)
+  и `src/rag/cli/`; операторский entrypoint — `python -m rag.cli.app`
+  (`catalog validate`, `alias diff`/`alias apply`, `release list`/`show`,
+  `benchmark run`).
+- На сервере используйте `bash scripts/rag_ops.sh ...`, чтобы выполнить команду в
   `rag-ops` контейнере внутри Docker network.
-- Airflow DAG `rag_lifecycle` вызывает те же CLI команды: `build-source`, `materialize`,
-  optional `promote-alias`.
-- `experiments/rag/rag_ops.ipynb` не строит RAG и не содержит production logic. Он нужен для
-  ручной Qdrant diagnostics/observability: aliases, collection attestations, sample points,
-  stale collections, snapshots and danger-zone maintenance cells.
+- Airflow DAG `rag_alias_apply` вызывает `AliasService.apply()` напрямую (не
+  через CLI-процесс) для того же KB/alias.
+- Direct Qdrant diagnostics use the Qdrant API/dashboard; production
+  operations use `rag.cli.app`.
 - Если notebook или helper всё же импортирует catalog-specific schema/loader напрямую, их источник
-  должен быть `src/shared/catalog/`, а не `shared.config`.
-- `experiments/rag/sandboxes/` предназначен только для notebook-only experiments. Если sandbox
-  эксперимент нужно продвигать в champion, код сначала переносится в `src/rag/`, а уже потом
-  пересобирается и промоутится коллекция.
+  должен быть `src/app_config/catalog/`, а не `shared.config`.
 
 ## 📦 DVC
 

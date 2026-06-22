@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from app_config.runtime import load_settings
 from gateway.services.celery_client import CeleryClient
-from shared.config import load_settings
 
 
 def test_celery_client_emits_sent_events_for_flower() -> None:

@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Protocol
 
 import httpx
+from llama_index.core import Document
 from pydantic import BaseModel, ConfigDict
 
-from rag.domain import SourceDocument
+from rag.contracts.metadata import require_document_metadata
 from rag.sources.cache import (
     SourceCachePaths,
     sha256_bytes,
@@ -17,13 +18,20 @@ from rag.sources.cache import (
     write_json_immutable,
 )
 
+DEFAULT_FETCH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+}
+
 
 class SourceFetchResult(BaseModel):
     """Result of fetching one source document into cache."""
 
     model_config = ConfigDict(extra="forbid")
 
-    source_document: SourceDocument
+    source_document: Document
     raw_path: Path
     metadata_path: Path
     checksum: str
@@ -36,7 +44,7 @@ class SourceFetcher(Protocol):
 
     def fetch(
         self,
-        source_document: SourceDocument,
+        source_document: Document,
         *,
         kb_id: str,
         source_instance_id: str,
@@ -51,7 +59,6 @@ class HttpSourceFetcher:
     """Base fetcher for simple HTTP source documents."""
 
     raw_filename: str
-    expected_source_type: str
 
     def __init__(
         self,
@@ -64,7 +71,7 @@ class HttpSourceFetcher:
 
     def _cache_paths(
         self,
-        source_document: SourceDocument,
+        source_document: Document,
         *,
         kb_id: str,
         source_instance_id: str,
@@ -82,24 +89,27 @@ class HttpSourceFetcher:
         if self._client is not None:
             response = self._client.get(uri)
         else:
-            with httpx.Client(timeout=self._timeout, follow_redirects=True) as client:
+            with httpx.Client(
+                timeout=self._timeout,
+                follow_redirects=True,
+                headers=DEFAULT_FETCH_HEADERS,
+            ) as client:
                 response = client.get(uri)
         response.raise_for_status()
         return response.content, response.headers.get("content-type")
 
     def _metadata_payload(
         self,
-        source_document: SourceDocument,
+        source_document: Document,
         *,
         raw_path: Path,
         checksum: str,
         content_type: str | None,
     ) -> dict[str, object]:
         return {
-            "id": source_document.id,
-            "source_type": source_document.source_type,
-            "uri": source_document.uri,
-            "title": source_document.title,
+            "id": source_document.id_,
+            "source_uri": source_document.metadata["source_uri"],
+            "title": source_document.metadata["title"],
             "raw_path": raw_path.as_posix(),
             "checksum": checksum,
             "content_type": content_type,
@@ -107,7 +117,7 @@ class HttpSourceFetcher:
 
     def fetch(
         self,
-        source_document: SourceDocument,
+        source_document: Document,
         *,
         kb_id: str,
         source_instance_id: str,
@@ -115,11 +125,7 @@ class HttpSourceFetcher:
         force: bool = False,
     ) -> SourceFetchResult:
         """Fetch and cache one source document."""
-        if source_document.source_type != self.expected_source_type:
-            raise ValueError(
-                f"{self.__class__.__name__} expected source_type "
-                f"'{self.expected_source_type}' (got '{source_document.source_type}')"
-            )
+        require_document_metadata(source_document)
 
         paths = self._cache_paths(
             source_document,
@@ -132,11 +138,10 @@ class HttpSourceFetcher:
             content = paths.raw_path.read_bytes()
             checksum = sha256_bytes(content)
             return SourceFetchResult(
-                source_document=source_document.model_copy(
-                    update={
-                        "raw_path": paths.raw_path.as_posix(),
-                        "checksum": checksum,
-                    }
+                source_document=_with_fetch_metadata(
+                    source_document,
+                    raw_path=paths.raw_path,
+                    checksum=checksum,
                 ),
                 raw_path=paths.raw_path,
                 metadata_path=paths.metadata_path,
@@ -144,7 +149,7 @@ class HttpSourceFetcher:
                 from_cache=True,
             )
 
-        content, content_type = self._fetch_bytes(source_document.uri)
+        content, content_type = self._fetch_bytes(str(source_document.metadata["source_uri"]))
         checksum = sha256_bytes(content)
         write_bytes_immutable(paths.raw_path, content, force=force)
         write_json_immutable(
@@ -158,11 +163,10 @@ class HttpSourceFetcher:
             force=force,
         )
         return SourceFetchResult(
-            source_document=source_document.model_copy(
-                update={
-                    "raw_path": paths.raw_path.as_posix(),
-                    "checksum": checksum,
-                }
+            source_document=_with_fetch_metadata(
+                source_document,
+                raw_path=paths.raw_path,
+                checksum=checksum,
             ),
             raw_path=paths.raw_path,
             metadata_path=paths.metadata_path,
@@ -175,24 +179,28 @@ class HtmlDocsFetcher(HttpSourceFetcher):
     """Fetch HTML documentation pages into raw cache."""
 
     raw_filename = "page.html"
-    expected_source_type = "html_docs"
 
 
 class ArxivPaperFetcher(HttpSourceFetcher):
     """Fetch ArXiv PDFs into raw cache."""
 
     raw_filename = "paper.pdf"
-    expected_source_type = "arxiv_paper"
 
-    def _pdf_url(self, source_document: SourceDocument) -> str:
+    def _pdf_url(self, source_document: Document) -> str:
         arxiv_id = str(source_document.metadata.get("arxiv_id") or "").strip()
         if not arxiv_id:
-            raise ValueError(f"ArXiv source document '{source_document.id}' is missing arxiv_id")
+            uri = str(source_document.metadata["source_uri"])
+            for prefix in ("arxiv_paper:", "arxiv:"):
+                if uri.startswith(prefix):
+                    arxiv_id = uri[len(prefix) :]
+                    break
+        if not arxiv_id:
+            raise ValueError(f"ArXiv source document '{source_document.id_}' is missing arxiv_id")
         return f"https://arxiv.org/pdf/{arxiv_id}"
 
     def fetch(
         self,
-        source_document: SourceDocument,
+        source_document: Document,
         *,
         kb_id: str,
         source_instance_id: str,
@@ -200,9 +208,15 @@ class ArxivPaperFetcher(HttpSourceFetcher):
         force: bool = False,
     ) -> SourceFetchResult:
         fetch_document = source_document
-        if source_document.uri.startswith("arxiv:"):
+        source_uri = str(source_document.metadata["source_uri"])
+        if source_uri.startswith(("arxiv:", "arxiv_paper:")):
             fetch_document = source_document.model_copy(
-                update={"uri": self._pdf_url(source_document)}
+                update={
+                    "metadata": {
+                        **source_document.metadata,
+                        "source_uri": self._pdf_url(source_document),
+                    }
+                }
             )
         return super().fetch(
             fetch_document,
@@ -211,3 +225,20 @@ class ArxivPaperFetcher(HttpSourceFetcher):
             rag_data_root=rag_data_root,
             force=force,
         )
+
+
+def _with_fetch_metadata(
+    document: Document,
+    *,
+    raw_path: Path,
+    checksum: str,
+) -> Document:
+    return document.model_copy(
+        update={
+            "metadata": {
+                **document.metadata,
+                "raw_path": raw_path.as_posix(),
+                "checksum": checksum,
+            }
+        }
+    )

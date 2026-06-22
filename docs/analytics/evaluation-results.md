@@ -27,7 +27,9 @@ are attached to the metric result that was computed from them.
 | `base_model` | Gateway default model at eval time. |
 | `adapter_name`, `adapter_version`, `lora_alias` | LoRA adapter metadata, when used. |
 | `rag_enabled`, `rag_alias`, `knowledge_base` | RAG configuration used by the run. |
-| `qdrant_alias`, `qdrant_collection`, `rag_manifest_id` | Resolved RAG collection metadata. |
+| `qdrant_alias`, `qdrant_collection`, `rag_manifest_id` | Resolved RAG collection metadata. `rag_manifest_id` identifies the release-v2 manifest for both durable and disposable benchmark collections. |
+| `rag_release_id`, `alias_deployment_id` | The content-addressed release and Postgres alias deployment the run was evaluated against. |
+| `build_config_digest`, `retrieval_config_digest` | Fingerprints of the build/retrieval config in effect for this run; join key for detecting whether a benchmark needs to be rerun after a catalog change. |
 | `embedding_model`, `chunking_strategy`, `retrieval_top_k` | Retrieval configuration metadata when available. |
 | `judge_backend`, `judge_model` | LLM-as-judge backend used for judge metrics. |
 | `temperature`, `max_tokens` | Generation settings used during prediction fetch. |
@@ -52,6 +54,60 @@ Common `detail` shapes:
 - generation/chat: may include `rag_context`;
 - code: includes `passed`, `exit_code`, and `stderr`;
 - retrieval: includes `retrieved_ids` and `relevance`.
+- RAG benchmark: includes retrieved chunk/document provenance, expected qrels,
+  reference answers, evidence refs, generation facts, prompt identity, and
+  timing diagnostics.
+
+## RAG Benchmark Persistence
+
+RAG benchmark inputs are prepared as source-instance artifacts, not as result
+reports:
+
+```text
+assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/
+  corpus.jsonl
+  cases.jsonl
+  labels.jsonl
+  metadata.json
+```
+
+Benchmark results live only in Postgres:
+
+- aggregate metrics go to `eval_runs`;
+- per-case observations go to `eval_samples.detail`;
+- runs must record the benchmark source instance id, KB id, explicit alias,
+  resolved Qdrant alias/collection, manifest id, adapter id/version, artifact
+  digests, and prompt identity when generation is involved.
+
+RAG benchmark suite names:
+
+```text
+retrieval_quality
+context_quality
+generation_quality
+```
+
+Retrieval labels are normalized as `qrels[]` with `entity_type` set to
+`document` or `chunk`. Flat relevant id lists are derived from qrels rather than
+stored as a second source of truth.
+
+`corpus.jsonl` contains normalized LlamaIndex `Document` objects. It is empty
+for benchmarks that evaluate the attached live KB corpus. When populated, the
+runner builds and deletes a temporary collection using the explicitly selected
+KB alias's current chunking, embedding, retrieval, threshold, and reranking
+profile.
+
+Phase 5 RAG rows use `task = 'rag'` and
+`dataset_name = <benchmark_source_instance_id>`. Each metric gets one
+`eval_runs` row. Its `extra` contains:
+
+- `benchmark_source_instance_id`;
+- `benchmark_artifact_digests`;
+- `benchmark_suites`.
+
+Per-case `eval_samples.detail` stores metric score and judge feedback plus the
+applicable retrieved ids/scores, qrel entity type, generated answer, reference
+answers, cited chunk ids, and prompt identity.
 
 ## Metric Families
 
@@ -64,9 +120,10 @@ Automatic generation metrics:
 
 Retrieval metrics:
 
-- `recall_at_<k>`;
-- `ndcg_at_<k>`;
-- `mrr_at_<k>`.
+- binary `document_*` / `chunk_*` hit rate, MRR, precision, recall, AP, and
+  NDCG from LlamaIndex;
+- graded `document_graded_ndcg@<k>` / `chunk_graded_ndcg@<k>` from project
+  qrels.
 
 Code metrics:
 
@@ -239,13 +296,13 @@ order by created_at desc
 limit 50;
 ```
 
-## Current Gaps For Phase 2
+## Remaining Evaluation Gaps
 
 - Citation metadata is not yet stored per sample.
 - Retrieval eval has document ids and relevance labels, but not final
   user-facing citation correctness.
-- LLM-as-judge prompts exist in code but should be versioned explicitly before
-  judge metrics become promotion gates.
+- Judge prompt identity is not yet separately versioned from the RAG answer
+  prompt identity; add it before judge metrics become promotion gates.
 - Production feedback is not yet joined to eval samples.
 - Request-level production events and offline eval rows do not yet share a
   first-class experiment or variant id.

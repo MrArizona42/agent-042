@@ -228,36 +228,51 @@ RAG в проекте разделён на несколько независи�
 
 - **KB id** — логическая база знаний из `catalog.toml`, например
   `ml_papers_core` или `pytorch_reference`.
-- **Source type** — тип connector/extractor, например `arxiv_paper` или
-  `html_docs`.
-- **Source instance** — KB-local источник данных: пара `(kb, source_id)`,
-  например `(ml_papers_core, papers)` или `(pytorch_reference, docs)`.
-- **Source manifest** — curated список документов для source instance:
-  `assets/rag_data/<kb>/sources.toml`.
-- **Artifact manifest** — JSON provenance конкретной сборки под
-  `assets/rag_data/<kb>/manifests/`.
+- **Source adapter** — catalog-declared source lifecycle behavior from
+  `[[source_adapters]]`. Adapter identity is the behavior selector; source
+  manifests do not carry a separate `source_type` behavior field.
+- **Benchmark adapter** — catalog-declared adapter from `[[benchmark_adapters]]`
+  that implements the normal source lifecycle plus benchmark preparation.
+- **Source instance** — globally meaningful source id, for example
+  `ml_papers_core.papers` or `pytorch_reference.docs`.
+- **Source role** — `role = "corpus"` participates in normal KB builds;
+  `role = "benchmark"` produces benchmark cases/labels and is excluded from
+  normal materialization.
+- **Source manifest** — curated document list or adapter-specific config at
+  `assets/rag_data/source_instances/<source_instance_id>/manifest.toml`.
+- **Release** — immutable, content-addressed build result. Its id
+  (`ragrel_<kb>_<16hex>`) and Qdrant collection name (`rag__<kb>__<16hex>`)
+  are derived from a fingerprint of the build config, source declaration,
+  and source snapshot — not a timestamp. Release manifest JSON provenance
+  lives at `assets/rag_data/knowledge_bases/<kb>/releases/<release_id>.json`.
+- **Alias deployment** — the Postgres row (`rag_alias_deployments`) recording
+  which release is active for a (kb_id, alias) pair. This, not the Qdrant
+  alias, is the runtime serving source of truth.
 - **Physical collection** — реальная Qdrant collection вида
-  `rag__<kb_id>__<timestamp>`. Имя физической коллекции не содержит alias.
+  `rag__<kb_id>__<16-hex fingerprint>`. Имя физической коллекции не содержит
+  alias.
 - **Qdrant alias** — runtime pointer вида `rag__<kb_id>__<alias>`, например
-  `rag__pytorch_reference__champion`.
-- **Qdrant attestation** — компактная запись metadata внутри collection,
-  позволяющая runtime проверить KB id, collection name, manifest id,
-  embedding model и retrieval capability.
+  `rag__pytorch_reference__champion`. Зеркало applied state, обновляется
+  после активации deployment в Postgres.
+- **Release attestation** — компактная запись metadata внутри collection
+  (schema version 2), позволяющая runtime/cleanup проверить release id, KB
+  id, collection name, manifest id, encoder identity и retrieval capability.
 
 Связи:
 
 ```text
 Task 1-to-many KB
 KB 1-to-many SourceInstance
-SourceInstance many-to-1 SourceType
-KB many-to-many SourceType through SourceInstance
+SourceInstance -> SourceAdapter | BenchmarkAdapter
 KB 1-to-many AliasConfig
-AliasConfig -> Qdrant alias -> Physical collection
-Physical collection -> Qdrant attestation -> Artifact manifest
+AliasConfig -> AliasService.diff/apply -> Release (Postgres rag_releases)
+Release -> Alias deployment (Postgres rag_alias_deployments) -> Qdrant alias (mirror)
+Release -> Qdrant attestation -> Release manifest
 ```
 
-Source ids не считаются глобально уникальными: для операций build/update всегда
-используется пара `(kb, source_id)`.
+Source instance ids are global. Legacy `[[sources]]` and KB-local `--source`
+selectors are removed; operator workflows use `[[source_instances]]` and global
+`--source-instance` values.
 
 ### 5.2 Архитектура retrieval
 
@@ -270,7 +285,8 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 [Embedding / Sparse Encoding]
   │
   ▼
-[QdrantVectorStore] ── dense / sparse / hybrid search
+[LlamaIndex VectorStoreIndex + QdrantVectorStore]
+  ── dense / sparse / hybrid search
   │
   ▼
 [Reranker] (опционально) ── cross-encoder re-scoring
@@ -292,9 +308,12 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 При включённом reranker'е первый этап извлекает `top_k × reranker_multiplier` кандидатов (с расширенным порогом), второй этап пересортировывает их cross-encoder'ом (`cross-encoder/ms-marco-MiniLM-L-6-v2`), после чего применяется финальный score threshold.
 
 **Chunking:**
-Документы перед индексацией разбиваются на чанки:
-- `FixedTokenChunker` (основан на `RecursiveCharacterTextSplitter`) — для текстовых документов (arxiv-статьи, документация).
-- `CodeChunker` — для кода, сохраняет границы функций и классов.
+Current chunking uses LlamaIndex `SentenceSplitter` through
+`src/rag/sources/chunks.py`. Source adapters and extractors emit LlamaIndex
+`Document`; node artifacts persist native `TextNode` objects. `TextNode.id_` is
+a deterministic UUID used as the Qdrant point id, while the readable
+`chunk_id` remains in node metadata. Project `Document` / `Chunk` contracts are
+not part of the active source/build path.
 
 ### 5.3 Базы знаний и источники
 
@@ -302,8 +321,8 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 
 **`ml_papers_core`** (задача `chat`)
 - Содержимое: curated full-text ML/AI papers.
-- Source instance: `(kb=ml_papers_core, source_id=papers, type=arxiv_paper)`.
-- Manifest: `assets/rag_data/ml_papers_core/sources.toml`.
+- Source instance: `ml_papers_core.papers`.
+- Manifest: `assets/rag_data/source_instances/ml_papers_core.papers/manifest.toml`.
 - Стратегия обновления: **replace** — новая physical collection собирается
   целиком и затем может быть продвинута через alias.
 - Активный champion: dense retrieval, `top_k=5`, `score_threshold=0.35`.
@@ -311,8 +330,8 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 
 **`pytorch_reference`** (задача `code`)
 - Содержимое: официальная документация PyTorch.
-- Source instance: `(kb=pytorch_reference, source_id=docs, type=html_docs)`.
-- Manifest: `assets/rag_data/pytorch_reference/sources.toml`.
+- Source instance: `pytorch_reference.docs`.
+- Manifest: `assets/rag_data/source_instances/pytorch_reference.docs/manifest.toml`.
 - Стратегия обновления: **replace** — при каждом обновлении коллекция
   пересоздаётся полностью (документация версионируется целиком).
 - Идентичная схема champion/challenger.
@@ -321,64 +340,140 @@ Retrieval pipeline реализован в `src/rag/` и состоит из ч�
 
 ### 5.4 Source/build pipeline
 
-Source pipeline живёт в `src/rag/sources/` и разделяет получение данных,
-извлечение текста, chunking, materialization и promotion:
+Source/build lifecycle is split across production modules:
+
+- `src/rag/adapters/` — adapter contracts, catalog factory loading, and source
+  implementations;
+- `src/rag/sources/` — generic source manifests, fetch/extract/chunk artifacts,
+  source builds, benchmark preparation, and source bundle collection;
+- `src/rag/indexing/` — LlamaIndex Qdrant materialization, collection metadata,
+  collection manifests, and immutable release attestation;
+- `src/rag/control_plane/` — content-addressed release builder
+  (`release_builder.py`), fingerprint helpers (`fingerprints.py`), the
+  Postgres-backed release/deployment registry (`repositories.py`,
+  `postgres.py`), and `AliasService` (`alias_service.py`), the diff/apply
+  reconciliation engine;
+- `src/rag/cli/` — the `rag` Typer CLI (`catalog`, `alias`, `release`,
+  `benchmark`, `source` command groups), the only supported operator
+  entrypoint.
+
+The data flow for `rag alias apply` is:
 
 ```text
-sources.toml
-  -> fetch raw artifacts
-  -> extract normalized text artifacts
-  -> process/chunk documents
-  -> collect build bundle
-  -> materialize Qdrant collection
-  -> write artifact manifest + Qdrant attestation
-  -> optional alias promotion
+catalog.toml alias declaration (build + retrieve config)
+  -> AliasService.diff(): compare against Postgres applied state
+  -> on drift: fetch raw artifacts (cache permitting)
+  -> extract LlamaIndex Document artifacts
+  -> parse native TextNode artifacts
+  -> collect SourceNodeBundle
+  -> VectorStoreIndex + LlamaIndex QdrantVectorStore, named by content fingerprint
+  -> write immutable release manifest + insert rag_releases row
+  -> insert/activate rag_alias_deployments row, update the Qdrant alias
 ```
+
+A release is reused across this flow whenever its build config and source
+declaration fingerprint match an existing, non-retired `rag_releases` row —
+fetching/materializing only happens on an actual cache or fingerprint miss.
 
 Политика артефактов:
 
-- `sources.toml` хранится в Git как curated operator input.
-- Raw cache (`assets/rag_data/<kb>/raw/`) immutable по умолчанию и не
+- Source instance `manifest.toml` files stay in Git as curated operator input.
+- Raw cache (`assets/rag_data/source_instances/<source_instance_id>/raw/`) immutable по умолчанию и не
   DVC-tracked; force flags нужны для повторного fetch/extract/chunk.
-- Generated `extracted`, `chunks`, `manifests` и optional `metadata` могут
-  синхронизироваться через DVC.
-- Для `arxiv_paper` основная истина — paper id; URL/PDF endpoint строится
-  fetcher'ом. Для `html_docs` URL указан в source manifest.
+- Generated source-instance artifacts and knowledge-base manifests/metadata can
+  be synchronized through DVC when needed.
+- Source manifests are generic. Adapter-specific validation, document listing,
+  fetcher selection, and extractor selection live behind the source adapter.
+  Ordinary new datasets should not require editing generic manifest unions or
+  source-type enums.
 
-### 5.5 Alias-based управление коллекциями (паттерн champion / challenger)
+Benchmark source instances use the same source-instance identity model but
+`role = "benchmark"`. `prepare-benchmark` writes normalized benchmark artifacts:
 
-Ключевой механизм для управления качеством RAG — система aliases поверх коллекций Qdrant. Одновременно могут существовать несколько физических коллекций для одного KB. Физическая коллекция не содержит имени alias, например `rag__pytorch_reference__20260605_120000`. Qdrant alias `rag__pytorch_reference__champion` указывает на текущую production-версию, а `rag__pytorch_reference__challenger` — на кандидатную настройку или A/B вариант.
+```text
+assets/rag_data/source_instances/<benchmark_source_instance_id>/benchmark/
+  corpus.jsonl
+  cases.jsonl
+  labels.jsonl
+  metadata.json
+```
+
+Benchmark results are not stored as report files; Postgres `eval_runs` and
+`eval_samples.detail` are the source of truth.
+
+### 5.5 Declarative alias control plane (desired vs. applied state, паттерн champion / challenger)
+
+Ключевой механизм для управления качеством RAG — declarative reconciliation
+между `catalog.toml` (desired state) и Postgres (`rag_releases`,
+`rag_alias_deployments` — applied state), по аналогии с Terraform/Kubernetes.
+Qdrant alias — лишь зеркало applied state, не источник истины: runtime
+resolution и cleanup решают liveness через Postgres, а не через то, на что
+сейчас указывает Qdrant alias.
+
+Физическая коллекция — immutable, content-addressed release:
+`rag__<kb_id>__<16-hex fingerprint>` (не timestamp). Тот же fingerprint
+(build config + source declaration + source snapshot) всегда резолвится в тот
+же `release_id`/collection name, поэтому одна и та же release может быть
+переиспользована несколькими alias'ами без пересборки.
 
 ```
-Qdrant Collections:
-  rag__pytorch_reference__20260605_120000  ◄── alias "rag__pytorch_reference__champion"
-  rag__pytorch_reference__20260605_153000  ◄── alias "rag__pytorch_reference__challenger"
+rag_releases (Postgres):
+  ragrel_pytorch_reference_<fp1>  ── collection rag__pytorch_reference__<fp1>
+  ragrel_pytorch_reference_<fp2>  ── collection rag__pytorch_reference__<fp2>
 
-После валидации challenger:
-  rag__pytorch_reference__20260605_120000
-  rag__pytorch_reference__20260605_153000  ◄── alias "rag__pytorch_reference__champion"
+rag_alias_deployments (Postgres, applied state):
+  (pytorch_reference, champion)   -> active   -> ragrel_pytorch_reference_<fp1>
+  (pytorch_reference, challenger) -> active   -> ragrel_pytorch_reference_<fp2>
+
+Qdrant aliases (mirror, updated by AliasService._activate()):
+  rag__pytorch_reference__champion   -> rag__pytorch_reference__<fp1>
+  rag__pytorch_reference__challenger -> rag__pytorch_reference__<fp2>
 ```
 
-Переключение alias — атомарная операция Qdrant, не требующая перезапуска Gateway. В catalog каждый KB alias задаёт профиль retrieval-параметров (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`). Runtime валидирует alias config against Qdrant attestation перед retrieval.
+Activation (`AliasService.apply()`) сначала пишет/обновляет
+`rag_alias_deployments`, затем обновляет Qdrant alias — атомарная для
+runtime операция (Postgres решает what serves traffic), не требующая
+перезапуска Gateway. В catalog каждый alias задаёт `build` (chunking,
+dense/sparse encoder) и `retrieve` (`top_k`, `score_threshold`,
+`strategy`, `reranker`) профили. Runtime резолвит alias через активный
+deployment, не через collection metadata attestation.
 
-Совместимость alias config и collection capability:
+Совместимость alias `retrieve.strategy` и release capability:
 
-- dense-запрос к dense collection — разрешён;
-- dense-запрос к hybrid collection — разрешён;
-- hybrid-запрос к hybrid collection — разрешён;
-- hybrid-запрос к dense collection — отклоняется runtime'ом.
+- dense-запрос к dense release — разрешён;
+- dense-запрос к hybrid release — разрешён;
+- hybrid/sparse-запрос к hybrid release — разрешён;
+- hybrid/sparse-запрос к dense-only release — отклоняется `AliasService`
+  при apply (`AliasApplyError`), retrieval не достигается.
 
 UI может использовать `default_alias`; API/eval могут явно запросить любой
 declared alias KB. Это даёт основу для champion/challenger сравнений и будущих
-A/B тестов.
+A/B тестов. `default_alias` защищён evaluation-coverage gate: apply
+отказывается собрать/активировать неоцененный release для default alias без
+явного `--allow-build-default`/`--allow-unevaluated`.
 
-**Lifecycle коллекции:**
+**Reconciliation workflow:**
 
-1. **Source build** (`python -m rag.sources.cli build-source`) — fetch/extract/chunk для configured KB/source.
-2. **Materialize** (`python -m rag.sources.cli materialize --alias-config ...`) — индексация bundle в новую Qdrant collection и запись manifest + attestation.
-3. **Inspection** — direct Qdrant notebook или CLI summary проверяют aliases, collection metadata, sample points.
-4. **Alias promotion** (`python -m rag.sources.cli promote-alias`) — переключение `rag__<kb>__<alias>` на attested collection.
-5. **Cleanup** (`dags/rag_collection_cleanup.py`) — удаление устаревших коллекций без активных aliases.
+1. **Diff** (`rag alias diff <kb> <alias>`) — desired (catalog digest) vs.
+   applied (Postgres digest) comparison, без side effects.
+2. **Apply** (`rag alias apply <kb> <alias>`) — резолвит/собирает (fetch при
+   cache miss или `--refresh-sources`) release через `AliasService`,
+   проверяет provider identity и retrieval compatibility, активирует
+   deployment, обновляет Qdrant alias.
+3. **Benchmark** (`rag benchmark run ...`) — прогон attached benchmarks
+   против активного release alias'а; результаты пишутся в `eval_runs`/
+   `eval_samples` с `rag_release_id`/`alias_deployment_id`.
+4. **Inspection** (`rag release list/show`, `rag alias status`) — сравнение
+   declared/applied state, без прямого обращения к Qdrant.
+5. **Cleanup** (`dags/rag_collection_cleanup.py`, `@daily`) — retire release
+   в Postgres перед удалением её Qdrant collection; никогда не удаляет
+   collection без соответствующей retired `rag_releases` строки.
+
+LlamaIndex-built collections are serving-compatible: runtime resolves the
+active deployment's release, validates provider identity, reopens
+`VectorStoreIndex.from_vector_store()`, and queries native nodes. Alias
+activation remains a project-owned, Postgres-then-Qdrant operation inside
+`AliasService`.
 
 ### 5.6 Runtime retrieval и observability
 
@@ -386,12 +481,28 @@ Gateway вызывает `RAGService`, который делегирует looku
 `rag.runtime.RagRuntime`. Runtime выполняет:
 
 1. normalizes requested `(knowledge_base, alias)`;
-2. находит alias config в catalog;
-3. resolves Qdrant alias `rag__<kb>__<alias>`;
-4. читает Qdrant attestation;
-5. проверяет KB id, collection name, embedding dimension и retrieval capability;
-6. вызывает retriever;
-7. возвращает citation-ready hits и observability payload.
+2. находит active `AliasDeployment` в Postgres (`rag_alias_deployments`) —
+   не Qdrant alias, который остаётся лишь зеркалом;
+3. резолвит deployment's `RagRelease` (`rag_releases`) и проверяет, что его
+   Qdrant collection существует и несёт matching schema-version-2 release
+   attestation (`compare_release_attestation`);
+4. проверяет live embedding provider identity (`embedding_service.model`,
+   не статичный `runtime.toml` config) и vector dimension против release;
+5. reopens the LlamaIndex vector index and retrieves `NodeWithScore` objects;
+6. applies optional project reranking and score filtering as LlamaIndex node
+   postprocessors;
+7. maps nodes to citation-ready compatibility hits and observability payload.
+
+Любое несовпадение (missing release, missing/mismatched collection,
+attestation mismatch, provider identity drift) — `fail-closed` для этого
+KB/alias: `strict` режим поднимает исключение, non-strict пропускает источник
+и помечает его в `skipped_sources`.
+
+`RagRuntime.query()` is the standalone generation path for benchmarks and
+future inference integration. It uses `RetrieverQueryEngine`, returns answer
+plus source nodes, and records `prompt_id`, `prompt_version`, `prompt_digest`,
+and prompt parameters. Gateway chat keeps its existing streaming generation
+path and consumes the compatibility retrieval mapping.
 
 `RagRuntimeResult` содержит:
 
@@ -525,8 +636,8 @@ registry.promote("lora-summarize", version=2, alias="champion")
 | Конфиг | Назначение |
 |---|---|
 | `.env` | Операторский env-файл. Runtime settings используют nested имена вида `SECTION__FIELD`; инфраструктурные bootstrap/env-переменные Compose могут оставаться flat |
-| `src/shared/config.py` | Root runtime settings loader: `Settings(BaseSettings)`, cache helpers и safe startup logging для Python-сервисов |
-| `src/shared/catalog/` + `catalog.toml` | Catalog schema, loader и operator catalog для задач, баз знаний и источников |
+| `src/app_config/runtime/` | Root runtime settings: `Settings(BaseSettings)`, cache helpers, и safe startup logging для Python-сервисов.|
+| `src/app_config/catalog/` + `catalog.toml` | Catalog schema, loader и operator catalog для задач, баз знаний и источников |
 | `infra/compose/docker-compose.yaml` | Topology всей системы: сети, port bindings, volumes, health checks, зависимости между сервисами |
 | `infra/docker/**/Dockerfile` | Определения образов: базовые образы, установка зависимостей, process defaults |
 | `infra/nginx/*.conf` | TLS termination, reverse proxy rules и маршрутизация между UI и Gateway |
@@ -535,26 +646,69 @@ registry.promote("lora-summarize", version=2, alias="champion")
 
 ### 7.2 `catalog.toml` — catalog задач, баз знаний и источников
 
-Этот catalog-layer является единственным источником истины для:
-- Списка задач и их `routing_description` (используется task router'ом).
-- Списка баз знаний и их metadata.
-- Связей `task -> kb_refs`.
+- Списка задач: `id`, `description`, `knowledge_bases`, and optional
+  `lora_adapter`.
+- Списка баз знаний: `id`, `description`, update strategy, default alias, and
+  alias retrieval profiles.
+- Связей `task -> knowledge_bases`.
 - Per-KB alias retrieval profiles (`top_k`, `score_threshold`, `retrieval_strategy`, `reranker`).
-- LoRA-адаптера для каждой задачи (name, alias, enabled).
-- Source metadata для build/update пайплайнов.
+- Task-level LoRA/model adapter config (`lora_adapter`).
+- Source and benchmark adapter declarations.
+- Source instances for corpus builds and benchmark preparation.
 
-Файл загружается через `src/shared/catalog/` и валидируется через Pydantic-модели (`TaskConfig`, `KBConfig`, `AliasConfig`). Нарушения схемы (например, отсутствующий `default_alias`) приводят к отказу при старте. Канонический TOML использует list sections `[[tasks]]`, `[[knowledge_bases]]`, `[[sources]]` с явными `id`; legacy mapping sections не поддерживаются.
+Файл загружается через `src/app_config/catalog/` и валидируется через
+Pydantic-модели. Нарушения схемы (например, отсутствующий `default_alias` или
+source instance, ссылающийся на неизвестный KB/adapter) приводят к отказу при
+старте.
 
-### 7.3 Pydantic Settings (`src/shared/config.py`)
+Canonical catalog v3 uses list sections:
 
-Python-конфигурация реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/shared/config.py`.
+```text
+[[tasks]]
+[[knowledge_bases]]
+[[source_adapters]]
+[[benchmark_adapters]]
+[[source_instances]]
+```
+
+Source instances declare:
+
+```text
+id
+description
+role                  "corpus" or "benchmark"
+knowledge_base
+adapter               { id = "...", version = "..." }
+benchmark.suites      only for role = "benchmark"
+```
+
+Tasks and knowledge bases use only `id` and `description` for descriptive
+strings. Do not add catalog `label`, `routing_description`, or
+`selection_description` fields.
+
+`benchmark.suites` allowed values are:
+
+```text
+retrieval_quality
+context_quality
+generation_quality
+```
+
+Legacy `[[sources]]` is no longer supported.
+
+### 7.3 Runtime Settings (`src/app_config/runtime/`)
+
+Python-конфигурация реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/app_config/runtime/`.
+
+Все модели и load-функции живут в `app_config.runtime.models` и `app_config.runtime.loaders`;
+`src/shared/` теперь ограничен cross-cutting infrastructure: database, events, logging, telemetry, service helpers.
 
 Ключевые свойства текущей схемы:
 
 - env читает только root `Settings`, а nested sections являются plain `BaseModel`
 - canonical runtime env names используют nested contract с delimiter `__`
 - flat compatibility aliases для runtime env names больше не поддерживаются
-- catalog models/loaders больше не реэкспортируются через `shared.config`; они живут в `shared.catalog`
+- catalog models/loaders живут в `app_config.catalog`; не реэкспортируются ни через `shared.config`, ни через `app_config.runtime`
 
 Основные секции runtime settings:
 
@@ -579,7 +733,7 @@ Python-конфигурация реализована через `pydantic-sett
 - `EVAL__JUDGE__MODEL`
 - `WORKER__CONCURRENCY`
 
-Функция `get_settings()` кэширует root settings через `@lru_cache`. Для settings-driven тестов и локальных override-сценариев используется `load_settings({...})`; для catalog override используется `catalog_override(...)` из `shared.catalog`.
+Функция `get_settings()` кэширует root settings через `@lru_cache`. Для settings-driven тестов и локальных override-сценариев используется `load_settings({...})`; для catalog override используется `catalog_override(...)` из `app_config.catalog`.
 
 Финальное решение по naming convention: текущий mix class names `*Settings` / `*Config` сохраняется, чтобы не делать churn-only rename pass. Канонизирована именно field/env surface, а не имена всех классов.
 
@@ -594,10 +748,12 @@ Python-конфигурация реализована через `pydantic-sett
 
 При добавлении нового catalog field:
 
-1. меняйте schema/models в `src/shared/catalog/`
+1. меняйте schema/models в `src/app_config/catalog/`
 2. обновляйте `catalog.toml` и sample/contract tests
 3. используйте `catalog_override(...)` в тестах вместо manual global mutation
-4. не добавляйте catalog helper re-exports обратно в `shared.config`
+4. не добавляйте catalog helper re-exports в `shared.config` или `app_config.runtime`
+5. do not reintroduce behavior selection through `source_type`; use adapter ids
+   and adapter capability checks.
 
 ---
 
@@ -613,17 +769,26 @@ Python-конфигурация реализована через `pydantic-sett
 - Возвращает путь к `training_summary.json` через XCom.
 - Не выполняет регистрацию и продвижение — это ручной шаг в `lora_ops.ipynb`.
 
-**`rag_lifecycle.py`** — generic RAG lifecycle DAG.
-- Запускает те же CLI entrypoints, что и `rag-ops`: `build-source`, `materialize`,
-  optional `promote-alias`.
-- Параметризуется через `kb`, `source`, `alias_config`, optional `promote_alias`.
-- Может выполнить optional `sync_dvc` между materialization и promotion для
-  generated RAG artifacts.
-- Airflow остаётся orchestration layer; RAG lifecycle logic живёт в `src/rag/sources/`.
+**`rag_alias_apply.py`** — make one KB alias match its `catalog.toml`
+declaration.
+- Вызывает `AliasService.apply()` напрямую через те же factories, что и `rag`
+  CLI — не через subprocess/CLI-процесс.
+- Параметризуется через `kb_id`, `alias`, optional `release_id`,
+  `refresh_sources`, `allow_unevaluated`, `allow_build_default`, и
+  DVC sync settings (`sync_dvc`, `dvc_base_branch`, `dvc_bot_branch`).
+- Optional follow-up `sync_dvc` task синхронизирует generated source-instance
+  artifacts через DVC после успешного apply.
+- Airflow остаётся orchestration layer; reconciliation logic живёт в
+  `src/rag/control_plane/`, source build code in `src/rag/sources/`, and
+  materialization code in `src/rag/indexing/`.
 
 **`eval_dags.py`** — оценка качества (подробнее в разделе 9).
 
-**`rag_collection_cleanup.py`** — удаление Qdrant-коллекций без активных aliases.
+**`rag_collection_cleanup.py`** — release/deployment-aware cleanup: marks a
+release retired in Postgres (`rag_releases.retired_at`) when it has no
+active/pending/recently-superseded `rag_alias_deployments` row, then deletes
+its Qdrant collection. Never deletes a collection with no matching
+`rag_releases` row at all (it may still be mid-build).
 
 ### 8.2 Operator Notebooks (JupyterLab)
 
@@ -631,16 +796,15 @@ JupyterLab — точка входа для ручных операций опе
 
 | Ноутбук | Назначение |
 |---|---|
-| `experiments/rag/rag_ops.ipynb` | Direct Qdrant diagnostics: aliases, collections, attestations, samples, cleanup checks |
 | `experiments/training/lora_ops.ipynb` | LoRA операции: регистрация, промоушен, синхронизация |
 | `experiments/training/lora_training.ipynb` | Интерактивный запуск обучения |
 | `experiments/eval/eval_results.ipynb` | Анализ результатов оценки |
 | `experiments/misc_ops/prefetch_assets.ipynb` | Загрузка моделей и датасетов |
 | `experiments/misc_ops/postgres_diagnostics.ipynb` | Диагностика БД |
 
-RAG production lifecycle запускается через `python -m rag.sources.cli` в `rag-ops` контейнере или
-через Airflow `rag_lifecycle`. RAG notebook intentionally остается direct-Qdrant observability
-surface и не является entrypoint для build/materialize.
+RAG production operations and diagnostics use `python -m rag.cli.app` in
+the `rag-ops` container or Airflow `rag_alias_apply`. Direct collection
+metadata, alias, point, and snapshot inspection uses the Qdrant API/dashboard.
 
 ### 8.3 Версионирование данных (DVC)
 
@@ -651,13 +815,14 @@ surface и не является entrypoint для build/materialize.
 - **Для RAG benchmark'ов:** `beir-nfcorpus`, `beir-scifact`, `hotpotqa`, `msmarco`, `natural-questions`.
 - **Для code evaluation:** `humaneval`.
 - **Для RAG коллекций:** generated artifacts under
-  `assets/rag_data/ml_papers_core/` and `assets/rag_data/pytorch_reference/`.
+  `assets/rag_data/source_instances/` and
+  `assets/rag_data/knowledge_bases/`.
 
 Для RAG коллекций policy отличается от eval/training datasets:
 
-- curated `sources.toml` остаётся в Git;
-- generated `extracted`, `chunks`, `manifests`, optional `metadata` могут быть
-  DVC-tracked;
+- curated source instance `manifest.toml` files stay in Git;
+- generated source-instance artifacts, KB manifests, build metadata, and
+  benchmark normalized artifacts can be DVC-tracked;
 - raw cache (`raw/`, включая PDF/HTML downloads) остаётся server-local по
   умолчанию, чтобы не раздувать DVC без явного требования offline rebuild.
 
@@ -864,13 +1029,15 @@ agent-042/
 │   │   ├── schemas/            # Pydantic schemas (OpenAI-совместимые)
 │   │   └── services/           # Business logic (processing, RAG, prompt, Celery, Redis)
 │   ├── rag/                    # RAG pipeline
-│   │   ├── ops/                # Production lifecycle операции
-│   │   ├── chunking.py         # Стратегии chunking
+│   │   ├── adapters/           # Catalog-declared source/benchmark adapters
+│   │   ├── sources/            # Native Document/TextNode source lifecycle
+│   │   ├── indexing/           # LlamaIndex Qdrant materialization and aliases
+│   │   ├── runtime/            # LlamaIndex retrieval/query runtime
+│   │   ├── evaluation/         # RAG benchmark preparation and evaluation
+│   │   ├── lifecycle/          # Shared CLI/Airflow build stages
 │   │   ├── embeddings.py       # Embedding service
 │   │   ├── reranker.py         # Cross-encoder reranker
-│   │   ├── retriever.py        # Retrieval orchestration
 │   │   ├── sparse_encoder.py   # Sparse (BM25) encoding
-│   │   └── vector_store.py     # Qdrant абстракция
 │   ├── shared/                 # Общий код для всех сервисов
 │   │   ├── config.py           # Pydantic settings
 │   │   ├── catalog.toml       # Task / KB / source catalog

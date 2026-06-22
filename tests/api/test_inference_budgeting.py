@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
+from app_config.runtime import BudgetSettings
 from gateway.services.budget import (
     compute_effective_history_budget,
     trim_history_pairs,
     trim_rag_chunks,
 )
 from gateway.services.prompt_builder import PromptBuilder
-from shared.config import BudgetSettings
 from shared.vllm_payloads import (
     ResponseBudgetExceededError,
     apply_response_token_budget,

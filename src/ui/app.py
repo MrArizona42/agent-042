@@ -4,7 +4,7 @@ import re
 
 import streamlit as st
 
-from shared.config import get_settings
+from app_config.runtime import get_settings
 from shared.vllm_payloads import canonicalize_assistant_content
 from ui.client import GatewayClient
 

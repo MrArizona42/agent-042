@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from celery import Celery
 
-from shared.config import get_settings
+from app_config.runtime import get_settings
 from shared.logging import configure_logging
 from shared.telemetry import instrument_celery, instrument_httpx, instrument_redis
 

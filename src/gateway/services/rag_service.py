@@ -8,12 +8,11 @@ from typing import Any, Optional
 
 import httpx
 
+from app_config.catalog import get_catalog, get_kb_config
+from app_config.runtime import get_settings, secret_value
 from gateway.schemas.openai_chat import RAGSource
 from rag.embeddings import EmbeddingService
 from rag.runtime import RagRuntime, RagRuntimeSource
-from rag.vector_store import Document
-from shared.catalog import get_catalog, get_kb_config
-from shared.config import get_settings, secret_value
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +62,7 @@ class RAGService:
 
         logger.info("Initializing RAG service...")
 
-        # Initialize embedding service using config device
-        self.embedding_service = EmbeddingService(
-            model_name=self.rag_settings.embedding_model,
-            device=self.rag_settings.embedding_device,
-            batch_size=self.rag_settings.build.embedding_batch_size,
-        )
+        self.embedding_service = EmbeddingService()
         self.runtime = RagRuntime(
             settings=settings,
             embedding_service=self.embedding_service,
@@ -90,6 +84,15 @@ class RAGService:
         self._available_vllm_models = None
         if hasattr(self, "runtime"):
             self.runtime.invalidate_caches()
+
+    async def aclose(self) -> None:
+        """Close the underlying Qdrant clients.
+
+        Called when this service is discarded: on config reload (a fresh
+        ``RAGService`` replaces it) and on gateway shutdown.
+        """
+        if hasattr(self, "runtime"):
+            await self.runtime.aclose()
 
     def warm_caches(self, *, validate: bool = False) -> None:
         """Best-effort eager rebuild of config-derived caches.
@@ -280,7 +283,7 @@ class RAGService:
         alias: Optional[str] = None,
         top_k: Optional[int] = None,
     ) -> list:
-        """Retrieve relevant documents as a list of Document objects.
+        """Retrieve relevant LlamaIndex nodes.
 
         Args:
             query: User query
@@ -289,7 +292,7 @@ class RAGService:
             top_k: Number of documents to retrieve (uses alias config if None)
 
         Returns:
-            List of Document objects. Empty results only mean "no matches".
+            Native `NodeWithScore` objects. Empty results only mean "no matches".
         """
         if not self.enabled:
             return []
@@ -320,22 +323,7 @@ class RAGService:
                     )
                 ],
             )
-            documents = [
-                Document(
-                    content=hit.text,
-                    metadata={
-                        **hit.metadata,
-                        "chunk_id": hit.chunk_id,
-                        "document_id": hit.document_id,
-                        "source_type": hit.source_type,
-                        "title": hit.title,
-                        "source_uri": hit.uri,
-                        "section_title": hit.section_title,
-                    },
-                    score=hit.score,
-                )
-                for hit in runtime_result.hits
-            ]
+            documents = runtime_result.nodes
             if top_k is not None:
                 documents = documents[:top_k]
             logger.info(

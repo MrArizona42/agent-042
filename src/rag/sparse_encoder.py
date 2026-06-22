@@ -12,9 +12,13 @@ import logging
 import httpx
 from qdrant_client.models import SparseVector
 
-from shared.config import get_settings
+from app_config.runtime import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+class SparseEncoderIdentityMismatch(RuntimeError):
+    """Catalog-declared sparse encoder identity does not match the live provider."""
 
 
 class SparseEncoderService:
@@ -31,6 +35,13 @@ class SparseEncoderService:
             timeout=settings.gateway.embeddings_timeout,
         )
         logger.info(f"SparseEncoderService connecting to {base_url}")
+        try:
+            resp = self._client.get("/v1/info")
+            resp.raise_for_status()
+            self.model: str = resp.json()["sparse_model"]
+        except Exception:
+            self._client.close()
+            raise
 
     def encode_documents(self, texts: list[str]) -> list[SparseVector]:
         """Encode a list of documents into sparse vectors.
@@ -74,3 +85,12 @@ class SparseEncoderService:
     def close(self) -> None:
         """Close the underlying HTTP client."""
         self._client.close()
+
+
+def validate_sparse_encoder_identity(client: SparseEncoderService, *, expected_model: str) -> None:
+    """Raise if the catalog-declared sparse encoder does not match the live provider."""
+    if client.model != expected_model:
+        raise SparseEncoderIdentityMismatch(
+            f"catalog declares sparse_encoder model={expected_model!r}, but the "
+            f"embeddings provider reports model={client.model!r}"
+        )

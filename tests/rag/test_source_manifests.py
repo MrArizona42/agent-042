@@ -5,14 +5,7 @@ from textwrap import dedent
 
 import pytest
 
-from rag.sources import (
-    DEFAULT_SOURCE_CONNECTORS,
-    ArxivPaperEntry,
-    HtmlDocsEntry,
-    SourceConnectorRegistry,
-    SourceManifest,
-    load_source_manifest,
-)
+from rag.sources import GenericSourceEntry, load_source_manifest
 
 
 def _write_manifest(path: Path, content: str) -> Path:
@@ -20,12 +13,11 @@ def _write_manifest(path: Path, content: str) -> Path:
     return path
 
 
-def test_arxiv_source_manifest_loads_source_documents(tmp_path: Path) -> None:
+def test_source_manifest_loads_adapter_owned_entries(tmp_path: Path) -> None:
     path = _write_manifest(
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "arxiv_paper"
 
         [[documents]]
         id = "1706.03762"
@@ -34,45 +26,18 @@ def test_arxiv_source_manifest_loads_source_documents(tmp_path: Path) -> None:
     )
 
     manifest = load_source_manifest(path)
-    documents = manifest.to_source_documents()
 
-    assert manifest.source_type == "arxiv_paper"
-    assert isinstance(manifest.documents[0], ArxivPaperEntry)
-    assert documents[0].id == "arxiv:1706.03762"
-    assert documents[0].uri == "arxiv:1706.03762"
-    assert documents[0].metadata["arxiv_id"] == "1706.03762"
+    assert isinstance(manifest.documents[0], GenericSourceEntry)
+    assert manifest.documents[0].id == "1706.03762"
+    assert manifest.documents[0].uri is None
+    assert manifest.documents[0].metadata == {}
 
 
-def test_html_docs_manifest_loads_source_documents(tmp_path: Path) -> None:
+def test_source_manifest_normalizes_blank_urls(tmp_path: Path) -> None:
     path = _write_manifest(
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "html_docs"
-
-        [[documents]]
-        id = "tensors"
-        url = "https://pytorch.org/docs/stable/tensors.html"
-        title = "Tensors"
-        """,
-    )
-
-    manifest = load_source_manifest(path)
-    documents = manifest.to_source_documents()
-
-    assert manifest.source_type == "html_docs"
-    assert isinstance(manifest.documents[0], HtmlDocsEntry)
-    assert documents[0].id == "html:tensors"
-    assert documents[0].uri == "https://pytorch.org/docs/stable/tensors.html"
-    assert documents[0].metadata["page_id"] == "tensors"
-
-
-def test_arxiv_source_manifest_allows_blank_url_and_uses_arxiv_uri(tmp_path: Path) -> None:
-    path = _write_manifest(
-        tmp_path / "sources.toml",
-        """
-        schema_version = 1
-        source_type = "arxiv_paper"
 
         [[documents]]
         id = "1706.03762"
@@ -81,11 +46,7 @@ def test_arxiv_source_manifest_allows_blank_url_and_uses_arxiv_uri(tmp_path: Pat
         """,
     )
 
-    manifest = load_source_manifest(path)
-    documents = manifest.to_source_documents()
-
-    assert manifest.documents[0].url is None
-    assert documents[0].uri == "arxiv:1706.03762"
+    assert load_source_manifest(path).documents[0].url is None
 
 
 def test_source_manifest_rejects_duplicate_document_ids(tmp_path: Path) -> None:
@@ -93,7 +54,6 @@ def test_source_manifest_rejects_duplicate_document_ids(tmp_path: Path) -> None:
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "html_docs"
 
         [[documents]]
         id = "tensors"
@@ -111,40 +71,18 @@ def test_source_manifest_rejects_duplicate_document_ids(tmp_path: Path) -> None:
         load_source_manifest(path)
 
 
-def test_source_manifest_rejects_mixed_document_types() -> None:
-    with pytest.raises(ValueError, match="incompatible document entry"):
-        SourceManifest(
-            source_type="arxiv_paper",
-            documents=[
-                HtmlDocsEntry(
-                    id="tensors",
-                    url="https://pytorch.org/docs/stable/tensors.html",
-                    title="Tensors",
-                )
-            ],
-        )
+def test_source_manifest_rejects_retired_source_type(tmp_path: Path) -> None:
+    path = _write_manifest(
+        tmp_path / "sources.toml",
+        """
+        schema_version = 1
+        source_type = "qasper"
 
-
-def test_default_source_connector_registry_materializes_manifest_documents() -> None:
-    manifest = SourceManifest(
-        source_type="html_docs",
-        documents=[
-            HtmlDocsEntry(
-                id="tensors",
-                url="https://pytorch.org/docs/stable/tensors.html",
-                title="Tensors",
-            )
-        ],
+        [[documents]]
+        id = "paper-1"
+        title = "Paper One"
+        """,
     )
 
-    connector = DEFAULT_SOURCE_CONNECTORS.get("html_docs")
-    documents = connector.list_documents(manifest)
-
-    assert documents[0].source_type == "html_docs"
-
-
-def test_source_connector_registry_rejects_unknown_type() -> None:
-    registry = SourceConnectorRegistry()
-
-    with pytest.raises(ValueError, match="Unknown source connector"):
-        registry.get("html_docs")
+    with pytest.raises(ValueError, match="source_type"):
+        load_source_manifest(path)

@@ -8,17 +8,21 @@ from __future__ import annotations
 import logging
 
 import httpx
+from llama_index.core.schema import MetadataMode, NodeWithScore
 
-from rag.vector_store import Document
-from shared.config import get_settings
+from app_config.runtime import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+class RerankerIdentityMismatch(RuntimeError):
+    """Catalog-declared reranker identity does not match the live provider."""
 
 
 class Reranker:
     """Post-retrieval cross-encoder reranker."""
 
-    def rerank(self, query: str, docs: list[Document], top_k: int) -> list[Document]:
+    def rerank(self, query: str, nodes: list[NodeWithScore], top_k: int) -> list[NodeWithScore]:
         raise NotImplementedError
 
 
@@ -39,42 +43,67 @@ class CrossEncoderReranker(Reranker):
             timeout=settings.gateway.embeddings_timeout,
         )
         logger.info(f"CrossEncoderReranker connecting to {base_url}")
+        try:
+            resp = self._client.get("/v1/info")
+            resp.raise_for_status()
+            self.model: str = resp.json()["model"]
+        except Exception:
+            self._client.close()
+            raise
 
-    def rerank(self, query: str, docs: list[Document], top_k: int) -> list[Document]:
-        """Rerank *docs* against *query* and return the full list sorted by score.
+    def rerank(self, query: str, nodes: list[NodeWithScore], top_k: int) -> list[NodeWithScore]:
+        """Rerank *nodes* against *query* and return them sorted by score.
 
         Args:
             query: The user query string.
-            docs: Candidate documents from first-stage retrieval.
+            nodes: Candidate nodes from first-stage retrieval.
             top_k: Unused here — caller truncates after filtering by score_threshold.
 
         Returns:
-            *docs* with ``Document.score`` replaced by cross-encoder scores,
+            *nodes* with ``NodeWithScore.score`` replaced by cross-encoder scores,
             sorted descending.
         """
-        if not docs:
+        if not nodes:
             return []
 
-        passages = [doc.content for doc in docs]
+        passages = [node.node.get_content(metadata_mode=MetadataMode.NONE) for node in nodes]
         resp = self._client.post("/v1/rerank", json={"query": query, "passages": passages})
         resp.raise_for_status()
         scores: list[float] = resp.json()["scores"]
 
-        for doc, score in zip(docs, scores):
-            doc.score = score
+        if len(scores) != len(nodes):
+            raise RuntimeError("Reranker score count does not match candidate node count")
+        for node, score in zip(nodes, scores, strict=True):
+            node.score = score
 
-        return sorted(docs, key=lambda d: d.score, reverse=True)
+        return sorted(nodes, key=lambda node: node.score or 0.0, reverse=True)
 
     def close(self) -> None:
         """Close the underlying HTTP client."""
         self._client.close()
 
 
+def validate_reranker_identity(client: CrossEncoderReranker, *, expected_model: str) -> None:
+    """Raise if the catalog-declared reranker does not match the live provider."""
+    if client.model != expected_model:
+        raise RerankerIdentityMismatch(
+            f"catalog declares reranker={expected_model!r}, but the reranker "
+            f"provider reports model={client.model!r}"
+        )
+
+
 def get_reranker(model_name: str) -> Reranker:
     """Factory — returns a :class:`CrossEncoderReranker` using ``settings.rag.reranker_url``.
 
-    The *model_name* parameter is accepted for future dispatch but is currently
-    unused; the reranker service reads its model from ``RERANKER_MODEL`` at startup.
+    Validates that *model_name* (the catalog-declared reranker identity)
+    matches what the live provider reports; the provider is a single-model
+    service today, so this catches configuration drift rather than dispatching.
     """
     settings = get_settings()
-    return CrossEncoderReranker(reranker_url=settings.rag.reranker_url)
+    client = CrossEncoderReranker(reranker_url=settings.rag.reranker_url)
+    try:
+        validate_reranker_identity(client, expected_model=model_name)
+    except Exception:
+        client.close()
+        raise
+    return client

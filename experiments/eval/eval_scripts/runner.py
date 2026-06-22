@@ -40,55 +40,23 @@ from typing import Any, Iterable
 
 import fire
 import httpx
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    Float,
-    ForeignKey,
-    Integer,
-    MetaData,
-    Table,
-    Text,
-    UniqueConstraint,
-    create_engine,
-    insert,
+
+from app_config.runtime import (
+    JudgeSettings,
+    get_settings,
+    secret_value,
 )
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 # Add src to path so shared/rag modules are importable
 # Canonical directory for pre-downloaded datasets (HF Arrow format).
 from experiments.eval.eval_scripts.datasets import DATASET_LOCAL, load_dataset_samples
-from experiments.eval.eval_scripts.metrics.automatic import (
-    compute_bertscore,
-    compute_mrr_at_k,
-    compute_ndcg_at_k,
-    compute_recall_at_k,
-    compute_rouge_l,
-)
+from experiments.eval.eval_scripts.metrics.automatic import compute_bertscore, compute_rouge_l
 from experiments.eval.eval_scripts.metrics.code_exec import (
     compute_pass_at_1,
     evaluate_humaneval_sample,
 )
 from experiments.eval.eval_scripts.metrics.llm_judge import judge_batch
-from experiments.eval.eval_scripts.retrieval_bench import (
-    build_temp_collection,
-    delete_temp_collection,
-    read_build_config,
-)
-from rag.embeddings import EmbeddingService
-from rag.reranker import get_reranker
-from rag.retriever import Retriever
-from rag.sources.materialize import validate_strategy_supported
-from rag.sparse_encoder import SparseEncoderService
-from rag.vector_store import QdrantVectorStore
-from shared.catalog import get_kb_config
-from shared.config import (
-    JudgeSettings,
-    get_settings,
-    secret_value,
-)
+from shared.db.eval_writer import write_evaluation_results
 from shared.model_registry import AdapterRegistry
 
 logger = logging.getLogger(__name__)
@@ -109,9 +77,6 @@ _SUITE_KB: dict[tuple[str, str], str | None] = {
     ("chat", "nq"): None,
     ("code", "humaneval"): "pytorch_docs",
     ("summarize", "arxiv_summarization"): None,
-    ("retrieval", "beir_scifact"): None,  # KB set via --kb flag
-    ("retrieval", "msmarco"): None,
-    ("retrieval", "beir_nfcorpus"): None,
 }
 
 # Valid metrics per task — each metric is a separate eval-suite
@@ -119,14 +84,13 @@ _TASK_METRICS: dict[str, list[str]] = {
     "chat": ["relevance", "correctness", "bertscore_f1", "rouge_l"],
     "summarize": ["faithfulness", "coverage", "bertscore_f1", "rouge_l"],
     "code": ["pass_at_1", "executable_rate"],
-    "retrieval": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
 }
 
 # LLM-judge metrics (need a configured judge backend)
 _JUDGE_METRICS = {"relevance", "correctness", "faithfulness", "coverage", "groundedness"}
 
 # Automatic metrics (computed locally, no external API needed)
-_AUTOMATIC_METRICS = {"bertscore_f1", "rouge_l", "recall_at_k", "ndcg_at_k", "mrr_at_k"}
+_AUTOMATIC_METRICS = {"bertscore_f1", "rouge_l"}
 
 # Code-execution metrics (sandboxed Docker execution)
 _CODE_EXEC_METRICS = {"pass_at_1", "executable_rate"}
@@ -446,92 +410,12 @@ def _log_to_db(
     sample_rows: list[dict[str, Any]] | None = None,
 ) -> None:
     """Write eval result rows to ``eval_runs`` and per-sample detail to ``eval_samples``."""
-    if not db_url:
-        logger.warning("No DB URL configured; skipping database logging")
-        return
-
-    try:
-        engine = create_engine(db_url)
-        meta = MetaData()
-
-        eval_runs = Table(
-            "eval_runs",
-            meta,
-            Column("id", PG_UUID(as_uuid=True), primary_key=True),
-            Column("created_at", DateTime(timezone=True), nullable=False),
-            Column("finished_at", DateTime(timezone=True)),
-            Column("status", Text, nullable=False, server_default="running"),
-            Column("task", Text, nullable=False),
-            Column("dataset_name", Text, nullable=False),
-            Column("metric_name", Text, nullable=False),
-            Column("metric_value", Float, nullable=False),
-            Column("base_model", Text, nullable=False),
-            Column("adapter_name", Text),
-            Column("adapter_version", Integer),
-            Column("adapter_mlflow_run_id", Text),
-            Column("lora_alias", Text),
-            Column("rag_enabled", Boolean, nullable=False, server_default="false"),
-            Column("rag_alias", Text),
-            Column("knowledge_base", Text),
-            Column("qdrant_alias", Text),
-            Column("qdrant_collection", Text),
-            Column("rag_manifest_id", Text),
-            Column("embedding_model", Text),
-            Column("chunking_strategy", Text),
-            Column("chunk_size", Integer),
-            Column("chunk_overlap", Integer),
-            Column("retrieval_top_k", Integer),
-            Column("score_threshold", Float),
-            Column("qdrant_snapshot_id", Text),
-            Column("dataset_dvc_hash", Text),
-            Column("reranking_strategy", Text),
-            Column("judge_backend", Text),
-            Column("judge_model", Text),
-            Column("bert_score_model", Text),
-            Column("temperature", Float),
-            Column("max_tokens", Integer),
-            Column("eval_verdict", Text),
-            Column("extra", JSONB, nullable=False, server_default="{}"),
-            Column("error_message", Text),
-        )
-
-        eval_samples = Table(
-            "eval_samples",
-            meta,
-            Column("id", PG_UUID(as_uuid=True), primary_key=True),
-            Column(
-                "eval_run_id",
-                PG_UUID(as_uuid=True),
-                ForeignKey("eval_runs.id", ondelete="CASCADE"),
-                nullable=False,
-            ),
-            Column("sample_idx", Integer, nullable=False),
-            Column("sample_id", Text),
-            Column("input", Text),
-            Column("output", Text),
-            Column("reference", Text),
-            Column("detail", JSONB, nullable=False, server_default="{}"),
-            UniqueConstraint("eval_run_id", "sample_idx"),
-        )
-
-        meta.create_all(engine, tables=[eval_runs, eval_samples], checkfirst=True)
-
-        with engine.begin() as conn:
-            for row in rows:
-                if "id" not in row:
-                    row["id"] = uuid.uuid4()
-                conn.execute(insert(eval_runs).values(**row))
-
-            if sample_rows:
-                for sr in sample_rows:
-                    if "id" not in sr:
-                        sr["id"] = uuid.uuid4()
-                    conn.execute(insert(eval_samples).values(**sr))
-
-        n_samples = len(sample_rows) if sample_rows else 0
-        logger.info("Logged %d eval rows + %d sample rows to database", len(rows), n_samples)
-    except Exception as e:
-        logger.error("Failed to log to database: %s", e)
+    write_evaluation_results(rows, db_url=db_url, sample_rows=sample_rows)
+    logger.info(
+        "Logged %d eval rows + %d sample rows to database",
+        len(rows),
+        len(sample_rows or []),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -900,20 +784,13 @@ def fetch_predictions(
     if task not in _TASK_METRICS:
         raise ValueError(f"Unknown task: {task!r}")
 
-    if task == "retrieval" and kb_name is None:
-        raise ValueError("Retrieval eval requires kb_name")
-
     if use_auto_rag:
-        if task == "retrieval":
-            raise ValueError("Retrieval eval does not support use_auto_rag")
         kb_name = None
     elif kb_name is None:
         kb_name = _SUITE_KB.get((task, dataset_name))
 
     if task == "summarize":
         rag_aliases = ["none"]
-    if task == "retrieval":
-        lora_aliases = ["none"]
 
     bundles: list[dict[str, Any]] = []
     failures: list[tuple[str, str, BaseException]] = []
@@ -927,14 +804,7 @@ def fetch_predictions(
             lora_alias,
         )
         try:
-            if task == "retrieval":
-                bundle = _fetch_retrieval_predictions(
-                    dataset_name=dataset_name,
-                    rag_alias=rag_alias,
-                    kb_name=kb_name,
-                    eval_settings=eval_settings,
-                )
-            elif task == "code":
+            if task == "code":
                 bundle = _fetch_code_predictions(
                     dataset_name=dataset_name,
                     rag_alias=rag_alias,
@@ -1241,198 +1111,6 @@ def _fetch_code_predictions(
     }
 
 
-def _fetch_retrieval_predictions(
-    *,
-    dataset_name: str,
-    rag_alias: str,
-    kb_name: str | None,
-    eval_settings: Any,
-) -> dict[str, Any]:
-    """Fetch retrieval query results for a single rag_alias."""
-    if not kb_name:
-        raise ValueError("Retrieval eval requires kb_name")
-
-    settings = get_settings()
-    qdrant_host = settings.platform.qdrant_host
-    qdrant_port = settings.platform.qdrant_port
-
-    kb_config = get_kb_config(kb_name)
-    if kb_config is None:
-        raise RuntimeError(f"KB '{kb_name}' not found in the catalog")
-    alias_config = kb_config.aliases.get(rag_alias)
-    if alias_config is None:
-        raise RuntimeError(f"Alias '{rag_alias}' not found for KB '{kb_name}'")
-
-    build_config = read_build_config(
-        kb_name=kb_name,
-        rag_alias=rag_alias,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-    )
-    if build_config is None:
-        raise RuntimeError(f"Cannot read build config for {kb_name}_{rag_alias}")
-
-    validate_strategy_supported(
-        retrieval_strategy=alias_config.retrieval_strategy,
-        retrieval_capability=build_config.retrieval_capability,
-    )
-    if alias_config.retrieval_strategy == "hybrid" and (
-        build_config.sparse_encoder != settings.rag.sparse_encoder_model
-    ):
-        raise ValueError(
-            f"Runtime sparse encoder '{settings.rag.sparse_encoder_model}' does not match "
-            f"collection sparse encoder '{build_config.sparse_encoder}'"
-        )
-
-    samples = _load_dataset_samples("retrieval", dataset_name)
-    if not samples:
-        raise RuntimeError(f"No samples loaded for retrieval/{dataset_name}")
-
-    # BEIR datasets supply per-query relevant_docs; msmarco-style supply a flat
-    # list of corpus items with a "text" field.  Build the corpus accordingly.
-    if samples[0].get("relevant_docs") is not None:
-        # BEIR: deduplicate across queries
-        seen: set[str] = set()
-        corpus = []
-        for s in samples:
-            for doc in s["relevant_docs"]:
-                if doc["doc_id"] not in seen:
-                    corpus.append(doc)
-                    seen.add(doc["doc_id"])
-    else:
-        corpus = [
-            {"doc_id": s.get("doc_id", str(i)), "text": s.get("text", "")}
-            for i, s in enumerate(samples)
-        ]
-
-    temp_collection = build_temp_collection(
-        kb_name=kb_name,
-        dataset_name=dataset_name,
-        rag_alias=rag_alias,
-        corpus=corpus,
-        build_config=build_config,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-        embeddings_url=settings.platform.embeddings_url,
-    )
-
-    emb_service = EmbeddingService(
-        model_name=build_config.embedding_model,
-        embeddings_url=settings.platform.embeddings_url,
-    )
-    sparse_encoder = None
-    if alias_config.retrieval_strategy in {"hybrid", "sparse"}:
-        sparse_encoder = SparseEncoderService(embeddings_url=settings.platform.embeddings_url)
-    reranker = get_reranker(alias_config.reranker) if alias_config.reranker else None
-
-    try:
-        vs = QdrantVectorStore(host=qdrant_host, port=qdrant_port, collection_name=temp_collection)
-        retriever = Retriever(
-            embedding_service=emb_service,
-            vector_store=vs,
-            reranker=reranker,
-            sparse_encoder_service=sparse_encoder,
-            reranker_multiplier=alias_config.reranker_multiplier,
-        )
-
-        queries = [s for s in samples if s.get("query")]
-        total_queries = len(queries)
-        progress_every = _progress_log_stride(total_queries)
-        query_results: list[dict[str, Any]] = []
-        sample_details: list[dict[str, Any]] = []
-
-        _log_fetch_progress(
-            phase="retrieval",
-            task="retrieval",
-            dataset_name=dataset_name,
-            rag_alias=rag_alias,
-            lora_alias="none",
-            completed=0,
-            total=total_queries,
-            every=progress_every,
-            unit="queries",
-        )
-
-        for idx, q in enumerate(queries):
-            results = retriever.retrieve(
-                query=q["query"],
-                top_k=alias_config.top_k,
-                score_threshold=alias_config.score_threshold,
-                strategy=alias_config.retrieval_strategy,
-            )
-            retrieved_ids = [doc.metadata.get("source", "") for doc in results]
-            relevance = q.get("relevance", {})
-            query_results.append(
-                {
-                    "retrieved_ids": retrieved_ids,
-                    "relevance": relevance,
-                }
-            )
-            sample_details.append(
-                {
-                    "sample_idx": idx,
-                    "sample_id": q.get("query_id"),
-                    "input": q["query"],
-                    "output": None,
-                    "reference": None,
-                    "detail": {
-                        "retrieved_ids": retrieved_ids,
-                        "relevance": relevance,
-                    },
-                }
-            )
-            _log_fetch_progress(
-                phase="retrieval",
-                task="retrieval",
-                dataset_name=dataset_name,
-                rag_alias=rag_alias,
-                lora_alias="none",
-                completed=idx + 1,
-                total=total_queries,
-                every=progress_every,
-                unit="queries",
-            )
-    finally:
-        emb_service.close()
-        if sparse_encoder is not None:
-            sparse_encoder.close()
-        if reranker is not None:
-            reranker.close()
-        try:
-            delete_temp_collection(
-                temp_collection,
-                qdrant_host=qdrant_host,
-                qdrant_port=qdrant_port,
-            )
-        except Exception as e:
-            logger.warning("Failed to delete temp collection: %s", e)
-
-    return {
-        "rag_alias": rag_alias,
-        "lora_alias": "none",
-        "lora_info": {
-            "adapter_name": None,
-            "adapter_version": None,
-            "adapter_mlflow_run_id": None,
-        },
-        "rag_enabled": True,
-        "query_results": query_results,
-        "sample_details": sample_details,
-        "retrieval_top_k": alias_config.top_k,
-        "score_threshold": alias_config.score_threshold,
-        "build_config": build_config.to_payload(),
-        "rag_observability": {
-            "qdrant_alias": build_config.qdrant_alias,
-            "qdrant_collection": build_config.collection_name,
-            "rag_manifest_id": build_config.manifest_id,
-            "retrieval_capability": build_config.retrieval_capability.value,
-            "hit_count": sum(len(result["retrieved_ids"]) for result in query_results),
-            "temp_collection": temp_collection,
-        },
-        "temp_collection": temp_collection,
-    }
-
-
 def calculate_metrics(
     *,
     metric: str,
@@ -1478,17 +1156,7 @@ def calculate_metrics(
         )
 
         try:
-            if task == "retrieval":
-                rows = _compute_retrieval_metric(
-                    metric=metric,
-                    bundle=bundle,
-                    dataset_name=dataset_name,
-                    base_model=base_model,
-                    kb_name=kb_name,
-                    eval_settings=eval_settings,
-                    eval_context=eval_context,
-                )
-            elif task == "code":
+            if task == "code":
                 rows = _compute_code_metric(
                     metric=metric,
                     bundle=bundle,
@@ -1666,111 +1334,6 @@ def _compute_code_metric(
     )
 
 
-def _compute_retrieval_metric(
-    *,
-    metric: str,
-    bundle: dict[str, Any],
-    dataset_name: str,
-    base_model: str,
-    kb_name: str | None,
-    eval_settings: Any,
-    eval_context: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    """Compute a single retrieval metric on pre-fetched query results."""
-    query_results = bundle["query_results"]
-    retrieval_top_k = bundle.get("retrieval_top_k")
-    if not isinstance(retrieval_top_k, int) or retrieval_top_k <= 0:
-        raise RuntimeError("Retrieval bundle is missing a valid retrieval_top_k")
-
-    recall_scores: list[float] = []
-    ndcg_scores: list[float] = []
-    mrr_scores: list[float] = []
-
-    for qr in query_results:
-        retrieved_ids = qr["retrieved_ids"]
-        relevance = qr["relevance"]
-        relevant_ids = {doc_id for doc_id, rel in relevance.items() if rel > 0}
-
-        recall_scores.append(compute_recall_at_k(retrieved_ids, relevant_ids, k=retrieval_top_k))
-        ndcg_scores.append(compute_ndcg_at_k(retrieved_ids, relevance, k=retrieval_top_k))
-        mrr_scores.append(compute_mrr_at_k(retrieved_ids, relevant_ids, k=retrieval_top_k))
-
-    if not recall_scores:
-        raise RuntimeError(f"No query results for retrieval/{dataset_name}")
-
-    avg_recall = sum(recall_scores) / len(recall_scores)
-    avg_ndcg = sum(ndcg_scores) / len(ndcg_scores)
-    avg_mrr = sum(mrr_scores) / len(mrr_scores)
-
-    now = datetime.now(timezone.utc)
-    common = _build_common_fields(
-        task="retrieval",
-        dataset_name=dataset_name,
-        base_model=base_model,
-        lora_alias="none",
-        lora_info={
-            "adapter_name": None,
-            "adapter_version": None,
-            "adapter_mlflow_run_id": None,
-        },
-        rag_alias=bundle["rag_alias"],
-        rag_enabled=True,
-        kb_name=kb_name,
-        eval_settings=eval_settings,
-        eval_context=eval_context,
-        now=now,
-    )
-
-    build_config = bundle.get("build_config", {})
-    common.update(
-        {
-            "qdrant_collection": (
-                build_config.get("collection_name") or bundle.get("temp_collection")
-            ),
-            "qdrant_alias": build_config.get("qdrant_alias"),
-            "rag_manifest_id": build_config.get("manifest_id"),
-            "embedding_model": build_config.get("embedding_model"),
-            "chunking_strategy": build_config.get("chunking_strategy"),
-            "chunk_size": build_config.get("chunk_size"),
-            "chunk_overlap": build_config.get("chunk_overlap"),
-            "retrieval_top_k": retrieval_top_k,
-            "score_threshold": bundle.get("score_threshold"),
-        }
-    )
-
-    rows = []
-    if metric == "recall_at_k":
-        rows.append(
-            {
-                **common,
-                "metric_name": f"recall_at_{retrieval_top_k}",
-                "metric_value": avg_recall,
-            }
-        )
-    elif metric == "ndcg_at_k":
-        rows.append(
-            {
-                **common,
-                "metric_name": f"ndcg_at_{retrieval_top_k}",
-                "metric_value": avg_ndcg,
-            }
-        )
-    elif metric == "mrr_at_k":
-        rows.append(
-            {
-                **common,
-                "metric_name": f"mrr_at_{retrieval_top_k}",
-                "metric_value": avg_mrr,
-            }
-        )
-    return _finalize_metric_rows(
-        rows,
-        finished_at=now,
-        bundle=bundle,
-        eval_context=eval_context,
-    )
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1787,10 +1350,10 @@ def main(
     """Run evaluation for a single metric.
 
     Args:
-        task: One of chat, summarize, code, retrieval.
+        task: One of chat, summarize, code.
         dataset: Dataset name (e.g. hotpotqa, humaneval).
         metric: Metric to compute (e.g. rouge_l, relevance, pass_at_1, recall_at_k).
-        kb: Knowledge base name (required for retrieval evals).
+        kb: Knowledge base name for explicit RAG generation evaluation.
         rag_aliases: Comma-separated RAG alias roles.
         lora_aliases: Comma-separated LoRA alias roles.
     """
@@ -1799,7 +1362,7 @@ def main(
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
-    _valid_tasks = ("chat", "summarize", "code", "retrieval")
+    _valid_tasks = ("chat", "summarize", "code")
     if task not in _valid_tasks:
         raise SystemExit(f"Invalid task '{task}'. Choose from {_valid_tasks}")
 

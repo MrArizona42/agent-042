@@ -8,6 +8,10 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app_config.runtime import (
+    get_settings,
+    log_configuration_summary,
+)
 from gateway.api.routes import router as api_router
 from gateway.auth.middleware import AuthMiddleware
 from gateway.auth.oidc import OIDCClient
@@ -16,10 +20,7 @@ from gateway.auth.session import SessionManager
 from gateway.services.celery_client import CeleryClient
 from gateway.services.processing import process_chat
 from gateway.services.redis_stream import RedisStreamService
-from shared.config import (
-    get_settings,
-    log_configuration_summary,
-)
+from rag.runtime.service import RagDatabaseUnavailableError
 from shared.events import create_inference_event_producer
 from shared.logging import configure_logging
 from shared.telemetry import (
@@ -63,6 +64,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             process_chat.ensure_rag_service(settings=settings, validate=True)
             logger.info("Knowledge base startup validation complete")
+        except RagDatabaseUnavailableError:
+            # Always fatal: RAG enabled with no Postgres control plane is a
+            # misconfiguration, not a degraded-but-usable startup state.
+            raise
         except Exception:
             if rag.strict_startup:
                 raise
@@ -128,6 +133,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     inference_events.close()
     await redis_stream.close()
     celery_client.close()
+    await process_chat.aclose()
     if auth_redis is not None:
         await auth_redis.close()
     if auth.agent042_db_url:
