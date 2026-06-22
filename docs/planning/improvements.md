@@ -10,6 +10,16 @@ organized around the core AI / LLM / RAG system goals:
    workflows;
 4. keep lower-priority infrastructure and operational ideas deferred.
 
+RAG evaluation should be scoped to the thing being measured. Public IR
+benchmarks validate general retrieval configurations; KB-scoped gold and
+failure sets support promotion of a specific knowledge-base alias; global
+regression checks validate platform behavior across KBs. Not every benchmark is
+meaningful for every knowledge base.
+
+Before the RAG experiments start, complete the
+[RAG LlamaIndex Transition](rag-llamaindex-transition-plan.md). The durable RAG
+boundaries are documented in the main architecture and operations docs.
+
 ### 1. Source Citations In RAG Answers
 
 Current state: RAG retrieval can provide context to the model, and runtime

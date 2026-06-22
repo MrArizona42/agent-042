@@ -5,8 +5,10 @@ from textwrap import dedent
 
 import httpx
 
+from rag.adapters import ManifestSourceAdapter
 from rag.sources import process_source_instance
 from rag.sources.artifacts import extracted_artifact_path, read_extracted_artifact
+from rag.sources.extractors import HtmlDocsExtractor
 from rag.sources.fetchers import HtmlDocsFetcher
 
 
@@ -33,13 +35,21 @@ def _html_client() -> httpx.Client:
     return httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
 
 
+def _html_adapter() -> ManifestSourceAdapter:
+    return ManifestSourceAdapter(
+        adapter_id="generic.http_html",
+        version="1",
+        default_uri_prefix="http_html",
+        _fetcher_factory=lambda: HtmlDocsFetcher(client=_html_client()),
+        _extractor_factory=HtmlDocsExtractor,
+    )
+
+
 def test_process_source_instance_writes_extracted_artifact(tmp_path: Path) -> None:
     manifest_path = _write_manifest(
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "html_docs"
-
         [[documents]]
         id = "tensors"
         title = "Tensors"
@@ -50,16 +60,15 @@ def test_process_source_instance_writes_extracted_artifact(tmp_path: Path) -> No
     summary = process_source_instance(
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_type="html_docs",
         manifest_path=manifest_path,
         rag_data_root=tmp_path,
-        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
+        source_adapter=_html_adapter(),
     )
     artifact_path = extracted_artifact_path(
         rag_data_root=tmp_path,
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_document_id="html:tensors",
+        source_document_id="docs:tensors",
     )
     artifact = read_extracted_artifact(artifact_path)
 
@@ -70,7 +79,7 @@ def test_process_source_instance_writes_extracted_artifact(tmp_path: Path) -> No
     assert summary.extracted_from_cache == 0
     assert summary.failed == []
     assert artifact.document.text == "tensors body text."
-    assert artifact.raw.path.endswith("pytorch_reference/raw/docs/html_tensors/page.html")
+    assert artifact.raw.path.endswith("source_instances/docs/raw/docs_tensors/page.html")
 
 
 def test_process_source_instance_reuses_extracted_artifact(tmp_path: Path) -> None:
@@ -78,40 +87,34 @@ def test_process_source_instance_reuses_extracted_artifact(tmp_path: Path) -> No
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "html_docs"
-
         [[documents]]
         id = "tensors"
         title = "Tensors"
         url = "https://docs.test/tensors.html"
         """,
     )
-    fetchers = {"html_docs": HtmlDocsFetcher(client=_html_client())}
 
     first = process_source_instance(
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_type="html_docs",
         manifest_path=manifest_path,
         rag_data_root=tmp_path,
-        fetchers=fetchers,
+        source_adapter=_html_adapter(),
     )
     second = process_source_instance(
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_type="html_docs",
         manifest_path=manifest_path,
         rag_data_root=tmp_path,
-        fetchers=fetchers,
+        source_adapter=_html_adapter(),
     )
     forced = process_source_instance(
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_type="html_docs",
         manifest_path=manifest_path,
         rag_data_root=tmp_path,
         force_extract=True,
-        fetchers=fetchers,
+        source_adapter=_html_adapter(),
     )
 
     assert first.extracted == 1
@@ -130,8 +133,6 @@ def test_process_source_instance_filters_documents_and_collects_failures(
         tmp_path / "sources.toml",
         """
         schema_version = 1
-        source_type = "html_docs"
-
         [[documents]]
         id = "tensors"
         title = "Tensors"
@@ -147,22 +148,21 @@ def test_process_source_instance_filters_documents_and_collects_failures(
     summary = process_source_instance(
         kb_id="pytorch_reference",
         source_instance_id="docs",
-        source_type="html_docs",
         manifest_path=manifest_path,
         rag_data_root=tmp_path,
-        document_ids=["html:broken"],
-        fetchers={"html_docs": HtmlDocsFetcher(client=_html_client())},
+        document_ids=["docs:broken"],
+        source_adapter=_html_adapter(),
     )
 
     assert summary.total_selected == 1
     assert summary.fetched == 0
     assert summary.extracted == 0
     assert len(summary.failed) == 1
-    assert summary.failed[0].document_id == "html:broken"
+    assert summary.failed[0].document_id == "docs:broken"
     assert summary.failed[0].error_type == "HTTPStatusError"
 
 
-def test_process_source_instance_rejects_source_type_mismatch(tmp_path: Path) -> None:
+def test_process_source_instance_rejects_retired_source_type_field(tmp_path: Path) -> None:
     manifest_path = _write_manifest(
         tmp_path / "sources.toml",
         """
@@ -180,11 +180,11 @@ def test_process_source_instance_rejects_source_type_mismatch(tmp_path: Path) ->
         process_source_instance(
             kb_id="pytorch_reference",
             source_instance_id="docs",
-            source_type="arxiv_paper",
             manifest_path=manifest_path,
             rag_data_root=tmp_path,
+            source_adapter=_html_adapter(),
         )
     except ValueError as exc:
-        assert "expected 'arxiv_paper'" in str(exc)
+        assert "source_type" in str(exc)
     else:
-        raise AssertionError("expected source_type mismatch to fail")
+        raise AssertionError("expected retired source_type field to raise ValueError")

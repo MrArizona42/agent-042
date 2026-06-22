@@ -38,11 +38,14 @@ antlr4-python3-runtime==4.9.3
 anyio==4.12.1
     # via
     #   httpx
+    #   openai
     #   starlette
 appdirs==1.4.4
     # via iterative-telemetry
 arxiv==2.4.1
-    # via agent-042 (pyproject.toml)
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-readers-papers
 asyncssh==2.22.0
     # via scmrepo
 atpublic==7.0.0
@@ -56,7 +59,9 @@ attrs==26.1.0
 banks==2.4.2
     # via llama-index-core
 beautifulsoup4==4.14.3
-    # via agent-042 (pyproject.toml)
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-readers-file
 bert-score==0.3.13
     # via agent-042 (pyproject.toml)
 billiard==4.2.4
@@ -121,6 +126,10 @@ dataclasses-json==0.6.7
     # via llama-index-core
 datasets==4.8.4
     # via agent-042 (pyproject.toml)
+defusedxml==0.7.1
+    # via
+    #   llama-index-readers-file
+    #   llama-index-readers-papers
 deprecated==1.3.1
     # via
     #   banks
@@ -142,6 +151,7 @@ distro==1.9.0
     # via
     #   dvc
     #   iterative-telemetry
+    #   openai
 dpath==2.2.0
     # via dvc
 dulwich==1.1.0
@@ -243,6 +253,7 @@ griffelib==2.0.2
 grpcio==1.65.5
     # via
     #   -c infra/docker/airflow/airflow-core-constraints.txt
+    #   llama-index-vector-stores-qdrant
     #   qdrant-client
 gto==1.9.0
     # via dvc
@@ -265,6 +276,7 @@ httpx==0.28.1
     #   huggingface-hub
     #   langsmith
     #   llama-index-core
+    #   openai
     #   qdrant-client
 huggingface-hub==1.7.2
     # via
@@ -291,6 +303,8 @@ jinja2==3.1.6
     # via
     #   banks
     #   torch
+jiter==0.15.0
+    # via openai
 jmespath==1.1.0
     # via
     #   aiobotocore
@@ -315,9 +329,27 @@ langchain-text-splitters==1.1.1
 langsmith==0.7.22
     # via langchain-core
 llama-index-core==0.14.22
-    # via agent-042 (pyproject.toml)
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-llms-openai
+    #   llama-index-llms-openai-like
+    #   llama-index-readers-file
+    #   llama-index-readers-papers
+    #   llama-index-vector-stores-qdrant
 llama-index-instrumentation==0.5.0
     # via llama-index-workflows
+llama-index-llms-openai==0.7.9
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-llms-openai-like
+llama-index-llms-openai-like==0.7.2
+    # via agent-042 (pyproject.toml)
+llama-index-readers-file==0.6.0
+    # via agent-042 (pyproject.toml)
+llama-index-readers-papers==0.5.0
+    # via agent-042 (pyproject.toml)
+llama-index-vector-stores-qdrant==0.10.1
+    # via agent-042 (pyproject.toml)
 llama-index-workflows==2.20.0
     # via llama-index-core
 lxml==6.0.2
@@ -372,6 +404,8 @@ omegaconf==2.3.0
     # via
     #   dvc
     #   hydra-core
+openai==2.43.0
+    # via llama-index-llms-openai
 opentelemetry-api==1.28.0
     # via
     #   -c infra/docker/airflow/airflow-core-constraints.txt
@@ -409,10 +443,11 @@ packaging==26.0
     #   matplotlib
     #   mlflow-skinny
     #   transformers
-pandas==3.0.1
+pandas==2.3.3
     # via
     #   bert-score
     #   datasets
+    #   llama-index-readers-file
 pathspec==1.0.4
     # via
     #   dvc
@@ -467,6 +502,7 @@ pydantic==2.12.5
     #   llama-index-instrumentation
     #   llama-index-workflows
     #   mlflow-skinny
+    #   openai
     #   pydantic-settings
     #   qdrant-client
 pydantic-core==2.41.5
@@ -494,7 +530,9 @@ pyparsing==3.3.2
     #   matplotlib
     #   pydot
 pypdf==6.9.2
-    # via agent-042 (pyproject.toml)
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-readers-file
 python-dateutil==2.9.0.post0
     # via
     #   aiobotocore
@@ -507,6 +545,8 @@ python-dotenv==1.2.2
     #   agent-042 (pyproject.toml)
     #   mlflow-skinny
     #   pydantic-settings
+pytz==2026.2
+    # via pandas
 pyyaml==6.0.3
     # via
     #   datasets
@@ -517,7 +557,9 @@ pyyaml==6.0.3
     #   omegaconf
     #   transformers
 qdrant-client==1.17.1
-    # via agent-042 (pyproject.toml)
+    # via
+    #   agent-042 (pyproject.toml)
+    #   llama-index-vector-stores-qdrant
 regex==2026.2.28
     # via
     #   nltk
@@ -585,6 +627,8 @@ six==1.17.0
     #   rouge-score
 smmap==5.0.3
     # via gitdb
+sniffio==1.3.1
+    # via openai
 soupsieve==2.8.3
     # via beautifulsoup4
 sqlalchemy==2.0.50
@@ -597,6 +641,8 @@ starlette==0.48.0
     # via
     #   -c infra/docker/airflow/airflow-core-constraints.txt
     #   fastapi
+striprtf==0.0.26
+    # via llama-index-readers-file
 sympy==1.14.0
     # via torch
 tabulate==0.10.0
@@ -629,12 +675,14 @@ tqdm==4.67.3
     #   huggingface-hub
     #   llama-index-core
     #   nltk
+    #   openai
     #   scmrepo
     #   transformers
 transformers==5.3.0
     # via bert-score
 typer==0.24.1
     # via
+    #   agent-042 (pyproject.toml)
     #   gto
     #   huggingface-hub
     #   transformers
@@ -650,6 +698,7 @@ typing-extensions==4.15.0
     #   llama-index-core
     #   llama-index-workflows
     #   mlflow-skinny
+    #   openai
     #   opentelemetry-sdk
     #   pydantic
     #   pydantic-core
@@ -667,7 +716,9 @@ typing-inspection==0.4.2
     #   pydantic
     #   pydantic-settings
 tzdata==2025.3
-    # via kombu
+    # via
+    #   kombu
+    #   pandas
 tzlocal==5.3.1
     # via celery
 urllib3==2.6.3

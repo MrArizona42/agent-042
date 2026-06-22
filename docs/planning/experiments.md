@@ -9,6 +9,8 @@ The main principle is:
 - establish a stable baseline pipeline;
 - evaluate against fixed datasets and metrics from the start;
 - vary one parameter family at a time;
+- apply only benchmarks whose scope matches the config, knowledge base, or
+  platform behavior under test;
 - record the chosen value, evidence, and tradeoff as a design decision.
 
 RAG is the priority track. Inference work comes first only far enough to define
@@ -16,6 +18,9 @@ the serving envelope that RAG experiments must fit inside.
 
 ## Documents
 
+0. [RAG LlamaIndex Transition](rag-llamaindex-transition-plan.md)
+   - Moves document, node, indexing, retrieval, and evaluation mechanics to
+     LlamaIndex while preserving project catalog and policy boundaries.
 1. [Inference Baseline](inference-baseline.md)
    - Defines the model, quantization, context, token budget, and concurrency
      envelope used by later RAG experiments.
@@ -34,12 +39,14 @@ the serving envelope that RAG experiments must fit inside.
 ## Dependency Order
 
 ```text
-Inference baseline
+RAG pipeline isolation
+  -> Inference baseline
   -> RAG evaluation harness
     -> RAG experiment series
       -> RAG promotion rules
 
-Inference baseline
+RAG pipeline isolation
+  -> Inference baseline
   -> LoRA experiment series
     -> LoRA promotion rules
 
@@ -57,6 +64,7 @@ Each experiment should include:
 - fixed parameters;
 - grid values;
 - datasets and dataset versions;
+- benchmark scope and applicable knowledge bases;
 - metrics;
 - decision rule;
 - promotion or rollback rule;

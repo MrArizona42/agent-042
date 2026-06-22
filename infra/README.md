@@ -181,7 +181,7 @@ cp .env.example .env
 
 Замечание:
 - Канонический шаблон `.env.example` не содержит полные внутренние endpoint'ы.
-  Python derives project-owned URLs from `NETWORK__...` via `shared.config`.
+  Python derives project-owned URLs from `NETWORK__...` via `app_config.runtime`.
 - Compose derives code/config mounts from `PROJECT_ROOT`, durable data mounts from `SHARED_ROOT`;
   `IMAGE_TAG` controls image tags for deploy/local runs.
 - Workflow для logs/traces/metrics описан в `docs/analytics/observability.md`; durable inference events описаны в `docs/analytics/inference-events.md`; ClickHouse analytics описана в `docs/analytics/clickhouse-analytics.md`.
@@ -199,7 +199,7 @@ cp .env.example .env
 - если ключ имеет upstream/native имя, сохраняйте native имя
 - если ключ описывает project-owned endpoint topology, используйте `NETWORK__...`
 - новые runtime settings добавляйте в `runtime.toml`, а не в env
-- catalog-specific helpers и schema не должны документироваться как часть `shared.config`; их владелец — `src/shared/catalog/`
+- catalog-specific helpers и schema не должны документироваться как часть `app_config.runtime`; их владелец — `src/app_config/catalog/`
 
 Типичные operator-facing nested keys из текущего контракта:
 
@@ -389,32 +389,32 @@ project-relative, а Compose строит bind mount'ы от `SHARED_ROOT`:
 
 | DAG | Расписание | Описание |
 |-----|-----------|----------|
-| `rag_lifecycle` | manual | Generic RAG lifecycle: `build-source` → `materialize` → optional `promote-alias` for any configured KB/source pair |
-| `rag_collection_cleanup` | manual | Cleanup of old physical Qdrant collections that are not behind active aliases |
+| `rag_alias_apply` | manual | Calls `AliasService.apply()` directly to make one KB alias match its `catalog.toml` declaration |
+| `rag_collection_cleanup` | `@daily` | Release/deployment-aware cleanup: retires releases with no active/recent deployment in Postgres before deleting their Qdrant collection |
 
-`rag_lifecycle` принимает параметры Airflow UI:
+`rag_alias_apply` принимает параметры Airflow UI:
 
-- `kb` — KB id из `catalog.toml`, например `ml_papers_core` или `pytorch_reference`
-- `source` — source instance id внутри KB, например `papers` или `docs`
-- `alias_config` — alias profile used for build settings, for example `champion` or `challenger`
-- `promote_alias` — optional alias to repoint after materialization; leave empty for build-only runs
-- `document_ids`, `limit`, `collection`, `force_fetch`, `force_extract`, `force_chunk`,
-  `force_recreate` — operator controls for scoped rebuilds and cache invalidation
-- `sync_dvc` — if true, sync generated RAG artifacts through DVC before promotion
-- `dvc_artifacts` — optional artifact subdirs to sync; defaults to generated
-  `extracted`, `chunks`, `manifests`, `metadata`
+- `kb_id`, `alias` — target KB id (например `pytorch_reference`) и alias
+  (например `champion` или `challenger`)
+- `release_id` — optional, disambiguates an ambiguous reusable release
+- `refresh_sources` — force a re-fetch of source content even without
+  catalog drift
+- `allow_unevaluated`, `allow_build_default` — default-alias bootstrap
+  overrides; use sparingly
+- `sync_dvc`, `dvc_base_branch`, `dvc_bot_branch` — if `sync_dvc=true`, a
+  follow-up task DVC-syncs the KB's generated source artifacts after apply
 
 Основной server entrypoint для тех же операций без Airflow:
 
 ```bash
-bash current/scripts/rag_ops.sh python -m rag.sources.cli build-source --kb pytorch_reference --source docs
-bash current/scripts/rag_ops.sh python -m rag.sources.cli materialize --kb pytorch_reference --alias-config challenger
-bash current/scripts/rag_ops.sh python -m rag.sources.cli promote-alias --kb pytorch_reference --alias challenger --collection rag__pytorch_reference__20260605_120000
+bash scripts/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
+bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
+bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion --release ragrel_pytorch_reference_<fingerprint>
 ```
 
-RAG DVC policy: curated `sources.toml` stays in Git; generated `extracted`,
-`chunks`, `manifests`, and optional `metadata` can be DVC-tracked; raw cache is
-server-local by default.
+RAG DVC policy: curated source instance `manifest.toml` files stay in Git;
+generated `extracted`, `chunks`, and `benchmark` artifacts can be
+DVC-tracked; raw cache is server-local by default.
 
 ### Зависимости DAG'ов
 
@@ -474,10 +474,9 @@ Compose interpolation на хосте.
 
 Этого достаточно, чтобы ноутбуки и `experiments/rag/*.py` подключались к Qdrant/embeddings внутри Docker-сети, импортировали код из `src/`, но не получали rw-доступ ко всему репозиторию.
 
-RAG operator boundary в JupyterLab:
-- `experiments/rag/rag_ops.ipynb` — прямые Qdrant операции, аналитика и observability для ручной проверки коллекций/aliases.
-- Production lifecycle запускается через `rag-ops` container и `python -m rag.sources.cli`, либо через Airflow `rag_lifecycle`.
-- `experiments/rag/sandboxes/` — notebook-only experimental код. Gateway, Airflow DAG-и и production evals не должны импортировать его.
+RAG operator boundary:
+- Direct Qdrant diagnostics use the Qdrant API/dashboard.
+- Production operations запускаются через `rag-ops` container и `python -m rag.cli.app`, либо через Airflow `rag_alias_apply`.
 
 ## DVC с бэкэндом Yandex Cloud S3
 

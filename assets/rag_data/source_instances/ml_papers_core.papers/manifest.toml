@@ -1,0 +1,33 @@
+schema_version = 1
+
+[[documents]]
+id = "1706.03762"
+title = "Attention Is All You Need"
+
+[[documents]]
+id = "1810.04805"
+title = "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding"
+
+[[documents]]
+id = "2005.14165"
+title = "Language Models are Few-Shot Learners"
+
+[[documents]]
+id = "2203.02155"
+title = "Training language models to follow instructions with human feedback"
+
+[[documents]]
+id = "2001.08361"
+title = "Scaling Laws for Neural Language Models"
+
+[[documents]]
+id = "1910.10683"
+title = "T5: Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer"
+
+[[documents]]
+id = "1907.11692"
+title = "RoBERTa: A Robustly Optimized BERT Pretraining Approach"
+
+[[documents]]
+id = "2104.09864"
+title = "LoRA: Low-Rank Adaptation of Large Language Models"

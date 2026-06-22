@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 import redis
 
-from shared.config import get_settings, secret_value
+from app_config.runtime import get_settings, secret_value
 from shared.events import InferenceEventProducer, create_inference_event_producer
 from shared.logging import bind_log_context, reset_log_context
 from shared.telemetry import get_tracer

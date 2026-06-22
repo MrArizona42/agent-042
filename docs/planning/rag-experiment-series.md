@@ -9,8 +9,15 @@ The default rule is:
 - baseline pipeline: current `rag_baseline_vN`;
 - changed parameter group: one family at a time;
 - fixed parameters: all other RAG and inference settings;
-- datasets: all required tiers from the RAG evaluation harness;
+- datasets: only the harness datasets whose scope applies to the experiment,
+  configuration, or knowledge base under test;
 - result: promote a new `rag_baseline_vN+1` only when the decision rule passes.
+
+The unit under test is a RAG build configuration, not only one collection. For a
+candidate config, build benchmark collections and production candidate
+collections with the same deterministic parameters. Use config-scoped benchmarks
+to validate general retrieval choices, KB-scoped benchmarks to support specific
+KB alias promotion, and global regressions to catch platform behavior failures.
 
 ## Experiment Template
 
@@ -20,6 +27,7 @@ Changed parameter group:
 Fixed parameters:
 Grid:
 Datasets:
+Benchmark scope:
 Metrics:
 Decision rule:
 Promotion rule:

@@ -15,68 +15,106 @@ def write_chat_and_code_catalog(path: Path) -> Path:
     return _write_catalog(
         path,
         """
-        schema_version = 2
+        schema_version = 4
 
         [[tasks]]
         id = "chat"
-        label = "General knowledge"
-        routing_description = "General ML research discussion."
-        kb_refs = ["ml_papers_core"]
-        adapter = { enabled = false }
+        description = "General ML research discussion."
+        knowledge_bases = ["ml_papers_core"]
+        lora_adapter = { enabled = false }
 
         [[tasks]]
         id = "code"
-        label = "Coding assistance"
-        routing_description = "Programming help for ML systems."
-        kb_refs = ["pytorch_reference"]
-        adapter = { enabled = false }
+        description = "Programming help for ML systems."
+        knowledge_bases = ["pytorch_reference"]
+        lora_adapter = { enabled = false }
 
         [[knowledge_bases]]
         id = "ml_papers_core"
         default_alias = "champion"
         update_strategy = "replace"
-        label = "Core ML papers"
-        description = "ML papers"
-        selection_description = "Research papers and literature-grounded answers."
+        description = "Research papers and literature-grounded answers."
 
-        [knowledge_bases.aliases.champion]
+        [knowledge_bases.aliases.champion.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.champion.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+
+        [knowledge_bases.aliases.champion.retrieve]
         top_k = 5
         score_threshold = 0.35
-        retrieval_strategy = "dense"
+        strategy = "dense"
         reranker_multiplier = 1
 
-        [knowledge_bases.aliases.challenger]
+        [knowledge_bases.aliases.challenger.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.challenger.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+
+        [knowledge_bases.aliases.challenger.build.sparse_encoder]
+        model = "Qdrant/bm25"
+
+        [knowledge_bases.aliases.challenger.retrieve]
         top_k = 5
         score_threshold = 0.01
         reranker = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-        retrieval_strategy = "hybrid"
+        strategy = "hybrid"
         reranker_multiplier = 4
 
         [[knowledge_bases]]
         id = "pytorch_reference"
         default_alias = "champion"
         update_strategy = "replace"
-        label = "PyTorch reference"
-        description = "Coding docs"
-        selection_description = "PyTorch API reference and implementation guidance."
+        description = "PyTorch API reference and implementation guidance."
 
-        [knowledge_bases.aliases.champion]
+        [knowledge_bases.aliases.champion.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.champion.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+
+        [knowledge_bases.aliases.champion.retrieve]
         top_k = 5
         score_threshold = 0.35
-        retrieval_strategy = "dense"
+        strategy = "dense"
         reranker_multiplier = 1
 
-        [[sources]]
-        type = "arxiv_paper"
-        kb = "ml_papers_core"
-        id = "papers"
-        manifest = "assets/rag_data/ml_papers_core/sources.toml"
+        [[source_adapters]]
+        id = "generic.arxiv_paper"
+        version = "1"
+        description = "Fetches arXiv papers."
+        factory = "rag.adapters.sources:make_arxiv_paper_adapter"
 
-        [[sources]]
-        type = "html_docs"
-        kb = "pytorch_reference"
-        id = "docs"
-        manifest = "assets/rag_data/pytorch_reference/sources.toml"
+        [[source_adapters]]
+        id = "generic.http_html"
+        version = "1"
+        description = "Fetches HTTP HTML pages."
+factory = "rag.adapters.sources:make_http_html_adapter"
+
+        [[source_instances]]
+        id = "ml_papers_core.papers"
+        description = "Curated full-text ML/AI papers."
+        role = "corpus"
+        knowledge_base = "ml_papers_core"
+        adapter = { id = "generic.arxiv_paper", version = "1" }
+
+        [[source_instances]]
+        id = "pytorch_reference.docs"
+        description = "Official PyTorch documentation pages."
+        role = "corpus"
+        knowledge_base = "pytorch_reference"
+        adapter = { id = "generic.http_html", version = "1" }
         """,
     )
 
@@ -86,37 +124,58 @@ def write_chat_only_catalog(
     *,
     retrieval_strategy: str = "dense",
 ) -> Path:
+    sparse_encoder_block = (
+        """
+        [knowledge_bases.aliases.champion.build.sparse_encoder]
+        model = "Qdrant/bm25"
+        """
+        if retrieval_strategy in ("sparse", "hybrid")
+        else ""
+    )
     return _write_catalog(
         path,
         f"""
-        schema_version = 2
+        schema_version = 4
 
         [[tasks]]
         id = "chat"
-        label = "General knowledge"
-        routing_description = "General ML research discussion."
-        kb_refs = ["ml_papers_core"]
-        adapter = {{ enabled = false }}
+        description = "General ML research discussion."
+        knowledge_bases = ["ml_papers_core"]
+        lora_adapter = {{ enabled = false }}
 
         [[knowledge_bases]]
         id = "ml_papers_core"
         default_alias = "champion"
         update_strategy = "replace"
-        label = "Core ML papers"
-        description = "ML papers"
-        selection_description = "Research papers and literature-grounded answers."
+        description = "Research papers and literature-grounded answers."
 
-        [knowledge_bases.aliases.champion]
+        [knowledge_bases.aliases.champion.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.champion.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+        {sparse_encoder_block}
+        [knowledge_bases.aliases.champion.retrieve]
         top_k = 5
         score_threshold = 0.35
-        retrieval_strategy = "{retrieval_strategy}"
+        strategy = "{retrieval_strategy}"
         reranker_multiplier = 1
 
-        [[sources]]
-        type = "arxiv_paper"
-        kb = "ml_papers_core"
-        id = "papers"
-        manifest = "assets/rag_data/ml_papers_core/sources.toml"
+        [[source_adapters]]
+        id = "generic.arxiv_paper"
+        version = "1"
+        description = "Fetches arXiv papers."
+        factory = "rag.adapters.sources:make_arxiv_paper_adapter"
+
+        [[source_instances]]
+        id = "ml_papers_core.papers"
+        description = "Curated full-text ML/AI papers."
+        role = "corpus"
+        knowledge_base = "ml_papers_core"
+        adapter = {{ id = "generic.arxiv_paper", version = "1" }}
         """,
     )
 
@@ -125,29 +184,45 @@ def write_code_only_catalog(path: Path) -> Path:
     return _write_catalog(
         path,
         """
-        schema_version = 2
+        schema_version = 4
 
         [[tasks]]
         id = "code"
-        routing_description = "Programming help for ML systems."
-        kb_refs = ["pytorch_reference"]
-        adapter = { enabled = false }
+        description = "Programming help for ML systems."
+        knowledge_bases = ["pytorch_reference"]
+        lora_adapter = { enabled = false }
 
         [[knowledge_bases]]
         id = "pytorch_reference"
         default_alias = "champion"
-        selection_description = "PyTorch API reference."
+        description = "PyTorch API reference."
 
-        [knowledge_bases.aliases.champion]
+        [knowledge_bases.aliases.champion.build.chunking]
+        strategy = "sentence"
+        chunk_size = 512
+        chunk_overlap = 64
+
+        [knowledge_bases.aliases.champion.build.dense_encoder]
+        model = "sentence-transformers/all-MiniLM-L6-v2"
+        dimension = 384
+
+        [knowledge_bases.aliases.champion.retrieve]
         top_k = 5
         score_threshold = 0.35
-        retrieval_strategy = "dense"
+        strategy = "dense"
         reranker_multiplier = 1
 
-        [[sources]]
-        type = "html_docs"
-        kb = "pytorch_reference"
-        id = "docs"
-        manifest = "assets/rag_data/pytorch_reference/sources.toml"
+        [[source_adapters]]
+        id = "generic.http_html"
+        version = "1"
+        description = "Fetches HTTP HTML pages."
+        factory = "rag.adapters.sources:make_http_html_adapter"
+
+        [[source_instances]]
+        id = "pytorch_reference.docs"
+        description = "Official PyTorch documentation pages."
+        role = "corpus"
+        knowledge_base = "pytorch_reference"
+        adapter = { id = "generic.http_html", version = "1" }
         """,
     )

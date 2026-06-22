@@ -7,9 +7,9 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from app_config.runtime import clear_knowledge_base_caches, get_settings
 from gateway.services.processing import process_chat
 from gateway.services.rag_service import RAGService
-from shared.config import clear_knowledge_base_caches, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ async def reload_config(request: Request) -> dict[str, str]:
     _ = request.state.user_id
 
     clear_knowledge_base_caches()
-    process_chat.reload_config_caches(settings=get_settings())
+    await process_chat.reload_config_caches(settings=get_settings())
 
     logger.info("Knowledge-base config reloaded by user")
     return {"status": "reloaded"}

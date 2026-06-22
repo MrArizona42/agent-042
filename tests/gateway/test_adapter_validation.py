@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 from unittest.mock import patch
 
+from app_config.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
+from app_config.runtime import Settings, load_settings
 from gateway.services.rag_service import RAGService
-from shared.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
-from shared.config import Settings, load_settings
 
 
 def _alias_config() -> dict[str, object]:

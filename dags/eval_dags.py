@@ -16,10 +16,10 @@ XCom size limits.
 All tasks run on the dedicated Airflow Celery worker which has
 bert-score, torch (CPU), and other heavy dependencies installed.
 
-For generation DAGs, ``knowledge_base_mode="explicit"`` forces the selected
+``knowledge_base_mode="explicit"`` forces the selected
 ``knowledge_base`` while ``knowledge_base_mode="auto"`` leaves knowledge-base
-selection to the gateway's task-scoped auto-routing. Retrieval DAGs always
-require an explicit ``knowledge_base``.
+selection to the gateway's task-scoped auto-routing. RAG benchmarks are run
+through ``rag.evaluation.runner`` and are intentionally not scheduled here.
 
 For custom parameter values that are not in the dropdown lists, put a JSON
 string into the ``custom_params`` field when triggering the DAG. Example::
@@ -64,8 +64,8 @@ default_args = {
 
 
 def _list_knowledge_base_names() -> list[str]:
-    """Load KB options from the shared task catalog."""
-    from shared.catalog import get_catalog
+    """Load KB options from the application task catalog."""
+    from app_config.catalog import get_catalog
 
     return sorted(
         {kb_cfg.name for task_cfg in get_catalog().values() for kb_cfg in task_cfg.knowledge_bases}
@@ -73,8 +73,8 @@ def _list_knowledge_base_names() -> list[str]:
 
 
 def _list_knowledge_base_aliases() -> list[str]:
-    """Load KB alias options from the shared task catalog."""
-    from shared.catalog import get_catalog
+    """Load KB alias options from the application task catalog."""
+    from app_config.catalog import get_catalog
 
     return sorted(
         {
@@ -88,7 +88,7 @@ def _list_knowledge_base_aliases() -> list[str]:
 
 def _list_adapter_sync_aliases() -> list[str]:
     """Load LoRA alias options from the runtime adapter-registry policy."""
-    from shared.config import get_settings
+    from app_config.runtime import get_settings
 
     return list(get_settings().adapter_registry.sync_aliases)
 
@@ -129,30 +129,6 @@ _EVAL_SUITES: list[dict] = [
         "metrics": ["pass_at_1", "executable_rate"],
         "description": "Eval: code generation on HumanEval",
         "tags": ["eval", "code"],
-    },
-    {
-        "dag_id": "eval_retrieval_beir_scifact",
-        "task": "retrieval",
-        "dataset": "beir_scifact",
-        "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
-        "description": "Eval: retrieval on BEIR-SciFact",
-        "tags": ["eval", "retrieval"],
-    },
-    {
-        "dag_id": "eval_retrieval_beir_nfcorpus",
-        "task": "retrieval",
-        "dataset": "beir_nfcorpus",
-        "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
-        "description": "Eval: retrieval on BEIR-NFCorpus",
-        "tags": ["eval", "retrieval"],
-    },
-    {
-        "dag_id": "eval_retrieval_msmarco",
-        "task": "retrieval",
-        "dataset": "msmarco",
-        "metrics": ["recall_at_k", "ndcg_at_k", "mrr_at_k"],
-        "description": "Eval: retrieval on MS MARCO",
-        "tags": ["eval", "retrieval"],
     },
 ]
 

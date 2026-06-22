@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 import requests
 
-from shared.config import get_settings
+from app_config.runtime import get_settings
 
 
 @dataclass(frozen=True)

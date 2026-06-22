@@ -18,6 +18,9 @@ dependencies = [
     "python-dotenv>=1.0.1",
 ]
 
+[project.scripts]
+rag = "rag.cli.app:main"
+
 [project.optional-dependencies]
 gateway = [
     "fastapi>=0.128.0",
@@ -40,6 +43,9 @@ gateway = [
     "opentelemetry-instrumentation-redis>=0.49b0",
     "opentelemetry-sdk>=1.28.0",
     "llama-index-core>=0.12.0",
+    "llama-index-vector-stores-qdrant>=0.10.1",
+    "llama-index-llms-openai>=0.5.0",
+    "llama-index-llms-openai-like>=0.5.0",
     "beautifulsoup4>=4.12.3",
     "lxml>=5.3.0",
     "pypdf>=5.2.0",
@@ -91,8 +97,14 @@ airflow-worker = [
     "pypdf>=5.2.0",
     "requests>=2.32.4",
     "llama-index-core>=0.12.0",
+    "llama-index-vector-stores-qdrant>=0.10.1",
+    "llama-index-llms-openai>=0.5.0",
+    "llama-index-llms-openai-like>=0.5.0",
+    "llama-index-readers-file>=0.6.0",
+    "llama-index-readers-papers>=0.5.0",
     # DVC for data versioning (S3 backend)
     "dvc[s3]>=3.66.1",
+    "typer>=0.21.1",
 ]
 
 # Base deps must be kept in sync with airflow-worker.
@@ -117,7 +129,13 @@ airflow-worker-gpu = [
     "pypdf>=5.2.0",
     "requests>=2.32.4",
     "llama-index-core>=0.12.0",
+    "llama-index-vector-stores-qdrant>=0.10.1",
+    "llama-index-llms-openai>=0.5.0",
+    "llama-index-llms-openai-like>=0.5.0",
+    "llama-index-readers-file>=0.6.0",
+    "llama-index-readers-papers>=0.5.0",
     "dvc[s3]>=3.66.1",
+    "typer>=0.21.1",
     # --- Training deps (GPU) ---
     "bitsandbytes>=0.49.1",
     "hydra-core>=1.3.2",
@@ -138,6 +156,11 @@ rag = [
     "pypdf>=5.2.0",
     "requests>=2.32.4",
     "llama-index-core>=0.12.0",
+    "llama-index-vector-stores-qdrant>=0.10.1",
+    "llama-index-llms-openai-like>=0.5.0",
+    "llama-index-readers-file>=0.6.0",
+    "llama-index-readers-papers>=0.5.0",
+    "typer>=0.21.1",
 ]
 
 embeddings = [

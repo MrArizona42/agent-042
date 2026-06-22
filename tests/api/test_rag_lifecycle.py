@@ -9,19 +9,19 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from shared.catalog import (
+from app_config.catalog import (
     catalog_override,
     get_catalog,
     get_kb_config,
     load_catalog,
 )
-from shared.config import Settings, load_settings
+from app_config.runtime import Settings, load_settings
 from tests.catalog_samples import (
     write_chat_and_code_catalog,
 )
@@ -36,7 +36,7 @@ _KB_CATALOG_OVERRIDE_STACK: ExitStack | None = None
 @pytest.fixture(autouse=True)
 def _reset_kb_catalog():
     """Reset the KB catalog singleton between tests."""
-    import shared.config as cfg
+    import app_config.runtime as cfg
 
     global _KB_CATALOG_OVERRIDE_STACK
 
@@ -136,7 +136,7 @@ class TestKnowledgeBaseConfig:
         assert pytorch_cfg.update_strategy == "replace"
         assert "champion" in ml_papers_cfg.aliases
         assert "challenger" in ml_papers_cfg.aliases
-        assert pytorch_cfg.label == "PyTorch reference"
+        assert pytorch_cfg.description == "PyTorch API reference and implementation guidance."
 
     def test_load_missing_file_raises(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError, match="Catalog config file not found"):
@@ -149,7 +149,7 @@ class TestKnowledgeBaseConfig:
         with catalog_override(catalog, index=index):
             ml_papers_cfg = get_kb_config("ml_papers_core")
             assert ml_papers_cfg is not None
-            assert ml_papers_cfg.label == "Core ML papers"
+            assert ml_papers_cfg.description == "Research papers and literature-grounded answers."
             assert "champion" in ml_papers_cfg.aliases
             assert get_kb_config("nonexistent") is None
 
@@ -283,7 +283,7 @@ class TestKnowledgeBasesEndpoint:
         assert tasks == {"chat", "code"}
 
         chat_entry = next(entry for entry in data if entry["task"] == "chat")
-        assert chat_entry["label"] == "General knowledge"
+        assert chat_entry["label"] == "General ML research discussion."
         assert len(chat_entry["knowledge_bases"]) == 1
 
         ml_papers_entry = chat_entry["knowledge_bases"][0]
@@ -305,87 +305,6 @@ class TestKnowledgeBasesEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# Vector store metadata exclusion tests
-# ---------------------------------------------------------------------------
-
-
-class TestMetadataExclusion:
-    """Test that search() excludes _meta sentinel points."""
-
-    def test_meta_id_is_valid_uuid(self):
-        """Verify _META_ID is a valid UUID string (Qdrant requirement)."""
-        import uuid
-
-        from rag.vector_store import QdrantVectorStore
-
-        meta_id = QdrantVectorStore._META_ID
-        # Must be a string
-        assert isinstance(meta_id, str)
-        # Must be parseable as a UUID
-        parsed = uuid.UUID(meta_id)
-        assert str(parsed) == meta_id
-
-    def test_search_filter_includes_meta_exclusion(self):
-        """Verify the filter is built with must_not for collection_meta."""
-        from qdrant_client.models import FieldCondition, Filter
-
-        from rag.vector_store import QdrantVectorStore
-
-        # We can't actually connect to Qdrant in unit tests, but we can
-        # verify the filter construction logic by inspecting the method.
-        # Instead, let's mock the client.
-        with patch("rag.vector_store.QdrantClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.query_points.return_value = MagicMock(points=[])
-
-            vs = QdrantVectorStore(
-                host="localhost",
-                port=6333,
-                collection_name="test",
-            )
-            vs.search(query_embedding=[0.1] * 10, top_k=5, score_threshold=0.0)
-
-            # Verify query_points was called with the right filter
-            call_kwargs = mock_client.query_points.call_args.kwargs
-            qf = call_kwargs["query_filter"]
-            assert isinstance(qf, Filter)
-            assert qf.must_not is not None
-            assert len(qf.must_not) >= 1
-            meta_cond = qf.must_not[0]
-            assert isinstance(meta_cond, FieldCondition)
-            assert meta_cond.key == "type"
-
-    def test_search_with_existing_filter(self):
-        """Verify meta exclusion is appended to existing filters."""
-        from qdrant_client.models import Filter
-
-        from rag.vector_store import QdrantVectorStore
-
-        with patch("rag.vector_store.QdrantClient") as MockClient:
-            mock_client = MockClient.return_value
-            mock_client.query_points.return_value = MagicMock(points=[])
-
-            vs = QdrantVectorStore(
-                host="localhost",
-                port=6333,
-                collection_name="test",
-            )
-            vs.search(
-                query_embedding=[0.1] * 10,
-                top_k=5,
-                score_threshold=0.0,
-                filter_dict={"must": [{"key": "task", "match": {"value": "chat"}}]},
-            )
-
-            call_kwargs = mock_client.query_points.call_args.kwargs
-            qf = call_kwargs["query_filter"]
-            assert isinstance(qf, Filter)
-            # Should have the original must condition AND the meta exclusion
-            assert qf.must is not None
-            assert qf.must_not is not None
-
-
-# ---------------------------------------------------------------------------
 # RAGService alias resolution tests
 # ---------------------------------------------------------------------------
 
@@ -402,7 +321,7 @@ class TestRAGServiceResolution:
         assert "ml_papers_core" in result
         assert "pytorch_reference" in result
         assert result["ml_papers_core"]["task"] == "chat"
-        assert result["pytorch_reference"]["task_label"] == "Coding assistance"
+        assert result["pytorch_reference"]["task_label"] == "Programming help for ML systems."
         assert result["ml_papers_core"]["update_strategy"] == "replace"
 
     def test_available_knowledge_bases_by_task(self, catalog_file: Path):
@@ -527,6 +446,7 @@ class TestReloadConfigEndpoint:
             patch.object(
                 knowledge_bases.process_chat,
                 "reload_config_caches",
+                new_callable=AsyncMock,
                 side_effect=_reload_hook,
             ) as reload_caches,
             patch("gateway.api.v1.knowledge_bases.get_settings", return_value=MagicMock()),

@@ -24,15 +24,24 @@ LOCAL_LOG_DIR="$PROJECT_ROOT/artifacts/infra/compose_logs"
 SSH_HOST="$1"
 shift 1
 SERVICES=("$@")
-REMOTE_SCRIPT="/home/anton-m/agent-042/current/scripts/dump_docker_logs.sh"
-REMOTE_LOG_PATH="/home/anton-m/agent-042/artifacts/infra/compose_logs"
+REMOTE_RELEASE_ROOT="/home/anton-m/agent-042"
+REMOTE_ENV_FILE="$REMOTE_RELEASE_ROOT/.env"
+REMOTE_SCRIPT="$REMOTE_RELEASE_ROOT/current/scripts/dump_docker_logs.sh"
+REMOTE_LOG_PATH="$REMOTE_RELEASE_ROOT/artifacts/infra/compose_logs"
 
 # ── Sudo password (interactive prompt) ───────────────────────────────
 read -r -s -p "sudo password for $SSH_HOST: " SUDO_PASS
 echo
 
 # ── Step 1: run dump_docker_logs.sh on the remote ────────────────────
-remote_parts=("sudo" "-S" "bash" "$(printf '%q' "$REMOTE_SCRIPT")")
+remote_parts=(
+    "sudo"
+    "-S"
+    "env"
+    "COMPOSE_ENV_FILE=$(printf '%q' "$REMOTE_ENV_FILE")"
+    "bash"
+    "$(printf '%q' "$REMOTE_SCRIPT")"
+)
 for svc in "${SERVICES[@]}"; do
     remote_parts+=("$(printf '%q' "$svc")")
 done

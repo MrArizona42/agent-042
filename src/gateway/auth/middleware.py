@@ -10,7 +10,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse
 
-from shared.config import get_settings, secret_value
+from app_config.runtime import get_settings, secret_value
 
 logger = logging.getLogger(__name__)
 
