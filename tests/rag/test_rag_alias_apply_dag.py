@@ -4,6 +4,7 @@ import importlib
 import sys
 import types
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -50,8 +51,8 @@ def _install_airflow_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "airflow.operators.python", python_module)
 
 
-def _load_dag(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", Path.cwd().as_posix())
+def _load_dag(monkeypatch: pytest.MonkeyPatch, project_root: Path | None = None):
+    monkeypatch.setenv("CONTAINER__PROJECT_ROOT", (project_root or Path.cwd()).as_posix())
     _install_airflow_stubs(monkeypatch)
     sys.modules.pop("dags.rag_alias_apply", None)
     return importlib.import_module("dags.rag_alias_apply")
@@ -116,6 +117,52 @@ def test_apply_alias_calls_alias_service_apply(monkeypatch: pytest.MonkeyPatch) 
     assert calls[0].kb_id == "pytorch_reference"
     assert calls[0].alias == "challenger"
     assert calls[0].refresh_sources is True
+
+
+def test_rag_context_resolves_relative_data_root_under_airflow_project(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    dag_module = _load_dag(monkeypatch, project_root=tmp_path)
+
+    import app_config.runtime as runtime_config
+
+    monkeypatch.setattr(
+        runtime_config,
+        "get_settings",
+        lambda: SimpleNamespace(
+            catalog=SimpleNamespace(path=Path("catalog.toml")),
+            rag=SimpleNamespace(data_root=Path("assets/rag_data")),
+        ),
+    )
+
+    ctx = dag_module._rag_context()
+
+    assert ctx.catalog_path == tmp_path / "catalog.toml"
+    assert ctx.data_root == tmp_path / "assets/rag_data"
+
+
+def test_rag_context_preserves_absolute_runtime_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    dag_module = _load_dag(monkeypatch, project_root=tmp_path / "project")
+    absolute_catalog = tmp_path / "config" / "catalog.toml"
+    absolute_data = tmp_path / "shared" / "rag_data"
+
+    import app_config.runtime as runtime_config
+
+    monkeypatch.setattr(
+        runtime_config,
+        "get_settings",
+        lambda: SimpleNamespace(
+            catalog=SimpleNamespace(path=absolute_catalog),
+            rag=SimpleNamespace(data_root=absolute_data),
+        ),
+    )
+
+    ctx = dag_module._rag_context()
+
+    assert ctx.catalog_path == absolute_catalog
+    assert ctx.data_root == absolute_data
 
 
 def test_apply_alias_requires_kb_id_and_alias(monkeypatch: pytest.MonkeyPatch) -> None:

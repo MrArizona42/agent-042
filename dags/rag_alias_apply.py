@@ -31,10 +31,23 @@ def _bootstrap_project_imports() -> None:
 _bootstrap_project_imports()
 
 
-def _configured_catalog_path() -> str:
-    from app_config.runtime import get_settings
+def _project_path(path: Path | str) -> Path:
+    """Resolve project-relative runtime paths inside the Airflow project mount."""
+    path = Path(path)
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
-    return str(get_settings().catalog.path)
+
+def _rag_context():
+    """Build a CLI-compatible context with paths rooted at the mounted project."""
+    from app_config.runtime import get_settings
+    from rag.cli.factories import RagContext
+
+    settings = get_settings()
+    return RagContext(
+        catalog_path_override=_project_path(settings.catalog.path),
+        data_root_override=_project_path(settings.rag.data_root),
+        as_json=True,
+    )
 
 
 default_args = {
@@ -59,10 +72,10 @@ def _apply_alias(**context: Any) -> dict[str, Any]:
     if not alias:
         raise ValueError("alias is required")
 
-    from rag.cli.factories import RagContext, build_alias_service, load_catalog_config
+    from rag.cli.factories import build_alias_service, load_catalog_config
     from rag.control_plane.alias_service import AliasApplyRequest
 
-    ctx = RagContext(catalog_path_override=None, data_root_override=None, as_json=True)
+    ctx = _rag_context()
     catalog_cfg = load_catalog_config(ctx)
     service = build_alias_service(ctx, catalog_cfg=catalog_cfg)
 
@@ -91,10 +104,10 @@ def _sync_dvc(**context: Any) -> dict[str, Any]:
         return {"synced": False, "paths": []}
 
     from app_config.catalog import build_source_instance_index
-    from rag.cli.factories import RagContext, load_catalog_config
+    from rag.cli.factories import load_catalog_config
     from shared.airflow_git_sync import sync_dvc_dataset_via_temp_clone
 
-    ctx = RagContext(catalog_path_override=None, data_root_override=None, as_json=True)
+    ctx = _rag_context()
     catalog_cfg = load_catalog_config(ctx)
     kb_id = str(params["kb_id"]).strip()
     source_index = build_source_instance_index(catalog_cfg)
