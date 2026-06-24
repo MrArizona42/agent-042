@@ -374,9 +374,11 @@ python -m experiments.training.train_adapter.start_train \
 > Python API.
 
 Скрипт `src/shared/model_registry.py` — программный интерфейс для управления
-адаптерами в реестре. Shared-модуль не читает `.env`: контейнеры получают env
-через Compose, а локальные host-side запуски должны либо заранее загрузить env
-в процесс, либо использовать wrapper `scripts/host/model_registry.py --env-file .env`.
+адаптерами в реестре. Сам модуль уже предоставляет CLI (`python -m
+shared.model_registry sync|list`) через `fire`; host-side запуски идут через
+`scripts/model_registry_ops.sh`, который выполняет эту команду внутри
+контейнера `vllm-adapter-sync` — там env уже инжектирован Compose, и
+дополнительная загрузка `.env` на хосте не нужна.
 
 **Просмотр всех зарегистрированных адаптеров:**
 
@@ -406,8 +408,8 @@ registry.demote(model_name="lora-summarize", alias="champion")
 через hot-load REST API (`POST /v1/load_lora_adapter`) — без рестарта сервера.
 
 ```bash
-# Из корня проекта (host-side wrapper явно читает .env)
-python scripts/host/model_registry.py --env-file .env sync --adapters-dir ./assets/adapters
+# Из корня проекта
+bash scripts/model_registry_ops.sh sync --adapters_dir=/adapters
 ```
 
 По умолчанию команда строит endpoint vLLM из `NETWORK__VLLM__...`;
@@ -449,7 +451,7 @@ python -m experiments.training.train_adapter.start_train \
 #    registry.promote(model_name="lora-summarize", version=3, alias="champion")
 
 # 5. Синхронизировать адаптеры на inference-хосте (hot-load в работающий vLLM)
-python -m shared.model_registry sync
+bash scripts/model_registry_ops.sh sync
 ```
 
 ### Конфигурация vLLM для multi-LoRA

@@ -278,18 +278,12 @@ sudo install -o "$DEPLOY_USER" -g agent042 -m 640 "$CHECKOUT_ROOT/.dvc/config.lo
 sudo setfacl -m u:${AIRFLOW_UID}:r /home/anton-m/agent-042/.dvc/config.local
 ```
 
-5) Если Phase 2 делается поверх существующего checkout-backed runtime, после подготовки прав
-запустите одноразовую миграцию shared state:
-```bash
-bash scripts/migrate_shared_state.sh "$CHECKOUT_ROOT" /home/anton-m/agent-042
-```
-
-6) После смены групп у host user перезайдите в shell или выполните:
+5) После смены групп у host user перезайдите в shell или выполните:
 ```bash
 newgrp agent042
 ```
 
-7) Проверка после старта Compose:
+6) Проверка после старта Compose:
 ```bash
 docker compose --env-file .env -f infra/compose/docker-compose.yaml exec airflow-worker test -r /opt/airflow/project/.dvc/config.local && echo ok
 
