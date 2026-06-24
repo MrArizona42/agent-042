@@ -45,7 +45,7 @@ python -m experiments.training.train_adapter.start_train \
   и `src/rag/cli/`; операторский entrypoint — `python -m rag.cli.app`
   (`catalog validate`, `alias diff`/`alias apply`, `release list`/`show`,
   `benchmark run`).
-- На сервере используйте `bash scripts/rag_ops.sh ...`, чтобы выполнить команду в
+- На сервере используйте `bash ops/rag_ops.sh ...`, чтобы выполнить команду в
   `rag-ops` контейнере внутри Docker network.
 - Airflow DAG `rag_alias_apply` вызывает `AliasService.apply()` напрямую (не
   через CLI-процесс) для того же KB/alias.
@@ -376,7 +376,7 @@ python -m experiments.training.train_adapter.start_train \
 Скрипт `src/shared/model_registry.py` — программный интерфейс для управления
 адаптерами в реестре. Сам модуль уже предоставляет CLI (`python -m
 shared.model_registry sync|list`) через `fire`; host-side запуски идут через
-`scripts/model_registry_ops.sh`, который выполняет эту команду внутри
+`ops/model_registry_ops.sh`, который выполняет эту команду внутри
 контейнера `vllm-adapter-sync` — там env уже инжектирован Compose, и
 дополнительная загрузка `.env` на хосте не нужна.
 
@@ -409,7 +409,7 @@ registry.demote(model_name="lora-summarize", alias="champion")
 
 ```bash
 # Из корня проекта
-bash scripts/model_registry_ops.sh sync --adapters_dir=/adapters
+bash ops/model_registry_ops.sh sync --adapters_dir=/adapters
 ```
 
 По умолчанию команда строит endpoint vLLM из `NETWORK__VLLM__...`;
@@ -451,7 +451,7 @@ python -m experiments.training.train_adapter.start_train \
 #    registry.promote(model_name="lora-summarize", version=3, alias="champion")
 
 # 5. Синхронизировать адаптеры на inference-хосте (hot-load в работающий vLLM)
-bash scripts/model_registry_ops.sh sync
+bash ops/model_registry_ops.sh sync
 ```
 
 ### Конфигурация vLLM для multi-LoRA

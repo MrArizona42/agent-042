@@ -4,14 +4,14 @@
 # resulting logs into the local artifacts/infra/compose_logs/ directory.
 #
 # Usage:
-#   bash scripts/fetch_logs_ssh.sh [user@]host [service ...]
+#   bash ops/fetch_logs_ssh.sh [user@]host [service ...]
 #
 #   user@host             — SSH target (required)
 #   service ...           — optional list of services to dump (default: all)
 #
 # Examples:
-#   bash scripts/fetch_logs_ssh.sh my_server
-#   bash scripts/fetch_logs_ssh.sh my_server gateway ui
+#   bash ops/fetch_logs_ssh.sh my_server
+#   bash ops/fetch_logs_ssh.sh my_server gateway ui
 #
 # Requires: ssh, scp (both available via OpenSSH / Git Bash)
 # ──────────────────────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ shift 1
 SERVICES=("$@")
 REMOTE_RELEASE_ROOT="/home/anton-m/agent-042"
 REMOTE_ENV_FILE="$REMOTE_RELEASE_ROOT/.env"
-REMOTE_SCRIPT="$REMOTE_RELEASE_ROOT/current/scripts/dump_docker_logs.sh"
+REMOTE_SCRIPT="$REMOTE_RELEASE_ROOT/current/ops/dump_docker_logs.sh"
 REMOTE_LOG_PATH="$REMOTE_RELEASE_ROOT/artifacts/infra/compose_logs"
 
 # ── Sudo password (interactive prompt) ───────────────────────────────

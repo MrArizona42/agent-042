@@ -1286,9 +1286,8 @@ class TestMigrationSQL:
     def test_migration_file_exists(self):
         path = (
             Path(__file__).resolve().parent.parent.parent
-            / "src"
-            / "shared"
-            / "db"
+            / "migrations"
+            / "postgres"
             / "eval_runs.sql"
         )
         assert path.exists()
@@ -1296,9 +1295,8 @@ class TestMigrationSQL:
     def test_migration_creates_table(self):
         path = (
             Path(__file__).resolve().parent.parent.parent
-            / "src"
-            / "shared"
-            / "db"
+            / "migrations"
+            / "postgres"
             / "eval_runs.sql"
         )
         sql = path.read_text()
@@ -1309,9 +1307,8 @@ class TestMigrationSQL:
     def test_migration_creates_indexes(self):
         path = (
             Path(__file__).resolve().parent.parent.parent
-            / "src"
-            / "shared"
-            / "db"
+            / "migrations"
+            / "postgres"
             / "eval_runs.sql"
         )
         sql = path.read_text()
@@ -1327,9 +1324,8 @@ class TestMigrationSQL:
     def test_rag_observability_migration_adds_columns(self):
         path = (
             Path(__file__).resolve().parent.parent.parent
-            / "src"
-            / "shared"
-            / "db"
+            / "migrations"
+            / "postgres"
             / "eval_runs_add_rag_observability_columns.sql"
         )
         sql = path.read_text()
@@ -1341,9 +1337,8 @@ class TestMigrationSQL:
     def test_chat_messages_usage_migration_exists(self):
         path = (
             Path(__file__).resolve().parent.parent.parent
-            / "src"
-            / "shared"
-            / "db"
+            / "migrations"
+            / "postgres"
             / "chat_messages_add_usage_columns.sql"
         )
         assert path.exists()
@@ -1351,9 +1346,8 @@ class TestMigrationSQL:
     def test_chat_messages_usage_migration_adds_columns(self):
         path = (
             Path(__file__).resolve().parent.parent.parent
-            / "src"
-            / "shared"
-            / "db"
+            / "migrations"
+            / "postgres"
             / "chat_messages_add_usage_columns.sql"
         )
         sql = path.read_text()

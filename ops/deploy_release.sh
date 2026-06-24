@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
     cat <<'EOF'
 Usage:
-  bash scripts/deploy_release.sh \
+  bash ops/deploy_release.sh \
     --release-root /home/anton-m/agent-042 \
     --release-dir /home/anton-m/agent-042/releases/<sha> \
     --env-file /home/anton-m/agent-042/.env \
@@ -313,7 +313,7 @@ show_failure_diagnostics() {
 apply_db_migrations() {
     local project_root="$1"
 
-    local migrations_script="$project_root/scripts/apply_agent042_db_migrations.sh"
+    local migrations_script="$project_root/bootstrap/apply_agent042_db_migrations.sh"
     [[ -f "$migrations_script" ]] || fail "Migrations script not found: $migrations_script"
 
     COMPOSE_FILE="$(compose_file_for "$project_root")" \

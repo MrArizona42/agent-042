@@ -162,7 +162,7 @@ jobs:
           ssh_target="$DEPLOY_USER@$DEPLOY_HOST"
 
           ssh -p "$DEPLOY_PORT" "$ssh_target" \
-            "bash '${{ steps.resolve.outputs.release_dir }}/scripts/deploy_release.sh' \
+            "bash '${{ steps.resolve.outputs.release_dir }}/ops/deploy_release.sh' \
               --release-root '${{ steps.resolve.outputs.release_root }}' \
               --release-dir '${{ steps.resolve.outputs.release_dir }}' \
               --env-file '${{ steps.resolve.outputs.release_root }}/.env' \

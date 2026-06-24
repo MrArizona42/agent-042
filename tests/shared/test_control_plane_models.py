@@ -3,7 +3,7 @@
 These compile DDL against the postgresql dialect without a live database
 connection (this repo has no Postgres available in its test environment;
 migration correctness is otherwise covered by the static SQL content tests
-and, for deployment, `scripts/apply_agent042_db_migrations.sh`).
+and, for deployment, `bootstrap/apply_agent042_db_migrations.sh`).
 """
 
 from __future__ import annotations

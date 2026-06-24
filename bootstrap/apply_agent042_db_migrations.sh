@@ -17,7 +17,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_ROOT/infra/compose/docker-compose.yaml}"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
-DB_DIR="$REPO_ROOT/src/shared/db"
+DB_DIR="$REPO_ROOT/migrations/postgres"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Missing ${ENV_FILE}. Set ENV_FILE=/path/to/.env if the deployment env file lives elsewhere." >&2

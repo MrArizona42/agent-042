@@ -36,7 +36,7 @@ notebooks, and analysis work around those workflows.
 
 ## Rules Of Thumb
 
-- Use Airflow or `scripts/rag_ops.sh` for production RAG lifecycle actions.
+- Use Airflow or `ops/rag_ops.sh` for production RAG lifecycle actions.
 - Use notebooks for inspection, review, and analysis.
 - Keep notebook-only experiments in `rag/sandboxes/` until they are ready to be
   promoted into production code.

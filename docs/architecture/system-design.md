@@ -935,7 +935,7 @@ mlflow-artifacts и airflow-logs; модели, датасеты и project arti
   current -> releases/<sha2>/   # Симлинк на активный релиз
 ```
 
-**Скрипт деплоя** (`scripts/deploy_release.sh`):
+**Скрипт деплоя** (`ops/deploy_release.sh`):
 1. Создаёт новую директорию `releases/<sha>` с кодом нового релиза.
 2. Переключает симлинк `current` на новый релиз.
 3. Запускает `docker compose up -d --build` с новым `IMAGE_TAG`.
@@ -1061,7 +1061,9 @@ agent-042/
 │   ├── grafana/                # Grafana provisioning
 │   └── nginx/                  # nginx конфиги
 ├── tests/                      # Unit и integration тесты
-├── scripts/                    # Shell-скрипты (деплой, утилиты)
+├── migrations/                 # Postgres schema migrations (SQL)
+├── bootstrap/                  # One-time environment bring-up scripts
+├── ops/                        # Recurring operational scripts (деплой, утилиты)
 ├── assets/                     # Модели и датасеты (DVC-tracked)
 └── artifacts/                  # Training checkpoints и Hydra runs
 ```

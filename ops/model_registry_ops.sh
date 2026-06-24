@@ -4,21 +4,15 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/rag_ops.sh python -m rag.cli.app <args...>
+  bash ops/model_registry_ops.sh <args...>
+
+Runs shared.model_registry's own CLI (python -m shared.model_registry) inside
+the vllm-adapter-sync container, which already has Compose-injected env vars
+-- no host-side .env loading needed.
 
 Examples:
-  bash scripts/rag_ops.sh python -m rag.cli.app catalog validate
-
-  bash scripts/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
-
-  bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
-
-  bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion \
-    --allow-build-default --allow-unevaluated
-
-  bash scripts/rag_ops.sh python -m rag.cli.app release list --kb pytorch_reference
-
-  bash scripts/rag_ops.sh python -m rag.cli.app benchmark run --kb pytorch_reference --alias challenger
+  bash ops/model_registry_ops.sh list
+  bash ops/model_registry_ops.sh sync --adapters_dir=/adapters
 EOF
 }
 
@@ -30,7 +24,7 @@ EOF
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd "$script_dir/.." && pwd)"
 compose_file="$project_root/infra/compose/docker-compose.yaml"
-env_file="${RAG_OPS_ENV_FILE:-$project_root/.env}"
+env_file="${MODEL_REGISTRY_OPS_ENV_FILE:-$project_root/.env}"
 
 [[ -f "$env_file" ]] || {
   echo "error: env file not found: $env_file" >&2
@@ -49,7 +43,6 @@ fi
 
 COMPOSE_PROJECT_NAME="$compose_project_name" docker compose \
   --project-name "$compose_project_name" \
-  --profile ops \
   --env-file "$env_file" \
   -f "$compose_file" \
-  run --rm rag-ops "$@"
+  run --rm --entrypoint python vllm-adapter-sync -m shared.model_registry "$@"

@@ -3,8 +3,8 @@
 # Dump current Docker Compose logs into artifacts/infra/compose_logs/<service>.log
 #
 # Usage:
-#   bash scripts/dump_docker_logs.sh            # all services
-#   bash scripts/dump_docker_logs.sh gateway ui  # specific services
+#   bash ops/dump_docker_logs.sh            # all services
+#   bash ops/dump_docker_logs.sh gateway ui  # specific services
 #
 # Uses the canonical env file by default:
 # - repo-root `.env` for local checkouts

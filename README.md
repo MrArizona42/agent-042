@@ -99,8 +99,8 @@ calling vLLM.
 applied state. A typical manual reconciliation runs through `rag-ops`:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
-bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
+bash ops/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
+bash ops/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
 ```
 
 The same `AliasService` is called directly by the `rag_alias_apply` Airflow

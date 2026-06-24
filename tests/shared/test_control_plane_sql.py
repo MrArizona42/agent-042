@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_DB_DIR = Path(__file__).resolve().parent.parent.parent / "src" / "shared" / "db"
+_DB_DIR = Path(__file__).resolve().parent.parent.parent / "migrations" / "postgres"
 
 
 def _read(name: str) -> str:

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: sudo bash scripts/setup_shared_root_permissions.sh [options]
+Usage: sudo bash bootstrap/setup_shared_root_permissions.sh [options]
 
 Prepare Phase 2 shared-root permissions for /home/anton-m/agent-042.
 
@@ -27,9 +27,9 @@ Options:
   --help                   Show this message
 
 Examples:
-  sudo bash scripts/setup_shared_root_permissions.sh --deploy-user anton
-    sudo bash scripts/setup_shared_root_permissions.sh --deploy-user anton --server-root /home/anton-m/agent-042
-  sudo bash scripts/setup_shared_root_permissions.sh --deploy-user anton --airflow-uid 50000 --jupyter-uid 1000
+  sudo bash bootstrap/setup_shared_root_permissions.sh --deploy-user anton
+    sudo bash bootstrap/setup_shared_root_permissions.sh --deploy-user anton --server-root /home/anton-m/agent-042
+  sudo bash bootstrap/setup_shared_root_permissions.sh --deploy-user anton --airflow-uid 50000 --jupyter-uid 1000
 EOF
 }
 

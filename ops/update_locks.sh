@@ -3,10 +3,10 @@
 # Regenerate all Docker-service lock files from pyproject.toml extras.
 #
 # Usage:
-#   scripts/update_locks.sh              # update everything
-#   scripts/update_locks.sh gateway ui   # update only selected services
-#   scripts/update_locks.sh --list       # list available services
-#   scripts/update_locks.sh --dry-run    # print commands without running
+#   ops/update_locks.sh              # update everything
+#   ops/update_locks.sh gateway ui   # update only selected services
+#   ops/update_locks.sh --list       # list available services
+#   ops/update_locks.sh --dry-run    # print commands without running
 #
 # Must be executed from the repository root.
 # ──────────────────────────────────────────────────────────────────────

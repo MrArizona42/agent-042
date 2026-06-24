@@ -92,16 +92,16 @@ uv sync --extra mlflow
 Сборка lock-файлов для Docker-сервисов (выполнять из корня репозитория):
 ```bash
 # Обновить все lock-файлы разом:
-scripts/update_locks.sh
+ops/update_locks.sh
 
 # Или только конкретные сервисы:
-scripts/update_locks.sh gateway airflow-worker
+ops/update_locks.sh gateway airflow-worker
 
 # Посмотреть список сервисов:
-scripts/update_locks.sh --list
+ops/update_locks.sh --list
 
 # Проверить команды без выполнения:
-scripts/update_locks.sh --dry-run
+ops/update_locks.sh --dry-run
 ```
 
 ## Docker / Docker Compose
@@ -218,7 +218,7 @@ cp .env.example .env
 Рекомендуемый путь — helper из корня checkout:
 
 ```bash
-sudo bash scripts/setup_shared_root_permissions.sh --deploy-user "<server-login>"
+sudo bash bootstrap/setup_shared_root_permissions.sh --deploy-user "<server-login>"
 ```
 
 Полезные override-флаги:
@@ -401,9 +401,9 @@ project-relative, а Compose строит bind mount'ы от `SHARED_ROOT`:
 Основной server entrypoint для тех же операций без Airflow:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
-bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
-bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion --release ragrel_pytorch_reference_<fingerprint>
+bash ops/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
+bash ops/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
+bash ops/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion --release ragrel_pytorch_reference_<fingerprint>
 ```
 
 RAG DVC policy: curated source instance `manifest.toml` files stay in Git;
@@ -418,7 +418,7 @@ DVC-tracked; raw cache is server-local by default.
 ```bash
 # 1. Отредактируйте группу airflow-worker в pyproject.toml
 # 2. Пересоберите lock:
-scripts/update_locks.sh airflow-worker
+ops/update_locks.sh airflow-worker
 
 # 3. Пересоберите образ:
 cd infra/compose
