@@ -6,8 +6,8 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from gateway.domain.processing import PreparedChatRequest, _ProcessChat
 from gateway.schemas.openai_chat import ChatCompletionRequest
-from gateway.services.processing import PreparedChatRequest, _ProcessChat
 
 
 class _DummyCeleryClient:
@@ -78,7 +78,7 @@ def test_async_streaming_emits_answer_only_chunks_and_persists_on_done() -> None
         chat_session_id = str(uuid.uuid4())
 
         with patch(
-            "gateway.services.processing.get_settings",
+            "gateway.domain.processing.get_settings",
             return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
@@ -152,7 +152,7 @@ def test_async_streaming_error_emits_error_chunk_and_skips_persistence() -> None
         req = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}], stream=True)
 
         with patch(
-            "gateway.services.processing.get_settings",
+            "gateway.domain.processing.get_settings",
             return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
@@ -192,7 +192,7 @@ def test_async_rich_stream_emits_named_events_and_persists_on_done() -> None:
         chat_session_id = str(uuid.uuid4())
 
         with patch(
-            "gateway.services.processing.get_settings",
+            "gateway.domain.processing.get_settings",
             return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
@@ -253,7 +253,7 @@ def test_async_rich_stream_error_emits_named_error_event() -> None:
         req = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}], stream=True)
 
         with patch(
-            "gateway.services.processing.get_settings",
+            "gateway.domain.processing.get_settings",
             return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):

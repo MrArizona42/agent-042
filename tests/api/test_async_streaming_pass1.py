@@ -6,8 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from clients.vllm_payloads import canonicalize_assistant_content
+from gateway.domain.processing import PreparedChatRequest, _ProcessChat
 from gateway.schemas.openai_chat import ChatCompletionRequest
-from gateway.services.processing import PreparedChatRequest, _ProcessChat
 from worker.tasks import (
     EVENT_ANSWER_TOKEN,
     EVENT_THINKING_TOKEN,
@@ -153,7 +153,7 @@ def test_async_chat_threads_request_id_and_new_event_types() -> None:
         req = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}])
 
         with patch(
-            "gateway.services.processing.get_settings",
+            "gateway.domain.processing.get_settings",
             return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
@@ -189,7 +189,7 @@ def test_async_stream_timeout_revokes_stalled_task() -> None:
         req = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}], stream=True)
 
         with patch(
-            "gateway.services.processing.get_settings",
+            "gateway.domain.processing.get_settings",
             return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
@@ -227,7 +227,7 @@ def test_async_stream_close_revokes_inflight_task() -> None:
         req = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}], stream=True)
 
         with patch(
-            "gateway.services.processing.get_settings",
+            "gateway.domain.processing.get_settings",
             return_value=SimpleNamespace(gateway=SimpleNamespace(streaming_timeout=1.0)),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):
@@ -250,7 +250,7 @@ def test_async_stream_close_revokes_inflight_task() -> None:
 
 
 def test_redis_stream_timeout_tracks_idle_time_not_total_runtime() -> None:
-    from gateway.services.redis_stream import RedisStreamService
+    from gateway.clients.redis_stream import RedisStreamService
 
     class _FakeLoop:
         def __init__(self) -> None:
@@ -300,11 +300,11 @@ def test_redis_stream_timeout_tracks_idle_time_not_total_runtime() -> None:
 
         with (
             patch(
-                "gateway.services.redis_stream.aioredis.from_url",
+                "gateway.clients.redis_stream.aioredis.from_url",
                 return_value=_FakeRedis(pubsub),
             ),
-            patch("gateway.services.redis_stream._monotonic_time", side_effect=loop.time),
-            patch("gateway.services.redis_stream.asyncio.sleep", new=_no_sleep),
+            patch("gateway.clients.redis_stream._monotonic_time", side_effect=loop.time),
+            patch("gateway.clients.redis_stream.asyncio.sleep", new=_no_sleep),
         ):
             return [event async for event in service.subscribe("conv-1", timeout=1.0)]
 

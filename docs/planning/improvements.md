@@ -57,9 +57,9 @@ Acceptance criteria:
 Likely files:
 
 - `src/rag/runtime/models.py`
-- `src/gateway/services/rag_service.py`
-- `src/gateway/services/prompt_builder.py`
-- `src/gateway/services/processing.py`
+- `src/gateway/domain/rag_service.py`
+- `src/gateway/domain/prompt_builder.py`
+- `src/gateway/domain/processing.py`
 - `src/gateway/schemas/openai_chat.py`
 - `src/ui/app.py`
 

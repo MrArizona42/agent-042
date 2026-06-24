@@ -1027,9 +1027,11 @@ agent-042/
 │   │   ├── api/                # HTTP routes
 │   │   ├── auth/               # OAuth2/OIDC middleware и router
 │   │   ├── schemas/            # Pydantic schemas (OpenAI-совместимые)
-│   │   └── services/           # Business logic (processing, RAG, prompt, Celery, Redis)
+│   │   ├── clients/             # Single-consumer wire clients (Celery, Redis, vLLM)
+│   │   └── domain/              # Business logic (processing, RAG, prompt, task routing, budget)
 │   ├── rag/                    # RAG pipeline
 │   │   ├── adapters/           # Catalog-declared source/benchmark adapters
+│   │   ├── clients/             # Qdrant client construction (single rag-internal consumer)
 │   │   ├── sources/            # Native Document/TextNode source lifecycle
 │   │   ├── indexing/           # LlamaIndex Qdrant materialization and aliases
 │   │   ├── runtime/            # LlamaIndex retrieval/query runtime

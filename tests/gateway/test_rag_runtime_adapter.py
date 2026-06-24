@@ -4,7 +4,7 @@ from llama_index.core.schema import NodeWithScore, TextNode
 
 from app_config.catalog import AliasConfig, KBConfig, TaskConfig, catalog_override
 from app_config.runtime import Settings, load_settings
-from gateway.services.rag_service import RAGService
+from gateway.domain.rag_service import RAGService
 from rag.runtime import RagRuntimeResult
 
 
@@ -103,7 +103,7 @@ def _catalog() -> dict[str, TaskConfig]:
 def test_retrieve_documents_delegates_explicit_alias_to_runtime(monkeypatch) -> None:
     with catalog_override(_catalog()):
         monkeypatch.setattr(
-            "gateway.services.rag_service.EmbeddingService",
+            "gateway.domain.rag_service.EmbeddingService",
             lambda **_: _Embedding(),
         )
         service = RAGService(settings=_settings())
@@ -126,7 +126,7 @@ def test_retrieve_documents_delegates_explicit_alias_to_runtime(monkeypatch) -> 
 def test_retrieve_documents_uses_default_alias_when_alias_is_omitted(monkeypatch) -> None:
     with catalog_override(_catalog()):
         monkeypatch.setattr(
-            "gateway.services.rag_service.EmbeddingService",
+            "gateway.domain.rag_service.EmbeddingService",
             lambda **_: _Embedding(),
         )
         service = RAGService(settings=_settings())

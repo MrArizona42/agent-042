@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from app_config.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
 from app_config.runtime import Settings, load_settings
-from gateway.services.rag_service import RAGService
+from gateway.domain.rag_service import RAGService
 
 
 def _alias_config() -> dict[str, object]:
@@ -94,7 +94,7 @@ def _build_registry(*, summarize_adapter_enabled: bool) -> dict[str, TaskConfig]
 
 def test_validate_knowledge_bases_warns_for_missing_enabled_adapter(caplog) -> None:
     with catalog_override(_build_registry(summarize_adapter_enabled=True)):
-        with patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls:
+        with patch("gateway.domain.rag_service.EmbeddingService") as mock_embedding_cls:
             mock_embedding = mock_embedding_cls.return_value
             mock_embedding.dimension = 384
 
@@ -113,7 +113,7 @@ def test_validate_knowledge_bases_warns_for_missing_enabled_adapter(caplog) -> N
 
 def test_validate_knowledge_bases_accepts_present_enabled_adapter() -> None:
     with catalog_override(_build_registry(summarize_adapter_enabled=True)):
-        with patch("gateway.services.rag_service.EmbeddingService") as mock_embedding_cls:
+        with patch("gateway.domain.rag_service.EmbeddingService") as mock_embedding_cls:
             mock_embedding = mock_embedding_cls.return_value
             mock_embedding.dimension = 384
 
@@ -132,7 +132,7 @@ def test_validate_knowledge_bases_accepts_present_enabled_adapter() -> None:
 
 def test_invalidate_caches_clears_available_vllm_model_snapshot() -> None:
     with catalog_override(_build_registry(summarize_adapter_enabled=False)):
-        with patch("gateway.services.rag_service.EmbeddingService"):
+        with patch("gateway.domain.rag_service.EmbeddingService"):
             service = RAGService(settings=_settings())
 
         service._available_vllm_models = {"base-model", "lora-chat-champion"}

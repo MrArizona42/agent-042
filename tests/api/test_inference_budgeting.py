@@ -9,12 +9,12 @@ from clients.vllm_payloads import (
     canonicalize_assistant_content,
     extract_tokenize_payload,
 )
-from gateway.services.budget import (
+from gateway.domain.budget import (
     compute_effective_history_budget,
     trim_history_pairs,
     trim_rag_chunks,
 )
-from gateway.services.prompt_builder import PromptBuilder
+from gateway.domain.prompt_builder import PromptBuilder
 
 
 def _budget_settings(**overrides):

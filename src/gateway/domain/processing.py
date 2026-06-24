@@ -15,14 +15,14 @@ from clients.observability.telemetry import get_tracer
 from clients.vllm_payloads import (
     canonicalize_assistant_content,
 )
+from gateway.clients.celery_client import CeleryClient
+from gateway.clients.redis_stream import RedisStreamService
+from gateway.clients.vllm_client import VllmOpenAIClient
+from gateway.domain.budget import build_budget_meta
+from gateway.domain.prompt_builder import PromptBuilder
+from gateway.domain.rag_service import RAGService
+from gateway.domain.task_router import RuleBasedTaskRouter
 from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
-from gateway.services.budget import build_budget_meta
-from gateway.services.celery_client import CeleryClient
-from gateway.services.prompt_builder import PromptBuilder
-from gateway.services.rag_service import RAGService
-from gateway.services.redis_stream import RedisStreamService
-from gateway.services.task_router import RuleBasedTaskRouter
-from gateway.services.vllm_client import VllmOpenAIClient
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)

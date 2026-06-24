@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from app_config.runtime import BudgetSettings
-from gateway.services.budget import (
+from gateway.domain.budget import (
     BudgetValidationError,
     compute_effective_history_budget,
     estimate_tokens,

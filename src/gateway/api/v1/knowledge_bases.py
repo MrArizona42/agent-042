@@ -8,8 +8,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from app_config.runtime import clear_knowledge_base_caches, get_settings
-from gateway.services.processing import process_chat
-from gateway.services.rag_service import RAGService
+from gateway.domain.processing import process_chat
+from gateway.domain.rag_service import RAGService
 
 logger = logging.getLogger(__name__)
 

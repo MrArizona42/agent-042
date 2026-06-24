@@ -25,9 +25,9 @@ from gateway.auth.middleware import AuthMiddleware
 from gateway.auth.oidc import OIDCClient
 from gateway.auth.router import router as auth_router
 from gateway.auth.session import SessionManager
-from gateway.services.celery_client import CeleryClient
-from gateway.services.processing import process_chat
-from gateway.services.redis_stream import RedisStreamService
+from gateway.clients.celery_client import CeleryClient
+from gateway.clients.redis_stream import RedisStreamService
+from gateway.domain.processing import process_chat
 from rag.runtime.service import RagDatabaseUnavailableError
 
 configure_logging(service="gateway")

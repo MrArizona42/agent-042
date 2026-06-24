@@ -10,9 +10,9 @@ from fastapi.responses import StreamingResponse
 from app_config.catalog import get_kb_config
 from clients.observability.logging import bind_log_context, reset_log_context
 from clients.vllm_payloads import ResponseBudgetExceededError
+from gateway.domain.budget import BudgetValidationError
+from gateway.domain.processing import process_chat
 from gateway.schemas.openai_chat import ChatCompletionRequest
-from gateway.services.budget import BudgetValidationError
-from gateway.services.processing import process_chat
 
 logger = logging.getLogger(__name__)
 

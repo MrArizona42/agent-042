@@ -12,6 +12,7 @@ from qdrant_client import AsyncQdrantClient, QdrantClient
 from app_config.catalog import AliasConfig, KBConfig, get_catalog, get_kb_config
 from app_config.catalog.schema import AliasRetrievalConfig
 from app_config.runtime import JudgeSettings, get_settings, secret_value
+from rag.clients.qdrant import create_qdrant_clients
 from rag.contracts import (
     DEFAULT_RAG_QUERY_PROMPTS,
     ProjectQueryPrompts,
@@ -123,14 +124,13 @@ class RagRuntime:
         self._deployment_repo: AliasDeploymentRepository = deployment_repo
         self._release_repo: ReleaseRepository = release_repo
 
-        client = qdrant_client or QdrantClient(
-            host=self.platform_settings.qdrant_host,
-            port=self.platform_settings.qdrant_port,
-        )
-        aclient = qdrant_aclient or AsyncQdrantClient(
-            host=self.platform_settings.qdrant_host,
-            port=self.platform_settings.qdrant_port,
-        )
+        if qdrant_client is None or qdrant_aclient is None:
+            default_client, default_aclient = create_qdrant_clients(
+                host=self.platform_settings.qdrant_host,
+                port=self.platform_settings.qdrant_port,
+            )
+        client = qdrant_client or default_client
+        aclient = qdrant_aclient or default_aclient
         self._resolver = resolver or LlamaIndexRuntimeResolver(
             qdrant_client=client,
             qdrant_aclient=aclient,
