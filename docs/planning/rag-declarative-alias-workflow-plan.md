@@ -581,8 +581,8 @@ Remove `PromotionDecision`; this control plane has no promotion operation.
 ## Database Contract
 
 Postgres becomes required for RAG runtime and operations. Add ORM models to
-`src/shared/db/models.py` and matching idempotent SQL migration files under
-`src/shared/db/`.
+`src/clients/db/models.py` and matching idempotent SQL migration files under
+`migrations/postgres/`.
 
 `Base.metadata.create_all()` creates new tables for fresh databases, but it
 does not alter existing tables. The deployment procedure must execute the
@@ -1283,9 +1283,9 @@ Acceptance:
 
 Files:
 
-- `src/shared/db/models.py`;
-- new SQL files under `src/shared/db/`;
-- new `src/shared/db/urls.py`;
+- `src/clients/db/models.py`;
+- new SQL files under `migrations/postgres/`;
+- new `src/clients/db/urls.py`;
 - new `scripts/apply_agent042_db_migrations.sh`;
 - `src/rag/control_plane/repositories.py`;
 - `src/rag/control_plane/postgres.py`;
@@ -1384,7 +1384,7 @@ Files:
 - `src/rag/evaluation/runner.py`;
 - `src/rag/evaluation/target.py`;
 - `src/rag/sources/benchmark_prep.py`;
-- `src/shared/db/eval_writer.py`;
+- `src/clients/db/eval_writer.py`;
 - evaluation and DB tests.
 
 Work:
