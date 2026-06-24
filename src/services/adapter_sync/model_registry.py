@@ -29,7 +29,7 @@ Typical flow
 
 2. Adapter-sync container syncs into the running vLLM::
 
-       python -m shared.model_registry sync
+       python -m services.adapter_sync.model_registry sync
 
    This downloads missing versions and hot-loads/unloads adapters via the
    vLLM API.  No restart required.
@@ -599,7 +599,7 @@ def _cmd_list(
 
 
 def _cli() -> None:
-    """Minimal CLI: ``python -m shared.model_registry sync``."""
+    """Minimal CLI: ``python -m services.adapter_sync.model_registry sync``."""
     import fire
 
     logging.basicConfig(

@@ -8,11 +8,11 @@ import typer
 
 from app_config.catalog import build_source_instance_index
 from app_config.runtime import get_settings
+from clients.db.eval_writer import get_evaluation_run, list_evaluation_runs
 from rag.cli.factories import RagContext, load_catalog_config
 from rag.cli.output import EXIT_OK, EXIT_USAGE_ERROR, emit, exit_code_for
 from rag.evaluation.runner import BenchmarkRunSummary, run_benchmark
 from rag.runtime import RagRuntime
-from shared.db.eval_writer import get_evaluation_run, list_evaluation_runs
 
 app = typer.Typer(help="Release-aware benchmark execution.")
 

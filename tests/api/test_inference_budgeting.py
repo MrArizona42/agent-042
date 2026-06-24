@@ -3,18 +3,18 @@ from __future__ import annotations
 import pytest
 
 from app_config.runtime import BudgetSettings
+from clients.vllm_payloads import (
+    ResponseBudgetExceededError,
+    apply_response_token_budget,
+    canonicalize_assistant_content,
+    extract_tokenize_payload,
+)
 from gateway.services.budget import (
     compute_effective_history_budget,
     trim_history_pairs,
     trim_rag_chunks,
 )
 from gateway.services.prompt_builder import PromptBuilder
-from shared.vllm_payloads import (
-    ResponseBudgetExceededError,
-    apply_response_token_budget,
-    canonicalize_assistant_content,
-    extract_tokenize_payload,
-)
 
 
 def _budget_settings(**overrides):

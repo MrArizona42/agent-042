@@ -1,4 +1,4 @@
-"""Tests for shared.db.eval_writer's evaluation-coverage decision logic.
+"""Tests for clients.db.eval_writer's evaluation-coverage decision logic.
 
 `check_evaluation_coverage` itself needs a live Postgres connection (this
 repo has none in its test environment, same limitation noted in phase 3);
@@ -8,7 +8,7 @@ so it can be tested without one.
 
 from __future__ import annotations
 
-from shared.db.eval_writer import _coverage_from_rows
+from clients.db.eval_writer import _coverage_from_rows
 
 
 class TestCoverageFromRows:

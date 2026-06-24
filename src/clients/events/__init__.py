@@ -1,7 +1,7 @@
 """Durable application event helpers."""
 
-from shared.events.inference import InferenceEvent, InferenceEventType
-from shared.events.producer import InferenceEventProducer, create_inference_event_producer
+from clients.events.inference import InferenceEvent, InferenceEventType
+from clients.events.producer import InferenceEventProducer, create_inference_event_producer
 
 __all__ = [
     "InferenceEvent",

@@ -6,9 +6,10 @@ usage() {
 Usage:
   bash ops/model_registry_ops.sh <args...>
 
-Runs shared.model_registry's own CLI (python -m shared.model_registry) inside
-the vllm-adapter-sync container, which already has Compose-injected env vars
--- no host-side .env loading needed.
+Runs services.adapter_sync.model_registry's own CLI
+(python -m services.adapter_sync.model_registry) inside the vllm-adapter-sync
+container, which already has Compose-injected env vars -- no host-side .env
+loading needed.
 
 Examples:
   bash ops/model_registry_ops.sh list
@@ -45,4 +46,4 @@ COMPOSE_PROJECT_NAME="$compose_project_name" docker compose \
   --project-name "$compose_project_name" \
   --env-file "$env_file" \
   -f "$compose_file" \
-  run --rm --entrypoint python vllm-adapter-sync -m shared.model_registry "$@"
+  run --rm --entrypoint python vllm-adapter-sync -m services.adapter_sync.model_registry "$@"

@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from shared.telemetry import current_trace_context
+from clients.observability.telemetry import current_trace_context
 
 InferenceEventType = Literal[
     "chat.request.accepted",

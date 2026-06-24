@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 import logging
 
-from shared.logging import bind_log_context, clear_log_context, configure_logging, reset_log_context
+from clients.observability.logging import (
+    bind_log_context,
+    clear_log_context,
+    configure_logging,
+    reset_log_context,
+)
 
 
 def test_configure_logging_emits_json_with_service_and_context(capsys) -> None:

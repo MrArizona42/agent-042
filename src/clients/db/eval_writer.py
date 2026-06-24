@@ -9,8 +9,8 @@ from typing import Any
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from shared.db.models import EvalRun, EvalSample
-from shared.db.urls import require_db_url, to_sync_url
+from clients.db.models import EvalRun, EvalSample
+from clients.db.urls import require_db_url, to_sync_url
 
 
 def write_evaluation_results(

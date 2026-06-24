@@ -103,9 +103,9 @@ def _sync_dvc(**context: Any) -> dict[str, Any]:
         print("sync_dvc=false; skipping DVC sync.")
         return {"synced": False, "paths": []}
 
+    from airflow_git_sync import sync_dvc_dataset_via_temp_clone
     from app_config.catalog import build_source_instance_index
     from rag.cli.factories import load_catalog_config
-    from shared.airflow_git_sync import sync_dvc_dataset_via_temp_clone
 
     ctx = _rag_context()
     catalog_cfg = load_catalog_config(ctx)

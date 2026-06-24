@@ -15,9 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY infra/docker/adapter-sync/requirements-adapter-sync.lock /app/
 RUN pip install --no-cache-dir -r requirements-adapter-sync.lock
 
-# adapter-sync imports shared.model_registry, which depends on runtime config.
+# adapter-sync imports services.adapter_sync.model_registry, which depends on runtime config.
 COPY src/app_config /app/src/app_config
-COPY src/shared /app/src/shared
+COPY src/services /app/src/services
 
 ENV PYTHONPATH=/app/src
 

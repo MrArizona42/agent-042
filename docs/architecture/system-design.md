@@ -701,7 +701,7 @@ Legacy `[[sources]]` is no longer supported.
 Python-конфигурация реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/app_config/runtime/`.
 
 Все модели и load-функции живут в `app_config.runtime.models` и `app_config.runtime.loaders`;
-`src/shared/` теперь ограничен cross-cutting infrastructure: database, events, logging, telemetry, service helpers.
+`src/clients/` содержит cross-cutting infrastructure clients с 2+ потребителями-сервисами: database (`clients/db/`), events (`clients/events/`), observability (`clients/observability/`: logging + telemetry), `clients/vllm_payloads.py`. Single-consumer код живёт рядом со своим единственным потребителем: `src/services/adapter_sync/model_registry.py` (только adapter-sync), `src/airflow_git_sync.py` (только `dags/rag_alias_apply.py`).
 
 Ключевые свойства текущей схемы:
 
@@ -1038,11 +1038,14 @@ agent-042/
 │   │   ├── embeddings.py       # Embedding service
 │   │   ├── reranker.py         # Cross-encoder reranker
 │   │   ├── sparse_encoder.py   # Sparse (BM25) encoding
-│   ├── shared/                 # Общий код для всех сервисов
-│   │   ├── config.py           # Pydantic settings
-│   │   ├── catalog.toml       # Task / KB / source catalog
-│   │   ├── model_registry.py   # MLflow adapter sync
-│   │   └── db/                 # SQLAlchemy модели и engine
+│   ├── clients/                 # Cross-cutting infra clients (2+ service consumers)
+│   │   ├── db/                  # SQLAlchemy модели и engine
+│   │   ├── events/              # Redpanda producer и event schema
+│   │   ├── observability/       # Structured logging + OpenTelemetry bootstrap
+│   │   └── vllm_payloads.py     # vLLM request/response payload helpers
+│   ├── services/                # Code owned by exactly one deployable service
+│   │   └── adapter_sync/        # model_registry.py: MLflow adapter sync into vLLM
+│   ├── airflow_git_sync.py      # DVC/Git temp-clone sync, used only by dags/rag_alias_apply.py
 │   ├── embeddings/             # Embeddings microservice
 │   ├── reranker/               # Reranker microservice
 │   ├── ui/                     # Streamlit UI

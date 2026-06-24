@@ -12,10 +12,10 @@ import httpx
 import redis
 
 from app_config.runtime import get_settings, secret_value
-from shared.events import InferenceEventProducer, create_inference_event_producer
-from shared.logging import bind_log_context, reset_log_context
-from shared.telemetry import get_tracer
-from shared.vllm_payloads import (
+from clients.events import InferenceEventProducer, create_inference_event_producer
+from clients.observability.logging import bind_log_context, reset_log_context
+from clients.observability.telemetry import get_tracer
+from clients.vllm_payloads import (
     ResponseBudgetExceededError,
     apply_response_token_budget,
     canonicalize_assistant_content,

@@ -9,6 +9,12 @@ from typing import Any, AsyncIterator, Literal, Sequence
 
 from app_config.catalog import get_catalog, get_kb_config
 from app_config.runtime import get_settings, secret_value
+from clients.events import InferenceEventProducer, InferenceEventType
+from clients.observability.logging import bind_log_context, reset_log_context
+from clients.observability.telemetry import get_tracer
+from clients.vllm_payloads import (
+    canonicalize_assistant_content,
+)
 from gateway.schemas.openai_chat import ChatCompletionRequest, RAGSource
 from gateway.services.budget import build_budget_meta
 from gateway.services.celery_client import CeleryClient
@@ -17,12 +23,6 @@ from gateway.services.rag_service import RAGService
 from gateway.services.redis_stream import RedisStreamService
 from gateway.services.task_router import RuleBasedTaskRouter
 from gateway.services.vllm_client import VllmOpenAIClient
-from shared.events import InferenceEventProducer, InferenceEventType
-from shared.logging import bind_log_context, reset_log_context
-from shared.telemetry import get_tracer
-from shared.vllm_payloads import (
-    canonicalize_assistant_content,
-)
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -895,8 +895,8 @@ class _ProcessChat:
         try:
             from sqlalchemy import select
 
-            from shared.db.engine import get_session_factory
-            from shared.db.models import ChatMessage, ChatSession
+            from clients.db.engine import get_session_factory
+            from clients.db.models import ChatMessage, ChatSession
 
             with tracer.start_as_current_span("gateway.persist_exchange") as span:
                 span.set_attribute("chat_session_id", chat_session_id)

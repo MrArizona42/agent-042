@@ -39,12 +39,12 @@ class TestEvalRunModel:
     """Tests for the EvalRun SQLAlchemy ORM model."""
 
     def test_eval_run_table_name(self):
-        from shared.db.models import EvalRun
+        from clients.db.models import EvalRun
 
         assert EvalRun.__tablename__ == "eval_runs"
 
     def test_eval_run_has_required_columns(self):
-        from shared.db.models import EvalRun
+        from clients.db.models import EvalRun
 
         columns = {c.name for c in EvalRun.__table__.columns}
         required = {
@@ -88,13 +88,13 @@ class TestEvalRunModel:
         assert required.issubset(columns)
 
     def test_eval_run_default_status(self):
-        from shared.db.models import EvalRun
+        from clients.db.models import EvalRun
 
         col = EvalRun.__table__.c.status
         assert col.default.arg == "running"
 
     def test_eval_run_default_rag_enabled(self):
-        from shared.db.models import EvalRun
+        from clients.db.models import EvalRun
 
         col = EvalRun.__table__.c.rag_enabled
         assert col.default.arg is False
@@ -102,7 +102,7 @@ class TestEvalRunModel:
     def test_eval_run_extra_is_jsonb(self):
         from sqlalchemy.dialects.postgresql import JSONB
 
-        from shared.db.models import EvalRun
+        from clients.db.models import EvalRun
 
         col = EvalRun.__table__.c.extra
         assert isinstance(col.type, JSONB)

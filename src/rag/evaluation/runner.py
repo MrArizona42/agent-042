@@ -15,6 +15,7 @@ from llama_index.core.llms import LLM
 from pydantic import BaseModel, ConfigDict, Field
 
 from app_config.catalog import load_catalog_with_source_index
+from clients.db.eval_writer import write_evaluation_results
 from rag.contracts import DEFAULT_RAG_QUERY_PROMPTS
 from rag.control_plane.fingerprints import (
     retrieval_config_digest as compute_retrieval_config_digest,
@@ -34,7 +35,6 @@ from rag.sources.benchmark_prep import (
     ensure_benchmark_prepared,
     metadata_artifact_path,
 )
-from shared.db.eval_writer import write_evaluation_results
 
 _BINARY_RETRIEVAL_METRICS = ["hit_rate", "mrr", "precision", "recall", "ap", "ndcg"]
 

@@ -6,7 +6,7 @@ import logging
 from typing import Any, Protocol
 
 from app_config.runtime import Settings
-from shared.events.inference import InferenceEvent, InferenceEventType
+from clients.events.inference import InferenceEvent, InferenceEventType
 
 logger = logging.getLogger(__name__)
 

@@ -370,12 +370,12 @@ python -m experiments.training.train_adapter.start_train \
 
 > **Примечание:** CLI-скрипт `scripts/manage_registry.py` удалён. Операции с реестром
 > (register, promote, demote, download, sync) теперь выполняются через ноутбук
-> `experiments/training/lora_ops.ipynb` или напрямую через `shared.model_registry`
+> `experiments/training/lora_ops.ipynb` или напрямую через `services.adapter_sync.model_registry`
 > Python API.
 
-Скрипт `src/shared/model_registry.py` — программный интерфейс для управления
+Скрипт `src/services/adapter_sync/model_registry.py` — программный интерфейс для управления
 адаптерами в реестре. Сам модуль уже предоставляет CLI (`python -m
-shared.model_registry sync|list`) через `fire`; host-side запуски идут через
+services.adapter_sync.model_registry sync|list`) через `fire`; host-side запуски идут через
 `ops/model_registry_ops.sh`, который выполняет эту команду внутри
 контейнера `vllm-adapter-sync` — там env уже инжектирован Compose, и
 дополнительная загрузка `.env` на хосте не нужна.
@@ -384,7 +384,7 @@ shared.model_registry sync|list`) через `fire`; host-side запуски и
 
 ```python
 # Python API (из lora_ops.ipynb)
-from shared.model_registry import AdapterRegistry
+from services.adapter_sync.model_registry import AdapterRegistry
 registry = AdapterRegistry()
 registry.list_models()
 ```
@@ -403,7 +403,7 @@ registry.demote(model_name="lora-summarize", alias="champion")
 
 ### Синхронизация адаптеров на inference-хосте
 
-Для подготовки адаптеров и загрузки в работающий vLLM используется модуль `src/shared/model_registry.py`.
+Для подготовки адаптеров и загрузки в работающий vLLM используется модуль `src/services/adapter_sync/model_registry.py`.
 Он скачивает aliased-адаптеры (champion, challenger) из реестра и загружает их в vLLM
 через hot-load REST API (`POST /v1/load_lora_adapter`) — без рестарта сервера.
 

@@ -36,7 +36,7 @@ app.add_typer(source_cli.app, name="source")
 def _configure_stderr_logging() -> None:
     """Send logs to stderr, never stdout.
 
-    `shared.logging.configure_logging()` deliberately binds to stdout (the
+    `clients.observability.logging.configure_logging()` deliberately binds to stdout (the
     log sink convention for gateway/airflow-worker containers); this CLI
     instead reserves stdout for result data, per the plan's explicit
     "emit logs to stderr and result data to stdout" rule.

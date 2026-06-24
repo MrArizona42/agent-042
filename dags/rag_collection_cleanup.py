@@ -108,8 +108,8 @@ def _cleanup_orphan_collections() -> None:
     from sqlalchemy import select, update
 
     from app_config.runtime import get_settings
+    from clients.db.models import RagAliasDeploymentRow, RagReleaseRow
     from rag.control_plane.postgres import create_session_factory
-    from shared.db.models import RagAliasDeploymentRow, RagReleaseRow
 
     db_url = get_settings().auth.agent042_db_url
     session_factory = create_session_factory(db_url)

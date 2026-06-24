@@ -5,9 +5,9 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from clients.vllm_payloads import canonicalize_assistant_content
 from gateway.schemas.openai_chat import ChatCompletionRequest
 from gateway.services.processing import PreparedChatRequest, _ProcessChat
-from shared.vllm_payloads import canonicalize_assistant_content
 from worker.tasks import (
     EVENT_ANSWER_TOKEN,
     EVENT_THINKING_TOKEN,

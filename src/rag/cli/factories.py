@@ -14,6 +14,7 @@ from pathlib import Path
 from app_config.catalog import build_source_instance_index, read_catalog_config
 from app_config.catalog.schema import CatalogConfig
 from app_config.runtime import get_settings
+from clients.db.eval_writer import check_evaluation_coverage
 from rag.adapters import SourceAdapterRegistry, build_catalog_adapter_registry
 from rag.control_plane.alias_service import AliasService
 from rag.control_plane.postgres import (
@@ -27,7 +28,6 @@ from rag.indexing.llamaindex_qdrant import QdrantCollectionManager
 from rag.indexing.materialize import qdrant_alias_name
 from rag.reranker import get_reranker
 from rag.sparse_encoder import SparseEncoderService
-from shared.db.eval_writer import check_evaluation_coverage
 
 
 @dataclass(frozen=True, slots=True)

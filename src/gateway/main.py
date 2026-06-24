@@ -12,6 +12,14 @@ from app_config.runtime import (
     get_settings,
     log_configuration_summary,
 )
+from clients.events import create_inference_event_producer
+from clients.observability.logging import configure_logging
+from clients.observability.telemetry import (
+    instrument_celery,
+    instrument_fastapi_app,
+    instrument_httpx,
+    instrument_redis,
+)
 from gateway.api.routes import router as api_router
 from gateway.auth.middleware import AuthMiddleware
 from gateway.auth.oidc import OIDCClient
@@ -21,14 +29,6 @@ from gateway.services.celery_client import CeleryClient
 from gateway.services.processing import process_chat
 from gateway.services.redis_stream import RedisStreamService
 from rag.runtime.service import RagDatabaseUnavailableError
-from shared.events import create_inference_event_producer
-from shared.logging import configure_logging
-from shared.telemetry import (
-    instrument_celery,
-    instrument_fastapi_app,
-    instrument_httpx,
-    instrument_redis,
-)
 
 configure_logging(service="gateway")
 instrument_httpx(service="gateway")
@@ -118,8 +118,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # --- Database engine ---
     if auth.agent042_db_url:
-        from shared.db.engine import get_engine
-        from shared.db.models import Base
+        from clients.db.engine import get_engine
+        from clients.db.models import Base
 
         engine = get_engine()
         async with engine.begin() as conn:
@@ -137,7 +137,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if auth_redis is not None:
         await auth_redis.close()
     if auth.agent042_db_url:
-        from shared.db.engine import close_engine
+        from clients.db.engine import close_engine
 
         await close_engine()
     logger.info("All managed connections closed")

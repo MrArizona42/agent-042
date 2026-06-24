@@ -5,8 +5,8 @@ from __future__ import annotations
 from celery import Celery
 
 from app_config.runtime import get_settings
-from shared.logging import configure_logging
-from shared.telemetry import instrument_celery, instrument_httpx, instrument_redis
+from clients.observability.logging import configure_logging
+from clients.observability.telemetry import instrument_celery, instrument_httpx, instrument_redis
 
 configure_logging(service="worker")
 instrument_celery(service="worker")

@@ -5,7 +5,7 @@ import re
 import streamlit as st
 
 from app_config.runtime import get_settings
-from shared.vllm_payloads import canonicalize_assistant_content
+from clients.vllm_payloads import canonicalize_assistant_content
 from ui.client import GatewayClient
 
 st.set_page_config(page_title="agent-042", layout="wide")
