@@ -59,6 +59,12 @@ uv sync --extra rag --extra gateway --extra airflow-worker
 bash scripts/apply_agent042_db_migrations.sh
 ```
 
+This isn't specific to the `rag` CLI: the gateway's eval/chat persistence and
+the Airflow `rag_alias_apply` DAG depend on the same control-plane schema.
+Release-based server deploys apply it automatically as part of
+`deploy_release.sh`; local checkouts still need to run it by hand after
+pulling a change that adds a new migration file.
+
 ## Naming
 
 - KB id: logical knowledge base id from `catalog.toml`, for example
