@@ -310,6 +310,18 @@ show_failure_diagnostics() {
     done
 }
 
+apply_db_migrations() {
+    local project_root="$1"
+
+    local migrations_script="$project_root/scripts/apply_agent042_db_migrations.sh"
+    [[ -f "$migrations_script" ]] || fail "Migrations script not found: $migrations_script"
+
+    COMPOSE_FILE="$(compose_file_for "$project_root")" \
+    ENV_FILE="$env_file" \
+    COMPOSE_PROJECT_NAME="$compose_project_name" \
+        bash "$migrations_script"
+}
+
 smoke_check() {
     local project_root="$1"
     local image_tag="$2"
@@ -516,6 +528,13 @@ if ! compose "$release_dir" "$image_tag" up -d --remove-orphans; then
     show_failure_diagnostics "$release_dir" "$image_tag" "docker compose up"
     rollback_to_previous_release || true
     fail "Deployment failed during docker compose up"
+fi
+
+log "Applying agent042 DB migrations"
+if ! apply_db_migrations "$release_dir"; then
+    show_failure_diagnostics "$release_dir" "$image_tag" "db migrations"
+    rollback_to_previous_release || true
+    fail "Deployment failed applying DB migrations"
 fi
 
 log "Running smoke checks"
