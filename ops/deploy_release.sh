@@ -414,6 +414,10 @@ prune_old_releases() {
     done
 }
 
+prune_stale_docker_resources() {
+    docker system prune -af --filter "until=24h"
+}
+
 rollback_to_previous_release() {
     if [[ -z "$previous_release" || -z "$previous_image_tag" ]]; then
         echo "warning: rollback skipped because no previous release target could be resolved" >&2
@@ -563,6 +567,9 @@ upsert_env_value COMPOSE_PROJECT_NAME "$compose_project_name" "$env_file"
 
 log "Pruning old releases"
 prune_old_releases "$keep_releases"
+
+log "Pruning stale Docker resources older than 24h"
+prune_stale_docker_resources
 
 log "Deployment finished successfully"
 show_compose_status "$release_dir" "$image_tag"

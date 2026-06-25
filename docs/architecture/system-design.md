@@ -941,6 +941,8 @@ mlflow-artifacts и airflow-logs; модели, датасеты и project arti
 3. Запускает `docker compose up -d --build` с новым `IMAGE_TAG`.
 4. Выполняет smoke-тесты (health check). При неудаче — откат симлинка на предыдущий релиз.
 5. Удаляет старые релизы (хранит последние N).
+6. Удаляет неиспользуемые Docker resources старше 24 часов
+   (`docker system prune -af --filter until=24h`).
 
 ### 10.3 CI/CD
 
