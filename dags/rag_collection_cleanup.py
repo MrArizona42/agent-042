@@ -159,9 +159,9 @@ def _cleanup_orphan_collections() -> None:
         }
         known_collections = {release.collection_name for release in releases}
 
-    from qdrant_client import QdrantClient
+    from rag.clients.qdrant import create_qdrant_client
 
-    client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+    client = create_qdrant_client(host=QDRANT_HOST, port=QDRANT_PORT)
     all_collections = {c.name for c in client.get_collections().collections}
 
     deleted = 0
