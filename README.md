@@ -73,7 +73,7 @@ calling vLLM.
 
 ### RAG And Model Operations
 
-- `rag-ops`: one-shot container for manual RAG lifecycle commands inside the
+- `ops`: warm container for manual RAG lifecycle commands inside the
   same Docker network and dependency image as Airflow workers.
 - `airflow-*`: orchestration for RAG builds, cleanup, evaluation, and LoRA
   training.
@@ -96,7 +96,7 @@ calling vLLM.
 ## RAG Lifecycle
 
 `catalog.toml` declares desired state for each KB alias; Postgres holds
-applied state. A typical manual reconciliation runs through `rag-ops`:
+applied state. A typical manual reconciliation runs through `ops`:
 
 ```bash
 bash ops/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger

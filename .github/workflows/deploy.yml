@@ -99,7 +99,7 @@ jobs:
             gateway
             jupyter
             mlflow
-            rag-ops
+            ops
             reranker
             ui
           )

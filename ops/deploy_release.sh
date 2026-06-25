@@ -272,6 +272,7 @@ show_failure_diagnostics() {
         airflow-scheduler
         airflow-worker
         airflow-worker-gpu
+        ops
         celery-worker
         code-sandbox
         jupyter
@@ -343,6 +344,7 @@ smoke_check() {
         airflow-scheduler
         airflow-worker
         airflow-worker-gpu
+        ops
         code-sandbox
         jupyter
         prometheus

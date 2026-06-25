@@ -67,7 +67,7 @@
 | `airflow-webserver / scheduler / dag-processor` | Apache Airflow | Оркестрация пайплайнов |
 | `airflow-worker` | Celery (CPU) | Бенчмарки, RAG-обновления, оценка качества |
 | `airflow-worker-gpu` | Celery (GPU) | Обучение LoRA адаптеров |
-| `rag-ops` | one-shot CLI container | Ручные RAG build/materialize/promote операции внутри Docker network |
+| `ops` | warm CLI container | Ручные RAG build/materialize/promote операции внутри Docker network |
 | `jupyter` | JupyterLab | Интерактивные эксперименты и operator workflows |
 | `mlflow` | MLflow | Трекинг экспериментов, Model Registry |
 | `code-sandbox` | Docker (изолированный) | Безопасное выполнение кода при code evaluation |
@@ -803,7 +803,7 @@ JupyterLab — точка входа для ручных операций опе
 | `experiments/misc_ops/postgres_diagnostics.ipynb` | Диагностика БД |
 
 RAG production operations and diagnostics use `python -m rag.cli.app` in
-the `rag-ops` container or Airflow `rag_alias_apply`. Direct collection
+the `ops` container or Airflow `rag_alias_apply`. Direct collection
 metadata, alias, point, and snapshot inspection uses the Qdrant API/dashboard.
 
 ### 8.3 Версионирование данных (DVC)

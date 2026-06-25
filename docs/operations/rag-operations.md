@@ -1,7 +1,7 @@
 # RAG Operations
 
 This is the operator-facing workflow for RAG KB releases on the server. The
-main entrypoint is the `rag` CLI (`rag.cli.app`), run through the `rag-ops`
+main entrypoint is the `rag` CLI (`rag.cli.app`), run through the `ops`
 Compose service via `ops/rag_ops.sh`. Airflow uses the same application
 service (`AliasService`) directly through the `rag_alias_apply` DAG, not the
 CLI process.
@@ -40,7 +40,7 @@ is only ever deleted from Qdrant after being marked retired in Postgres.
 Before running an alias command, verify:
 
 - `catalog.toml` and `runtime.toml` are from the deployed release;
-- `assets/rag_data` is writable by the `rag-ops` container;
+- `assets/rag_data` is writable by the `ops` container;
 - Qdrant, embeddings, and reranker services are healthy;
 - vLLM is healthy when running generation or judge benchmarks;
 - `GATEWAY_AGENT042_DB_URL` points at the control-plane/eval Postgres database
@@ -128,7 +128,7 @@ Benchmark results do not live here; Postgres is their only result store.
 ## Server CLI
 
 Run commands from the deployment root on the server. Output is JSON to
-stdout when not a TTY (always JSON inside `rag-ops`); logs go to stderr.
+stdout when not a TTY (always JSON inside `ops`); logs go to stderr.
 
 Validate the catalog: schema, alias build/retrieve compatibility, and
 references. Always run this after editing `catalog.toml`:

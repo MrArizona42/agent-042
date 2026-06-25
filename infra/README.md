@@ -470,7 +470,7 @@ Compose interpolation на хосте.
 
 RAG operator boundary:
 - Direct Qdrant diagnostics use the Qdrant API/dashboard.
-- Production operations запускаются через `rag-ops` container и `python -m rag.cli.app`, либо через Airflow `rag_alias_apply`.
+- Production operations запускаются через `ops` container и `python -m rag.cli.app`, либо через Airflow `rag_alias_apply`.
 
 ## DVC с бэкэндом Yandex Cloud S3
 

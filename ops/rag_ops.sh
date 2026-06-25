@@ -47,9 +47,23 @@ if [[ -z "$compose_project_name" ]]; then
   compose_project_name="$(basename "$PWD")"
 fi
 
-COMPOSE_PROJECT_NAME="$compose_project_name" docker compose \
-  --project-name "$compose_project_name" \
-  --profile ops \
-  --env-file "$env_file" \
-  -f "$compose_file" \
-  run --rm rag-ops "$@"
+compose_args=(
+  --project-name "$compose_project_name"
+  --env-file "$env_file"
+  -f "$compose_file"
+)
+
+interactive_args=()
+if [[ ! -t 0 || ! -t 1 ]]; then
+  interactive_args=(-T)
+fi
+
+if container_id="$(COMPOSE_PROJECT_NAME="$compose_project_name" docker compose "${compose_args[@]}" ps -q ops)" \
+  && [[ -n "$container_id" ]] \
+  && [[ "$(docker inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)" == "true" ]]; then
+  COMPOSE_PROJECT_NAME="$compose_project_name" docker compose "${compose_args[@]}" \
+    exec "${interactive_args[@]}" ops "$@"
+else
+  COMPOSE_PROJECT_NAME="$compose_project_name" docker compose "${compose_args[@]}" \
+    run --rm "${interactive_args[@]}" ops "$@"
+fi

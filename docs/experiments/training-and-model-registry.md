@@ -46,7 +46,7 @@ python -m experiments.training.train_adapter.start_train \
   (`catalog validate`, `alias diff`/`alias apply`, `release list`/`show`,
   `benchmark run`).
 - На сервере используйте `bash ops/rag_ops.sh ...`, чтобы выполнить команду в
-  `rag-ops` контейнере внутри Docker network.
+  `ops` контейнере внутри Docker network.
 - Airflow DAG `rag_alias_apply` вызывает `AliasService.apply()` напрямую (не
   через CLI-процесс) для того же KB/alias.
 - Direct Qdrant diagnostics use the Qdrant API/dashboard; production

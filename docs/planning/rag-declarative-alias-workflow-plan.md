@@ -1155,7 +1155,7 @@ bash current/scripts/rag_ops.sh alias diff pytorch_reference challenger
 bash current/scripts/rag_ops.sh alias apply pytorch_reference challenger
 ```
 
-The wrapper invokes the installed `rag` entrypoint inside `rag-ops`; operators
+The wrapper invokes the installed `rag` entrypoint inside `ops`; operators
 do not pass `python -m ...`.
 
 ## Migration Policy
