@@ -41,7 +41,7 @@ Worker publishes:
 
 ## Schema
 
-All events use the shared schema in `src/shared/events/inference.py`.
+All events use the shared schema in `src/clients/events/inference.py`.
 
 Common fields:
 

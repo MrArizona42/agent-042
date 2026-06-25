@@ -217,7 +217,7 @@ Important placement rules:
 - `src/rag/evaluation/` owns normalized benchmark contracts and execution.
   It should evolve the existing `models.py` contracts rather than introduce a
   parallel benchmark contract package.
-- `src/shared/db/eval_writer.py` is the only place that writes RAG benchmark
+- `src/clients/db/eval_writer.py` is the only place that writes RAG benchmark
   results to `eval_runs` / `eval_samples`; benchmark runners should not define
   private SQL table shapes.
 
@@ -872,7 +872,7 @@ Tasks:
 - Implement project graded qrel scorers for relevance grades and
   document/chunk entity types.
 - Wire LlamaIndex context/generation evaluators.
-- Centralize DB writes through `src/shared/db/eval_writer.py`.
+- Centralize DB writes through `src/clients/db/eval_writer.py`.
 - Persist retrieval observations, generation observations, prompt identity,
   and benchmark artifact digests.
 
@@ -895,7 +895,7 @@ Implementation notes:
   postprocessors. Binary hit rate, MRR, precision, recall, AP, and NDCG come
   from LlamaIndex. Graded NDCG remains project-owned and supports document and
   chunk qrels.
-- `src/shared/db/eval_writer.py` is the only eval DB writer. It uses the shared
+- `src/clients/db/eval_writer.py` is the only eval DB writer. It uses the shared
   `EvalRun` and `EvalSample` ORM models; the older generation runner delegates
   to it instead of declaring private SQLAlchemy tables.
 - Run with `python -m rag.evaluation.cli --catalog <path> --source-instance

@@ -67,7 +67,7 @@
 | `airflow-webserver / scheduler / dag-processor` | Apache Airflow | Оркестрация пайплайнов |
 | `airflow-worker` | Celery (CPU) | Бенчмарки, RAG-обновления, оценка качества |
 | `airflow-worker-gpu` | Celery (GPU) | Обучение LoRA адаптеров |
-| `rag-ops` | one-shot CLI container | Ручные RAG build/materialize/promote операции внутри Docker network |
+| `ops` | warm CLI container | Ручные RAG build/materialize/promote операции внутри Docker network |
 | `jupyter` | JupyterLab | Интерактивные эксперименты и operator workflows |
 | `mlflow` | MLflow | Трекинг экспериментов, Model Registry |
 | `code-sandbox` | Docker (изолированный) | Безопасное выполнение кода при code evaluation |
@@ -701,7 +701,7 @@ Legacy `[[sources]]` is no longer supported.
 Python-конфигурация реализована через `pydantic-settings` с одним root loader'ом: `Settings(BaseSettings)` в `src/app_config/runtime/`.
 
 Все модели и load-функции живут в `app_config.runtime.models` и `app_config.runtime.loaders`;
-`src/shared/` теперь ограничен cross-cutting infrastructure: database, events, logging, telemetry, service helpers.
+`src/clients/` содержит cross-cutting infrastructure clients с 2+ потребителями-сервисами: database (`clients/db/`), events (`clients/events/`), observability (`clients/observability/`: logging + telemetry), `clients/vllm_payloads.py`. Single-consumer код живёт рядом со своим единственным потребителем: `src/services/adapter_sync/model_registry.py` (только adapter-sync), `src/airflow_support/git_sync.py` (только `dags/rag_alias_apply.py`).
 
 Ключевые свойства текущей схемы:
 
@@ -803,7 +803,7 @@ JupyterLab — точка входа для ручных операций опе
 | `experiments/misc_ops/postgres_diagnostics.ipynb` | Диагностика БД |
 
 RAG production operations and diagnostics use `python -m rag.cli.app` in
-the `rag-ops` container or Airflow `rag_alias_apply`. Direct collection
+the `ops` container or Airflow `rag_alias_apply`. Direct collection
 metadata, alias, point, and snapshot inspection uses the Qdrant API/dashboard.
 
 ### 8.3 Версионирование данных (DVC)
@@ -935,12 +935,14 @@ mlflow-artifacts и airflow-logs; модели, датасеты и project arti
   current -> releases/<sha2>/   # Симлинк на активный релиз
 ```
 
-**Скрипт деплоя** (`scripts/deploy_release.sh`):
+**Скрипт деплоя** (`ops/deploy_release.sh`):
 1. Создаёт новую директорию `releases/<sha>` с кодом нового релиза.
 2. Переключает симлинк `current` на новый релиз.
 3. Запускает `docker compose up -d --build` с новым `IMAGE_TAG`.
 4. Выполняет smoke-тесты (health check). При неудаче — откат симлинка на предыдущий релиз.
 5. Удаляет старые релизы (хранит последние N).
+6. Удаляет неиспользуемые Docker resources старше 24 часов
+   (`docker system prune -af --filter until=24h`).
 
 ### 10.3 CI/CD
 
@@ -1027,9 +1029,11 @@ agent-042/
 │   │   ├── api/                # HTTP routes
 │   │   ├── auth/               # OAuth2/OIDC middleware и router
 │   │   ├── schemas/            # Pydantic schemas (OpenAI-совместимые)
-│   │   └── services/           # Business logic (processing, RAG, prompt, Celery, Redis)
+│   │   ├── clients/             # Single-consumer wire clients (Celery, Redis, vLLM)
+│   │   └── domain/              # Business logic (processing, RAG, prompt, task routing, budget)
 │   ├── rag/                    # RAG pipeline
 │   │   ├── adapters/           # Catalog-declared source/benchmark adapters
+│   │   ├── clients/             # Qdrant client construction (single rag-internal consumer)
 │   │   ├── sources/            # Native Document/TextNode source lifecycle
 │   │   ├── indexing/           # LlamaIndex Qdrant materialization and aliases
 │   │   ├── runtime/            # LlamaIndex retrieval/query runtime
@@ -1038,11 +1042,14 @@ agent-042/
 │   │   ├── embeddings.py       # Embedding service
 │   │   ├── reranker.py         # Cross-encoder reranker
 │   │   ├── sparse_encoder.py   # Sparse (BM25) encoding
-│   ├── shared/                 # Общий код для всех сервисов
-│   │   ├── config.py           # Pydantic settings
-│   │   ├── catalog.toml       # Task / KB / source catalog
-│   │   ├── model_registry.py   # MLflow adapter sync
-│   │   └── db/                 # SQLAlchemy модели и engine
+│   ├── clients/                 # Cross-cutting infra clients (2+ service consumers)
+│   │   ├── db/                  # SQLAlchemy модели и engine
+│   │   ├── events/              # Redpanda producer и event schema
+│   │   ├── observability/       # Structured logging + OpenTelemetry bootstrap
+│   │   └── vllm_payloads.py     # vLLM request/response payload helpers
+│   ├── services/                # Code owned by exactly one deployable service
+│   │   └── adapter_sync/        # model_registry.py: MLflow adapter sync into vLLM
+│   ├── airflow_support/         # DAG support helpers, including DVC/Git temp-clone sync
 │   ├── embeddings/             # Embeddings microservice
 │   ├── reranker/               # Reranker microservice
 │   ├── ui/                     # Streamlit UI
@@ -1061,7 +1068,9 @@ agent-042/
 │   ├── grafana/                # Grafana provisioning
 │   └── nginx/                  # nginx конфиги
 ├── tests/                      # Unit и integration тесты
-├── scripts/                    # Shell-скрипты (деплой, утилиты)
+├── migrations/                 # Postgres schema migrations (SQL)
+├── bootstrap/                  # One-time environment bring-up scripts
+├── ops/                        # Recurring operational scripts (деплой, утилиты)
 ├── assets/                     # Модели и датасеты (DVC-tracked)
 └── artifacts/                  # Training checkpoints и Hydra runs
 ```

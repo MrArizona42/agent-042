@@ -11,8 +11,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 
 from app_config.runtime import get_settings
-from shared.db.engine import get_session_factory
-from shared.db.models import User
+from clients.db.engine import get_session_factory
+from clients.db.models import User
 
 logger = logging.getLogger(__name__)
 

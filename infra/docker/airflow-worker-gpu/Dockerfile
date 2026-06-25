@@ -25,7 +25,7 @@ USER airflow
 # the base image.
 #
 # To update the lock file:
-#   scripts/update_locks.sh airflow-worker-gpu
+#   ops/update_locks.sh airflow-worker-gpu
 COPY --chown=airflow:root infra/docker/airflow-worker-gpu/requirements-airflow-worker-gpu.lock /tmp/requirements.txt
 COPY --chown=airflow:root infra/docker/airflow/airflow-core-constraints.txt /tmp/constraints.txt
 RUN pip install --no-cache-dir \

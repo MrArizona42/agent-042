@@ -46,6 +46,7 @@ from app_config.runtime import (
     get_settings,
     secret_value,
 )
+from clients.db.eval_writer import write_evaluation_results
 
 # Add src to path so shared/rag modules are importable
 # Canonical directory for pre-downloaded datasets (HF Arrow format).
@@ -56,8 +57,7 @@ from experiments.eval.eval_scripts.metrics.code_exec import (
     evaluate_humaneval_sample,
 )
 from experiments.eval.eval_scripts.metrics.llm_judge import judge_batch
-from shared.db.eval_writer import write_evaluation_results
-from shared.model_registry import AdapterRegistry
+from services.adapter_sync.model_registry import AdapterRegistry
 
 logger = logging.getLogger(__name__)
 

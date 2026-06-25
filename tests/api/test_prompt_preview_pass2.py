@@ -4,13 +4,13 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from gateway.schemas.openai_chat import ChatCompletionRequest
-from gateway.services.processing import (
+from gateway.domain.processing import (
     PROMPT_PREVIEW_TTL_SECONDS,
     SERVICE_USER_ID,
     PreparedChatRequest,
     _ProcessChat,
 )
+from gateway.schemas.openai_chat import ChatCompletionRequest
 
 
 class _PreviewRedisStream:
@@ -51,7 +51,7 @@ def test_stream_chat_stores_prompt_preview_before_stream_start() -> None:
         req = ChatCompletionRequest(messages=[{"role": "user", "content": "hello"}], stream=True)
 
         with patch(
-            "gateway.services.processing.get_settings",
+            "gateway.domain.processing.get_settings",
             return_value=SimpleNamespace(),
         ):
             with patch.object(process, "_prepare_request", return_value=prepared):

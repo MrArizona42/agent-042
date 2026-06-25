@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from shared.events import InferenceEvent, InferenceEventProducer
+from clients.events import InferenceEvent, InferenceEventProducer
 
 
 class FakeKafkaProducer:

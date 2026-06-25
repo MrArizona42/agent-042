@@ -92,16 +92,16 @@ uv sync --extra mlflow
 Сборка lock-файлов для Docker-сервисов (выполнять из корня репозитория):
 ```bash
 # Обновить все lock-файлы разом:
-scripts/update_locks.sh
+ops/update_locks.sh
 
 # Или только конкретные сервисы:
-scripts/update_locks.sh gateway airflow-worker
+ops/update_locks.sh gateway airflow-worker
 
 # Посмотреть список сервисов:
-scripts/update_locks.sh --list
+ops/update_locks.sh --list
 
 # Проверить команды без выполнения:
-scripts/update_locks.sh --dry-run
+ops/update_locks.sh --dry-run
 ```
 
 ## Docker / Docker Compose
@@ -218,7 +218,7 @@ cp .env.example .env
 Рекомендуемый путь — helper из корня checkout:
 
 ```bash
-sudo bash scripts/setup_shared_root_permissions.sh --deploy-user "<server-login>"
+sudo bash bootstrap/setup_shared_root_permissions.sh --deploy-user "<server-login>"
 ```
 
 Полезные override-флаги:
@@ -278,18 +278,12 @@ sudo install -o "$DEPLOY_USER" -g agent042 -m 640 "$CHECKOUT_ROOT/.dvc/config.lo
 sudo setfacl -m u:${AIRFLOW_UID}:r /home/anton-m/agent-042/.dvc/config.local
 ```
 
-5) Если Phase 2 делается поверх существующего checkout-backed runtime, после подготовки прав
-запустите одноразовую миграцию shared state:
-```bash
-bash scripts/migrate_shared_state.sh "$CHECKOUT_ROOT" /home/anton-m/agent-042
-```
-
-6) После смены групп у host user перезайдите в shell или выполните:
+5) После смены групп у host user перезайдите в shell или выполните:
 ```bash
 newgrp agent042
 ```
 
-7) Проверка после старта Compose:
+6) Проверка после старта Compose:
 ```bash
 docker compose --env-file .env -f infra/compose/docker-compose.yaml exec airflow-worker test -r /opt/airflow/project/.dvc/config.local && echo ok
 
@@ -407,9 +401,9 @@ project-relative, а Compose строит bind mount'ы от `SHARED_ROOT`:
 Основной server entrypoint для тех же операций без Airflow:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
-bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
-bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion --release ragrel_pytorch_reference_<fingerprint>
+bash ops/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
+bash ops/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
+bash ops/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion --release ragrel_pytorch_reference_<fingerprint>
 ```
 
 RAG DVC policy: curated source instance `manifest.toml` files stay in Git;
@@ -424,7 +418,7 @@ DVC-tracked; raw cache is server-local by default.
 ```bash
 # 1. Отредактируйте группу airflow-worker в pyproject.toml
 # 2. Пересоберите lock:
-scripts/update_locks.sh airflow-worker
+ops/update_locks.sh airflow-worker
 
 # 3. Пересоберите образ:
 cd infra/compose
@@ -476,7 +470,7 @@ Compose interpolation на хосте.
 
 RAG operator boundary:
 - Direct Qdrant diagnostics use the Qdrant API/dashboard.
-- Production operations запускаются через `rag-ops` container и `python -m rag.cli.app`, либо через Airflow `rag_alias_apply`.
+- Production operations запускаются через `ops` container и `python -m rag.cli.app`, либо через Airflow `rag_alias_apply`.
 
 ## DVC с бэкэндом Yandex Cloud S3
 

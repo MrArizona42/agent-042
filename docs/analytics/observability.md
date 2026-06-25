@@ -21,7 +21,7 @@ Grafana provisions the core datasources from
 
 ## Correlation Fields
 
-Python services emit structured JSON logs through `src/shared/logging.py`.
+Python services emit structured JSON logs through `src/clients/observability/logging.py`.
 The most useful fields are:
 
 - `request_id`: canonical gateway-generated request identifier.

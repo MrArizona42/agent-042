@@ -129,11 +129,11 @@ x-airflow-worker-build: &airflow-worker-build
 
 x-airflow-worker-image: &airflow-worker-image "ghcr.io/${GITHUB_REPOSITORY}-airflow-worker:${IMAGE_TAG}"
 
-x-rag-ops-build: &rag-ops-build
+x-ops-build: &ops-build
   context: ${PROJECT_ROOT}
   dockerfile: infra/docker/airflow-worker/Dockerfile
 
-x-rag-ops-image: &rag-ops-image "ghcr.io/${GITHUB_REPOSITORY}-rag-ops:${IMAGE_TAG}"
+x-ops-image: &ops-image "ghcr.io/${GITHUB_REPOSITORY}-ops:${IMAGE_TAG}"
 
 x-airflow-worker-gpu-build: &airflow-worker-gpu-build
   context: ${PROJECT_ROOT}
@@ -1310,22 +1310,21 @@ services:
     restart: unless-stopped
 
   # =====================
-  # RAG Operations Runner
-  # One-shot shell/CLI entry point for manual RAG control-plane operations.
+  # Operations Runner
+  # Warm shell/CLI entry point for manual operational commands.
   # Uses the same dependency image and mounted project/data roots as the
-  # Airflow worker, but does not run a worker process by default.
+  # Airflow worker, but only idles until operators exec into it.
   #
   # Example:
-  #   docker compose --profile ops --env-file .env -f infra/compose/docker-compose.yaml run --rm rag-ops \
+  #   docker compose --env-file .env -f infra/compose/docker-compose.yaml exec ops \
   #     python -m rag.cli.app alias apply pytorch_reference challenger
   # =====================
-  rag-ops:
-    profiles: ["ops"]
-    image: *rag-ops-image
-    build: *rag-ops-build
+  ops:
+    image: *ops-image
+    build: *ops-build
     working_dir: /opt/airflow/project
     entrypoint: []
-    command: ["python", "-m", "rag.cli.app", "--help"]
+    command: ["sleep", "infinity"]
     environment:
       <<: *airflow-common-env
       PYTHONPATH: /opt/airflow/project:/opt/airflow/project/src
@@ -1346,7 +1345,7 @@ services:
       - backend_net
       - sandbox_net
     logging: *default-logging
-    restart: "no"
+    restart: unless-stopped
 
   # =====================
   # JupyterLab

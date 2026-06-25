@@ -16,6 +16,7 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from rag.clients.qdrant import create_qdrant_clients
 from rag.contracts import ReleaseAttestation
 from rag.indexing.llamaindex_embeddings import ProjectSparseEncoder
 
@@ -47,9 +48,10 @@ class QdrantCollectionManager:
         port: int,
         collection_name: str,
     ) -> "QdrantCollectionManager":
+        client, aclient = create_qdrant_clients(host=host, port=port)
         return cls(
-            client=QdrantClient(host=host, port=port),
-            aclient=AsyncQdrantClient(host=host, port=port),
+            client=client,
+            aclient=aclient,
             collection_name=collection_name,
             owns_clients=True,
         )

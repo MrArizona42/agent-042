@@ -315,7 +315,7 @@ class TestRAGServiceResolution:
     def test_available_knowledge_bases(self, catalog_file: Path):
         _override_loaded_kb_catalog(catalog_file)
 
-        from gateway.services.rag_service import RAGService
+        from gateway.domain.rag_service import RAGService
 
         result = RAGService.available_knowledge_bases()
         assert "ml_papers_core" in result
@@ -327,7 +327,7 @@ class TestRAGServiceResolution:
     def test_available_knowledge_bases_by_task(self, catalog_file: Path):
         _override_loaded_kb_catalog(catalog_file)
 
-        from gateway.services.rag_service import RAGService
+        from gateway.domain.rag_service import RAGService
 
         result = RAGService.available_knowledge_bases_by_task()
         assert [entry["task"] for entry in result] == ["chat", "code"]
@@ -371,8 +371,8 @@ class TestRequestPathFailureMode:
         )
 
     def test_retrieve_rag_chunks_keeps_zero_hit_results_non_error(self, catalog_file: Path):
+        from gateway.domain.processing import _ProcessChat
         from gateway.schemas.openai_chat import ChatCompletionRequest
-        from gateway.services.processing import _ProcessChat
 
         _override_loaded_kb_catalog(catalog_file)
 

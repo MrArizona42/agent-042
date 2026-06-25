@@ -96,7 +96,7 @@ jobs:
             dockerfile: infra/docker/jupyter/Dockerfile
           - name: mlflow
             dockerfile: infra/docker/mlflow/Dockerfile
-          - name: rag-ops
+          - name: ops
             dockerfile: infra/docker/airflow-worker/Dockerfile
           - name: reranker
             dockerfile: infra/docker/reranker/Dockerfile

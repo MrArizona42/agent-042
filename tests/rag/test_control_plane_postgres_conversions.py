@@ -78,7 +78,7 @@ class TestRagReleaseConversion:
         assert row.manifest_path == "assets/rag_data/knowledge_bases/x.json"
 
     def test_row_has_no_alias_attribute(self):
-        from shared.db.models import RagReleaseRow
+        from clients.db.models import RagReleaseRow
 
         assert not hasattr(RagReleaseRow, "alias")
 

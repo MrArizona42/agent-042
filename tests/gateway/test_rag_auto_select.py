@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from app_config.catalog import AdapterConfig, KBConfig, TaskConfig, catalog_override
 from app_config.runtime import Settings, load_settings
-from gateway.services.rag_service import RAGService
+from gateway.domain.rag_service import RAGService
 
 
 def _alias_config() -> dict[str, object]:
@@ -115,7 +115,7 @@ def _build_registry() -> dict[str, TaskConfig]:
 def test_select_knowledge_bases_returns_task_scoped_match() -> None:
     with catalog_override(_build_registry()):
         embedding_service = _FakeEmbeddingService()
-        with patch("gateway.services.rag_service.EmbeddingService", return_value=embedding_service):
+        with patch("gateway.domain.rag_service.EmbeddingService", return_value=embedding_service):
             service = RAGService(settings=_settings())
 
         sources = service.select_knowledge_bases(
@@ -129,7 +129,7 @@ def test_select_knowledge_bases_returns_task_scoped_match() -> None:
 def test_select_knowledge_bases_returns_empty_below_threshold() -> None:
     with catalog_override(_build_registry()):
         with patch(
-            "gateway.services.rag_service.EmbeddingService",
+            "gateway.domain.rag_service.EmbeddingService",
             return_value=_FakeEmbeddingService(),
         ):
             service = RAGService(settings=_settings(rag={"kb_selection_threshold": 0.8}))
@@ -142,7 +142,7 @@ def test_select_knowledge_bases_returns_empty_below_threshold() -> None:
 def test_select_knowledge_bases_skips_tasks_without_kbs() -> None:
     with catalog_override(_build_registry()):
         with patch(
-            "gateway.services.rag_service.EmbeddingService",
+            "gateway.domain.rag_service.EmbeddingService",
             return_value=_FakeEmbeddingService(),
         ):
             service = RAGService(settings=_settings())
@@ -157,7 +157,7 @@ def test_select_knowledge_bases_skips_tasks_without_kbs() -> None:
 def test_select_knowledge_bases_caches_kb_prototypes_until_invalidated() -> None:
     with catalog_override(_build_registry()):
         embedding_service = _FakeEmbeddingService()
-        with patch("gateway.services.rag_service.EmbeddingService", return_value=embedding_service):
+        with patch("gateway.domain.rag_service.EmbeddingService", return_value=embedding_service):
             service = RAGService(settings=_settings())
 
         service.select_knowledge_bases("Explain the latest transformer paper", task="chat")

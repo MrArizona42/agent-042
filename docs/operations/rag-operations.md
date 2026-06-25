@@ -1,8 +1,8 @@
 # RAG Operations
 
 This is the operator-facing workflow for RAG KB releases on the server. The
-main entrypoint is the `rag` CLI (`rag.cli.app`), run through the `rag-ops`
-Compose service via `scripts/rag_ops.sh`. Airflow uses the same application
+main entrypoint is the `rag` CLI (`rag.cli.app`), run through the `ops`
+Compose service via `ops/rag_ops.sh`. Airflow uses the same application
 service (`AliasService`) directly through the `rag_alias_apply` DAG, not the
 CLI process.
 
@@ -40,7 +40,7 @@ is only ever deleted from Qdrant after being marked retired in Postgres.
 Before running an alias command, verify:
 
 - `catalog.toml` and `runtime.toml` are from the deployed release;
-- `assets/rag_data` is writable by the `rag-ops` container;
+- `assets/rag_data` is writable by the `ops` container;
 - Qdrant, embeddings, and reranker services are healthy;
 - vLLM is healthy when running generation or judge benchmarks;
 - `GATEWAY_AGENT042_DB_URL` points at the control-plane/eval Postgres database
@@ -56,8 +56,14 @@ the control-plane SQL migrations:
 
 ```bash
 uv sync --extra rag --extra gateway --extra airflow-worker
-bash scripts/apply_agent042_db_migrations.sh
+bash bootstrap/apply_agent042_db_migrations.sh
 ```
+
+This isn't specific to the `rag` CLI: the gateway's eval/chat persistence and
+the Airflow `rag_alias_apply` DAG depend on the same control-plane schema.
+Release-based server deploys apply it automatically as part of
+`deploy_release.sh`; local checkouts still need to run it by hand after
+pulling a change that adds a new migration file.
 
 ## Naming
 
@@ -122,26 +128,26 @@ Benchmark results do not live here; Postgres is their only result store.
 ## Server CLI
 
 Run commands from the deployment root on the server. Output is JSON to
-stdout when not a TTY (always JSON inside `rag-ops`); logs go to stderr.
+stdout when not a TTY (always JSON inside `ops`); logs go to stderr.
 
 Validate the catalog: schema, alias build/retrieve compatibility, and
 references. Always run this after editing `catalog.toml`:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app catalog validate
+bash ops/rag_ops.sh python -m rag.cli.app catalog validate
 ```
 
 Compare desired (catalog) vs. applied (Postgres) state for one alias. No
 side effects; exits `1` when drift is found:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
+bash ops/rag_ops.sh python -m rag.cli.app alias diff pytorch_reference challenger
 ```
 
 Show diff for every alias declared on a KB:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app alias status pytorch_reference
+bash ops/rag_ops.sh python -m rag.cli.app alias status pytorch_reference
 ```
 
 Make an alias match its catalog declaration. This resolves or builds the
@@ -151,7 +157,7 @@ extracts, and chunks source content only on cache miss; pass
 trigger a rebuild:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
+bash ops/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger
 ```
 
 The default alias (`champion`, typically) refuses to silently build and
@@ -159,30 +165,30 @@ activate an unevaluated release. Use the bootstrap overrides only for a new
 KB's first release or a genuine emergency, and record the action:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion \
+bash ops/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion \
   --allow-build-default --allow-unevaluated
 ```
 
 Disambiguate when multiple releases match the desired build/source state:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger \
+bash ops/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference challenger \
   --release ragrel_pytorch_reference_<fingerprint>
 ```
 
 Inspect releases:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app release list --kb pytorch_reference
-bash scripts/rag_ops.sh python -m rag.cli.app release show ragrel_pytorch_reference_<fingerprint>
+bash ops/rag_ops.sh python -m rag.cli.app release list --kb pytorch_reference
+bash ops/rag_ops.sh python -m rag.cli.app release show ragrel_pytorch_reference_<fingerprint>
 ```
 
 Expert source diagnostics (not part of the normal workflow -- `alias apply`
 resolves and builds sources on its own):
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app source inspect pytorch_reference.docs
-bash scripts/rag_ops.sh python -m rag.cli.app source rebuild pytorch_reference.docs
+bash ops/rag_ops.sh python -m rag.cli.app source inspect pytorch_reference.docs
+bash ops/rag_ops.sh python -m rag.cli.app source rebuild pytorch_reference.docs
 ```
 
 ## Build Rules
@@ -236,22 +242,22 @@ prepared (re-normalizing automatically when the source manifest or labels
 changed) before running:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app benchmark run \
+bash ops/rag_ops.sh python -m rag.cli.app benchmark run \
   pytorch_reference.qa_benchmark --alias challenger
 ```
 
 Run every benchmark source instance attached to a KB:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app benchmark run \
+bash ops/rag_ops.sh python -m rag.cli.app benchmark run \
   --kb pytorch_reference --alias challenger
 ```
 
 List/show recorded runs:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app benchmark list --kb pytorch_reference
-bash scripts/rag_ops.sh python -m rag.cli.app benchmark show <eval_run_id>
+bash ops/rag_ops.sh python -m rag.cli.app benchmark list --kb pytorch_reference
+bash ops/rag_ops.sh python -m rag.cli.app benchmark show <eval_run_id>
 ```
 
 The alias supplies current build (chunking, encoder) and retrieval
@@ -397,7 +403,7 @@ generic startup failure) when the control-plane database is unreachable.
 Rollback is another alias apply, pointed at a previous release:
 
 ```bash
-bash scripts/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion \
+bash ops/rag_ops.sh python -m rag.cli.app alias apply pytorch_reference champion \
   --release ragrel_pytorch_reference_<previous-fingerprint>
 ```
 

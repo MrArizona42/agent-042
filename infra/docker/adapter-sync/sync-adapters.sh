@@ -11,6 +11,6 @@ echo "  Runtime config   : ${CONFIG__RUNTIME_PATH:-<not set>}"
 echo "  vLLM service     : ${NETWORK__VLLM__INTERNAL_HOST:-<not set>}:${NETWORK__VLLM__INTERNAL_PORT:-<not set>}"
 echo "  MLflow service   : ${NETWORK__MLFLOW__INTERNAL_HOST:-<not set>}:${NETWORK__MLFLOW__INTERNAL_PORT:-<not set>}"
 
-python -m shared.model_registry sync --adapters-dir /adapters
+python -m services.adapter_sync.model_registry sync --adapters-dir /adapters
 
 echo "=== adapter-sync: done ==="

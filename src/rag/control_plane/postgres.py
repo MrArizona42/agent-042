@@ -3,7 +3,7 @@
 A synchronous engine is used deliberately: source processing, Qdrant
 materialization, and `RagRuntime.retrieve()` are all synchronous today (see
 the declarative alias workflow plan's Database Contract section). The
-gateway's existing async ORM engine (`shared.db.engine`) is unrelated and
+gateway's existing async ORM engine (`clients.db.engine`) is unrelated and
 stays as-is for API code.
 """
 
@@ -18,9 +18,9 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app_config.catalog.schema import AliasBuildConfig, AliasRetrievalConfig
+from clients.db.models import RagAliasDeploymentRow, RagReleaseBuildRow, RagReleaseRow
+from clients.db.urls import require_db_url, to_sync_url
 from rag.control_plane.models import AliasDeployment, RagRelease, ReleaseBuildAttempt
-from shared.db.models import RagAliasDeploymentRow, RagReleaseBuildRow, RagReleaseRow
-from shared.db.urls import require_db_url, to_sync_url
 
 
 def create_sync_engine(db_url: str):

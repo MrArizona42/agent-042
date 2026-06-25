@@ -16,8 +16,8 @@ from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
 from app_config.runtime import get_settings
-from shared.logging import configure_logging
-from shared.telemetry import instrument_fastapi_app
+from clients.observability.logging import configure_logging
+from clients.observability.telemetry import instrument_fastapi_app
 
 configure_logging(service="reranker")
 

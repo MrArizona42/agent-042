@@ -8,8 +8,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
-from shared.db.engine import get_session_factory
-from shared.db.models import ChatMessage, ChatSession
+from clients.db.engine import get_session_factory
+from clients.db.models import ChatMessage, ChatSession
 
 router = APIRouter()
 

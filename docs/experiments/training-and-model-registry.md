@@ -45,8 +45,8 @@ python -m experiments.training.train_adapter.start_train \
   и `src/rag/cli/`; операторский entrypoint — `python -m rag.cli.app`
   (`catalog validate`, `alias diff`/`alias apply`, `release list`/`show`,
   `benchmark run`).
-- На сервере используйте `bash scripts/rag_ops.sh ...`, чтобы выполнить команду в
-  `rag-ops` контейнере внутри Docker network.
+- На сервере используйте `bash ops/rag_ops.sh ...`, чтобы выполнить команду в
+  `ops` контейнере внутри Docker network.
 - Airflow DAG `rag_alias_apply` вызывает `AliasService.apply()` напрямую (не
   через CLI-процесс) для того же KB/alias.
 - Direct Qdrant diagnostics use the Qdrant API/dashboard; production
@@ -370,19 +370,21 @@ python -m experiments.training.train_adapter.start_train \
 
 > **Примечание:** CLI-скрипт `scripts/manage_registry.py` удалён. Операции с реестром
 > (register, promote, demote, download, sync) теперь выполняются через ноутбук
-> `experiments/training/lora_ops.ipynb` или напрямую через `shared.model_registry`
+> `experiments/training/lora_ops.ipynb` или напрямую через `services.adapter_sync.model_registry`
 > Python API.
 
-Скрипт `src/shared/model_registry.py` — программный интерфейс для управления
-адаптерами в реестре. Shared-модуль не читает `.env`: контейнеры получают env
-через Compose, а локальные host-side запуски должны либо заранее загрузить env
-в процесс, либо использовать wrapper `scripts/host/model_registry.py --env-file .env`.
+Скрипт `src/services/adapter_sync/model_registry.py` — программный интерфейс для управления
+адаптерами в реестре. Сам модуль уже предоставляет CLI (`python -m
+services.adapter_sync.model_registry sync|list`) через `fire`; host-side запуски идут через
+`ops/model_registry_ops.sh`, который выполняет эту команду внутри
+контейнера `vllm-adapter-sync` — там env уже инжектирован Compose, и
+дополнительная загрузка `.env` на хосте не нужна.
 
 **Просмотр всех зарегистрированных адаптеров:**
 
 ```python
 # Python API (из lora_ops.ipynb)
-from shared.model_registry import AdapterRegistry
+from services.adapter_sync.model_registry import AdapterRegistry
 registry = AdapterRegistry()
 registry.list_models()
 ```
@@ -401,13 +403,13 @@ registry.demote(model_name="lora-summarize", alias="champion")
 
 ### Синхронизация адаптеров на inference-хосте
 
-Для подготовки адаптеров и загрузки в работающий vLLM используется модуль `src/shared/model_registry.py`.
+Для подготовки адаптеров и загрузки в работающий vLLM используется модуль `src/services/adapter_sync/model_registry.py`.
 Он скачивает aliased-адаптеры (champion, challenger) из реестра и загружает их в vLLM
 через hot-load REST API (`POST /v1/load_lora_adapter`) — без рестарта сервера.
 
 ```bash
-# Из корня проекта (host-side wrapper явно читает .env)
-python scripts/host/model_registry.py --env-file .env sync --adapters-dir ./assets/adapters
+# Из корня проекта
+bash ops/model_registry_ops.sh sync --adapters_dir=/adapters
 ```
 
 По умолчанию команда строит endpoint vLLM из `NETWORK__VLLM__...`;
@@ -449,7 +451,7 @@ python -m experiments.training.train_adapter.start_train \
 #    registry.promote(model_name="lora-summarize", version=3, alias="champion")
 
 # 5. Синхронизировать адаптеры на inference-хосте (hot-load в работающий vLLM)
-python -m shared.model_registry sync
+bash ops/model_registry_ops.sh sync
 ```
 
 ### Конфигурация vLLM для multi-LoRA

@@ -13,7 +13,7 @@ for path in (PROJECT_ROOT / "src", PROJECT_ROOT):
     if path_str not in sys.path:
         sys.path.insert(0, path_str)
 
-airflow_git_sync = importlib.import_module("shared.airflow_git_sync")
+airflow_git_sync = importlib.import_module("airflow_support.git_sync")
 GitHubRepo = airflow_git_sync.GitHubRepo
 build_github_remote_url = airflow_git_sync.build_github_remote_url
 dvc_tracked_paths = airflow_git_sync.dvc_tracked_paths
