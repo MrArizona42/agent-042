@@ -1,0 +1,6 @@
+outs:
+- md5: d07a9d8213ef4cb09c15c4a0e33927bf.dir
+  size: 22699039
+  nfiles: 33
+  hash: md5
+  path: ml_papers_core.papers
